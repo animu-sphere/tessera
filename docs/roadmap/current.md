@@ -8,12 +8,11 @@ Depends on document, resolved-style, layout, paint, and pointer contracts. Exist
 
 ## Remaining required work
 
-- Select Vulkan, shader, and example-host dependencies under the [dependency policy](../reference/dependencies.md). Evaluate Slang below the rendering boundary and record the chosen build/artifact path.
-- Execute primitive draw commands in Vulkan: rectangles/rounded rectangles, inside borders, clips, transforms, basic alpha, and conservative batching preserving visible order. Exercise low-level image sampling without requiring a full application asset API; see [rendering](../design/rendering.md).
-- Build a standalone menu host with explicit window/device/queue ownership, placeholder Text, normalized pointer input, and cancellation delivery; see [input](../design/input.md).
-- Validate logical coordinates, framebuffer size, device scale, resize, and clip/transform conversion; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
+- Build the selected Win32 standalone menu host with explicit window/device/queue/swapchain ownership, placeholder Text rasterization, normalized pointer input, and cancellation delivery; see [dependencies](../reference/dependencies.md#adopted-vulkan-choices) and [input](../design/input.md). The renderer rejects glyph commands until that rasterization path exists.
+- Exercise conservative adjacent batching preserving visible order where the native host justifies it; use the existing ordered primitive path as the reference under [rendering](../design/rendering.md#batching).
+- Validate native logical/pointer coordinates, framebuffer size, device scale, resize, and clip/transform agreement at the host boundary; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
 - Introduce basic property metadata for the existing vocabulary, sharing validation/default information with the runtime; see [reflection](../design/ui-model.md#proposed-property-reflection).
-- Preserve deterministic geometry/paint fixtures and add a small GPU image fixture set through the [testing strategy](../guides/testing.md).
+- Preserve deterministic geometry/paint and offscreen primitive GPU fixtures, and add focused native-menu/Text/presentation evidence through the [testing strategy](../guides/testing.md).
 
 ## Optional early prototypes
 
@@ -33,6 +32,6 @@ These prototypes are recommended foundations, not additional release gates. They
 
 ## Immediately next
 
-Choose and record renderer/shader/host dependencies, then execute primitive fixtures below `UiDrawList`. Keep the runtime independent of concrete implementations. Paint output/limits are defined in [rendering](../design/rendering.md#implemented-paint-generation); use direct draw-list fixtures for command forms it does not generate.
+Implement placeholder glyph rasterization below `UiDrawList`, then connect the selected Win32 menu host to the optional Vulkan renderer. Keep window/input/DPI/swapchain ownership in the host. Paint output/limits are defined in [rendering](../design/rendering.md#implemented-paint-generation); the [Vulkan boundary](../design/rendering.md#implemented-vulkan-primitive-boundary) defines recording and retirement.
 
 Later candidate scopes are in [backlog](backlog.md).

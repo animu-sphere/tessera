@@ -19,13 +19,13 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | --- | --- | --- |
 | UI tree, properties, serialization | Validated for Box/Text foundation only | CTest round trip, validation failures, deterministic representation, metadata and handle lifetime |
 | Fixed/stack/flex layout | Validated for the single-line prototype with placeholder text; wrapping, absolute, scroll, and grid planned | Numeric geometry fixtures without GPU |
-| Paint list and Vulkan primitives | Background/border/Text paint generation and draw-list/frame validation verified with CPU fixtures; backends planned | Command validation, shader build, runtime images |
+| Paint list and Vulkan primitives | CPU background/border/Text paint generation; optional Vulkan solid/rounded/border/clip/transform/alpha/image execution verified with offscreen GPU fixtures below | Native menu/Text/presentation evidence remains required |
 | Pointer input and hit testing | Rectangular targeting, hover/primary activation, cancellation, and snapshot refresh verified with synthetic events; native input planned | Synthetic events plus interactive host smoke |
 | Focus, keyboard/gamepad navigation | Planned | Deterministic navigation and recovery fixtures plus menu smoke |
 | Text shaping and Latin/Japanese fallback | Measurement/shaping boundary and deterministic placeholder shaper implemented; real shaping planned | Declared fonts, metrics/wrapping fixtures, glyph images |
 | Stylesheets, selectors, pseudo states | Planned | Cascade, inheritance, state invalidation fixtures |
 | Component state/reconciliation | Planned | Key identity, update and cleanup evidence |
-| Image assets, themes, live reload | Planned | Resource lifetime, theme validation, valid/invalid reload cases |
+| Image assets, themes, live reload | Low-level Vulkan image binding/sampling/crop/tint/retirement verified; application asset API, themes and live reload planned | Host asset ownership/readiness, theme validation, valid/invalid reload cases |
 | Path-finder integration | Planned | Shared-document authoring/preview round trip |
 | WebGPU | Planned | Toolchain/artifact checks and matching runtime fixtures |
 | Accessibility metadata/adapters | `labelled_by` relationship storage/reference validation implemented; adapters planned | Existence validation only; no role/name/state schema or native integration |
@@ -33,7 +33,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Property reflection/introspection | Planned; explicit typed values/validation exist, no descriptor API | Schema/default/range/encoded-name agreement and Inspector consumer |
 | SemanticTree and semantic actions | Planned; relationship storage is not a semantic projection | Deterministic roles/names/state/actions, eligibility and stale-target checks |
 | Deterministic replay tooling | Planned; repeated-run fixtures are not a recording/playback tool | Versioned controlled inputs, expected geometry/semantics/actions/paint |
-| DPI/coordinate integration | Logical layout and frame device-scale values implemented; host/backend conversion unvalidated | Fractional scale, input/clip conversion, resize and pixel-snapping fixtures |
+| DPI/coordinate integration | Vulkan framebuffer/scissor conversion and target resize verified at scales 1/1.25/1.5/2; native DPI/input mapping unvalidated | Native fractional-scale/input/resize integration; pixel snapping remains planned |
 | Overlay/Portal and virtualized lists | Planned | Layer geometry/order, ownership/focus cleanup and keyed scroll stability |
 | Editing/IME/clipboard | Committed text event validation only; composition/editing and clipboard planned | Replacement/selection units, Japanese composition and platform adapter evidence |
 
@@ -42,13 +42,13 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Configuration | Current evidence |
 | --- | --- |
 | Core-only build | Windows x64/MSVC Debug library-only build plus document/contract/layout/paint/pointer tests and examples verified; no external runtime dependencies |
-| Native Vulkan | No adopted SDK/toolchain, shader artifacts, or GPU runtime tests |
+| Vulkan | SDK/Slang artifacts and offscreen GPU runtime fixtures verified below; native window/swapchain/menu unvalidated |
 | WebGPU native | No selected implementation or toolchain |
 | Browser / WASM | Feasibility candidate only; no build or browser tests |
 | Metal / Direct3D 12 | Possible later targets; no scheduled implementation |
-| Windows / Linux / macOS | Windows x64/MSVC Debug foundation verified below; Linux/macOS and other Windows toolchains unvalidated |
+| Windows / Linux / macOS | Windows x64/MSVC Debug core and offscreen Vulkan fixtures verified below; Linux/macOS and other Windows toolchains unvalidated |
 
-This is core-only evidence, not native-window, input-device, graphics, text, packaging, or broad Windows support evidence.
+Core configurations are distinct from the offscreen Vulkan evidence below. Neither establishes native-window/device input, real text, packaging, or broad Windows support.
 
 ## Foundation evidence — 2026-10-05
 
@@ -88,6 +88,17 @@ This is core-only evidence, not native-window, input-device, graphics, text, pac
 - Result: all eleven CTest targets (`document`, `layout_contract`, `layout`, `text`, `event`, `pointer`, `draw_list`, `paint`, `hello_ui`, `flex_layout`, `pointer_menu`) passed. Both builds produced no warnings under `/W4`. `flex-layout` retained its eight numeric boxes and reported eight backend-neutral paint commands. `pointer-menu` emitted five commands and delivered `activate: start-game from start` and `activate: quit-game from quit` to its synthetic host. The library-only target built successfully; no external dependency was configured or fetched.
 - Fixtures/artifacts: numeric/injected-shaper paint cases and synthetic pointer/lifecycle cases above, `build/Testing/Temporary/LastTest.log`, `build/Debug/tessera_{paint,pointer}_tests.exe`, `build/Debug/tessera_{flex_layout,pointer_menu}.exe`, and `build-paint-core/Debug/tessera_core.lib`. Build artifacts/logs are local ignored files.
 - Limits: CPU paint/input only, in root logical coordinates, without implicit clips/transforms, images, custom paint, or group opacity. Text uses the deterministic placeholder. Pointer dispatch supports primary activation with first-binding ancestor lookup, not full propagation, capture, logical cancel, focus, or navigation. No shader compilation, glyph rasterization, GPU pixels, native host/device input, or style resolution is demonstrated. Validation checks topology/recorded styles, not every possible stale geometry/text change; callers must recompute layout as specified in [rendering](../design/rendering.md#implemented-paint-generation).
+
+## Vulkan primitive evidence — 2026-10-05
+
+- Revision: uncommitted implementation on base `bdc5c9951ea76e92ddf51ffdc35486323fbe6e2b`. Identifiable source adds [optional module](../../backends/vulkan/CMakeLists.txt), [renderer](../../backends/vulkan/renderer.cpp), [shader](../../backends/vulkan/shaders/primitive.slang), public optional header, and [GPU fixtures](../../tests/render/vulkan_tests.cpp), with root CMake option registration.
+- Source fingerprint: SHA-256 `18a82d469cbfe4b83adffb736a4e36d9045c112a3230b716fc2d64ee07ee3d63`; computed with the foundation procedure over `CMakeLists.txt`, `include`, `src`, `examples`, `tests`, and `backends` (47 files, relative paths sorted ordinally).
+- Configuration: Windows NT `10.0.26200.0` x64, MSVC `19.51.36256.0`, Visual Studio 18 2026/MSBuild `18.9.1+a81b43525`, Windows SDK `10.0.26100.0`, CMake/CTest `4.4.3`, Debug. Backend header/import library from Vulkan SDK `1.4.350.0`, Slang `2026.8`, SPIR-V 1.3 targeting Vulkan 1.1. Installed Khronos validation layer reports `1.3.290`, with synchronization validation enabled. No dependency download or vendoring occurred.
+- GPU/runtime: NVIDIA RTX A5000 (`vendorID=0x10de`, `deviceID=0x2231`), NVIDIA driver `597.16` (raw version `2504261632`), Vulkan device API `1.4.329`; loader instance API `1.4.321`. The fixture requests Vulkan 1.1. RGBA8 sRGB, one sample, clear black/opaque; physical targets 32x32, 40x40, 48x48, 64x64. Pixel assertions use absolute channel tolerance 2/255; shader corners are hard-edged, with no antialiasing.
+- Procedure: [optional Vulkan configure/build/CTest and SPIR-V checks](../guides/development.md#optional-vulkan-workflow), followed by fresh `build-vulkan-core` configure/build with Vulkan/tests/examples disabled. Configure/build required approved sandbox escalation for MSBuild's ordinary Windows SDK configuration access; CTest and SPIR-V validation ran in the sandbox.
+- Result: all twelve CTest targets passed, including `vulkan` and the eleven existing core/example targets. All three compiled shaders passed `spirv-val --target-env vulkan1.1`. Backend and library-only builds succeeded without warnings; the backend is compiled under `/W4`. Runtime assertions cover ordered linear-light alpha, rounded rectangles/inside borders, clip intersections/restoration/mirroring, affine composition/rotation/skew, image quadrants/crop/tint, scales 1/1.25/1.5/2 and target recreation, rejected calls recording no pixels or consuming frame numbers, image capacity and rebind/unbind retirement (including clipped references). There were no validation-layer errors.
+- Artifacts: `build-vulkan/Testing/Temporary/LastTest.log`, `build-vulkan/backends/vulkan/shaders/primitive.{vertex,fragment,image}.spv`, `build-vulkan/backends/vulkan/artifacts/{primitives,rejected,image-crop,transforms,scale-4,scale-5,scale-6,scale-8}.ppm`, and `build-vulkan-core/Debug/tessera_core.lib`. These are local ignored outputs reproduced by the source fixture. The fresh core-only configuration did not discover Vulkan/Slang or build shader/backend targets.
+- Limits: offscreen, one device/configuration and RGBA8 sRGB only; the accepted BGRA8 sRGB format is unvalidated. No native window, swapchain/presentation, OS pointer/DPI normalization, full document/Text menu, glyph rasterization, antialiasing, merged batches, device loss, deployment, or performance evidence. Images are host-owned low-level views, not an application asset component. Vulkan queue submission/fences/readback are owned by the fixture host; callers must honor the [renderer boundary](../design/rendering.md#implemented-vulkan-primitive-boundary).
 
 ## Recording future evidence
 
