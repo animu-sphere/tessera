@@ -43,4 +43,8 @@ struct LayoutInput {
 
 std::vector<Diagnostic> validate(const LayoutInput&);
 
+// Full-tree fixed/stack/flex layout; see docs/design/layout.md for the rules. Fails with validate()
+// diagnostics, text measurement errors under /nodes/<index>, or non_finite_geometry.
+Result<LayoutResult> compute_layout(const LayoutInput&);
+
 } // namespace tessera

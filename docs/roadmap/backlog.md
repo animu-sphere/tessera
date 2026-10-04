@@ -1,6 +1,6 @@
 # Backlog
 
-Updated: 2026-10-05. Everything below is planned and inactive. Active foundation/layout work is in [current](current.md); the [roadmap index](README.md) maps the original strategy phases. Versions are candidates without committed dates.
+Updated: 2026-10-05. Everything below is planned and inactive. Delivered phases and immediately next work are in [current](current.md); the [roadmap index](README.md) maps the original strategy phases. Versions are candidates without committed dates.
 
 ## v0.1.0 candidate — Minimal Vulkan menu
 

@@ -1,0 +1,237 @@
+#include <tessera/layout/layout_box.hpp>
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <utility>
+#include <variant>
+
+namespace tessera {
+namespace {
+
+// Axis helpers: `horizontal` selects width/left/right, otherwise height/top/bottom.
+float along(const Size& size, bool horizontal) { return horizontal ? size.width : size.height; }
+float& along(Size& size, bool horizontal) { return horizontal ? size.width : size.height; }
+float along(const Point& point, bool horizontal) { return horizontal ? point.x : point.y; }
+float& along(Point& point, bool horizontal) { return horizontal ? point.x : point.y; }
+float leading(const Edges& edges, bool horizontal) { return horizontal ? edges.left : edges.top; }
+float total(const Edges& edges, bool horizontal) {
+    return horizontal ? edges.left + edges.right : edges.top + edges.bottom;
+}
+const Dimension& dimension(const ResolvedStyle& style, bool horizontal) {
+    return horizontal ? style.width : style.height;
+}
+
+// Border-box limits on one axis. A box never shrinks below its border plus padding.
+struct Limits {
+    float min = 0;
+    float max = 0;
+    float clamp(float value) const { return std::min(std::max(value, min), max); }
+};
+Limits limits(const ResolvedStyle& style, bool horizontal) {
+    const float floor = total(style.border, horizontal) + total(style.padding, horizontal);
+    const float min = std::max(horizontal ? style.min_width : style.min_height, floor);
+    return {min, std::max(horizontal ? style.max_width : style.max_height, min)};
+}
+
+class Engine {
+public:
+    explicit Engine(const LayoutInput& input)
+        : tree_(*input.tree), styles_(input.styles), text_(*input.text), basis_(tree_.size()) {}
+
+    Result<LayoutResult> run(Size viewport) {
+        const auto& style = styles_[0];
+        if (style.display == Display::none) return {std::move(result_), {}};
+        Rect box{{style.margin.left, style.margin.top}, {}};
+        for (bool horizontal : {true, false}) {
+            const auto& fixed = dimension(style, horizontal);
+            const float available = along(viewport, horizontal) - total(style.margin, horizontal);
+            along(box.size, horizontal) = limits(style, horizontal).clamp(
+                fixed.kind == Dimension::Kind::points ? fixed.value : available);
+        }
+        place(0, no_layout_parent, box);
+        if (!errors_.empty()) return {std::nullopt, std::move(errors_)};
+        for (const auto& placed : result_.boxes) {
+            const auto& r = placed.border_box;
+            if (!std::isfinite(r.origin.x) || !std::isfinite(r.origin.y) ||
+                !std::isfinite(r.size.width) || !std::isfinite(r.size.height)) {
+                errors_.push_back({"non_finite_geometry", Severity::error, node_path(placed.node.index),
+                                   "Layout overflowed float range; reduce sizes, margins, or gaps.", {}});
+            }
+        }
+        if (!errors_.empty()) return {std::nullopt, std::move(errors_)};
+        return {std::move(result_), {}};
+    }
+
+private:
+    static std::string node_path(std::uint32_t index) { return "/nodes/" + std::to_string(index); }
+    NodeHandle handle(std::uint32_t index) const { return {tree_.root().tree, index}; }
+
+    std::vector<std::uint32_t> displayed_children(std::uint32_t index) const {
+        std::vector<std::uint32_t> result;
+        for (const auto child : tree_.children(handle(index)))
+            if (styles_[child.index].display != Display::none) result.push_back(child.index);
+        return result;
+    }
+
+    // Unclamped border-box size before flexing: a fixed dimension, else content plus border and padding.
+    // Content size does not depend on available space because placeholder text never wraps.
+    const Size& basis(std::uint32_t index) {
+        if (basis_[index]) return *basis_[index];
+        const auto& style = styles_[index];
+        const UiNode& node = *tree_.get(handle(index));
+        Size content;
+        if (node.kind == NodeKind::text) {
+            content = measure(index, node);
+        } else {
+            const bool row = style.direction == FlexDirection::row;
+            const auto children = displayed_children(index);
+            for (const auto child : children) {
+                const auto& child_style = styles_[child];
+                along(content, row) += preferred(child, row) + total(child_style.margin, row);
+                along(content, !row) = std::max(along(content, !row),
+                                                preferred(child, !row) + total(child_style.margin, !row));
+            }
+            if (!children.empty()) along(content, row) += style.gap * static_cast<float>(children.size() - 1);
+        }
+        Size size;
+        for (bool horizontal : {true, false}) {
+            const auto& fixed = dimension(style, horizontal);
+            along(size, horizontal) = fixed.kind == Dimension::Kind::points
+                ? fixed.value
+                : along(content, horizontal) + total(style.border, horizontal) + total(style.padding, horizontal);
+        }
+        return *(basis_[index] = size);
+    }
+
+    float preferred(std::uint32_t index, bool horizontal) {
+        return limits(styles_[index], horizontal).clamp(along(basis(index), horizontal));
+    }
+
+    Size measure(std::uint32_t index, const UiNode& node) {
+        const auto found = node.properties.find("text");
+        const auto* text = found == node.properties.end() ? nullptr : std::get_if<std::string>(&found->second);
+        auto metrics = text_.measure(text ? *text : std::string(), styles_[index].text);
+        if (metrics) return metrics.value->size;
+        for (auto& diagnostic : metrics.diagnostics) {
+            diagnostic.path = node_path(index) + diagnostic.path;
+            errors_.push_back(std::move(diagnostic));
+        }
+        return {};
+    }
+
+    void place(std::uint32_t index, std::uint32_t parent, const Rect& border_box) {
+        const auto& style = styles_[index];
+        const auto at = static_cast<std::uint32_t>(result_.boxes.size());
+        result_.boxes.push_back({handle(index), parent, border_box, style.border, style.padding,
+                                 style.visibility == Visibility::visible});
+        const auto content = result_.boxes[at].content_box();
+        const auto children = displayed_children(index);
+        if (children.empty()) return;
+
+        const bool row = style.direction == FlexDirection::row;
+        const auto sizes = flex(style, children, along(content.size, row));
+        // Space left after items, margins, and gaps; overflow is never redistributed backwards.
+        float leftover = along(content.size, row) - style.gap * static_cast<float>(children.size() - 1);
+        for (std::size_t i = 0; i < children.size(); ++i)
+            leftover -= sizes[i] + total(styles_[children[i]].margin, row);
+        leftover = std::max(0.0f, leftover);
+        float cursor = along(content.origin, row);
+        float spacing = style.gap;
+        if (style.justify == Justify::center) cursor += leftover / 2;
+        else if (style.justify == Justify::end) cursor += leftover;
+        else if (style.justify == Justify::space_between && children.size() > 1)
+            spacing += leftover / static_cast<float>(children.size() - 1);
+
+        std::vector<Rect> boxes(children.size());
+        const float cross_space = along(content.size, !row);
+        for (std::size_t i = 0; i < children.size(); ++i) {
+            const auto& child = styles_[children[i]];
+            cursor += leading(child.margin, row);
+            along(boxes[i].origin, row) = cursor;
+            along(boxes[i].size, row) = sizes[i];
+            cursor += sizes[i] + total(child.margin, row) - leading(child.margin, row) + spacing;
+
+            const float room = cross_space - total(child.margin, !row);
+            const bool stretch = style.align == Align::stretch && dimension(child, !row).kind == Dimension::Kind::automatic;
+            const float cross = stretch ? limits(child, !row).clamp(room) : preferred(children[i], !row);
+            const float free = std::max(0.0f, room - cross);
+            float offset = 0;
+            if (style.align == Align::center) offset = free / 2;
+            else if (style.align == Align::end) offset = free;
+            along(boxes[i].origin, !row) = along(content.origin, !row) +
+                                            leading(child.margin, !row) + offset;
+            along(boxes[i].size, !row) = cross;
+        }
+        for (std::size_t i = 0; i < children.size(); ++i) place(children[i], at, boxes[i]);
+    }
+
+    // Resolves main-axis border-box sizes for one single-line container: grow distributes positive free
+    // space by grow factor, shrink removes overflow by shrink factor times basis, and limit violations
+    // freeze items and redistribute until every item satisfies its limits.
+    std::vector<float> flex(const ResolvedStyle& style, const std::vector<std::uint32_t>& children, float available) {
+        const bool row = style.direction == FlexDirection::row;
+        struct Item {
+            float basis, target, unclamped, factor;
+            Limits limits;
+            bool frozen;
+        };
+        std::vector<Item> items;
+        float space = available - style.gap * static_cast<float>(children.size() - 1);
+        float hypothetical = 0;
+        for (const auto child : children) {
+            const auto& child_style = styles_[child];
+            const auto bounds = limits(child_style, row);
+            const float base = along(basis(child), row);
+            items.push_back({base, bounds.clamp(base), base, 0, bounds, false});
+            space -= total(child_style.margin, row);
+            hypothetical += items.back().target;
+        }
+        const bool growing = hypothetical < space;
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            auto& item = items[i];
+            const auto& child_style = styles_[children[i]];
+            item.factor = growing ? child_style.grow : child_style.shrink * item.basis;
+            item.frozen = item.factor == 0 || (growing ? item.basis > item.target : item.basis < item.target);
+        }
+        for (;;) {
+            float free = space;
+            float factors = 0;
+            for (const auto& item : items) {
+                free -= item.frozen ? item.target : item.basis;
+                if (!item.frozen) factors += item.factor;
+            }
+            if (factors == 0) break; // Every item is frozen or has no remaining weight.
+            float violation = 0;
+            for (auto& item : items) {
+                if (item.frozen) continue;
+                item.unclamped = item.basis + free * item.factor / factors;
+                item.target = item.limits.clamp(item.unclamped);
+                violation += item.target - item.unclamped;
+            }
+            for (auto& item : items) {
+                if (!item.frozen && (violation == 0 || (violation > 0 && item.target > item.unclamped) ||
+                                     (violation < 0 && item.target < item.unclamped))) item.frozen = true;
+            }
+        }
+        std::vector<float> sizes;
+        for (const auto& item : items) sizes.push_back(item.target);
+        return sizes;
+    }
+
+    const UiTree& tree_;
+    std::span<const ResolvedStyle> styles_;
+    TextShaper& text_;
+    std::vector<std::optional<Size>> basis_;
+    std::vector<Diagnostic> errors_;
+    LayoutResult result_;
+};
+
+} // namespace
+
+Result<LayoutResult> compute_layout(const LayoutInput& input) {
+    auto errors = validate(input);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    return Engine(input).run(input.viewport);
+}
+
+} // namespace tessera
