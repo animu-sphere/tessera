@@ -1,6 +1,6 @@
 # Layout
 
-Status: Phase 0 input/output contracts implemented. No layout algorithm is implemented. Layout must be verifiable without a GPU.
+Status: Phase 0 input/output contracts and the Phase 1 fixed/stack/flex prototype implemented. Absolute positioning, scrolling, grid, and wrapping/intrinsic text remain planned. Layout must be verifiable without a GPU.
 
 ## Implemented foundation contract
 
@@ -9,6 +9,20 @@ The public headers are [geometry.hpp](../../include/tessera/layout/geometry.hpp)
 `LayoutInput` borrows, for one pass, a `UiTree`, a span of [resolved styles](styling.md) indexed by `NodeHandle::index` (exactly one per node, in tree preorder), the available viewport size for the root margin box, and a [`TextShaper`](text.md). `validate(LayoutInput)` reports a missing tree or shaper (`missing_input`), a style count that differs from the tree size (`style_count`), a non-finite or negative viewport, and every resolved-style error located at `/styles/<index>/<field>`. An unbounded viewport is rejected until intrinsic sizing defines it.
 
 `LayoutResult` owns its boxes in tree preorder. Nodes with `Display::none` and their subtrees are absent. Each `LayoutBox` records its node handle, its parent's index in the result (`no_layout_parent` for the root), its border box in root logical coordinates, and its border and padding edges. Padding and content boxes are derived with `inset`, so paint and hit testing use the same geometry. A hidden box has `visible == false`: it keeps geometry but neither paints nor receives input. Handles in a result refer to the input tree and expire with it. Margins, scroll extents, and clips are not yet recorded.
+
+## Implemented prototype algorithm
+
+`compute_layout(LayoutInput)` in [layout_box.hpp](../../include/tessera/layout/layout_box.hpp) recomputes the full tree. It returns the `validate` diagnostics without a value for invalid input, text measurement failures relocated under `/nodes/<index>` (the node's `NodeHandle::index`), or `non_finite_geometry` at `/nodes/<index>` when float arithmetic overflows. Every `Display::flex` node is a single-line flex container; a Text node is a leaf whose content size is its measured `TextMetrics::size`.
+
+- **Box sizing.** `width`/`height` and min/max limits apply to the border box. A fixed dimension is clamped into its minimum/maximum range; the border box is never smaller than its border plus padding, which wins over a smaller maximum. Content boxes are derived with `inset`.
+- **Root.** The root margin box starts at the viewport origin. An automatic root dimension fills the viewport less its margins; a fixed one ignores the viewport. A non-displayed root yields no boxes.
+- **Content size.** An automatic dimension's basis is its content plus border and padding: along the main axis, displayed children's clamped bases plus margins plus gaps; across, the largest such child extent. Text content does not depend on available space because the placeholder shaper never wraps.
+- **Main axis.** `direction` selects the main axis. Each child starts from its basis (fixed dimension or content size). When the clamped bases plus margins and gaps are below the content box, positive free space is distributed by `grow`; otherwise overflow is removed by `shrink` multiplied by the basis. Factors are relative weights: any positive total distributes all free space. A child that violates its limits is clamped and frozen, then remaining space is redistributed (the CSS freeze loop); a fixed dimension is only a basis, so grow/shrink can still change it. Defaults (`grow` 0, `shrink` 0) keep bases unchanged.
+- **Spacing.** Margins add to the item's outer size and never collapse. `gap` appears only between adjacent displayed children. `justify` places the remaining positive space at `start`, `center`, or `end`, or between children for `space_between` (a single child starts).
+- **Cross axis.** `align: stretch` sets an automatic cross dimension to the content box less margins, clamped to the child's limits; a fixed cross dimension does not stretch. `start`, `center`, and `end` place the clamped basis within that space.
+- **Overflow.** Alignment is safe: negative remaining space is treated as zero on both axes, so overflowing children start at the leading content edge and extend past the trailing edge. The parent keeps its size; no clip or scroll extent is recorded yet.
+- **Display and visibility.** `Display::none` children and their subtrees take no space and add no gap. `Visibility::hidden` boxes keep geometry and gaps and report `visible == false`. Each box reports its own resolved visibility; propagating it to descendants is the style resolver's job.
+- **Numerics.** Geometry uses `float` logical units without rounding or pixel snapping. Results are exact for dyadic fixture values and deterministic for identical input on one toolchain; proportional shares such as thirds are checked within 1e-4 logical units. Transform composition and snapping remain unspecified.
 
 ## Boundary
 
@@ -33,17 +47,15 @@ Transform composition within layout, pixel snapping, rounding, and numerical tol
 | 6 | Grid | Explicit rows/columns before advanced placement |
 | 7 | Intrinsic sizing | Content-driven sizing, including real text metrics |
 
-The first layout prototype uses `Box`, placeholder `Text`, fixed sizes, stack/flex rows and columns, margin, padding, and gap. It can accept already-resolved styles before stylesheet parsing exists. Intrinsic text sizing must not be simulated by depending on a particular font library in layout.
+Orders 1–3 are implemented by the prototype above using `Box`, placeholder `Text`, margin, padding, and gap. It accepts already-resolved styles because stylesheet parsing does not exist. Text measurement goes through `TextShaper`; layout does not depend on a particular font library.
 
 ## Proposed rules to settle
 
-Settled by the resolved-style contract: the only units are `automatic` and logical `points`; non-finite and negative sizes, edges, and gaps are rejected; a minimum above its maximum is rejected rather than resolved by precedence; maximums may be unbounded. A fixed size is clamped into its minimum/maximum range.
+Settled by the resolved-style contract: the only units are `automatic` and logical `points`; non-finite and negative sizes, edges, and gaps are rejected; a minimum above its maximum is rejected rather than resolved by precedence; maximums may be unbounded. Sizing, flex distribution, spacing, overflow, and display/visibility are settled by the prototype rules above. The prototype is flex-like, not browser flexbox conformance: there is no wrapping, `align-self`, explicit flex basis, order property, or baseline alignment.
 
-- Define how fixed, content-sized, and available-space dimensions interact. Specify overflow behavior for undersized parents.
-- State which flex features exist, including grow/shrink, basis, wrapping, and alignment. A flex-like label is not browser flexbox conformance.
-- Keep child order deterministic. Define gap at sibling boundaries and handling of margins; CSS margin collapsing is outside initial scope.
-- Specify whether hidden nodes retain geometry and how collapsed/non-displayed nodes leave layout; coordinate with [styling](styling.md).
 - Preserve scroll limits and clipping in geometry available to both [rendering](rendering.md) and [input](input.md).
+- Decide whether recorded margins or an overflow extent are needed by scrolling and hit testing.
+- Specify width-constrained text measurement when wrapping arrives with real line breaking.
 
 These rules are implementation decisions to record with examples and algorithm tests. Percent sizing, advanced grid, and browser-specific formatting behavior are deferred until needed.
 
@@ -53,4 +65,4 @@ Initially recompute the full layout tree. Later classify changes as geometry-aff
 
 ## Verification
 
-Compare numeric boxes for fixed, row/column, nested padding, margins/gaps, constraint limits, and overflow fixtures. Later add absolute, scrolling, grid, and intrinsic cases as each algorithm lands. Test empty containers and fractional sizes. Record logical-unit tolerances; use no screenshot dependency for geometry correctness.
+[Layout checks](../../tests/layout/layout_tests.cpp) compare numeric boxes for fixed sizes, row/column stacks, nested padding, margins/gaps, justify/align, grow/shrink with limit freezing, overflow, empty containers, fractional sizes, display/visibility, repeated-run equality, and failures. Later add absolute, scrolling, grid, and intrinsic cases as each algorithm lands. Use no screenshot dependency for geometry correctness.

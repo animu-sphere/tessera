@@ -1,6 +1,6 @@
 # Current
 
-Updated: 2026-10-05. Phase 0 work items and exit criteria are implemented and verified on the recorded configuration. The Phase 1 layout prototype is next. Delivery history is in the [changelog](../../CHANGELOG.md), with configuration evidence in the [support matrix](../reference/support-matrix.md).
+Updated: 2026-10-05. Phase 0 and the Phase 1 layout prototype are implemented and verified on the recorded configuration. The v0.1.0 minimal Vulkan menu candidate is next. Delivery history is in the [changelog](../../CHANGELOG.md), with configuration evidence in the [support matrix](../reference/support-matrix.md).
 
 ## Documentation foundation
 
@@ -18,39 +18,32 @@ These items describe documentation delivery, not implementation or platform vali
 
 ## Phase 0 — Runtime foundation
 
-Objective: **create a tree -> inspect it -> validate it -> serialize it**, without a renderer or platform SDK.
+Delivered: **create a tree -> inspect it -> validate it -> serialize it**, plus the resolved-style, layout, input, draw-list, and text boundary contracts, without a renderer or platform SDK. Its work items and exit criteria are recorded in the [changelog](../../CHANGELOG.md) and [support matrix](../reference/support-matrix.md); contracts live in their design pages.
+
+## Phase 1 — Layout prototype
+
+Objective: **tree + resolved styles + viewport + text metrics -> deterministic `LayoutBox` tree**, without any renderer.
 
 ### Work
 
-- [x] Select C++20, CMake 3.20 minimum, feature-based compiler requirements, and `tessera::core`; see [development](../guides/development.md).
-- [x] Introduce the UI include/source, serialization tests, format, and example boundaries from [architecture](../design/architecture.md); unused subsystem directories remain deferred.
-- [x] Define Box/Text node kinds, ownership, runtime handles, author IDs, and ordered child storage.
-- [x] Define `UiDocument`, typed properties, format version, and validation diagnostics.
-- [x] Select JSON v1 and implement deterministic load/save behavior.
-- [x] Define resolved-style and `LayoutBox` inputs/outputs needed by the next phase; see [styling](../design/styling.md) and [layout](../design/layout.md).
-- [x] Define normalized base event types and the host action-request/callback lifetime contract; see [input](../design/input.md). Dispatch itself is Phase 3 work.
-- [x] Define a backend-neutral draw-list/frame contract with resource/submission lifetime rules; see [rendering](../design/rendering.md). Concrete GPU execution remains later work.
-- [x] Define the text measurement/shaping boundary with a deterministic placeholder shaper; see [text](../design/text.md).
-- [x] Add one small tree/serialization smoke and focused failure/round-trip checks, plus contract validation checks.
-- [x] Document verified build/test commands and the Windows x64/MSVC configuration.
+- [x] Implement full-tree `compute_layout` consuming `LayoutInput` and producing `LayoutResult`; see [layout](../design/layout.md).
+- [x] Fixed Box dimensions with min/max limits and a border/padding floor; the root fills the viewport when automatic.
+- [x] Placeholder Text measured through `TextShaper`, with `PlaceholderTextShaper` in fixtures.
+- [x] Single-line row/column stacks with margin, padding, gap, justify, align/stretch, and grow/shrink with limit freezing.
+- [x] Define overflow, display-none, and hidden-box behavior.
+- [x] Numeric geometry fixtures and the `flex-layout` example; verified commands in [development](../guides/development.md).
 
 ### Exit criteria
 
-- A clean core-only configuration builds and runs without Vulkan/WebGPU, Slang, FreeType/HarfBuzz, OpenUSD, browser, or editor SDKs.
-- One ordered tree can be built in code, inspected, serialized, loaded, and compared for semantic equivalence.
-- Invalid property types, duplicate IDs, invalid references, and unsupported versions yield actionable diagnostics.
-- Repeated serialization is deterministic under the declared formatting/ordering policy.
-- Core public contracts expose no concrete GPU/platform/font implementation types.
-- Node/resource lifetimes and selected format/version rules are recorded in their owning design pages.
-
-Evidence must name the revision, configuration, checks, and limitations in the [support matrix](../reference/support-matrix.md). A conceptual backend interface alone does not complete a backend.
+- Fixed, row/column, nested padding, margin/gap, constraint, overflow, empty, and fractional fixtures produce exact or tolerance-bounded boxes.
+- Repeated layout of identical input produces identical results.
+- Invalid input, text measurement failures, and non-finite geometry yield located diagnostics without a partial result.
+- Layout depends only on the tree, resolved styles, viewport, and the `TextShaper` interface; no GPU, font, or platform type is involved.
 
 ### Scope limits
 
-Do not implement the full stylesheet engine, all candidate primitives, reactive component runtime, real text stack, editor UI, or GPU optimization in this phase. The focus is the stable representation beneath them.
+No wrapping, absolute positioning, scrolling/clipping, grid, style resolution, dirty-subtree invalidation, or pixel snapping. Placeholder text metrics are not representative of real fonts.
 
-## Immediately next — Phase 1 layout prototype
+## Immediately next — v0.1.0 minimal Vulkan menu
 
-Implement fixed-size Box/placeholder Text and stack/flex rows/columns with margin, padding, and gap, consuming `LayoutInput` and producing `LayoutResult`. Use `PlaceholderTextShaper` for Text metrics and numeric geometry fixtures to prove deterministic output without any renderer. Follow [layout](../design/layout.md).
-
-Vulkan and public milestone candidates remain in the [backlog](backlog.md) until this foundation is established.
+Generate backend-neutral paint commands from `LayoutResult` and resolved styles, then prove them with Vulkan primitives, pointer hit testing, and a minimal native menu host. The objective, work, and exit criteria are in the [backlog](backlog.md#v010-candidate--minimal-vulkan-menu) until that milestone is activated.

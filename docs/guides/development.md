@@ -1,6 +1,6 @@
 # Development
 
-Status: Phase 0 tree/document/serialization slice and subsystem boundary contracts implemented. Layout, style resolution, dispatch, paint generation, real text, and backend implementations are planned.
+Status: Phase 0 tree/document/serialization slice, subsystem boundary contracts, and the Phase 1 fixed/stack/flex layout prototype implemented. Style resolution, dispatch, paint generation, real text, and backend implementations are planned.
 
 ## Requirements
 
@@ -17,9 +17,10 @@ cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 & .\build\Debug\tessera_hello_ui.exe
+& .\build\Debug\tessera_flex_layout.exe
 ```
 
-Run from the repository root. The configure step enables the core, tests, and example. Expected results: `build/Debug/tessera_core.lib`, the `tessera_*_tests.exe` checks, `tessera_hello_ui.exe`, and CTest passing `document`, `layout_contract`, `text`, `event`, `draw_list`, and `hello_ui`. The example emits canonical JSON and reports three restored ordered nodes. It performs no layout, drawing, or text shaping. Test logs are in `build/Testing/Temporary/LastTest.log`.
+Run from the repository root. The configure step enables the core, tests, and examples. Expected results: `build/Debug/tessera_core.lib`, the `tessera_*_tests.exe` checks, `tessera_hello_ui.exe`, `tessera_flex_layout.exe`, and CTest passing `document`, `layout_contract`, `layout`, `text`, `event`, `draw_list`, `hello_ui`, and `flex_layout`. `hello-ui` emits canonical JSON and reports three restored ordered nodes. `flex-layout` prints the border box of each of eight menu nodes (the panel at `x=200 y=128 w=240 h=104`) computed with placeholder text metrics. Neither example draws or shapes glyphs. Test logs are in `build/Testing/Temporary/LastTest.log`.
 
 A fresh library-only configuration was also verified:
 
@@ -34,7 +35,7 @@ The local Codex sandbox initially denied MSBuild access to the user's Windows SD
 
 ## Current checks and boundaries
 
-[Document tests](../../tests/serialization/document_tests.cpp) cover semantic and canonical round trips, invalid schemas/properties/IDs/references/versions/actions, metadata, UTF-8/Unicode escapes, finite-number precision, input/output/nesting limits, and snapshot/handle lifetime. The [format specification](../../formats/tessera-ui/README.md) owns their encoding policy. Contract checks under [tests/layout](../../tests/layout), [tests/text](../../tests/text), [tests/input](../../tests/input), and [tests/render](../../tests/render) cover resolved-style/layout-input validation and box geometry, placeholder measurement/shaping agreement, normalized event validation, and draw-list stack/handle/frame validation.
+[Document tests](../../tests/serialization/document_tests.cpp) cover semantic and canonical round trips, invalid schemas/properties/IDs/references/versions/actions, metadata, UTF-8/Unicode escapes, finite-number precision, input/output/nesting limits, and snapshot/handle lifetime. The [format specification](../../formats/tessera-ui/README.md) owns their encoding policy. [Layout checks](../../tests/layout/layout_tests.cpp) compare numeric `LayoutBox` fixtures for the fixed/stack/flex prototype. Contract checks under [tests/layout](../../tests/layout), [tests/text](../../tests/text), [tests/input](../../tests/input), and [tests/render](../../tests/render) cover resolved-style/layout-input validation and box geometry, placeholder measurement/shaping agreement, normalized event validation, and draw-list stack/handle/frame validation.
 
 The public headers are under `include/tessera/{ui,layout,style,input,text,render}`; source is under the matching `src/` directories, with shared internal checks in `src/detail`. The direct C++ builder uses owned values, and the runtime tree is an immutable validated snapshot. No callbacks, renderer objects, OS input codes, or font implementation types appear in these contracts.
 
@@ -44,11 +45,10 @@ Only Debug on this toolchain has execution evidence. Other generators, compiler 
 
 Add verified commands when concrete implementations land for:
 
-1. Independent geometry checks and the layout prototype.
-2. One backend and shader compilation.
-3. A standalone native menu host and normalized input.
-4. Real text/font fixtures.
-5. Installing and consuming exported targets, when packaging is implemented.
+1. One backend and shader compilation.
+2. A standalone native menu host and normalized input.
+3. Real text/font fixtures.
+4. Installing and consuming exported targets, when packaging is implemented.
 
 For each command, record supported shell/generator/configuration, required tools, expected output, and known limits. Verify commands on a clean build rather than inheriting reference-project presets or executable names.
 
@@ -61,4 +61,4 @@ For each command, record supported shell/generator/configuration, required tools
 | `gamepad-menu` | Focus, keyboard/gamepad navigation, activation/cancel |
 | `inventory` | Components, keyed lists, image assets, state/reload |
 
-Only `hello-ui` is runnable today; it proves tree inspection/serialization. The other names remain planned directories. Each example should prove one boundary and identify placeholder behavior. See [testing](testing.md) for verification scope and [dependencies](../reference/dependencies.md) for adoption policy.
+`hello-ui` proves tree inspection/serialization and `flex-layout` proves numeric layout geometry; neither draws yet. The other names remain planned directories. Each example should prove one boundary and identify placeholder behavior. See [testing](testing.md) for verification scope and [dependencies](../reference/dependencies.md) for adoption policy.

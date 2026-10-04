@@ -7,6 +7,7 @@ add_library(tessera_core
     src/ui/serialization.cpp
     src/style/resolved_style.cpp
     src/layout/layout_box.cpp
+    src/layout/flex_layout.cpp
     src/text/placeholder_text.cpp
     src/input/event.cpp
     src/render/draw_list.cpp
@@ -21,10 +22,12 @@ else()
     target_compile_options(tessera_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-option(TESSERA_BUILD_EXAMPLES "Build the core-only document example" ON)
+option(TESSERA_BUILD_EXAMPLES "Build the core-only examples" ON)
 if(TESSERA_BUILD_EXAMPLES)
     add_executable(tessera_hello_ui examples/hello-ui/main.cpp)
     target_link_libraries(tessera_hello_ui PRIVATE tessera::core)
+    add_executable(tessera_flex_layout examples/flex-layout/main.cpp)
+    target_link_libraries(tessera_flex_layout PRIVATE tessera::core)
 endif()
 
 include(CTest)
@@ -34,7 +37,7 @@ if(BUILD_TESTING)
     target_compile_definitions(tessera_document_tests PRIVATE
         TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")
     add_test(NAME document COMMAND tessera_document_tests)
-    foreach(contract IN ITEMS layout/layout_contract text/text input/event render/draw_list)
+    foreach(contract IN ITEMS layout/layout_contract layout/layout text/text input/event render/draw_list)
         get_filename_component(name ${contract} NAME)
         add_executable(tessera_${name}_tests tests/${contract}_tests.cpp)
         target_link_libraries(tessera_${name}_tests PRIVATE tessera::core)
@@ -42,5 +45,6 @@ if(BUILD_TESTING)
     endforeach()
     if(TESSERA_BUILD_EXAMPLES)
         add_test(NAME hello_ui COMMAND tessera_hello_ui)
+        add_test(NAME flex_layout COMMAND tessera_flex_layout)
     endif()
 endif()

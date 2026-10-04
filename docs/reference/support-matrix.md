@@ -1,6 +1,6 @@
 # Support matrix
 
-Checked: 2026-10-05. The Phase 0 tree/document/serialization slice and subsystem boundary contracts are validated on the Windows x64/MSVC Debug configuration below. Other runtime capabilities remain planned.
+Checked: 2026-10-05. The Phase 0 tree/document/serialization slice, subsystem boundary contracts, and the Phase 1 fixed/stack/flex layout prototype are validated on the Windows x64/MSVC Debug configuration below. Other runtime capabilities remain planned.
 
 ## Evidence vocabulary
 
@@ -18,7 +18,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Area | Current status | Intended evidence before a support claim |
 | --- | --- | --- |
 | UI tree, properties, serialization | Validated for Box/Text foundation only | CTest round trip, validation failures, deterministic representation, metadata and handle lifetime |
-| Fixed/stack/flex layout | `LayoutInput`/`LayoutBox`/resolved-style contract validation implemented; algorithms planned | Numeric geometry fixtures without GPU |
+| Fixed/stack/flex layout | Validated for the single-line prototype with placeholder text; wrapping, absolute, scroll, and grid planned | Numeric geometry fixtures without GPU |
 | Paint list and Vulkan primitives | Draw-list and frame-info validation implemented; paint generation and backends planned | Command validation, shader build, runtime images |
 | Pointer input and hit testing | Normalized event validation implemented; hit testing/dispatch planned | Synthetic events plus interactive host smoke |
 | Focus, keyboard/gamepad navigation | Planned | Deterministic navigation and recovery fixtures plus menu smoke |
@@ -35,7 +35,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 
 | Configuration | Current evidence |
 | --- | --- |
-| Core-only build | Windows x64/MSVC Debug library-only build plus document/contract tests and example verified; no external runtime dependencies |
+| Core-only build | Windows x64/MSVC Debug library-only build plus document/contract/layout tests and examples verified; no external runtime dependencies |
 | Native Vulkan | No adopted SDK/toolchain, shader artifacts, or GPU runtime tests |
 | WebGPU native | No selected implementation or toolchain |
 | Browser / WASM | Feasibility candidate only; no build or browser tests |
@@ -63,6 +63,15 @@ This is core-only evidence, not native-window, input-device, graphics, text, pac
 - Procedure: the [development](../guides/development.md) configure/build/CTest commands, plus a fresh `build-core` library-only configure and build.
 - Result: all six CTest targets (`document`, `layout_contract`, `text`, `event`, `draw_list`, `hello_ui`) passed. The library-only build succeeded without warnings under `/W4`. No external dependency was configured or fetched.
 - Limits: these are type, lifetime, and validation contracts. No layout algorithm, style resolution, hit testing or dispatch, paint generation, real font shaping, or backend execution exists. Placeholder text metrics are not representative of real fonts.
+
+## Layout prototype evidence — 2026-10-05
+
+- Revision: uncommitted implementation on base `72f72205465b6859487e48f84c0f70ba1f3622e9`. Identifiable source adds `src/layout/flex_layout.cpp`, `compute_layout` in `include/tessera/layout/layout_box.hpp`, [layout checks](../../tests/layout/layout_tests.cpp), and `examples/flex-layout` to the paths above.
+- Source fingerprint: SHA-256 `55afcb6067b6595c24e8887b9508b2f0bb4309b16111a106c11a2f0cd45cf2a9`, computed with the foundation procedure over `CMakeLists.txt`, `include`, `src`, `examples`, and `tests`. The same procedure reproduces the subsystem contract fingerprint at the base revision.
+- Configuration: the same OS, Visual Studio/MSVC `19.51.36256.0`, CMake/CTest `4.4.3`, `Visual Studio 18 2026`, `-A x64`, Debug configuration as the foundation evidence.
+- Procedure: the [development](../guides/development.md) configure/build/CTest/example commands, plus a fresh `build-core` library-only configure and build.
+- Result: all eight CTest targets (`document`, `layout_contract`, `layout`, `text`, `event`, `draw_list`, `hello_ui`, `flex_layout`) passed. The build, including the new layout source under `/W4`, produced no warnings. `tessera_flex_layout.exe` printed eight boxes, including the centered panel at `x=200 y=128 w=240 h=104`. No external dependency was configured or fetched.
+- Limits: single-line flex-like layout only, with no wrapping, absolute positioning, scrolling/clipping, grid, pixel snapping, or dirty-subtree updates. Text sizes come from `PlaceholderTextShaper`, not real fonts. Determinism is checked by repeated runs on this toolchain only.
 
 ## Recording future evidence
 

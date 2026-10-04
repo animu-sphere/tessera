@@ -1,6 +1,6 @@
 # Testing strategy
 
-Status: Foundation document/tree and subsystem contract checks implemented; algorithm and backend checks remain a verification plan.
+Status: Foundation document/tree, subsystem contract, and fixed/stack/flex layout checks implemented; other algorithm and backend checks remain a verification plan.
 
 Test algorithms and boundaries heavily; test appearance selectively. Keep tests deterministic, compact, and meaningful. Do not build exhaustive screenshot coverage for every widget.
 
@@ -18,7 +18,7 @@ Test algorithms and boundaries heavily; test appearance selectively. Keep tests 
 
 Use synthetic inputs and numeric output wherever possible. Golden serialized fixtures must assert semantics as well as deterministic formatting. Later dirty-update paths should agree with the full-tree reference calculation.
 
-The current CTest targets are `document` (semantic/canonical fixture round trips, schema/type/reference/action/version errors, malformed JSON/UTF-8, metadata/numeric precision and limits, snapshot/handle lifetime) `layout_contract` (resolved-style/layout-input diagnostics and padding/content box derivation), `text` (placeholder metrics, UTF-8 cluster offsets, measurement/shaping agreement, failures), `event` (normalized event validation), `draw_list` (stack balance/limits, transformed clips, handles, frame info), and `hello_ui` (code-built ordered-tree inspection/save/load smoke). Checks use explicit failure returns and remain active in Release builds. They use no GPU, font, OS device, or third-party test framework. See [development](development.md) for actual commands.
+The current CTest targets are `document` (semantic/canonical fixture round trips, schema/type/reference/action/version errors, malformed JSON/UTF-8, metadata/numeric precision and limits, snapshot/handle lifetime) `layout_contract` (resolved-style/layout-input diagnostics and padding/content box derivation), `layout` (fixed/stack/flex geometry, limits, overflow, fractional sizes, display/visibility, repeated-run equality, failures), `text` (placeholder metrics, UTF-8 cluster offsets, measurement/shaping agreement, failures), `event` (normalized event validation), `draw_list` (stack balance/limits, transformed clips, handles, frame info), `hello_ui` (code-built ordered-tree inspection/save/load smoke), and `flex_layout` (menu layout smoke). Checks use explicit failure returns and remain active in Release builds. They use no GPU, font, OS device, or third-party test framework. See [development](development.md) for actual commands.
 
 ## Evidence by milestone
 
