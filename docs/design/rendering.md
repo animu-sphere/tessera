@@ -1,6 +1,6 @@
 # Rendering
 
-Status: Draw-list and frame-submission contracts implemented. No paint generation or backend is implemented; Vulkan is the first backend target.
+Status: Draw-list/frame-submission contracts and full-tree background/border/Text paint generation implemented. No backend is implemented; Vulkan is the first backend target.
 
 ## Implemented draw-list contract
 
@@ -38,7 +38,22 @@ retained nodes -> resolved style -> layout -> paint -> UiDrawList
 
 The UI layer generates resolved drawing data. Backends consume that data without evaluating components, selectors, layout, events, or application state.
 
-Proposed baseline for paint generation: preserve tree-derived paint order and keep clipping/transforms consistent with hit testing. Stacking rules, non-rectangular clip shapes, transformed clipping, blend modes, and offscreen composition remain open decisions. Begin with rectangles and simple clips; extend command coverage only with evidence.
+### Implemented paint generation
+
+[paint.hpp](../../include/tessera/render/paint.hpp) defines `PaintInput` and `build_paint_list(PaintInput)`. One pass borrows the immutable `UiTree`, one `ResolvedStyle` per tree node indexed by `NodeHandle::index`, its `LayoutResult`, and the same `TextShaper` used for layout. The returned `UiDrawList` owns all commands and glyph data and can outlive those inputs. No tree handle, backend object, asset lookup, or application callback is stored in the output.
+
+- **Order and geometry.** Walk displayed boxes in tree preorder. Each box emits background (`DrawRect`), inside border (`DrawBorder`), then Text (`DrawGlyphRun`), before its children; later siblings paint above earlier subtrees. Rectangles use `border_box`, borders use its recorded per-edge widths, and both preserve `corner_radius`. Text is shaped using its required `text` string property and resolved `TextStyle`, and placed at `content_box().origin`; the shaper's glyph positions and metrics are preserved.
+- **Alpha.** Each command's straight alpha is multiplied by the product of the node's and all ancestors' resolved opacity. RGB is unchanged. This per-command attenuation does not provide offscreen group composition; overlapping descendants can produce different pixels from group opacity.
+- **Eligibility.** Display-none subtrees have no boxes. A hidden box suppresses its own commands; visibility is local in the supplied resolved styles, so an explicitly visible descendant can still paint. Ancestor opacity continues to apply through hidden boxes. Transparent backgrounds, borders, and text emit nothing; borders with all zero widths and runs with no glyphs emit nothing. Hidden or zero-opacity boxes and transparent Text do not call `shape`.
+- **Overflow.** Commands remain in root logical coordinates, including overflowing content. There is no implicit viewport/container clip, transform, image emission, z-index, or custom paint callback. Clips/transforms remain available to direct draw-list authors; future scrolling and transformed geometry must share their semantics with hit testing.
+
+`validate(PaintInput)` rejects missing tree/layout/shaper (`missing_input` at `/tree`, `/layout`, `/text`), a wrong style count (`style_count` at `/styles`), and invalid styles under `/styles/<index>`. It reconstructs the displayed topology and requires exactly one box per displayed node (`layout_count` at `/layout/boxes`), matching live handles in preorder (`layout_node`), and matching layout parent indices (`layout_parent`). Border/padding/visibility must agree with the current styles (`layout_style`). Box numeric diagnostics use the draw-list geometry rules under `/layout/boxes/<index>`; derived content geometry must also be finite. Invalid input returns no value and never calls the shaper.
+
+The caller must recompute layout after any geometry or text/font change. Validation catches topology and recorded-edge/visibility mismatches; the result does not store a style fingerprint, so it cannot detect every stale dimension or text metric.
+
+Shaping diagnostics are prefixed with `/nodes/<NodeHandle::index>`. A failed shaper returning no error diagnostic receives `text_shape_failed` at `/nodes/<index>/text`. Generated commands are validated before returning; malformed glyph data is located under `/nodes/<index>/commands/<local-command-index>`. Any error discards the entire list, including commands from preceding nodes. Successful shaping warnings are preserved with the owned list. Placeholder runs remain test data, not real font or GPU rendering evidence.
+
+Non-rectangular clip shapes, transformed clipping, blend modes, and offscreen composition remain open decisions. Extend command coverage only with evidence.
 
 ## Host integration
 

@@ -1,6 +1,6 @@
 # Support matrix
 
-Checked: 2026-10-05. The Phase 0 tree/document/serialization slice, subsystem boundary contracts, and the Phase 1 fixed/stack/flex layout prototype are validated on the Windows x64/MSVC Debug configuration below. Other runtime capabilities remain planned.
+Checked: 2026-10-05. The Phase 0 tree/document/serialization slice, subsystem boundary contracts, the Phase 1 fixed/stack/flex layout prototype, backend-neutral background/border/Text paint generation, and rectangular pointer targeting/activation are validated on the Windows x64/MSVC Debug configuration below. Other runtime capabilities remain planned.
 
 ## Evidence vocabulary
 
@@ -19,8 +19,8 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | --- | --- | --- |
 | UI tree, properties, serialization | Validated for Box/Text foundation only | CTest round trip, validation failures, deterministic representation, metadata and handle lifetime |
 | Fixed/stack/flex layout | Validated for the single-line prototype with placeholder text; wrapping, absolute, scroll, and grid planned | Numeric geometry fixtures without GPU |
-| Paint list and Vulkan primitives | Draw-list and frame-info validation implemented; paint generation and backends planned | Command validation, shader build, runtime images |
-| Pointer input and hit testing | Normalized event validation implemented; hit testing/dispatch planned | Synthetic events plus interactive host smoke |
+| Paint list and Vulkan primitives | Background/border/Text paint generation and draw-list/frame validation verified with CPU fixtures; backends planned | Command validation, shader build, runtime images |
+| Pointer input and hit testing | Rectangular targeting, hover/primary activation, cancellation, and snapshot refresh verified with synthetic events; native input planned | Synthetic events plus interactive host smoke |
 | Focus, keyboard/gamepad navigation | Planned | Deterministic navigation and recovery fixtures plus menu smoke |
 | Text shaping and Latin/Japanese fallback | Measurement/shaping boundary and deterministic placeholder shaper implemented; real shaping planned | Declared fonts, metrics/wrapping fixtures, glyph images |
 | Stylesheets, selectors, pseudo states | Planned | Cascade, inheritance, state invalidation fixtures |
@@ -35,7 +35,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 
 | Configuration | Current evidence |
 | --- | --- |
-| Core-only build | Windows x64/MSVC Debug library-only build plus document/contract/layout tests and examples verified; no external runtime dependencies |
+| Core-only build | Windows x64/MSVC Debug library-only build plus document/contract/layout/paint/pointer tests and examples verified; no external runtime dependencies |
 | Native Vulkan | No adopted SDK/toolchain, shader artifacts, or GPU runtime tests |
 | WebGPU native | No selected implementation or toolchain |
 | Browser / WASM | Feasibility candidate only; no build or browser tests |
@@ -72,6 +72,16 @@ This is core-only evidence, not native-window, input-device, graphics, text, pac
 - Procedure: the [development](../guides/development.md) configure/build/CTest/example commands, plus a fresh `build-core` library-only configure and build.
 - Result: all eight CTest targets (`document`, `layout_contract`, `layout`, `text`, `event`, `draw_list`, `hello_ui`, `flex_layout`) passed. The build, including the new layout source under `/W4`, produced no warnings. `tessera_flex_layout.exe` printed eight boxes, including the centered panel at `x=200 y=128 w=240 h=104`. No external dependency was configured or fetched.
 - Limits: single-line flex-like layout only, with no wrapping, absolute positioning, scrolling/clipping, grid, pixel snapping, or dirty-subtree updates. Text sizes come from `PlaceholderTextShaper`, not real fonts. Determinism is checked by repeated runs on this toolchain only.
+
+## Paint and pointer evidence — 2026-10-05
+
+- Revision: uncommitted implementation on base `a3ff459f2056540b1a3a6160ebab9feb73db283a`. Identifiable source adds [paint.hpp](../../include/tessera/render/paint.hpp), `src/render/paint.cpp`, [pointer.hpp](../../include/tessera/input/pointer.hpp), `src/input/pointer.cpp`, shared internal layout snapshot validation, and [paint](../../tests/render/paint_tests.cpp)/[pointer](../../tests/input/pointer_tests.cpp) checks, registers sources/tests in `CMakeLists.txt`, extends `examples/flex-layout`, and adds [pointer-menu](../../examples/pointer-menu/main.cpp).
+- Source fingerprint: SHA-256 `1647063ada783c90b9bf15332a8be8223a5c077f79559caac86284b3d4a4a18c`, computed with the foundation procedure over `CMakeLists.txt`, `include`, `src`, `examples`, and `tests`.
+- Configuration: the same OS, Visual Studio/MSVC `19.51.36256.0`, CMake/CTest `4.4.3`, `Visual Studio 18 2026`, `-A x64`, Debug configuration as the foundation evidence.
+- Procedure: the [development](../guides/development.md) configure/build/CTest commands and direct `tessera_flex_layout.exe`/`tessera_pointer_menu.exe` execution, plus library-only configure/build in the newly created `build-paint-core` directory, reconfigured after adding pointer code. The first fresh configure required approved sandbox escalation for MSBuild's Windows SDK configuration access; builds and CTest ran in the sandbox.
+- Result: all eleven CTest targets (`document`, `layout_contract`, `layout`, `text`, `event`, `pointer`, `draw_list`, `paint`, `hello_ui`, `flex_layout`, `pointer_menu`) passed. Both builds produced no warnings under `/W4`. `flex-layout` retained its eight numeric boxes and reported eight backend-neutral paint commands. `pointer-menu` emitted five commands and delivered `activate: start-game from start` and `activate: quit-game from quit` to its synthetic host. The library-only target built successfully; no external dependency was configured or fetched.
+- Fixtures/artifacts: numeric/injected-shaper paint cases and synthetic pointer/lifecycle cases above, `build/Testing/Temporary/LastTest.log`, `build/Debug/tessera_{paint,pointer}_tests.exe`, `build/Debug/tessera_{flex_layout,pointer_menu}.exe`, and `build-paint-core/Debug/tessera_core.lib`. Build artifacts/logs are local ignored files.
+- Limits: CPU paint/input only, in root logical coordinates, without implicit clips/transforms, images, custom paint, or group opacity. Text uses the deterministic placeholder. Pointer dispatch supports primary activation with first-binding ancestor lookup, not full propagation, capture, logical cancel, focus, or navigation. No shader compilation, glyph rasterization, GPU pixels, native host/device input, or style resolution is demonstrated. Validation checks topology/recorded styles, not every possible stale geometry/text change; callers must recompute layout as specified in [rendering](../design/rendering.md#implemented-paint-generation).
 
 ## Recording future evidence
 

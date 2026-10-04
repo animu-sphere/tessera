@@ -1,6 +1,6 @@
 # Current
 
-Updated: 2026-10-05. Phase 0 and the Phase 1 layout prototype are implemented and verified on the recorded configuration. The v0.1.0 minimal Vulkan menu candidate is next. Delivery history is in the [changelog](../../CHANGELOG.md), with configuration evidence in the [support matrix](../reference/support-matrix.md).
+Updated: 2026-10-05. Phase 0, the Phase 1 layout prototype, backend-neutral paint generation, and rectangular pointer targeting/activation are implemented and verified on the recorded configuration. The v0.1.0 minimal Vulkan menu candidate is active. Delivery history is in the [changelog](../../CHANGELOG.md), with configuration evidence in the [support matrix](../reference/support-matrix.md).
 
 ## Documentation foundation
 
@@ -22,28 +22,35 @@ Delivered: **create a tree -> inspect it -> validate it -> serialize it**, plus 
 
 ## Phase 1 — Layout prototype
 
-Objective: **tree + resolved styles + viewport + text metrics -> deterministic `LayoutBox` tree**, without any renderer.
+Delivered: **tree + resolved styles + viewport + text metrics -> deterministic `LayoutBox` tree**, without any renderer. Fixed/stack/flex algorithms, scope limits, and numeric fixtures are recorded in [layout](../design/layout.md), the [changelog](../../CHANGELOG.md), and the [support matrix](../reference/support-matrix.md).
+
+## Active — v0.1.0 minimal Vulkan menu candidate
+
+Objective: prove the declarative UI -> style -> layout -> paint -> GPU pipeline with a small pointer-operated menu.
+
+Depends on: Phase 0 model/contracts and Phase 1 deterministic fixed/stack/flex layout.
 
 ### Work
 
-- [x] Implement full-tree `compute_layout` consuming `LayoutInput` and producing `LayoutResult`; see [layout](../design/layout.md).
-- [x] Fixed Box dimensions with min/max limits and a border/padding floor; the root fills the viewport when automatic.
-- [x] Placeholder Text measured through `TextShaper`, with `PlaceholderTextShaper` in fixtures.
-- [x] Single-line row/column stacks with margin, padding, gap, justify, align/stretch, and grow/shrink with limit freezing.
-- [x] Define overflow, display-none, and hidden-box behavior.
-- [x] Numeric geometry fixtures and the `flex-layout` example; verified commands in [development](../guides/development.md).
+- [x] Backend-neutral background/border/Text paint generation, with deterministic preorder, alpha/visibility rules, validation, and numeric fixtures; see [rendering](../design/rendering.md#implemented-paint-generation).
+- [ ] Vulkan primitive execution: rectangles/colors, inside borders, clips, and transforms, with actual runtime image evidence.
+- [ ] Slang shader build path and a small number of primitive pipelines.
+- [ ] Conservative batching that preserves visible draw order.
+- [x] Rectangular pointer hit testing, hover/primary-click state, cancellation, snapshot refresh, and host action requests; synthetic tests and `pointer-menu` smoke; see [input](../design/input.md).
+- [ ] Minimal standalone menu host with placeholder Text, OS input normalization/cancellation, and explicit window/device ownership.
+
+Low-level image sampling can be proven during the renderer phase; a full asset/component API is not a release gate.
 
 ### Exit criteria
 
-- Fixed, row/column, nested padding, margin/gap, constraint, overflow, empty, and fractional fixtures produce exact or tolerance-bounded boxes.
-- Repeated layout of identical input produces identical results.
-- Invalid input, text measurement failures, and non-finite geometry yield located diagnostics without a partial result.
-- Layout depends only on the tree, resolved styles, viewport, and the `TextShaper` interface; no GPU, font, or platform type is involved.
+- A document produces deterministic geometry, paint commands, and a visible Vulkan menu.
+- Overlap, border, clip, transform, and basic alpha fixtures have actual runtime image evidence.
+- Synthetic pointer checks and a native-window smoke show predictable targeting and action dispatch.
+- Public core APIs remain backend-neutral; submission/resource lifetime is verified for the supported host.
+- Text placeholders and validated OS/compiler/GPU limits are explicitly reported.
 
-### Scope limits
+### Immediately next
 
-No wrapping, absolute positioning, scrolling/clipping, grid, style resolution, dirty-subtree invalidation, or pixel snapping. Placeholder text metrics are not representative of real fonts.
+Select and record Vulkan/Slang and example-host dependency choices, then implement primitive execution below `UiDrawList`. Paint currently emits rectangles, borders, and placeholder glyph runs without implicit clips/transforms; the existing draw-list vocabulary supports manually authored clip/transform fixtures. No GPU pixels or native-window behavior have been validated.
 
-## Immediately next — v0.1.0 minimal Vulkan menu
-
-Generate backend-neutral paint commands from `LayoutResult` and resolved styles, then prove them with Vulkan primitives, pointer hit testing, and a minimal native menu host. The objective, work, and exit criteria are in the [backlog](backlog.md#v010-candidate--minimal-vulkan-menu) until that milestone is activated.
+Design owners: [rendering](../design/rendering.md), [input](../design/input.md), [text](../design/text.md). Later candidates are in the [backlog](backlog.md).

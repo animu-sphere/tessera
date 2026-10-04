@@ -1,32 +1,6 @@
 # Backlog
 
-Updated: 2026-10-05. Everything below is planned and inactive. Delivered phases and immediately next work are in [current](current.md); the [roadmap index](README.md) maps the original strategy phases. Versions are candidates without committed dates.
-
-## v0.1.0 candidate — Minimal Vulkan menu
-
-Objective: prove the declarative UI -> style -> layout -> paint -> GPU pipeline with a small pointer-operated menu.
-
-Depends on: Phase 0 model/contracts and Phase 1 deterministic fixed/stack/flex layout.
-
-Work:
-
-- Backend-neutral paint commands and Vulkan primitive execution.
-- Background/border drawing, rectangles/colors, clips, and transforms.
-- Slang shader build path and a small number of primitive pipelines.
-- Conservative batching that preserves visible draw order.
-- Pointer hit testing, hover/click dispatch, and host-normalized input.
-- Minimal standalone menu host with placeholder Text and explicit window/device ownership.
-- Low-level image sampling can be proven during the renderer phase; a full asset/component API is not a release gate.
-
-Exit criteria:
-
-- A document produces deterministic geometry, paint commands, and a visible Vulkan menu.
-- Overlap, border, clip, transform, and basic alpha fixtures have actual runtime image evidence.
-- Synthetic pointer checks and a native-window smoke show predictable targeting and action dispatch.
-- Public core APIs remain backend-neutral; submission/resource lifetime is verified for the supported host.
-- Text placeholders and validated OS/compiler/GPU limits are explicitly reported.
-
-Design owners: [rendering](../design/rendering.md), [input](../design/input.md), [text](../design/text.md).
+Updated: 2026-10-05. Everything below is planned and inactive. The active v0.1.0 minimal Vulkan menu candidate is in [current](current.md#active--v010-minimal-vulkan-menu-candidate); the [roadmap index](README.md) maps the original strategy phases. Versions are candidates without committed dates.
 
 ## v0.2.0 candidate — Usable navigable menus
 

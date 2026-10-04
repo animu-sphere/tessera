@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Architectural direction with implemented Phase 0 tree/document and subsystem boundary contracts and the Phase 1 fixed/stack/flex layout prototype. Other layout algorithms, style resolution, dispatch, paint generation, real text, and backends remain draft proposals.
+Status: Architectural direction with implemented Phase 0 tree/document and subsystem boundary contracts, the Phase 1 fixed/stack/flex layout prototype, backend-neutral background/border/Text paint generation, and rectangular pointer targeting/activation. Other layout algorithms, style resolution, focus/navigation, real text, and backends remain draft proposals.
 
 ## Purpose and constraints
 
@@ -67,7 +67,7 @@ Proposed lifecycle constraints: mutations are applied at defined update points, 
 
 ## Proposed source layout
 
-The complete layout below remains proposed. Phase 0 implements `CMakeLists.txt`, `include/tessera/{ui,layout,style,input,text,render}`, the matching `src/` directories plus internal `src/detail`, `formats/tessera-ui`, `examples/{hello-ui,flex-layout}`, and `tests/{serialization,layout,text,input,render}`; other directories remain future work.
+The complete layout below remains proposed. The current implementation has `CMakeLists.txt`, `include/tessera/{ui,layout,style,input,text,render}`, the matching `src/` directories plus internal `src/detail`, `formats/tessera-ui`, `examples/{hello-ui,flex-layout,pointer-menu}`, and `tests/{serialization,layout,text,input,render}`; other directories remain future work.
 
 ```text
 CMakeLists.txt
@@ -76,7 +76,7 @@ src/{ui,layout,style,input,text,render,assets}/
 backends/{vulkan,webgpu}/
 shaders/
 formats/tessera-ui/
-examples/{hello-ui,flex-layout,gamepad-menu,inventory}/
+examples/{hello-ui,flex-layout,pointer-menu,gamepad-menu,inventory}/
 tests/{layout,style,input,text,render,serialization}/
 docs/{design,guides,reference,roadmap}/
 ```

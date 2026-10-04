@@ -23,7 +23,7 @@ Status: Implemented foundation encoding. Not a stable release format. The model 
 }
 ```
 
-The caller must supply `start_game` in `ValidationContext.actions` to accept this example. Bindings are names only; no action dispatch or layout is implemented.
+The caller must supply `start_game` in `ValidationContext.actions` to accept this example. Bindings serialize names only; runtime [pointer dispatch](../../docs/design/input.md) returns host action requests after [layout](../../docs/design/layout.md). No callback is serialized.
 
 | Field | Required | Type / rule |
 | --- | --- | --- |

@@ -1,4 +1,4 @@
-#include <tessera/layout/layout_box.hpp>
+#include <tessera/render/paint.hpp>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -38,17 +38,22 @@ int main() {
     auto style = [&](const char* id) -> tessera::ResolvedStyle& { return styles[tree.find(id)->index]; };
     style("screen").justify = tessera::Justify::center;
     style("screen").align = tessera::Align::center;
+    style("screen").background = {0.05f, 0.05f, 0.05f, 1};
     auto& panel = style("panel");
     panel.width = tessera::Dimension::points(240);
     panel.padding = {16, 16, 16, 16};
     panel.border = {2, 2, 2, 2};
     panel.gap = 12;
+    panel.background = {0.15f, 0.15f, 0.15f, 1};
+    panel.border_color = {0.4f, 0.4f, 0.4f, 1};
+    panel.corner_radius = 8;
     style("buttons").direction = tessera::FlexDirection::row;
     style("buttons").gap = 8;
     for (const char* id : {"start", "quit"}) {
         style(id).grow = 1;
         style(id).padding = {8, 8, 8, 8};
         style(id).align = tessera::Align::center;
+        style(id).background = {0.2f, 0.3f, 0.5f, 1};
     }
 
     tessera::PlaceholderTextShaper text;
@@ -60,5 +65,9 @@ int main() {
                   << " w=" << r.size.width << " h=" << r.size.height << '\n';
     }
     std::cout << "Laid out " << result.value->boxes.size()
-              << " boxes with placeholder text metrics. No rendering is performed.\n";
+              << " boxes with placeholder text metrics.\n";
+    const auto paint = tessera::build_paint_list({&tree, styles, &*result.value, &text});
+    if (!paint || !tessera::validate(*paint.value).empty()) return 3;
+    std::cout << "Generated " << paint.value->commands.size()
+              << " backend-neutral paint commands with placeholder glyphs. No GPU rendering is performed.\n";
 }
