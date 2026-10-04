@@ -3,9 +3,9 @@ struct Primitive {
     float4 transform1; // b, d, ty, unused
     float4 rect;
     float4 color; // Linear RGB, straight alpha.
-    float4 widths; // top, right, bottom, left
-    float4 source;
-    float4 params; // radius, mode (0 fill, 1 border, 2 image), framebuffer width, height
+    float4 widths; // Border edges, or placeholder bitmap rows 0-3.
+    float4 source; // Image source rectangle, or placeholder bitmap rows 4-6.
+    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder), framebuffer width, height
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
 [[vk::binding(0, 0)]] Texture2D<float4> image;
@@ -37,6 +37,12 @@ bool roundedContains(float2 p, float2 size, float radius) {
 }
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
+    if (primitive.params.y == 3) {
+        uint2 cell = min(uint2(input.local / primitive.rect.zw * float2(5,7)), uint2(4,6));
+        uint row = cell.y < 4 ? uint(primitive.widths[cell.y]) : uint(primitive.source[cell.y - 4]);
+        if ((row & (1u << (4u - cell.x))) == 0) discard;
+        return primitive.color;
+    }
     if (!roundedContains(input.local, primitive.rect.zw, primitive.params.x)) discard;
     if (primitive.params.y == 1) {
         float2 offset = primitive.widths.wx;

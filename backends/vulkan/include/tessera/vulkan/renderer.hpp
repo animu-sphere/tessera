@@ -17,6 +17,9 @@ struct VulkanContext {
     std::span<const std::uint32_t> fragment_spirv;
     std::span<const std::uint32_t> image_spirv;
     std::uint32_t max_images = 64;
+    // Opt in only for PlaceholderTextShaper runs with default FontId (0).
+    // Built-in bitmap marks are test/menu placeholders, not real font rendering.
+    bool placeholder_text = false;
 };
 struct VulkanTarget {
     VkCommandBuffer commands = VK_NULL_HANDLE; // Recording inside the compatible render pass.

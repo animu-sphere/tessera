@@ -1,4 +1,5 @@
 #include <tessera/vulkan/renderer.hpp>
+#include "placeholder_glyph.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -81,6 +82,7 @@ struct VulkanRenderer::Impl {
     VulkanTarget target;
     std::uint64_t last_frame = 0, completed = 0;
     std::uint32_t max_images = 0;
+    bool placeholder_text = false;
     struct Image { VkDescriptorSet set; std::uint64_t last_use = 0; };
     std::map<std::uint64_t, Image> images;
 
@@ -158,6 +160,7 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
         throw std::invalid_argument("The prototype requires an RGBA8/BGRA8 sRGB color attachment.");
     auto& p = *impl_;
     p.device = context.device; p.max_images = context.max_images;
+    p.placeholder_text = context.placeholder_text;
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(context.physical_device, &properties);
     p.limits = properties.limits;
@@ -285,7 +288,56 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
             } else if constexpr (std::is_same_v<T, PopClip> || std::is_same_v<T, PopTransform>) {
                 state = stack.back(); stack.pop_back();
             } else if constexpr (std::is_same_v<T, DrawGlyphRun>) {
-                errors.push_back(error("unsupported_command", path, "Vulkan glyph rasterization is not implemented; submit primitive fixtures only."));
+                if (!p.placeholder_text) {
+                    errors.push_back(error("unsupported_command", path, "Enable placeholder_text only for default-font PlaceholderTextShaper runs."));
+                    return;
+                }
+                if (command.run.font.value != 0) {
+                    errors.push_back(error("unsupported_font", path + "/run/font", "Placeholder rendering requires FontId 0; real font glyph IDs are unsupported."));
+                    return;
+                }
+                for (std::size_t g = 0; g < command.run.glyphs.size(); ++g) {
+                    const auto& glyph = command.run.glyphs[g];
+                    const auto glyph_path = path + "/run/glyphs/" + std::to_string(g);
+                    if (glyph.id > 0x10ffff || (glyph.id >= 0xd800 && glyph.id <= 0xdfff)) {
+                        errors.push_back(error("invalid_glyph", glyph_path + "/id", "Placeholder glyph IDs must be Unicode scalar values."));
+                        continue;
+                    }
+                    // Position from the baseline supplied by the shaper, not run metrics.
+                    const double size = command.run.size;
+                    const double x = double(command.origin.x) + glyph.position.x + size * 0.05;
+                    const double y = double(command.origin.y) + glyph.position.y - size * PlaceholderTextShaper::ascent_em;
+                    const double width = size * 0.4, height = size * 0.7;
+                    if (!representable(x) || !representable(y)) {
+                        errors.push_back(error("geometry_overflow", glyph_path + "/position", "Placeholder origin plus baseline exceeds representable coordinates."));
+                        continue;
+                    }
+                    const Rect rect{{float(x),float(y)},{float(width),float(height)}};
+                    std::array<double,4> transformed;
+                    if (!bounds(rect, state.transform, frame.device_scale, transformed)) {
+                        errors.push_back(error("geometry_overflow", glyph_path + "/position", "Transformed placeholder exceeds representable coordinates."));
+                        continue;
+                    }
+                    // Validate even whitespace and fully clipped glyphs before skipping them.
+                    if (glyph.id == ' ' || state.right <= state.left || state.bottom <= state.top) continue;
+                    Packet packet;
+                    const auto left = std::floor(std::clamp(state.left, 0.0, double(extent.width)));
+                    const auto top = std::floor(std::clamp(state.top, 0.0, double(extent.height)));
+                    const auto right = std::ceil(std::clamp(state.right, 0.0, double(extent.width)));
+                    const auto bottom = std::ceil(std::clamp(state.bottom, 0.0, double(extent.height)));
+                    if (right <= left || bottom <= top || rect.size.width == 0 || rect.size.height == 0) continue;
+                    packet.scissor = {{std::int32_t(left),std::int32_t(top)}, {std::uint32_t(right-left),std::uint32_t(bottom-top)}};
+                    auto& data = packet.primitive;
+                    const auto& t = state.transform;
+                    data.transform0 = {t.a,t.c,t.tx,frame.device_scale}; data.transform1 = {t.b,t.d,t.ty,0};
+                    data.rect = {rect.origin.x,rect.origin.y,rect.size.width,rect.size.height};
+                    data.color = {linear(command.color.r),linear(command.color.g),linear(command.color.b),command.color.a};
+                    data.params = {0,3,float(extent.width),float(extent.height)};
+                    const auto rows = detail::placeholder_glyph(glyph.id);
+                    for (std::size_t row = 0; row < 4; ++row) data.widths[row] = rows[row];
+                    for (std::size_t row = 4; row < 7; ++row) data.source[row-4] = rows[row];
+                    packets.push_back(packet);
+                }
             } else {
                 std::array<double, 4> transformed;
                 if (!bounds(command.rect, state.transform, frame.device_scale, transformed)) {

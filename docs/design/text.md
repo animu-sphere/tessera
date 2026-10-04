@@ -13,6 +13,8 @@
 
 Width constraints and wrapping are not part of the interface yet; they arrive with real line breaking.
 
+The optional Vulkan backend can explicitly enable [placeholder Text rasterization](rendering.md#implemented-vulkan-placeholder-text) for default-font runs. That contract owns its bitmap shapes, placement, missing marks, and submission rules. It does not change shaping metrics or establish real font/script coverage.
+
 ## Boundary and ownership
 
 ```text

@@ -1,4 +1,6 @@
 #include <tessera/vulkan/renderer.hpp>
+#include <tessera/render/paint.hpp>
+#include <tessera/ui/serialization.hpp>
 #include "../check.hpp"
 #include <array>
 #include <atomic>
@@ -416,12 +418,117 @@ void fixtures(Host& host) {
     renderer.set_target({});
     check(has(renderer.submit({9,{32,32},1},{}),"invalid_target","/target"),"Null target accepted");
 }
+
+void glyph_fixtures(Host& host) {
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+    tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,1,true};
+    tessera::VulkanRenderer renderer(context);
+    tessera::PlaceholderTextShaper shaper;
+    tessera::TextStyle style;
+    style.size = 20; style.line_height = 24.0f;
+    const auto shaped = shaper.shape("A a\nあ",style);
+    check(bool(shaped),"Placeholder shaping failed");
+    const tessera::DrawGlyphRun glyphs{{},*shaped.value,{1,1,1,1}};
+    check(renderer.bind_image({1},host.texture.view,host.sampler).empty(),"Glyph fixture image binding failed");
+
+    // Rejected glyphs must not record preceding commands, consume frames or pin images.
+    host.resize({48,56}); host.begin(renderer);
+    auto bad = glyphs; bad.run.font = {7};
+    tessera::UiDrawList rejected{{tessera::DrawImage{{{0,0},{48,56}},{1}},bad}};
+    check(has(renderer.submit({1,{48,56},1},rejected),"unsupported_font","/commands/1/run/font"),"Real font accepted by placeholder mode");
+    bad = glyphs; bad.run.glyphs[0].id = 0xd800;
+    check(has(renderer.submit({1,{48,56},1},{{bad}}),"invalid_glyph","/commands/0/run/glyphs/0/id"),"Surrogate glyph accepted");
+    bad.run.glyphs[0].id = 0x110000;
+    check(has(renderer.submit({1,{48,56},1},{{bad}}),"invalid_glyph","/commands/0/run/glyphs/0/id"),"Out-of-range scalar accepted");
+    bad = glyphs;
+    bad.origin.x = bad.run.glyphs[0].position.x = std::numeric_limits<float>::max();
+    check(has(renderer.submit({1,{48,56},1},{{tessera::PushClip{{{0,0},{0,0}}},bad,tessera::PopClip{}}}),
+        "geometry_overflow","/commands/1/run/glyphs/0/position"),"Clipped glyph overflow accepted");
+    bad = glyphs; bad.run.glyphs[0].position.x = std::numeric_limits<float>::quiet_NaN();
+    check(has(renderer.submit({1,{48,56},1},{{bad}}),"invalid_number","/commands/0/run/glyphs/0/position/x"),"Nonfinite glyph accepted");
+    const auto black = host.finish("glyph-rejected.ppm");
+    for (unsigned y=0;y<56;++y) for (unsigned x=0;x<48;++x)
+        pixel(black,48,x,y,{0,0,0,255},"Glyph rejection recorded partial commands");
+    check(renderer.unbind_image({1}).empty(),"Rejected glyph submission pinned an image");
+
+    // Exhaustive small images prove baseline, multiline spacing, blank space, missing
+    // marks, lowercase policy and device scale against independent A/box masks.
+    std::uint64_t frame = 1;
+    for (float scale : {1.0f,1.25f,1.5f,2.0f}) {
+        const unsigned width = unsigned(48*scale), height = unsigned(56*scale);
+        host.resize({width,height}); host.begin(renderer);
+        check(renderer.submit({frame,{48,56},scale},{{glyphs}}).empty(),"Placeholder GPU submission failed");
+        const std::string artifact = "glyph-scale-" + std::to_string(frame) + ".ppm";
+        const auto pixels = host.finish(artifact.c_str()); renderer.retire(frame++);
+        const std::array<unsigned,7> a{14,17,17,31,17,17,17}, box{31,17,17,17,17,17,31};
+        for (unsigned y=0;y<height;++y) for (unsigned x=0;x<width;++x) {
+            bool on = false, boundary = false;
+            for (unsigned mark = 0; mark < 3; ++mark) {
+                const double gx = mark == 1 ? 21 : 1, gy = mark == 2 ? 26 : 2;
+                const double cx = ((x+0.5)/scale-gx)/1.6, cy = ((y+0.5)/scale-gy)/2;
+                if (std::abs(cx-std::round(cx)) < 0.00001 || std::abs(cy-std::round(cy)) < 0.00001) boundary = true;
+                if (cx >= 0 && cx < 5 && cy >= 0 && cy < 7)
+                    on = on || (((mark == 2 ? box : a)[unsigned(cy)] & (1u << (4-unsigned(cx)))) != 0);
+            }
+            if (!boundary) pixel(pixels,width,x,y,on ? std::array<int,4>{255,255,255,255} : std::array<int,4>{0,0,0,255},"Placeholder bitmap/scale");
+        }
+    }
+
+    // Glyphs use the same ordered blending, transform and clip path as primitives.
+    auto single = shaper.shape("A",style);
+    tessera::DrawGlyphRun red{{},*single.value,{1,0,0,1}};
+    tessera::DrawGlyphRun blue = red; blue.color = {0,0,1,0.5f};
+    const tessera::UiDrawList transformed{{
+        red,blue,
+        tessera::PushTransform{{-1,0,0,1,24,0}},tessera::PushClip{{{1,2},{4,14}}},
+        tessera::DrawGlyphRun{{},*single.value,{0,1,0,1}},tessera::PopClip{},tessera::PopTransform{},
+        tessera::PushTransform{{0,1,-1,0,48,4}},red,tessera::PopTransform{},
+        tessera::PushClip{{{0,0},{0,0}}},red,tessera::PopClip{},
+        tessera::DrawRect{{{0,40},{4,4}},{1,1,1,1}},
+    }};
+    host.resize({48,56}); host.begin(renderer);
+    check(renderer.submit({frame,{48,56},1},transformed).empty(),"Transformed glyph submission failed");
+    const auto transformed_pixels = host.finish("glyph-transforms.ppm"); renderer.retire(frame++);
+    pixel(transformed_pixels,48,4,2,{188,0,188,255},"Ordered glyph alpha");
+    pixel(transformed_pixels,48,1,2,{0,0,0,255},"Glyph transparent cell");
+    pixel(transformed_pixels,48,20,2,{0,255,0,255},"Mirrored glyph and clip");
+    pixel(transformed_pixels,48,17,4,{0,0,0,255},"Mirrored glyph clip exterior");
+    pixel(transformed_pixels,48,45,8,{255,0,0,255},"Rotated glyph");
+    pixel(transformed_pixels,48,1,41,{255,255,255,255},"Clip/transform restoration after glyphs");
+
+    // Full JSON -> tree -> layout -> paint -> GPU, retaining backend-neutral Text.
+    const auto document = tessera::load_document(R"({"version":1,"root":{"type":"Box","id":"menu","children":[{"type":"Text","id":"start","properties":{"text":"Start"}},{"type":"Text","id":"quit","properties":{"text":"Quit"}}]}})");
+    check(bool(document),"GPU menu JSON rejected");
+    const auto tree = tessera::UiTree::create(*document.value);
+    check(bool(tree),"GPU menu tree rejected");
+    std::vector<tessera::ResolvedStyle> styles((*tree.value)->size());
+    styles[0].padding = {4,4,4,4}; styles[0].gap = 4;
+    for (std::size_t i=1;i<styles.size();++i) { styles[i].text = style; styles[i].color = {1,1,1,1}; }
+    const auto layout = tessera::compute_layout({tree.value->get(),styles,{96,64},&shaper});
+    check(bool(layout),"GPU menu layout rejected");
+    const auto paint = tessera::build_paint_list({tree.value->get(),styles,&*layout.value,&shaper});
+    check(bool(paint),"GPU menu paint rejected");
+    const auto repeated = tessera::build_paint_list({tree.value->get(),styles,&*layout.value,&shaper});
+    check(repeated && *paint.value == *repeated.value,"GPU menu paint is nondeterministic");
+    host.resize({96,64}); host.begin(renderer);
+    check(renderer.submit({frame,{96,64},1},*paint.value).empty(),"Full document Text paint rejected by Vulkan");
+    const auto menu = host.finish("placeholder-menu.ppm"); renderer.retire(frame++);
+    pixel(menu,96,8,6,{255,255,255,255},"Menu Start first row");
+    pixel(menu,96,8,34,{255,255,255,255},"Menu Quit first row");
+    pixel(menu,96,0,0,{0,0,0,255},"Menu padding");
+    host.begin(renderer);
+    const auto empty = shaper.shape("",style), spaces = shaper.shape("  ",style);
+    check(renderer.submit({frame,{96,64},1},{{tessera::DrawGlyphRun{{},*empty.value,{1,1,1,1}},
+        tessera::DrawGlyphRun{{},*spaces.value,{1,1,1,1}}}}).empty(),"Blank placeholder runs rejected");
+    const auto blank = host.finish("glyph-blank.ppm"); renderer.retire(frame);
+    for (unsigned y=0;y<64;++y) for (unsigned x=0;x<96;++x) pixel(blank,96,x,y,{0,0,0,255},"Blank runs drew pixels");
+}
 }
 int main() {
     try {
-        { Host host; host.initialize(); fixtures(host); }
+        { Host host; host.initialize(); fixtures(host); glyph_fixtures(host); }
         check(validation_errors == 0,"Vulkan validation errors occurred");
-        std::cout << "Vulkan GPU primitive, image, scale, rejection and retirement fixtures passed (RGBA8 sRGB, tolerance 2/255).\n";
+        std::cout << "Vulkan GPU primitive, image, placeholder Text/menu, scale, rejection and retirement fixtures passed (RGBA8 sRGB, tolerance 2/255).\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n'; return 1;
     }
