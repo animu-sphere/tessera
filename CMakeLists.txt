@@ -7,10 +7,13 @@ add_library(tessera_core
     src/ui/serialization.cpp
     src/style/resolved_style.cpp
     src/layout/layout_box.cpp
+    src/layout/layout_snapshot.cpp
     src/layout/flex_layout.cpp
     src/text/placeholder_text.cpp
     src/input/event.cpp
+    src/input/pointer.cpp
     src/render/draw_list.cpp
+    src/render/paint.cpp
 )
 add_library(tessera::core ALIAS tessera_core)
 target_include_directories(tessera_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -28,6 +31,8 @@ if(TESSERA_BUILD_EXAMPLES)
     target_link_libraries(tessera_hello_ui PRIVATE tessera::core)
     add_executable(tessera_flex_layout examples/flex-layout/main.cpp)
     target_link_libraries(tessera_flex_layout PRIVATE tessera::core)
+    add_executable(tessera_pointer_menu examples/pointer-menu/main.cpp)
+    target_link_libraries(tessera_pointer_menu PRIVATE tessera::core)
 endif()
 
 include(CTest)
@@ -37,7 +42,7 @@ if(BUILD_TESTING)
     target_compile_definitions(tessera_document_tests PRIVATE
         TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")
     add_test(NAME document COMMAND tessera_document_tests)
-    foreach(contract IN ITEMS layout/layout_contract layout/layout text/text input/event render/draw_list)
+    foreach(contract IN ITEMS layout/layout_contract layout/layout text/text input/event input/pointer render/draw_list render/paint)
         get_filename_component(name ${contract} NAME)
         add_executable(tessera_${name}_tests tests/${contract}_tests.cpp)
         target_link_libraries(tessera_${name}_tests PRIVATE tessera::core)
@@ -46,5 +51,6 @@ if(BUILD_TESTING)
     if(TESSERA_BUILD_EXAMPLES)
         add_test(NAME hello_ui COMMAND tessera_hello_ui)
         add_test(NAME flex_layout COMMAND tessera_flex_layout)
+        add_test(NAME pointer_menu COMMAND tessera_pointer_menu)
     endif()
 endif()

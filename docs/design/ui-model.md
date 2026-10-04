@@ -16,14 +16,14 @@ The implemented semantic property vocabulary is deliberately small:
 
 | Property | Nodes | Value | Current behavior |
 | --- | --- | --- | --- |
-| `text` | Text only, required | UTF-8 string, including empty text | Stored content; no shaping/measurement |
+| `text` | Text only, required | UTF-8 string, including empty text | Measured by layout and shaped by paint through `TextShaper`; placeholder implementation only |
 | `focusable` | Box/Text | Boolean | Stored interaction intent; no focus runtime |
-| `disabled` | Box/Text | Boolean | Stored interaction intent; no dispatch runtime |
+| `disabled` | Box/Text | Boolean | Excludes the node/subtree from pointer targeting; absent means false; see [input](input.md) |
 | `labelled_by` | Box/Text | `NodeReference` to an existing author ID | Relationship storage/existence validation; no native accessibility adapter |
 
 `Property` has explicit boolean, binary64, string, and reference alternatives. No current semantic property accepts a number; unknown properties or mismatched types fail without coercion. Absent boolean properties remain absent rather than materializing defaults. Layout/style properties and asset references are deferred; they are not arbitrary semantic properties.
 
-`events` stores `activate`/`cancel` action names. Every bound action must exist in the caller's `ValidationContext.actions`; the default empty context rejects all bound actions. Validation snapshots the names for the call only. It stores no callback and grants no callback lifetime/dispatch behavior. The host remains responsible for action implementations.
+`events` stores `activate`/`cancel` action names. Every bound action must exist in the caller's `ValidationContext.actions`; the default empty context rejects all bound actions. Validation snapshots the names for the call only. Pointer dispatch consumes `activate` names to return host action requests as defined in [input](input.md); logical cancel dispatch remains planned. The document stores no callback, and the host remains responsible for action implementations.
 
 Document/node `extensions` preserve namespaced backend-neutral JSON metadata. Validation and runtime behavior do not interpret its contents. Names, strings, and metadata must be valid UTF-8; numeric metadata must be finite. Diagnostics and bounded recursion are described by the encoding page.
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Tessera is implementing Phase 0. Read the [documentation index](docs/README.md), [architecture](docs/design/architecture.md), and [current work](docs/roadmap/current.md) before making changes.
+Tessera is implementing the v0.1.0 minimal Vulkan menu candidate after the Phase 0 foundation and Phase 1 layout prototype. Read the [documentation index](docs/README.md), [architecture](docs/design/architecture.md), and [current work](docs/roadmap/current.md) before making changes.
 
 ## Scope changes around a boundary
 

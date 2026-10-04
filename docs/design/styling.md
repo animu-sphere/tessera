@@ -46,7 +46,7 @@ Proposed specificity is ID above class/pseudo state above type. Equal-specificit
 
 [Input](input.md) owns hover, active, focus, and disabled interaction state. Style resolution reads these values; it does not poll devices. Define whether ancestors match hover, how capture affects active state, and how disabled state propagates. A state change may alter layout and must invalidate the appropriate stages.
 
-Proposed visibility distinction: a non-displayed node does not participate in layout or interaction; a hidden node retains layout but does not paint or receive interaction. Zero opacity alone should not implicitly decide pointer behavior. Exact value names and focus policy remain to be specified.
+Implemented layout/paint/input distinction: a non-displayed subtree has no boxes or commands; a hidden node retains layout and suppresses its own paint and pointer targeting. Visibility is local in already-resolved styles, so a visible descendant can still paint and receive input. The [paint generator](rendering.md#implemented-paint-generation) multiplies ancestor opacity into each command's alpha. Zero opacity does not exclude a box from [pointer targeting](input.md#implemented-rectangular-hit-testing); focus policy remains planned.
 
 ## Themes and animation
 

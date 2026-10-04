@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Phases 0 and 1 delivered, 2026-10-05; the v0.1.0 Vulkan menu candidate is next. No public version has been released.
+Status: Phases 0 and 1 delivered, 2026-10-05; the v0.1.0 Vulkan menu candidate is active with backend-neutral paint generation and rectangular pointer targeting/activation delivered. No public version has been released.
 
 [Current](current.md) owns active and immediately next work. [Backlog](backlog.md) owns inactive candidates. [Support matrix](../reference/support-matrix.md) owns validated capabilities; roadmap checkboxes do not substitute for runtime evidence.
 
@@ -10,8 +10,8 @@ Status: Phases 0 and 1 delivered, 2026-10-05; the v0.1.0 Vulkan menu candidate i
 | --- | --- | --- | --- |
 | 0 — Foundation | Repository/build foundation, nodes, document/properties, event types, backend contract | Create, inspect, validate, and serialize a tree | Tree/serialization and subsystem contracts verified |
 | 1 — Layout prototype | Box, placeholder Text, fixed/stack/flex, margin/padding/gap | Deterministic `LayoutBox` tree without GPU | Fixed/stack/flex prototype verified with numeric fixtures |
-| 2 — Vulkan primitives | Rectangles, colors, clips, transforms, image draw path, batching, Slang | Tree to paint list to native host window | Planned |
-| 3 — Input | Pointer, hover/click, keyboard/focus, gamepad navigation | Interactive menu | Planned; pointer subset comes first |
+| 2 — Vulkan primitives | Rectangles, colors, clips, transforms, image draw path, batching, Slang | Tree to paint list to native host window | Background/border/Text paint generation verified; backend planned |
+| 3 — Input | Pointer, hover/click, keyboard/focus, gamepad navigation | Interactive menu | Rectangular pointer targeting/activation verified with synthetic events; native host/focus/navigation planned |
 | 4 — Text | Font abstraction, shaping/cache, UTF-8, Latin/Japanese, measurement/wrapping | Declared text coverage with font/image evidence | Planned |
 | 5 — Styling | Selectors, pseudo states, inheritance, theme variables | Web-inspired skinning | Planned |
 | 6 — Components | Props/state/bindings, conditionals/lists, keyed reconciliation | Dynamic application UI | Planned |
