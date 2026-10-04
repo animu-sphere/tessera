@@ -1,6 +1,6 @@
 # Current
 
-Updated: 2026-10-05. Phase 0 is active. Its tree/document/serialization slice is implemented and verified; the remaining subsystem contracts must land before moving to Phase 1. Delivery history is in the [changelog](../../CHANGELOG.md), with configuration evidence in the [support matrix](../reference/support-matrix.md).
+Updated: 2026-10-05. Phase 0 work items and exit criteria are implemented and verified on the recorded configuration. The Phase 1 layout prototype is next. Delivery history is in the [changelog](../../CHANGELOG.md), with configuration evidence in the [support matrix](../reference/support-matrix.md).
 
 ## Documentation foundation
 
@@ -27,11 +27,11 @@ Objective: **create a tree -> inspect it -> validate it -> serialize it**, witho
 - [x] Define Box/Text node kinds, ownership, runtime handles, author IDs, and ordered child storage.
 - [x] Define `UiDocument`, typed properties, format version, and validation diagnostics.
 - [x] Select JSON v1 and implement deterministic load/save behavior.
-- [ ] Define resolved-style and `LayoutBox` inputs/outputs needed by the next phase.
-- [ ] Define normalized base event types; action-name validation exists, but registration/dispatch and callback lifetime contracts remain to define.
-- [ ] Define a backend-neutral draw-list/frame contract with resource/submission lifetime rules; concrete GPU execution remains later work.
-- [ ] Define the text measurement/shaping boundary, without requiring real font libraries yet.
-- [x] Add one small tree/serialization smoke and focused failure/round-trip checks.
+- [x] Define resolved-style and `LayoutBox` inputs/outputs needed by the next phase; see [styling](../design/styling.md) and [layout](../design/layout.md).
+- [x] Define normalized base event types and the host action-request/callback lifetime contract; see [input](../design/input.md). Dispatch itself is Phase 3 work.
+- [x] Define a backend-neutral draw-list/frame contract with resource/submission lifetime rules; see [rendering](../design/rendering.md). Concrete GPU execution remains later work.
+- [x] Define the text measurement/shaping boundary with a deterministic placeholder shaper; see [text](../design/text.md).
+- [x] Add one small tree/serialization smoke and focused failure/round-trip checks, plus contract validation checks.
 - [x] Document verified build/test commands and the Windows x64/MSVC configuration.
 
 ### Exit criteria
@@ -51,6 +51,6 @@ Do not implement the full stylesheet engine, all candidate primitives, reactive 
 
 ## Immediately next — Phase 1 layout prototype
 
-After the foundation exit criteria pass, implement fixed-size Box/placeholder Text and stack/flex rows/columns with margin, padding, and gap. Use numeric geometry fixtures to prove deterministic output without any renderer. Follow [layout](../design/layout.md).
+Implement fixed-size Box/placeholder Text and stack/flex rows/columns with margin, padding, and gap, consuming `LayoutInput` and producing `LayoutResult`. Use `PlaceholderTextShaper` for Text metrics and numeric geometry fixtures to prove deterministic output without any renderer. Follow [layout](../design/layout.md).
 
 Vulkan and public milestone candidates remain in the [backlog](backlog.md) until this foundation is established.

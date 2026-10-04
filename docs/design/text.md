@@ -1,6 +1,19 @@
 # Text
 
-Status: Draft design. Placeholder text is the initial milestone scope.
+Status: Measurement/shaping boundary and deterministic placeholder implemented. No font library is integrated.
+
+## Implemented boundary
+
+[text.hpp](../../include/tessera/text/text.hpp) defines the abstraction. `TextShaper::measure(utf8, style)` returns `TextMetrics`; `TextShaper::shape(utf8, style)` returns a `GlyphRun` whose `metrics` equal `measure` for the same inputs. Shapers are borrowed by layout and paint for each call and may cache internally, so the operations are non-const. Results are owned values; no FreeType/HarfBuzz or other implementation type crosses the boundary.
+
+- `TextStyle`: host-assigned `FontId` (0 selects the host default font), finite positive size in logical units per em, optional positive line height (absent selects the shaper default), weight 1-1000.
+- `TextMetrics`: widest line advance by `lines * line_height`, first baseline below the top of the text box, line height, and line count. Empty text is one empty line.
+- `Glyph`: font-specific glyph ID, cluster as a UTF-8 byte offset into the source, and baseline pen position relative to the text box top left.
+- Failures return no value and diagnostics: `invalid_utf8` at `/text`, `text_too_long` above 4 GiB, and style errors (`invalid_number`/`out_of_range`) under `/style`.
+
+`PlaceholderTextShaper` uses no font data. Each Unicode scalar advances 0.5 em, LF starts a new line and emits no glyph, there is no wrapping, the default line height is 1.25 em, and a 0.8 em ascent is centered in each line. Glyph IDs are Unicode scalar values. It derives `measure` from `shape`, so the two cannot disagree. Its widths are not representative of any real font, including for Japanese text.
+
+Width constraints and wrapping are not part of the interface yet; they arrive with real line breaking.
 
 ## Boundary and ownership
 
@@ -18,7 +31,7 @@ measureText(text, font/style, constraints) -> TextMetrics
 shapeText(text, font/style, shaping options) -> GlyphRun
 ```
 
-Proposed metrics include advance/bounds, baseline, and line information. A glyph run needs positioned glyph identifiers, font references, and mappings back to source text. Decide index units explicitly: UTF-8 byte offsets, Unicode code points, grapheme clusters, and glyph indices are not interchangeable.
+Index units are explicit: clusters are UTF-8 byte offsets. Unicode code points, grapheme clusters, and glyph indices are not interchangeable with them; any later grapheme-aware API must state its own unit.
 
 ## Candidate implementation
 
@@ -36,7 +49,7 @@ Atlas/cache allocation, eviction, raster versus SDF/MSDF selection, and scale po
 
 ## Incremental delivery
 
-1. Define the text abstraction and deterministic placeholder metrics.
+1. Define the text abstraction and deterministic placeholder metrics (implemented).
 2. Add real font loading, shaping, measurement, fallback, and glyph caching.
 3. Add wrapping and render matching Latin/Japanese fixtures.
 4. Expand script, editing, or advanced glyph representation support only with separate evidence.

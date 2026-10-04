@@ -6,9 +6,9 @@ Intended uses include game HUDs, menus, editor panels, inspectors, overlays, in-
 
 ## Project status
 
-**Phase 0 in progress — 2026-10-05.** The repository now has a C++20 core with an owned Box/Text tree, typed properties, validation diagnostics, and deterministic JSON v1 load/save. A core-only CMake build, document tests, and the `hello-ui` serialization example are verified on Windows x64/MSVC; see [development](docs/guides/development.md) and [support evidence](docs/reference/support-matrix.md). Layout, input dispatch, text shaping, and rendering are not implemented. Design snippets remain proposals unless explicitly marked implemented.
+**Phase 0 delivered — 2026-10-05.** The repository has a C++20 core with an owned Box/Text tree, typed properties, validation diagnostics, and deterministic JSON v1 load/save, plus validated contracts for resolved styles and layout boxes, normalized input events and action requests, a draw list and frame submission, and text measurement with a deterministic placeholder shaper. A core-only CMake build, contract/document tests, and the `hello-ui` serialization example are verified on Windows x64/MSVC; see [development](docs/guides/development.md) and [support evidence](docs/reference/support-matrix.md). Layout algorithms, style resolution, input dispatch, real text shaping, paint generation, and GPU rendering are not implemented. Design snippets remain proposals unless explicitly marked implemented.
 
-The next work is the remaining [Phase 0 contracts](docs/roadmap/current.md). The first public milestone candidate is a small Vulkan menu prototype; later milestone candidates are tracked in the [backlog](docs/roadmap/backlog.md). Delivered slices are recorded in the [changelog](CHANGELOG.md).
+The next work is the [Phase 1 layout prototype](docs/roadmap/current.md). The first public milestone candidate is a small Vulkan menu prototype; later milestone candidates are tracked in the [backlog](docs/roadmap/backlog.md). Delivered slices are recorded in the [changelog](CHANGELOG.md).
 
 ## Direction
 

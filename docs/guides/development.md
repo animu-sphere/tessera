@@ -1,6 +1,6 @@
 # Development
 
-Status: Phase 0 tree/document/serialization slice implemented. Remaining foundation contracts and all layout/render/input/text implementations are planned.
+Status: Phase 0 tree/document/serialization slice and subsystem boundary contracts implemented. Layout, style resolution, dispatch, paint generation, real text, and backend implementations are planned.
 
 ## Requirements
 
@@ -19,7 +19,7 @@ ctest --test-dir build -C Debug --output-on-failure
 & .\build\Debug\tessera_hello_ui.exe
 ```
 
-Run from the repository root. The configure step enables the core, tests, and example. Expected results: `build/Debug/tessera_core.lib`, `tessera_document_tests.exe`, `tessera_hello_ui.exe`, and CTest passing `document` and `hello_ui`. The example emits canonical JSON and reports three restored ordered nodes. It performs no layout, drawing, or text shaping. Test logs are in `build/Testing/Temporary/LastTest.log`.
+Run from the repository root. The configure step enables the core, tests, and example. Expected results: `build/Debug/tessera_core.lib`, the `tessera_*_tests.exe` checks, `tessera_hello_ui.exe`, and CTest passing `document`, `layout_contract`, `text`, `event`, `draw_list`, and `hello_ui`. The example emits canonical JSON and reports three restored ordered nodes. It performs no layout, drawing, or text shaping. Test logs are in `build/Testing/Temporary/LastTest.log`.
 
 A fresh library-only configuration was also verified:
 
@@ -34,9 +34,9 @@ The local Codex sandbox initially denied MSBuild access to the user's Windows SD
 
 ## Current checks and boundaries
 
-[Document tests](../../tests/serialization/document_tests.cpp) cover semantic and canonical round trips, invalid schemas/properties/IDs/references/versions/actions, metadata, UTF-8/Unicode escapes, finite-number precision, input/output/nesting limits, and snapshot/handle lifetime. The [format specification](../../formats/tessera-ui/README.md) owns their encoding policy.
+[Document tests](../../tests/serialization/document_tests.cpp) cover semantic and canonical round trips, invalid schemas/properties/IDs/references/versions/actions, metadata, UTF-8/Unicode escapes, finite-number precision, input/output/nesting limits, and snapshot/handle lifetime. The [format specification](../../formats/tessera-ui/README.md) owns their encoding policy. Contract checks under [tests/layout](../../tests/layout), [tests/text](../../tests/text), [tests/input](../../tests/input), and [tests/render](../../tests/render) cover resolved-style/layout-input validation and box geometry, placeholder measurement/shaping agreement, normalized event validation, and draw-list stack/handle/frame validation.
 
-The public headers are under `include/tessera/ui`; source is under `src/ui`. The direct C++ builder uses owned values, and the runtime tree is an immutable validated snapshot. No callbacks, renderer objects, OS input codes, or font implementation types appear in these contracts.
+The public headers are under `include/tessera/{ui,layout,style,input,text,render}`; source is under the matching `src/` directories, with shared internal checks in `src/detail`. The direct C++ builder uses owned values, and the runtime tree is an immutable validated snapshot. No callbacks, renderer objects, OS input codes, or font implementation types appear in these contracts.
 
 Only Debug on this toolchain has execution evidence. Other generators, compiler versions, Release builds, operating systems, install/consumer workflows, and shared-library builds remain unvalidated.
 

@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Architectural direction with an implemented Phase 0 tree/document slice. Other subsystem APIs remain draft proposals.
+Status: Architectural direction with implemented Phase 0 tree/document and subsystem boundary contracts. Layout algorithms, style resolution, dispatch, paint generation, real text, and backends remain draft proposals.
 
 ## Purpose and constraints
 
@@ -67,7 +67,7 @@ Proposed lifecycle constraints: mutations are applied at defined update points, 
 
 ## Proposed source layout
 
-The complete layout below remains proposed. The current slice implements `CMakeLists.txt`, `include/tessera/ui`, `src/ui`, `formats/tessera-ui`, `examples/hello-ui`, and `tests/serialization`; other directories remain future work.
+The complete layout below remains proposed. Phase 0 implements `CMakeLists.txt`, `include/tessera/{ui,layout,style,input,text,render}`, the matching `src/` directories plus internal `src/detail`, `formats/tessera-ui`, `examples/hello-ui`, and `tests/{serialization,layout,text,input,render}`; other directories remain future work.
 
 ```text
 CMakeLists.txt
@@ -77,7 +77,7 @@ backends/{vulkan,webgpu}/
 shaders/
 formats/tessera-ui/
 examples/{hello-ui,flex-layout,gamepad-menu,inventory}/
-tests/{layout,style,input,serialization}/
+tests/{layout,style,input,text,render,serialization}/
 docs/{design,guides,reference,roadmap}/
 ```
 
@@ -87,7 +87,7 @@ Backends can remain modules in this repository. Split packages or repositories o
 
 - Packaging and ABI policy. The first slice uses C++20 and `tessera::core`; it makes no stable ABI promise.
 - Incremental node mutation/allocation. The implemented owned value tree, immutable snapshots, handles, and diagnostics are defined in [UI model](ui-model.md).
-- Exact host frame/renderer integration contract and ownership of submitted resources.
+- Backend-specific render target, resize, and device-loss rules. The core submission/retirement contract is defined in [rendering](rendering.md).
 - Explicit migrations beyond [JSON v1](../../formats/tessera-ui/README.md); unsupported versions currently fail.
 
 Resolve these through the [foundation milestone](../roadmap/current.md), with explicit evidence rather than assuming the illustrative APIs are final.
