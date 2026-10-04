@@ -1,6 +1,33 @@
 # UI model
 
-Status: Draft design. Fields and snippets are conceptual.
+Status: Phase 0 minimum document/tree contracts implemented. Components, styling, assets, and reconciliation remain draft design.
+
+## Implemented foundation contract
+
+The public headers are [document.hpp](../../include/tessera/ui/document.hpp), [tree.hpp](../../include/tessera/ui/tree.hpp), and [serialization.hpp](../../include/tessera/ui/serialization.hpp). They depend only on the C++20 standard library. The serialized fields and normalization/rejection rules are owned by [JSON v1](../../formats/tessera-ui/README.md).
+
+`UiDocument` owns one `UiNode` by value. Each node owns an ordered vector of children; copying performs a deep copy. This representation cannot express cycles, shared children, or multiple parents. Only `NodeKind::box` and `NodeKind::text` exist. Text nodes are leaves. Builder data is mutable until validated; invalid candidates do not produce a runtime tree or serialized result.
+
+`UiTree::create` validates a borrowed const document before copying its own immutable snapshot, so a rejected candidate is not consumed or recursively copied first. `UiTree` is neither copyable nor movable; its owning `unique_ptr` can move. Inspection returns borrowed const node pointers valid until the tree is destroyed. Preorder indices and a process-unique monotonically allocated tree identity form `NodeHandle`; handles from another or destroyed tree fail lookup in a later tree. Index 0 is the root, and the all-zero handle is invalid. Tree identities are never reused; identity exhaustion throws. There is no node removal/reuse in this slice. No runtime handle is serialized. A process identity counter does not provide multithreaded mutation or callback guarantees.
+
+Author IDs are optional document-scoped names used for diagnostics, lookup, and references. Duplicate IDs fail validation. They are distinct from runtime handles; reconciliation keys are deferred. Class names are stored in authored order without stylesheet behavior.
+
+The implemented semantic property vocabulary is deliberately small:
+
+| Property | Nodes | Value | Current behavior |
+| --- | --- | --- | --- |
+| `text` | Text only, required | UTF-8 string, including empty text | Stored content; no shaping/measurement |
+| `focusable` | Box/Text | Boolean | Stored interaction intent; no focus runtime |
+| `disabled` | Box/Text | Boolean | Stored interaction intent; no dispatch runtime |
+| `labelled_by` | Box/Text | `NodeReference` to an existing author ID | Relationship storage/existence validation; no native accessibility adapter |
+
+`Property` has explicit boolean, binary64, string, and reference alternatives. No current semantic property accepts a number; unknown properties or mismatched types fail without coercion. Absent boolean properties remain absent rather than materializing defaults. Layout/style properties and asset references are deferred; they are not arbitrary semantic properties.
+
+`events` stores `activate`/`cancel` action names. Every bound action must exist in the caller's `ValidationContext.actions`; the default empty context rejects all bound actions. Validation snapshots the names for the call only. It stores no callback and grants no callback lifetime/dispatch behavior. The host remains responsible for action implementations.
+
+Document/node `extensions` preserve namespaced backend-neutral JSON metadata. Validation and runtime behavior do not interpret its contents. Names, strings, and metadata must be valid UTF-8; numeric metadata must be finite. Diagnostics and bounded recursion are described by the encoding page.
+
+`Result<T>` returns an optional value and diagnostics; a failed load/save/create has no usable partial value. The current diagnostics are errors with stable codes, JSON-pointer locations, actionable messages, and source offsets when loaded. Allocator failures and exhausted tree identities remain standard C++ exceptions, rather than validation diagnostics. There are no global node/action registries or implicit filesystem/resource loading operations.
 
 ## Common representation
 
@@ -22,9 +49,9 @@ UiNode
   children[]
 ```
 
-The proposed minimum document is one rooted, ordered tree. Sibling order is meaningful; property-map iteration must not determine behavior. Nodes cannot have multiple parents or cycles. Validation should diagnose unknown node types, invalid property types, invalid references, and duplicate author IDs.
+The minimum document is implemented as one rooted, ordered tree. Sibling order is meaningful; property-map iteration must not determine behavior. Validation diagnoses unknown node types, invalid property types, invalid references, and duplicate author IDs. Style/asset references in the broader diagram remain proposed.
 
-Runtime node handles, serialized author IDs, and reconciliation keys serve different purposes. Handles identify live instances; author IDs support references and diagnostics; keys preserve identity across component updates. Their exact types, scopes, and reuse rules must be settled during foundation work.
+Runtime node handles, serialized author IDs, and reconciliation keys serve different purposes. Handles identify live instances; author IDs support references and diagnostics; keys preserve identity across component updates. The implemented handle/author-ID rules are above; key semantics still need component implementation evidence.
 
 ## Primitives and components
 
@@ -52,7 +79,7 @@ Required properties:
 - Unsupported versions fail clearly; migrations must be explicit.
 - No renderer objects, GPU handles, platform input codes, or runtime callbacks in serialized data.
 
-Begin with a simple JSON-compatible or TOML-style document and a C++ builder API. The choice of encoding, defaults, extension names, numeric precision, and version compatibility policy remains open. A later TypeScript-inspired DSL and optional JSX/TSX compiler lower into the IR. This does not require executing JavaScript inside the host.
+The foundation now uses [JSON v1](../../formats/tessera-ui/README.md) and direct C++ value construction. Defaults, extension names, numeric precision, and rejection policy are recorded there. A later TypeScript-inspired DSL and optional JSX/TSX compiler lower into the IR. This does not require executing JavaScript inside the host.
 
 ## State and reconciliation
 
@@ -64,4 +91,4 @@ Keyed reconciliation is planned for a later component milestone. Compatible-stat
 
 ## Foundation evidence
 
-Create a small tree, inspect its ordered structure, validate it, serialize it, and restore equivalent semantic data without a renderer. Cover malformed properties, duplicate IDs, invalid references, and unknown format versions.
+The [hello-ui example](../../examples/hello-ui/main.cpp) creates, inspects, validates, serializes, and restores one ordered tree without a renderer. [Document tests](../../tests/serialization/document_tests.cpp) verify semantic/canonical round trips, invalid properties/IDs/references/versions/actions, metadata, Unicode, bounds, and foreign/expired handles. Configuration evidence is in the [support matrix](../reference/support-matrix.md).

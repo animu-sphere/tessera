@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Draft design. No runtime is implemented.
+Status: Architectural direction with an implemented Phase 0 tree/document slice. Other subsystem APIs remain draft proposals.
 
 ## Purpose and constraints
 
@@ -67,7 +67,7 @@ Proposed lifecycle constraints: mutations are applied at defined update points, 
 
 ## Proposed source layout
 
-The following directories are planned; only documentation exists today.
+The complete layout below remains proposed. The current slice implements `CMakeLists.txt`, `include/tessera/ui`, `src/ui`, `formats/tessera-ui`, `examples/hello-ui`, and `tests/serialization`; other directories remain future work.
 
 ```text
 CMakeLists.txt
@@ -85,9 +85,9 @@ Backends can remain modules in this repository. Split packages or repositories o
 
 ## Open decisions
 
-- C++ language level, library targets, packaging, and ABI policy.
-- Node storage, identity/handle lifetime, allocation, and error/result conventions.
+- Packaging and ABI policy. The first slice uses C++20 and `tessera::core`; it makes no stable ABI promise.
+- Incremental node mutation/allocation. The implemented owned value tree, immutable snapshots, handles, and diagnostics are defined in [UI model](ui-model.md).
 - Exact host frame/renderer integration contract and ownership of submitted resources.
-- Serialized syntax and schema evolution policy, using the [UI model](ui-model.md) as the starting point.
+- Explicit migrations beyond [JSON v1](../../formats/tessera-ui/README.md); unsupported versions currently fail.
 
 Resolve these through the [foundation milestone](../roadmap/current.md), with explicit evidence rather than assuming the illustrative APIs are final.

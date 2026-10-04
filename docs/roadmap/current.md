@@ -1,6 +1,6 @@
 # Current
 
-Updated: 2026-10-05. Active scope is the documentation foundation and the immediately following Phase 0 implementation. No runtime work is complete.
+Updated: 2026-10-05. Phase 0 is active. Its tree/document/serialization slice is implemented and verified; the remaining subsystem contracts must land before moving to Phase 1. Delivery history is in the [changelog](../../CHANGELOG.md), with configuration evidence in the [support matrix](../reference/support-matrix.md).
 
 ## Documentation foundation
 
@@ -22,17 +22,17 @@ Objective: **create a tree -> inspect it -> validate it -> serialize it**, witho
 
 ### Work
 
-- [ ] Select the C++ standard, minimum CMake/compiler requirements, and minimal core-only targets.
-- [ ] Introduce the proposed include/source/test boundaries from [architecture](../design/architecture.md).
-- [ ] Define node kinds, ownership, runtime handles, author IDs, and ordered child storage.
-- [ ] Define `UiDocument`, typed properties, format version, and validation diagnostics.
-- [ ] Select a simple serialized encoding and implement deterministic load/save behavior.
+- [x] Select C++20, CMake 3.20 minimum, feature-based compiler requirements, and `tessera::core`; see [development](../guides/development.md).
+- [x] Introduce the UI include/source, serialization tests, format, and example boundaries from [architecture](../design/architecture.md); unused subsystem directories remain deferred.
+- [x] Define Box/Text node kinds, ownership, runtime handles, author IDs, and ordered child storage.
+- [x] Define `UiDocument`, typed properties, format version, and validation diagnostics.
+- [x] Select JSON v1 and implement deterministic load/save behavior.
 - [ ] Define resolved-style and `LayoutBox` inputs/outputs needed by the next phase.
-- [ ] Define normalized base event types and explicit host-action binding boundaries.
+- [ ] Define normalized base event types; action-name validation exists, but registration/dispatch and callback lifetime contracts remain to define.
 - [ ] Define a backend-neutral draw-list/frame contract with resource/submission lifetime rules; concrete GPU execution remains later work.
 - [ ] Define the text measurement/shaping boundary, without requiring real font libraries yet.
-- [ ] Add one small tree/serialization smoke and focused failure/round-trip checks.
-- [ ] Document verified build/test commands and any actually validated configuration.
+- [x] Add one small tree/serialization smoke and focused failure/round-trip checks.
+- [x] Document verified build/test commands and the Windows x64/MSVC configuration.
 
 ### Exit criteria
 
