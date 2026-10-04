@@ -1,6 +1,22 @@
 # Styling
 
-Status: Draft design. CSS-inspired semantics; no CSS compatibility claim.
+Status: Resolved-style contract implemented; selectors, cascade, and themes remain draft design. CSS-inspired semantics; no CSS compatibility claim.
+
+## Implemented resolved-style contract
+
+[resolved_style.hpp](../../include/tessera/style/resolved_style.hpp) defines `ResolvedStyle`, the typed values layout, paint, and interaction consume after resolution. No resolver exists yet: callers supply one resolved style per node, as described in [layout](layout.md). Default construction yields primitive defaults.
+
+| Group | Field: values (default) |
+| --- | --- |
+| Layout | `display`: `flex`, `none` (`flex`); `direction`: `column`, `row` (`column`); `justify`: `start`, `center`, `end`, `space_between` (`start`); `align`: `start`, `center`, `end`, `stretch` (`stretch`) |
+| Sizing | `width`/`height`: `Dimension` `automatic` or `points(n)` (`automatic`); `min_width`/`min_height` (0); `max_width`/`max_height` (+infinity) |
+| Spacing | `margin`, `border`, `padding`: `Edges` (all 0); `gap` (0); `grow` (0); `shrink` (0) |
+| Paint | `visibility`: `visible`, `hidden` (`visible`); `opacity` in [0, 1] (1); `background`, `border_color` (transparent); `corner_radius` (0) |
+| Text | `text`: [`TextStyle`](text.md) (host default font, 16 units, shaper line height, weight 400); `color` (opaque black) |
+
+A column direction and zero shrink are the defaults so undersized content overflows predictably instead of compressing implicitly. These are not CSS defaults. `Color` ([color.hpp](../../include/tessera/style/color.hpp)) holds sRGB-encoded components in [0, 1] with straight alpha.
+
+`validate(ResolvedStyle, path)` reports each invalid value once at `path/<field>`: non-finite numbers are `invalid_number`; negative lengths and opacity/color components outside [0, 1] are `out_of_range`; a NaN or negative maximum is rejected while +infinity is accepted; a minimum above its maximum is `conflicting_constraints`; an enumeration outside its declared values is `unknown_value`. Text style errors use the [text](text.md) rules under `path/text`.
 
 ## Property vocabulary
 
@@ -11,7 +27,7 @@ Status: Draft design. CSS-inspired semantics; no CSS compatibility claim.
 | Text | font-family, font-size, font-weight, line-height, text-align, color |
 | Interaction | cursor, pointer-events, focusable |
 
-Resolved styles must contain typed values, independently consumable by layout, paint, and interaction. Property units, defaults, enum values, shorthand expansion, and invalid-value behavior remain open decisions. Initial layout can use explicit local/resolved properties; the full stylesheet engine arrives later.
+Resolved values, units, defaults, and enumerations are fixed by the contract above. Authored property names, shorthand expansion, and authored invalid-value behavior remain open decisions. Initial layout can use explicit local/resolved properties; the full stylesheet engine arrives later.
 
 ## Selectors and cascade
 

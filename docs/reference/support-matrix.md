@@ -1,6 +1,6 @@
 # Support matrix
 
-Checked: 2026-10-05. The Phase 0 tree/document/serialization slice is validated on the Windows x64/MSVC Debug configuration below. Other runtime capabilities remain planned.
+Checked: 2026-10-05. The Phase 0 tree/document/serialization slice and subsystem boundary contracts are validated on the Windows x64/MSVC Debug configuration below. Other runtime capabilities remain planned.
 
 ## Evidence vocabulary
 
@@ -18,11 +18,11 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Area | Current status | Intended evidence before a support claim |
 | --- | --- | --- |
 | UI tree, properties, serialization | Validated for Box/Text foundation only | CTest round trip, validation failures, deterministic representation, metadata and handle lifetime |
-| Fixed/stack/flex layout | Planned | Numeric geometry fixtures without GPU |
-| Paint list and Vulkan primitives | Planned | Command validation, shader build, runtime images |
-| Pointer input and hit testing | Planned | Synthetic events plus interactive host smoke |
+| Fixed/stack/flex layout | `LayoutInput`/`LayoutBox`/resolved-style contract validation implemented; algorithms planned | Numeric geometry fixtures without GPU |
+| Paint list and Vulkan primitives | Draw-list and frame-info validation implemented; paint generation and backends planned | Command validation, shader build, runtime images |
+| Pointer input and hit testing | Normalized event validation implemented; hit testing/dispatch planned | Synthetic events plus interactive host smoke |
 | Focus, keyboard/gamepad navigation | Planned | Deterministic navigation and recovery fixtures plus menu smoke |
-| Text shaping and Latin/Japanese fallback | Planned | Declared fonts, metrics/wrapping fixtures, glyph images |
+| Text shaping and Latin/Japanese fallback | Measurement/shaping boundary and deterministic placeholder shaper implemented; real shaping planned | Declared fonts, metrics/wrapping fixtures, glyph images |
 | Stylesheets, selectors, pseudo states | Planned | Cascade, inheritance, state invalidation fixtures |
 | Component state/reconciliation | Planned | Key identity, update and cleanup evidence |
 | Image assets, themes, live reload | Planned | Resource lifetime, theme validation, valid/invalid reload cases |
@@ -35,7 +35,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 
 | Configuration | Current evidence |
 | --- | --- |
-| Core-only build | Windows x64/MSVC Debug library-only build plus document tests/example verified; no external runtime dependencies |
+| Core-only build | Windows x64/MSVC Debug library-only build plus document/contract tests and example verified; no external runtime dependencies |
 | Native Vulkan | No adopted SDK/toolchain, shader artifacts, or GPU runtime tests |
 | WebGPU native | No selected implementation or toolchain |
 | Browser / WASM | Feasibility candidate only; no build or browser tests |
@@ -54,6 +54,15 @@ This is core-only evidence, not native-window, input-device, graphics, text, pac
 - Result: both CTest targets (`document`, `hello_ui`) passed. Direct example execution printed canonical JSON and three ordered restored nodes. The library-only target built successfully. No Vulkan/WebGPU, Slang, FreeType/HarfBuzz, OpenUSD, browser, or editor dependency was configured or fetched.
 - Fixtures/artifacts: [menu.json](../../tests/serialization/fixtures/menu.json), [document checks](../../tests/serialization/document_tests.cpp), `build/Testing/Temporary/LastTest.log`, `build/Debug/*`, and `build-core/Debug/tessera_core.lib`. Build artifacts/logs are local ignored files; the source paths reproduce the checks.
 - Limits: only Box/Text, minimal semantic properties, action-name validation, and immutable snapshots. No geometry, focus/dispatch, real text metrics, paint/frame contract, GPU execution, live reload, or package installation/consumer test. Codex required approved sandbox escalation for MSBuild's ordinary SDK configuration access; tests ran without escalation.
+
+## Subsystem contract evidence — 2026-10-05
+
+- Revision: uncommitted implementation on base `42d67cdeb4e35a749a35e37f51e9daf0f83657d5`. Identifiable source adds `include/tessera/{layout,style,input,text,render}`, `src/{detail,layout,style,input,text,render}`, `tests/check.hpp`, and `tests/{layout,text,input,render}` to the foundation paths above.
+- Source fingerprint: SHA-256 `b76d159f6f9bfdb186dcd93a7408bc8efeb547f858818c45d4b321a8dbcce527`, computed with the foundation procedure over `CMakeLists.txt`, `include`, `src`, `examples`, and `tests`.
+- Configuration: the same OS, Visual Studio/MSVC `19.51.36256.0`, CMake/CTest `4.4.3`, `Visual Studio 18 2026`, `-A x64`, Debug configuration as the foundation evidence.
+- Procedure: the [development](../guides/development.md) configure/build/CTest commands, plus a fresh `build-core` library-only configure and build.
+- Result: all six CTest targets (`document`, `layout_contract`, `text`, `event`, `draw_list`, `hello_ui`) passed. The library-only build succeeded without warnings under `/W4`. No external dependency was configured or fetched.
+- Limits: these are type, lifetime, and validation contracts. No layout algorithm, style resolution, hit testing or dispatch, paint generation, real font shaping, or backend execution exists. Placeholder text metrics are not representative of real fonts.
 
 ## Recording future evidence
 

@@ -1,6 +1,6 @@
 # Documentation
 
-These documents organize the owner-provided **Tessera Implementation Strategy**, draft dated 2026-10-04. They preserve its architectural direction while separating subsystem contracts, implementation order, and evidence. Repository status was checked on 2026-10-05: Phase 0 tree/document/serialization slice implemented; remaining foundation contracts are active.
+These documents organize the owner-provided **Tessera Implementation Strategy**, draft dated 2026-10-04. They preserve its architectural direction while separating subsystem contracts, implementation order, and evidence. Repository status was checked on 2026-10-05: Phase 0 tree/document/serialization and subsystem boundary contracts implemented; the Phase 1 layout prototype is next.
 
 ## Reading order
 
