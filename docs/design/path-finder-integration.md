@@ -1,7 +1,5 @@
 # Path-finder integration
 
-Status: Draft design. No editor bridge or reload implementation exists.
-
 ## Shared model
 
 ```text
@@ -15,6 +13,8 @@ The foundation uses namespaced document/node `extensions` objects for design met
 ## Proposed editor bridge
 
 Expose narrow operations for document/schema inspection, validation diagnostics, reload requests, and preview results. Source locations allow Path-finder to link runtime/validation errors back to authored text. Avoid adding editor SDKs or reflection frameworks to the core.
+
+Generate property inspectors from the runtime's [reflection metadata](ui-model.md#proposed-property-reflection), and read [semantic projection](semantics.md) for meaning/state inspection. Editor categories are metadata, not a second validation/default table. Keep runtime and editor schema versions compatible and preserve source locations in diagnostics.
 
 Bridge transport, protocol versioning, process boundaries, preview asset resolution, and source-generation ownership are open. Start with an in-process adapter only if that is enough to prove shared-model behavior; do not commit to IPC before a consumer requires it.
 

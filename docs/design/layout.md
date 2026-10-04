@@ -1,7 +1,5 @@
 # Layout
 
-Status: Phase 0 input/output contracts and the Phase 1 fixed/stack/flex prototype implemented. Absolute positioning, scrolling, grid, and wrapping/intrinsic text remain planned. Layout must be verifiable without a GPU.
-
 ## Implemented foundation contract
 
 The public headers are [geometry.hpp](../../include/tessera/layout/geometry.hpp) and [layout_box.hpp](../../include/tessera/layout/layout_box.hpp). Geometry uses `float` logical units with the origin at the top left, positive X right, and positive Y down. `Point`, `Size`, `Rect`, and `Edges` are plain values. `inset(rect, edges)` moves each side inward; an overconstrained axis keeps its origin offset and clamps its size to zero. Device scale belongs to the renderer's frame information, not layout.
@@ -35,19 +33,33 @@ Layout consumes resolved values, not selector grammar or backend objects. A prop
 
 Transform composition within layout, pixel snapping, rounding, and numerical tolerances must be specified before algorithms become public contracts.
 
-## Algorithm order
+## Coordinate spaces
+
+Layout and normalized pointer positions use the logical coordinate convention defined by the foundation contract. Physical framebuffer pixels, device scale, clip/viewport coordinates, and host world-space coordinates are separate spaces. Physical conversion and backend snapping are owned by [rendering](rendering.md#coordinate-conversion); a world-space adapter maps host coordinates without importing world/engine types into layout.
+
+Scale/viewport changes must be supplied coherently at an update boundary. Specify transform/inverse hit-test mapping with shared geometry before adding transformed UI; draw-list transforms alone do not change layout or pointer behavior.
+
+## Extension order
 
 | Order | Capability | Intended behavior |
 | --- | --- | --- |
 | 1 | Fixed dimensions | Resolve explicit width/height with min/max constraints |
 | 2 | Stack | Ordered row or column children with margin, padding, and gap |
 | 3 | Flex-like | Distribute available space with explicit alignment rules |
-| 4 | Absolute positioning | Position against a declared containing box |
-| 5 | Scrolling | Separate viewport bounds from content extent and scroll offset |
-| 6 | Grid | Explicit rows/columns before advanced placement |
-| 7 | Intrinsic sizing | Content-driven sizing, including real text metrics |
+| 4 | Scrolling/clipping | Separate viewport from content extent and scroll offset |
+| 5 | Wrapping | Width-constrained text and declared line breaking |
+| 6 | Absolute/anchored positioning | Position against a declared containing box or anchor |
+| 7 | Richer intrinsic sizing | Content-driven sizing with explicit constraints |
+| 8 | Grid | Explicit rows/columns before advanced placement |
+| 9 | Virtualization support | Realized keyed items, estimated extents, stable scrolling |
 
-Orders 1–3 are implemented by the prototype above using `Box`, placeholder `Text`, margin, padding, and gap. It accepts already-resolved styles because stylesheet parsing does not exist. Text measurement goes through `TextShaper`; layout does not depend on a particular font library.
+The prototype contract above defines orders 1–3. Extension order is a dependency guide; milestone scope lives in [current](../roadmap/current.md) and [backlog](../roadmap/backlog.md). Text measurement always goes through `TextShaper`.
+
+## Scrolling and overlay geometry
+
+Proposed ScrollView output must make viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing. Define nested scrolling and coordinate conversion before adding virtualization. VirtualList follows ordinary scrolling and stable keyed reconciliation; realization/estimated-size changes must preserve a declared scroll anchor and expose enough geometry for navigation.
+
+Overlay placement resolves an anchor in logical coordinates against a declared viewport, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](ui-model.md#proposed-overlays-and-portals). Layout supplies shared geometry; input and paint must not independently recompute popup positions.
 
 ## Proposed rules to settle
 

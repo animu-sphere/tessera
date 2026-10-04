@@ -1,7 +1,5 @@
 # Text
 
-Status: Measurement/shaping boundary and deterministic placeholder implemented. No font library is integrated.
-
 ## Implemented boundary
 
 [text.hpp](../../include/tessera/text/text.hpp) defines the abstraction. `TextShaper::measure(utf8, style)` returns `TextMetrics`; `TextShaper::shape(utf8, style)` returns a `GlyphRun` whose `metrics` equal `measure` for the same inputs. Shapers are borrowed by layout and paint for each call and may cache internally, so the operations are non-const. Results are owned values; no FreeType/HarfBuzz or other implementation type crosses the boundary.
@@ -39,7 +37,7 @@ FreeType is a rasterization candidate; HarfBuzz is a shaping candidate. ICU or a
 
 Begin with UTF-8, Latin, Japanese, and basic fallback fonts. Specify missing-glyph behavior and diagnostics, invalid UTF-8 handling, font/style fallback, line metrics, and wrapping before making coverage claims. Bidirectional layout, grapheme segmentation, line breaking, and IME support need explicit scope; shaping alone does not prove them.
 
-Japanese verification requires declared font fixtures and real mixed-script examples. Do not infer support for every script or writing mode from a library choice. Vertical writing, rich text editing, selection, and complete international text editing are outside the initial milestones.
+Japanese verification requires declared font fixtures and real mixed-script examples. Do not infer coverage of every script or writing mode from a library choice. Vertical writing and rich-text editor suites are outside early scope. Editing/selection/IME and clipboard contracts are owned by [input](input.md#proposed-editing-ime-and-clipboard-boundary); shaping alone cannot establish editing support.
 
 ## Measurement and rendering agreement
 
@@ -49,10 +47,7 @@ Atlas/cache allocation, eviction, raster versus SDF/MSDF selection, and scale po
 
 ## Incremental delivery
 
-1. Define the text abstraction and deterministic placeholder metrics (implemented).
-2. Add real font loading, shaping, measurement, fallback, and glyph caching.
-3. Add wrapping and render matching Latin/Japanese fixtures.
-4. Expand script, editing, or advanced glyph representation support only with separate evidence.
+Use the placeholder boundary as a reference, then introduce real font abstraction, shaping, glyph cache, fallback, and wrapping. Measurement and paint must share results throughout. Editing/IME follows the input boundary; expanded scripts or glyph techniques require separate evidence. Scheduled scope is owned by [backlog](../roadmap/backlog.md).
 
 Placeholders must be described as placeholders in examples and the [support matrix](../reference/support-matrix.md). An early menu can use placeholder text while validating geometry and interaction.
 

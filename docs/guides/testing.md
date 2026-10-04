@@ -1,7 +1,5 @@
 # Testing strategy
 
-Status: Foundation document/tree, subsystem contract, fixed/stack/flex layout, backend-neutral paint generation, and rectangular pointer dispatch checks implemented; other algorithm and backend checks remain a verification plan.
-
 Test algorithms and boundaries heavily; test appearance selectively. Keep tests deterministic, compact, and meaningful. Do not build exhaustive screenshot coverage for every widget.
 
 ## High-value checks
@@ -14,11 +12,19 @@ Test algorithms and boundaries heavily; test appearance selectively. Keep tests 
 | [Input](../design/input.md) | Hit testing, clip/transform agreement, cancellation, propagation, focus/navigation recovery |
 | [Text](../design/text.md) | Shaping/measurement agreement, UTF-8 errors, fallback, wrapping, cache invalidation |
 | [Rendering](../design/rendering.md) | Paint order, stack validity, resource lifetime, a few primitive/glyph images |
+| [Semantics](../design/semantics.md) | Roles/names/relationships, state/action consistency, stale identities and adapter boundaries |
+| [Replay](../design/replay.md) | Controlled time/readiness, deterministic outputs, malformed recording/version failures |
 | [Editor bridge](../design/path-finder-integration.md) | Shared documents, metadata preservation, rejected reload, compatible state and cleanup |
 
 Use synthetic inputs and numeric output wherever possible. Golden serialized fixtures must assert semantics as well as deterministic formatting. Later dirty-update paths should agree with the full-tree reference calculation.
 
-The current CTest targets are `document` (semantic/canonical fixture round trips, schema/type/reference/action/version errors, malformed JSON/UTF-8, metadata/numeric precision and limits, snapshot/handle lifetime) `layout_contract` (resolved-style/layout-input diagnostics and padding/content box derivation), `layout` (fixed/stack/flex geometry, limits, overflow, fractional sizes, display/visibility, repeated-run equality, failures), `text` (placeholder metrics, UTF-8 cluster offsets, measurement/shaping agreement, failures), `event` (normalized event validation), `pointer` (targeting/edges, disabled/visibility, binding lookup, press/drag/release/cancel, multiple pointers, snapshot recovery, timestamp/rejection state), `draw_list` (stack balance/limits, transformed clips, handles, frame info), `paint` (command order/geometry, ancestor alpha, visibility/display, owned output, input topology, shaping diagnostics), `hello_ui` (code-built ordered-tree inspection/save/load smoke), `flex_layout` (menu layout/paint smoke), and `pointer_menu` (synthetic host action smoke). Checks use explicit failure returns and remain active in Release builds. They use no GPU, font, OS device, or third-party test framework. See [development](development.md) for actual commands.
+[CMakeLists.txt](../../CMakeLists.txt) owns test registration. Subsystem pages link their focused checks; the [development guide](development.md) owns execution commands, and [support](../reference/support-matrix.md) owns dated outcomes/configurations. Checks should remain active in Release as well as Debug.
+
+## Replay fixtures
+
+Use the [Replay contract](../design/replay.md) for fixture inputs and observable outputs. Start with numeric geometry, semantic snapshots, expected action order, and owned paint commands. Add GPU images only for rendering behavior that numeric/command fixtures cannot prove.
+
+Each milestone should retain the artifacts relevant to its capability: unit/boundary checks, serialized documents, numeric fixtures, replay/expected-action fixtures when interaction tooling exists, and selective runtime images when rendering exists. Record unsupported-feature diagnostics and the tested environment. Do not require GPU screenshots for a core-only foundation or claim a proposed replay tool ran.
 
 ## Evidence by milestone
 
@@ -39,6 +45,14 @@ Performance checks follow a correct baseline. Record UI size, changed-node count
 
 ## Documentation verification
 
-For Markdown-only changes, verify local link targets, balanced code fences, unique canonical ownership, and agreement between README, current work, backlog, and support matrix. Planned examples and conceptual API snippets must be labeled. Do not report a runtime test pass when only documentation checks ran.
+For Markdown-only changes, run from the repository root:
 
-As tests are introduced, record verified commands in the [development guide](development.md) and proven configurations in the [support matrix](../reference/support-matrix.md).
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-docs.ps1
+```
+
+The [checker](../../scripts/check-docs.ps1) validates relative file/directory links, Markdown heading fragments, code fences, canonical ownership links, and misplaced rolling status/checklists. External links are left to a separate network check when needed; local verification requires no network.
+
+Review [canonical ownership and change routing](../README.md#canonical-owners): technical details belong in one subsystem page, active scope in current, future scope in backlog, delivery history in changelog, and live capability/configuration evidence in support. A proposed API/schema must be labeled and must not silently change JSON v1.
+
+Automated checks cannot establish semantic uniqueness or implementation truth. Review those manually against code and the owner-provided direction. Do not report runtime tests for a documentation-only check.

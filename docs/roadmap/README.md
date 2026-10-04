@@ -1,40 +1,17 @@
 # Roadmap
 
-Status: Phases 0 and 1 delivered, 2026-10-05; the v0.1.0 Vulkan menu candidate is active with backend-neutral paint generation and rectangular pointer targeting/activation delivered. No public version has been released.
+[Current](current.md) owns the active milestone and remaining work. [Backlog](backlog.md) owns inactive version candidates and their dependencies. [Support matrix](../reference/support-matrix.md) owns implementation and validation status; [changelog](../../CHANGELOG.md) owns delivery history.
 
-[Current](current.md) owns active and immediately next work. [Backlog](backlog.md) owns inactive candidates. [Support matrix](../reference/support-matrix.md) owns validated capabilities; roadmap checkboxes do not substitute for runtime evidence.
+Version labels are candidate scopes without committed dates or release promises. Foundation and layout delivery remain historical records rather than a parallel phase-status table. Candidate scope is defined once, in current or backlog.
 
-## Strategy phase sequence
+## Planning rules
 
-| Phase | Goal | Deliverable | Current state |
-| --- | --- | --- | --- |
-| 0 — Foundation | Repository/build foundation, nodes, document/properties, event types, backend contract | Create, inspect, validate, and serialize a tree | Tree/serialization and subsystem contracts verified |
-| 1 — Layout prototype | Box, placeholder Text, fixed/stack/flex, margin/padding/gap | Deterministic `LayoutBox` tree without GPU | Fixed/stack/flex prototype verified with numeric fixtures |
-| 2 — Vulkan primitives | Rectangles, colors, clips, transforms, image draw path, batching, Slang | Tree to paint list to native host window | Background/border/Text paint generation verified; backend planned |
-| 3 — Input | Pointer, hover/click, keyboard/focus, gamepad navigation | Interactive menu | Rectangular pointer targeting/activation verified with synthetic events; native host/focus/navigation planned |
-| 4 — Text | Font abstraction, shaping/cache, UTF-8, Latin/Japanese, measurement/wrapping | Declared text coverage with font/image evidence | Planned |
-| 5 — Styling | Selectors, pseudo states, inheritance, theme variables | Web-inspired skinning | Planned |
-| 6 — Components | Props/state/bindings, conditionals/lists, keyed reconciliation | Dynamic application UI | Planned |
-| 7 — Path-finder bridge | Schema/metadata/source locations, diagnostics, live reload, editor bridge | Shared document authoring and preview | Planned |
-| 8 — WebGPU | Backend/shader path, native and browser/WASM feasibility | Same document across proven backends | Planned |
+- Each candidate has an objective, dependencies, bounded work, and observable exit criteria.
+- Establish full-tree correctness before incremental invalidation or aggressive batching.
+- Define reflection, semantic, replay, coordinate, and event/action boundaries early; introduce implementations at their owning milestones.
+- Prioritize keyboard/gamepad operation, mixed Latin/Japanese text, and consumer-driven editor primitives.
+- Promote optional work explicitly before making it an exit gate.
+- Move a candidate's scope between backlog and current when scheduling changes; do not copy it.
+- Remove completed tasks from current and record delivery/evidence with the [change-routing rules](../README.md#change-routing).
 
-Phases establish dependency order, not isolated silos. Define the text interface before real shaping, resolved-style values before stylesheet parsing, and document versioning before the full editor schema. Interfaces can be introduced early without claiming their later capability is implemented.
-
-## Public milestone candidates
-
-| Candidate | Scope |
-| --- | --- |
-| v0.1.0 | Tree + Box/placeholder Text + stack/flex + background/border + Vulkan + pointer hit testing |
-| v0.2.0 | Real text + focus/keyboard/gamepad + scroll container + style classes and hover/focus states |
-| v0.3.0 | Component state + keyed lists + image assets + themes + live reload + Path-finder prototype |
-| Later | Complete editor bridge, WebGPU feasibility/parity, animation and extensions justified by consumers |
-
-These candidates slice across the strategy phases. Low-level image rendering in Phase 2 does not require a complete application asset/component system before v0.3.0. Keyboard/gamepad semantics are designed early and delivered with the broader input milestone. Dates and version labels can change with integration evidence.
-
-## Tracking conventions
-
-- Use a checked item only for delivered work with identifiable verification.
-- Give each active milestone an objective, bounded work list, and observable exit criteria.
-- Move completed implementation out of active work into a changelog/delivery record when such records become necessary.
-- Update the support matrix only for the capability and configuration actually verified.
-- Keep architectural contracts in [design](../README.md), linked from tasks rather than copied into them.
+Design pages own technical contracts. Milestones reference those pages and name acceptance outcomes without reproducing the contracts.

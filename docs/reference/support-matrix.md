@@ -1,6 +1,6 @@
 # Support matrix
 
-Checked: 2026-10-05. The Phase 0 tree/document/serialization slice, subsystem boundary contracts, the Phase 1 fixed/stack/flex layout prototype, backend-neutral background/border/Text paint generation, and rectangular pointer targeting/activation are validated on the Windows x64/MSVC Debug configuration below. Other runtime capabilities remain planned.
+Evidence through: 2026-10-05. This is the sole live implementation/validation status record. Dated evidence below retains the limits of each tested slice; it is not a claim that documentation edits reran those checks. No public version has been released.
 
 ## Evidence vocabulary
 
@@ -30,6 +30,12 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | WebGPU | Planned | Toolchain/artifact checks and matching runtime fixtures |
 | Accessibility metadata/adapters | `labelled_by` relationship storage/reference validation implemented; adapters planned | Existence validation only; no role/name/state schema or native integration |
 | Animation and advanced custom paint | Planned | Resolved-value/time/invalidation and draw-list boundary checks |
+| Property reflection/introspection | Planned; explicit typed values/validation exist, no descriptor API | Schema/default/range/encoded-name agreement and Inspector consumer |
+| SemanticTree and semantic actions | Planned; relationship storage is not a semantic projection | Deterministic roles/names/state/actions, eligibility and stale-target checks |
+| Deterministic replay tooling | Planned; repeated-run fixtures are not a recording/playback tool | Versioned controlled inputs, expected geometry/semantics/actions/paint |
+| DPI/coordinate integration | Logical layout and frame device-scale values implemented; host/backend conversion unvalidated | Fractional scale, input/clip conversion, resize and pixel-snapping fixtures |
+| Overlay/Portal and virtualized lists | Planned | Layer geometry/order, ownership/focus cleanup and keyed scroll stability |
+| Editing/IME/clipboard | Committed text event validation only; composition/editing and clipboard planned | Replacement/selection units, Japanese composition and platform adapter evidence |
 
 ## Configuration status
 

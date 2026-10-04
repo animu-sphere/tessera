@@ -1,56 +1,38 @@
 # Current
 
-Updated: 2026-10-05. Phase 0, the Phase 1 layout prototype, backend-neutral paint generation, and rectangular pointer targeting/activation are implemented and verified on the recorded configuration. The v0.1.0 minimal Vulkan menu candidate is active. Delivery history is in the [changelog](../../CHANGELOG.md), with configuration evidence in the [support matrix](../reference/support-matrix.md).
-
-## Documentation foundation
-
-Objective: turn the implementation strategy into a compact set of canonical subsystem designs and reviewable milestones.
-
-Delivered:
-
-- [x] Root README and documentation index.
-- [x] Design pages for architecture, UI model, layout, styling, rendering, text, input, and Path-finder integration.
-- [x] Development/testing guides and dependency/support references.
-- [x] Separate current work, backlog, and phase/milestone overview.
-- [x] Contributor and agent guidance consistent with the strategy.
-
-These items describe documentation delivery, not implementation or platform validation.
-
-## Phase 0 — Runtime foundation
-
-Delivered: **create a tree -> inspect it -> validate it -> serialize it**, plus the resolved-style, layout, input, draw-list, and text boundary contracts, without a renderer or platform SDK. Its work items and exit criteria are recorded in the [changelog](../../CHANGELOG.md) and [support matrix](../reference/support-matrix.md); contracts live in their design pages.
-
-## Phase 1 — Layout prototype
-
-Delivered: **tree + resolved styles + viewport + text metrics -> deterministic `LayoutBox` tree**, without any renderer. Fixed/stack/flex algorithms, scope limits, and numeric fixtures are recorded in [layout](../design/layout.md), the [changelog](../../CHANGELOG.md), and the [support matrix](../reference/support-matrix.md).
-
 ## Active — v0.1.0 minimal Vulkan menu candidate
 
-Objective: prove the declarative UI -> style -> layout -> paint -> GPU pipeline with a small pointer-operated menu.
+Objective: complete the declarative document -> layout -> paint -> GPU pipeline with a small pointer-operated native menu.
 
-Depends on: Phase 0 model/contracts and Phase 1 deterministic fixed/stack/flex layout.
+Depends on document, resolved-style, layout, paint, and pointer contracts. Existing capability/evidence is recorded only in the [support matrix](../reference/support-matrix.md); previous slices are in the [changelog](../../CHANGELOG.md). This page lists remaining work.
 
-### Work
+## Remaining required work
 
-- [x] Backend-neutral background/border/Text paint generation, with deterministic preorder, alpha/visibility rules, validation, and numeric fixtures; see [rendering](../design/rendering.md#implemented-paint-generation).
-- [ ] Vulkan primitive execution: rectangles/colors, inside borders, clips, and transforms, with actual runtime image evidence.
-- [ ] Slang shader build path and a small number of primitive pipelines.
-- [ ] Conservative batching that preserves visible draw order.
-- [x] Rectangular pointer hit testing, hover/primary-click state, cancellation, snapshot refresh, and host action requests; synthetic tests and `pointer-menu` smoke; see [input](../design/input.md).
-- [ ] Minimal standalone menu host with placeholder Text, OS input normalization/cancellation, and explicit window/device ownership.
+- Select Vulkan, shader, and example-host dependencies under the [dependency policy](../reference/dependencies.md). Evaluate Slang below the rendering boundary and record the chosen build/artifact path.
+- Execute primitive draw commands in Vulkan: rectangles/rounded rectangles, inside borders, clips, transforms, basic alpha, and conservative batching preserving visible order. Exercise low-level image sampling without requiring a full application asset API; see [rendering](../design/rendering.md).
+- Build a standalone menu host with explicit window/device/queue ownership, placeholder Text, normalized pointer input, and cancellation delivery; see [input](../design/input.md).
+- Validate logical coordinates, framebuffer size, device scale, resize, and clip/transform conversion; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
+- Introduce basic property metadata for the existing vocabulary, sharing validation/default information with the runtime; see [reflection](../design/ui-model.md#proposed-property-reflection).
+- Preserve deterministic geometry/paint fixtures and add a small GPU image fixture set through the [testing strategy](../guides/testing.md).
 
-Low-level image sampling can be proven during the renderer phase; a full asset/component API is not a release gate.
+## Optional early prototypes
 
-### Exit criteria
+- [Replay](../design/replay.md) recording/playback v0 for deterministic geometry, paint, and expected actions.
+- Minimal [semantic schema](../design/semantics.md) review/prototype ahead of navigable menus.
 
-- A document produces deterministic geometry, paint commands, and a visible Vulkan menu.
-- Overlap, border, clip, transform, and basic alpha fixtures have actual runtime image evidence.
-- Synthetic pointer checks and a native-window smoke show predictable targeting and action dispatch.
-- Public core APIs remain backend-neutral; submission/resource lifetime is verified for the supported host.
-- Text placeholders and validated OS/compiler/GPU limits are explicitly reported.
+These prototypes are recommended foundations, not additional release gates. They must not silently extend JSON v1 or imply stable public APIs.
 
-### Immediately next
+## Exit criteria
 
-Select and record Vulkan/Slang and example-host dependency choices, then implement primitive execution below `UiDrawList`. Paint currently emits rectangles, borders, and placeholder glyph runs without implicit clips/transforms; the existing draw-list vocabulary supports manually authored clip/transform fixtures. No GPU pixels or native-window behavior have been validated.
+- A JSON document produces deterministic geometry/paint and a visible Vulkan menu.
+- Overlap, border, clip, transform, and basic alpha cases have runtime image evidence under declared tolerances.
+- Native pointer clicks produce expected host action requests; focus/capture loss cancels presses predictably.
+- Logical/physical conversion works at declared scales; core public types remain backend-neutral.
+- Property metadata covers the chosen foundation vocabulary and agrees with validation/defaults.
+- Submission/resource retirement is verified for the concrete host. Record actual OS/compiler/GPU, placeholders, and unsupported cases in support.
 
-Design owners: [rendering](../design/rendering.md), [input](../design/input.md), [text](../design/text.md). Later candidates are in the [backlog](backlog.md).
+## Immediately next
+
+Choose and record renderer/shader/host dependencies, then execute primitive fixtures below `UiDrawList`. Keep the runtime independent of concrete implementations. Paint output/limits are defined in [rendering](../design/rendering.md#implemented-paint-generation); use direct draw-list fixtures for command forms it does not generate.
+
+Later candidate scopes are in [backlog](backlog.md).

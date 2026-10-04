@@ -1,47 +1,50 @@
 # Documentation
 
-These documents organize the owner-provided **Tessera Implementation Strategy**, draft dated 2026-10-04. They preserve its architectural direction while separating subsystem contracts, implementation order, and evidence. Repository status was checked on 2026-10-05: Phase 0 tree/document/serialization and subsystem boundary contracts, the Phase 1 fixed/stack/flex layout prototype, backend-neutral background/border/Text paint generation, and rectangular pointer targeting/activation implemented; the v0.1.0 Vulkan menu candidate is active, with backend and native host work remaining.
+These documents incorporate the owner-provided implementation direction dated 2026-10-05 (`tessera-implementation-roadmap.md`), superseding the earlier strategy draft. The external file is an input, not a second maintained roadmap. Repository documents below own subsequent changes; no local Desktop path is required to use them.
 
 ## Reading order
 
-1. [Architecture](design/architecture.md): purpose, ownership, dependency direction, and host integration.
-2. [UI model](design/ui-model.md): common representation beneath every authoring frontend.
-3. [Current work](roadmap/current.md): the foundation to implement next.
-4. The relevant subsystem design and [testing strategy](guides/testing.md).
+1. [Architecture](design/architecture.md): purpose, ownership, dependency direction, and frame lifecycle.
+2. [UI model](design/ui-model.md): common representation beneath authoring frontends.
+3. [Current work](roadmap/current.md): active scope and exit criteria.
+4. The relevant subsystem contract and [testing strategy](guides/testing.md).
 
-## Canonical documents
+## Canonical owners
 
-| Document | Owns |
-| --- | --- |
-| [Architecture](design/architecture.md) | Long-term constraints, ecosystem responsibilities, frame scheduling, proposed repository layout |
-| [UI model](design/ui-model.md) | IR, serialization, properties, components, state, reconciliation, authoring frontend order |
-| [JSON v1](../formats/tessera-ui/README.md) | Implemented serialized fields, formatting, metadata preservation, rejection and bounds |
-| [Layout](design/layout.md) | Layout inputs/output, algorithm order, sizing, scrolling |
-| [Styling](design/styling.md) | Property vocabulary, selectors, cascade, inheritance, pseudo states, themes, animation |
-| [Rendering](design/rendering.md) | Paint commands, backend contract, GPU integration, Slang, batching, asset boundary |
-| [Text](design/text.md) | Font/shaping abstraction, measurement, fallback, glyph caching |
-| [Input](design/input.md) | Normalized events, hit testing, propagation, focus, navigation, accessibility metadata |
-| [Path-finder integration](design/path-finder-integration.md) | Shared document editing, metadata, diagnostics, reload transaction |
-| [Development](guides/development.md) | Current setup status and future build workflow requirements |
-| [Testing](guides/testing.md) | High-value checks and milestone evidence |
-| [Dependencies](reference/dependencies.md) | Candidate dependencies, module boundaries, adoption requirements |
-| [Support matrix](reference/support-matrix.md) | Implemented capabilities and validated configurations only |
-| [Roadmap index](roadmap/README.md) | Phase sequence and planning conventions |
-| [Current](roadmap/current.md) | Active and immediately next work with exit criteria |
-| [Backlog](roadmap/backlog.md) | Inactive milestones, dependencies, and deferred scope |
+| Document | Owns | Does not own |
+| --- | --- | --- |
+| [Architecture](design/architecture.md) | Ecosystem boundaries, determinism, update/snapshot lifecycle, core constraints | Capability status or directory inventory |
+| [UI model](design/ui-model.md) | Tree/identity, semantic properties, reflection metadata, components, reconciliation, portal ownership, frontend lowering | Encoded fields, editor transport, interaction policy |
+| [JSON v1](../formats/tessera-ui/README.md) | Serialized fields, formatting, metadata preservation, rejection and bounds | Future schema proposals |
+| [Layout](design/layout.md) | Geometry, logical coordinates, sizing, scrolling, positioning, virtualization geometry | Physical-pixel conversion or navigation |
+| [Styling](design/styling.md) | Resolved values, cascade, inheritance, themes, property effects, animation | Device input or progress tracking |
+| [Rendering](design/rendering.md) | Paint vocabulary/order, backend/resource contract, pixel conversion, shaders, batching, custom paint, asset boundary | Layout or application state |
+| [Text](design/text.md) | Font/shaping abstraction, indices, metrics, fallback, glyph caching | Editing events and clipboard operations |
+| [Input](design/input.md) | Normalized events, hit tests, focus/navigation, event-to-action translation, editing/IME/clipboard boundary | Semantic schema or OS adapters |
+| [Semantics](design/semantics.md) | Semantic projection, roles/names/state/actions, inspection and accessibility/automation adapter boundary | Focus algorithms or host action implementation |
+| [Replay](design/replay.md) | Versioned recording inputs, deterministic playback and observable outputs | Test procedure or CLI support claims |
+| [Path-finder integration](design/path-finder-integration.md) | Shared-schema editing, diagnostics, reload transaction, preview bridge | A second property/semantic schema or runtime |
+| [Development](guides/development.md) | Build/run commands and workflow | Test-result history or subsystem contracts |
+| [Testing](guides/testing.md) | Verification methods and documentation checks | Test-target inventory or capability status |
+| [Dependencies](reference/dependencies.md) | Adopted/candidate choices, acquisition and licensing policy | Validated configuration claims |
+| [Support matrix](reference/support-matrix.md) | **Only live implementation/validation status**, configurations and evidence | Work scheduling or contract definitions |
+| [Roadmap index](roadmap/README.md) | Planning conventions and links | A second milestone/status table |
+| [Current](roadmap/current.md) | **Only active milestone**, remaining work and exit criteria | Completed checklists or delivery history |
+| [Backlog](roadmap/backlog.md) | Inactive candidates, dependencies, deferred scope | Active tasks or implementation status |
+| [Changelog](../CHANGELOG.md) | Dated delivery history and release records | Live capability status |
 
-## Status vocabulary
+## Contract labels
 
-- **Direction**: an architectural constraint inherited from the strategy.
-- **Proposed contract**: a concrete design to validate during implementation; not a stable public API.
-- **Open decision**: a choice that still needs implementation or integration evidence.
-- **Planned**: a capability with no implementation evidence yet.
-- **Implemented / validated**: use only with identifiable code and verification evidence.
+Sections named **Implemented ... contract/boundary/algorithm** describe identifiable source APIs, with header links. Sections named **Proposed ...** describe designs to validate, not usable APIs. Architectural direction is a constraint; an open decision is unresolved. These labels distinguish contract maturity without turning each page into a progress dashboard. Implementation and validation vocabulary is defined only in the [support matrix](reference/support-matrix.md#evidence-vocabulary).
 
-Design pages distinguish implemented foundation contracts from draft plans. Type names and snippets are illustrative unless explicitly promoted to implemented API documentation. Version labels in the roadmap are candidates, not release promises. Dates do not imply platform validation.
+## Change routing
 
-## Maintenance
+- Contract change: update its owner and link to it from consumers. Keep exact rules, fields, defaults, and lifetimes in that owner.
+- Scope change: edit current or backlog. When a candidate becomes active, move its complete scope to current; leave a link in backlog.
+- Delivery: remove finished tasks from current, append history to the changelog, and update affected support rows with source/evidence. Contract pages change only when their contract or maturity changes.
+- Validation: update support evidence only. Build instructions change only when the procedure changes.
+- Index/README: change for navigation or ownership, not each implementation slice.
 
-Define a contract in one owning document and link to it elsewhere. Current work must not become a delivery history. The root [changelog](../CHANGELOG.md) records delivered implementation slices; no public release has been made.
+Do not copy milestone tables, rolling `Status:` summaries, toolchain results, or delivered checklists into indexes, guides, or design introductions. An API limitation belongs with its contract; the fact that a whole capability is absent belongs in support. Historical evidence is read in its dated context.
 
-The organization follows the separation used by [hydra-merlin](https://github.com/animu-sphere/hydra-merlin): [design](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/design/renderer-architecture.md), [current work](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/roadmap/current.md), [backlog](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/roadmap/backlog.md), and [support reference](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/reference/support-matrix.md). Its renderer-specific contracts, dependency versions, and support claims do not apply to Tessera.
+Run [documentation checks](guides/testing.md#documentation-verification) after edits. They check links/anchors, code fences, required ownership links, and common forms of duplicate status tracking. Review semantic ownership as well; a checker cannot prove that prose passages express the same contract.

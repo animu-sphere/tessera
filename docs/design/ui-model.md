@@ -1,7 +1,5 @@
 # UI model
 
-Status: Phase 0 minimum document/tree contracts implemented. Components, styling, assets, and reconciliation remain draft design.
-
 ## Implemented foundation contract
 
 The public headers are [document.hpp](../../include/tessera/ui/document.hpp), [tree.hpp](../../include/tessera/ui/tree.hpp), and [serialization.hpp](../../include/tessera/ui/serialization.hpp). They depend only on the C++20 standard library. The serialized fields and normalization/rejection rules are owned by [JSON v1](../../formats/tessera-ui/README.md).
@@ -89,6 +87,22 @@ Proposed update semantics: state writes schedule a defined update, rendering obs
 
 Keyed reconciliation is planned for a later component milestone. Compatible-state preservation during reload uses the same identity rules; see [Path-finder integration](path-finder-integration.md).
 
-## Foundation evidence
+## Proposed property reflection
+
+Expose explicit property metadata from the runtime schema, without a general reflection framework or editor SDK dependency. A descriptor needs a stable property/serialization name, value type, authored default or absence policy, valid range/enum, editor category, and affected stages. A property can affect multiple stages; do not force style/layout/paint/semantics into a mutually exclusive enum. Stage meaning is owned by [styling](styling.md#property-effects).
+
+Use the same descriptors or shared definitions for validation, serialization, Inspector generation, and invalidation. Do not maintain a second editor-owned list of types/defaults. Derived or read-only values must be distinguished from authored properties. Property identifiers are independent of display labels, and descriptor lifetime must be explicit for consumers.
+
+Basic metadata starts with the existing vocabulary; full introspection follows schema evolution. This proposal does not add fields to JSON v1. Tests must catch disagreement between descriptors, accepted values, defaults, and encoded names. Path-finder consumes this metadata under its [bridge contract](path-finder-integration.md).
+
+## Proposed overlays and portals
+
+An overlay root provides a presentation layer for popups, tooltips, context menus, and modals outside ordinary content clipping. A portal changes presentation ancestry while retaining declared component/state ownership and stable identity. Define logical versus presentation parentage explicitly before adding it to the document schema.
+
+The model owns mount/unmount, keyed identity, and cleanup. [Layout](layout.md#scrolling-and-overlay-geometry) owns anchor/viewport placement; [rendering](rendering.md#proposed-overlay-paint) owns presentation order/clips; [input](input.md#proposed-overlay-interaction) owns modal focus and hit eligibility. These consumers must use the same layer identity rather than inventing independent z-order schemes.
+
+Virtualized lists rely on keyed item identity and reconciliation cleanup, including offscreen focus/selection policy. Geometry and realization requirements are owned by [layout](layout.md#scrolling-and-overlay-geometry).
+
+## Verification
 
 The [hello-ui example](../../examples/hello-ui/main.cpp) creates, inspects, validates, serializes, and restores one ordered tree without a renderer. [Document tests](../../tests/serialization/document_tests.cpp) verify semantic/canonical round trips, invalid properties/IDs/references/versions/actions, metadata, Unicode, bounds, and foreign/expired handles. Configuration evidence is in the [support matrix](../reference/support-matrix.md).

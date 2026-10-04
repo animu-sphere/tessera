@@ -1,7 +1,5 @@
 # Rendering
 
-Status: Draw-list/frame-submission contracts and full-tree background/border/Text paint generation implemented. No backend is implemented; Vulkan is the first backend target.
-
 ## Implemented draw-list contract
 
 [draw_list.hpp](../../include/tessera/render/draw_list.hpp) defines `UiDrawList`, an owned ordered vector of commands. Later commands paint above earlier ones. Geometry is in logical units within the current transform.
@@ -27,7 +25,13 @@ Clips and transforms share one LIFO stack with a maximum depth of 64. `validate(
 - Images referenced by frame N stay valid until the host calls `retire(M)` with M >= N. The host, which owns queues and fences, calls `retire` after observing GPU completion. A backend may reclaim its own upload memory for retired frames.
 - The host provides the device, queues, render target, and presentation through the concrete backend's own construction or host-context API, never through core types. Target format, color-space conversion, resize, and device-loss behavior are specified per backend.
 
-No concrete backend implements this interface yet; the contract alone is not backend evidence.
+Concrete-backend validation is recorded in [support](../reference/support-matrix.md), separately from this interface contract.
+
+## Coordinate conversion
+
+`FrameInfo::device_scale` expresses physical pixels per logical unit. Layout and draw geometry follow [logical coordinates](layout.md#coordinate-spaces); the renderer/host boundary converts them to the physical framebuffer and backend viewport/scissor conventions. Define framebuffer extent, rounding, clip-edge conversion, and resize handling with the concrete backend. Pixel snapping is a later explicit scale-aware policy, not hidden rounding in layout.
+
+Validate fractional scales and scale changes as well as 1:1 rendering. Normalized input must map back to the same logical space. World-space projection belongs to a host adapter.
 
 ## Paint boundary
 
@@ -67,13 +71,17 @@ Initial module: `backends/vulkan/`. Later: `backends/webgpu/`. Metal and Direct3
 
 Slang is the proposed shader layer for rectangles, rounded corners, borders, images, glyphs, clipping, and later effects. Keep it below `UiDrawList`; ordinary components do not refer to shader entry points or pipeline objects. Use a small set of general-purpose primitive pipelines rather than one pipeline per widget.
 
-SPIR-V for Vulkan is the first intended artifact path. A WebGPU shader-target path, including WGSL suitability, must be checked against the eventually selected toolchain. No shader target, SDK version, browser, or WASM support is validated today. See [dependencies](../reference/dependencies.md).
+SPIR-V for Vulkan is the first intended artifact path. Evaluate Slang as an implementation choice below the public contract; it is not a core requirement. Reassess shader-source strategy for WebGPU, including WGSL suitability, against the selected toolchain. Adopted choices belong in [dependencies](../reference/dependencies.md), validation in [support](../reference/support-matrix.md).
 
 ## Batching
 
 Candidate batch keys are pipeline, texture, clip state, and blend mode. Only combine commands when their visible ordering remains correct; global texture sorting can change overlapping translucent UI. Prefer adjacent compatible batches first. Track submission and upload costs once a correct baseline exists, without making speculative optimization a foundation requirement.
 
 `Canvas` / custom paint uses this command vocabulary and observes balanced clip/transform state. It must not bypass draw-list resource lifetime or depend on a concrete backend.
+
+## Proposed overlay paint
+
+The [overlay/portal model](ui-model.md#proposed-overlays-and-portals) provides layer identity and presentation ancestry. Paint uses shared placement/clip geometry to place overlay commands after the appropriate content layer, without inheriting ordinary content clips accidentally. Define deterministic ordering and balanced stack boundaries; input must use the same presentation order. Portals do not bypass resource retirement or create backend-owned components.
 
 ## Assets
 
