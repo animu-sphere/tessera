@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Planning baseline, 2026-10-05. No runtime or public version has been delivered.
+Status: Phase 0 in progress, 2026-10-05. The tree/document/serialization slice is delivered; no public version has been released.
 
 [Current](current.md) owns active and immediately next work. [Backlog](backlog.md) owns inactive candidates. [Support matrix](../reference/support-matrix.md) owns validated capabilities; roadmap checkboxes do not substitute for runtime evidence.
 
@@ -8,7 +8,7 @@ Status: Planning baseline, 2026-10-05. No runtime or public version has been del
 
 | Phase | Goal | Deliverable | Current state |
 | --- | --- | --- | --- |
-| 0 — Foundation | Repository/build foundation, nodes, document/properties, event types, backend contract | Create, inspect, validate, and serialize a tree | Docs prepared; implementation next |
+| 0 — Foundation | Repository/build foundation, nodes, document/properties, event types, backend contract | Create, inspect, validate, and serialize a tree | Tree/serialization verified; subsystem contracts remain |
 | 1 — Layout prototype | Box, placeholder Text, fixed/stack/flex, margin/padding/gap | Deterministic `LayoutBox` tree without GPU | Planned |
 | 2 — Vulkan primitives | Rectangles, colors, clips, transforms, image draw path, batching, Slang | Tree to paint list to native host window | Planned |
 | 3 — Input | Pointer, hover/click, keyboard/focus, gamepad navigation | Interactive menu | Planned; pointer subset comes first |

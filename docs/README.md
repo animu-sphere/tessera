@@ -1,6 +1,6 @@
 # Documentation
 
-These documents organize the owner-provided **Tessera Implementation Strategy**, draft dated 2026-10-04. They preserve its architectural direction while separating subsystem contracts, implementation order, and evidence. Repository status was checked on 2026-10-05: documentation only.
+These documents organize the owner-provided **Tessera Implementation Strategy**, draft dated 2026-10-04. They preserve its architectural direction while separating subsystem contracts, implementation order, and evidence. Repository status was checked on 2026-10-05: Phase 0 tree/document/serialization slice implemented; remaining foundation contracts are active.
 
 ## Reading order
 
@@ -15,6 +15,7 @@ These documents organize the owner-provided **Tessera Implementation Strategy**,
 | --- | --- |
 | [Architecture](design/architecture.md) | Long-term constraints, ecosystem responsibilities, frame scheduling, proposed repository layout |
 | [UI model](design/ui-model.md) | IR, serialization, properties, components, state, reconciliation, authoring frontend order |
+| [JSON v1](../formats/tessera-ui/README.md) | Implemented serialized fields, formatting, metadata preservation, rejection and bounds |
 | [Layout](design/layout.md) | Layout inputs/output, algorithm order, sizing, scrolling |
 | [Styling](design/styling.md) | Property vocabulary, selectors, cascade, inheritance, pseudo states, themes, animation |
 | [Rendering](design/rendering.md) | Paint commands, backend contract, GPU integration, Slang, batching, asset boundary |
@@ -37,10 +38,10 @@ These documents organize the owner-provided **Tessera Implementation Strategy**,
 - **Planned**: a capability with no implementation evidence yet.
 - **Implemented / validated**: use only with identifiable code and verification evidence.
 
-All design documents are drafts. Type names and snippets are illustrative unless explicitly promoted to implemented API documentation. Version labels in the roadmap are candidates, not release promises. Dates do not imply platform validation.
+Design pages distinguish implemented foundation contracts from draft plans. Type names and snippets are illustrative unless explicitly promoted to implemented API documentation. Version labels in the roadmap are candidates, not release promises. Dates do not imply platform validation.
 
 ## Maintenance
 
-Define a contract in one owning document and link to it elsewhere. Current work must not become a delivery history. Once there are shipped changes, introduce a root changelog and release records with evidence; there are no releases to record today.
+Define a contract in one owning document and link to it elsewhere. Current work must not become a delivery history. The root [changelog](../CHANGELOG.md) records delivered implementation slices; no public release has been made.
 
 The organization follows the separation used by [hydra-merlin](https://github.com/animu-sphere/hydra-merlin): [design](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/design/renderer-architecture.md), [current work](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/roadmap/current.md), [backlog](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/roadmap/backlog.md), and [support reference](https://github.com/animu-sphere/hydra-merlin/blob/main/docs/reference/support-matrix.md). Its renderer-specific contracts, dependency versions, and support claims do not apply to Tessera.

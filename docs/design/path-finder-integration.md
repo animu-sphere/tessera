@@ -10,7 +10,7 @@ Path-finder edits -> Tessera UI document -> validate/load -> Tessera runtime
 
 Path-finder owns hierarchy/property editing, visual authoring, drag/drop, preview orchestration, and generated source. Tessera owns the runtime model and validation. Preview and deployed applications consume the same [UI document](ui-model.md), not divergent editor/runtime node models.
 
-Design metadata can be an extension section or sidecar referencing stable author IDs. Decide this encoding in the schema design. Runtime behavior must not depend on editor-only fields, while editor round trips must preserve metadata according to a declared policy.
+The foundation uses namespaced document/node `extensions` objects for design metadata; [JSON v1](../../formats/tessera-ui/README.md) defines their semantic preservation policy. A sidecar remains an optional later editor choice. Runtime behavior does not interpret editor-only fields. This storage boundary does not implement an editor bridge or reload.
 
 ## Proposed editor bridge
 

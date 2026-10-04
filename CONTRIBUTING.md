@@ -1,6 +1,6 @@
 # Contributing
 
-Tessera is at the documentation foundation stage. Read the [documentation index](docs/README.md), [architecture](docs/design/architecture.md), and [current work](docs/roadmap/current.md) before making changes.
+Tessera is implementing Phase 0. Read the [documentation index](docs/README.md), [architecture](docs/design/architecture.md), and [current work](docs/roadmap/current.md) before making changes.
 
 ## Scope changes around a boundary
 
@@ -10,7 +10,7 @@ Design pages define intended contracts. Mark unresolved alternatives as proposal
 
 ## Verification
 
-For documentation changes, check relative links, code fences, terminology, and agreement between current work, backlog, and support claims. No executable checks exist yet. When implementation begins, follow the [testing strategy](docs/guides/testing.md) and document actual commands in the [development guide](docs/guides/development.md).
+For documentation changes, check relative links, code fences, terminology, and agreement between current work, backlog, and support claims. For code changes, follow the [testing strategy](docs/guides/testing.md) and the verified commands in the [development guide](docs/guides/development.md).
 
 A change description should state the resulting behavior, relevant boundary, verification performed, and unresolved limitations. Support claims require reproducible evidence in the [support matrix](docs/reference/support-matrix.md).
 

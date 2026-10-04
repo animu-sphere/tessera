@@ -1,14 +1,14 @@
 # Tessera
 
-Tessera is a planned lightweight, native UI framework for the animu-sphere ecosystem. It combines web-inspired declarative authoring with a small runtime designed for real-time applications and GPU rendering.
+Tessera is an early lightweight, native UI framework for the animu-sphere ecosystem. Its direction combines web-inspired declarative authoring with a small runtime for real-time applications and GPU rendering.
 
 Intended uses include game HUDs, menus, editor panels, inspectors, overlays, in-world UI, and utility applications. The name refers to small independent pieces that compose into a coherent surface.
 
 ## Project status
 
-**Documentation foundation — 2026-10-05.** This repository currently contains design and planning documents. There is no runtime implementation, build system, executable example, or validated platform support yet. Types and code snippets in the design documents are conceptual, not available APIs.
+**Phase 0 in progress — 2026-10-05.** The repository now has a C++20 core with an owned Box/Text tree, typed properties, validation diagnostics, and deterministic JSON v1 load/save. A core-only CMake build, document tests, and the `hello-ui` serialization example are verified on Windows x64/MSVC; see [development](docs/guides/development.md) and [support evidence](docs/reference/support-matrix.md). Layout, input dispatch, text shaping, and rendering are not implemented. Design snippets remain proposals unless explicitly marked implemented.
 
-The first implementation work is [Phase 0: foundation](docs/roadmap/current.md). The first public milestone candidate is a small Vulkan menu prototype; later milestone candidates are tracked in the [backlog](docs/roadmap/backlog.md).
+The next work is the remaining [Phase 0 contracts](docs/roadmap/current.md). The first public milestone candidate is a small Vulkan menu prototype; later milestone candidates are tracked in the [backlog](docs/roadmap/backlog.md). Delivered slices are recorded in the [changelog](CHANGELOG.md).
 
 ## Direction
 

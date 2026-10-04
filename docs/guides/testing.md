@@ -1,6 +1,6 @@
 # Testing strategy
 
-Status: Verification plan. No automated tests or runtime results exist yet.
+Status: Foundation document/tree checks implemented; other subsystem checks remain a verification plan.
 
 Test algorithms and boundaries heavily; test appearance selectively. Keep tests deterministic, compact, and meaningful. Do not build exhaustive screenshot coverage for every widget.
 
@@ -17,6 +17,8 @@ Test algorithms and boundaries heavily; test appearance selectively. Keep tests 
 | [Editor bridge](../design/path-finder-integration.md) | Shared documents, metadata preservation, rejected reload, compatible state and cleanup |
 
 Use synthetic inputs and numeric output wherever possible. Golden serialized fixtures must assert semantics as well as deterministic formatting. Later dirty-update paths should agree with the full-tree reference calculation.
+
+The current CTest targets are `document` (semantic/canonical fixture round trips, schema/type/reference/action/version errors, malformed JSON/UTF-8, metadata/numeric precision and limits, snapshot/handle lifetime) and `hello_ui` (code-built ordered-tree inspection/save/load smoke). Checks use explicit failure returns and remain active in Release builds. They use no GPU, font, OS device, or third-party test framework. See [development](development.md) for actual commands.
 
 ## Evidence by milestone
 

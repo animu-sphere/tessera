@@ -25,7 +25,7 @@ The initial propagation model can be target then bubble. Capture can be introduc
 
 Proposed pointer lifecycle: a press records its target; activation requires a compatible release according to a declared capture/click policy. Specify dragging outside, pointer cancellation, lost window focus, disabling/removing the target, and multiple pointers. Callback mutation must follow the frame/traversal rules in [architecture](architecture.md).
 
-Host action registration is explicit. Serialized event bindings name registered actions; they do not embed executable code. Binding lifetime, unknown-action diagnostics, and cleanup when nodes disappear are open decisions shared with the [UI model](ui-model.md).
+Host action registration is explicit. The foundation stores `activate`/`cancel` action names and rejects names absent from the caller's `ValidationContext.actions`; see [UI model](ui-model.md). No callback is stored or dispatched. Callback registration/lifetime, dispatch, and cleanup when nodes disappear remain open decisions.
 
 ## Interaction state
 
