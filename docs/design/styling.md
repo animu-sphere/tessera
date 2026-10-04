@@ -1,7 +1,5 @@
 # Styling
 
-Status: Resolved-style contract implemented; selectors, cascade, and themes remain draft design. CSS-inspired semantics; no CSS compatibility claim.
-
 ## Implemented resolved-style contract
 
 [resolved_style.hpp](../../include/tessera/style/resolved_style.hpp) defines `ResolvedStyle`, the typed values layout, paint, and interaction consume after resolution. No resolver exists yet: callers supply one resolved style per node, as described in [layout](layout.md). Default construction yields primitive defaults.
@@ -46,13 +44,19 @@ Proposed specificity is ID above class/pseudo state above type. Equal-specificit
 
 [Input](input.md) owns hover, active, focus, and disabled interaction state. Style resolution reads these values; it does not poll devices. Define whether ancestors match hover, how capture affects active state, and how disabled state propagates. A state change may alter layout and must invalidate the appropriate stages.
 
-Implemented layout/paint/input distinction: a non-displayed subtree has no boxes or commands; a hidden node retains layout and suppresses its own paint and pointer targeting. Visibility is local in already-resolved styles, so a visible descendant can still paint and receive input. The [paint generator](rendering.md#implemented-paint-generation) multiplies ancestor opacity into each command's alpha. Zero opacity does not exclude a box from [pointer targeting](input.md#implemented-rectangular-hit-testing); focus policy remains planned.
+The effects of display/visibility on geometry are defined by [layout](layout.md#implemented-prototype-algorithm), alpha/paint eligibility by [paint generation](rendering.md#implemented-paint-generation), and target eligibility by [hit testing](input.md#implemented-rectangular-hit-testing). Style resolution supplies values consistently with these contracts.
 
-## Themes and animation
+## Proposed themes
 
 Theme variables are planned after basic stylesheet resolution. Specify variable scope, fallback, missing-value diagnostics, and cycle detection before adopting a syntax.
 
-UI animation operates on resolved opacity, position/size, transforms, and colors. Transitions may use an explicit duration such as an illustrative `opacity 120ms`. Time comes from the host frame clock. Animations affecting geometry invalidate layout; paint-only changes need not. Interruption, easing, and authored-value versus animated-value precedence are open. Complex game animation remains a host responsibility.
+## Property effects
+
+[Property descriptors](ui-model.md#proposed-property-reflection) identify a set of affected stages: style resolution, layout, paint, and semantics, or none. Interaction state can affect more than one stage through pseudo states. Text/font changes affect measurement and paint; semantic label/state changes affect semantic projection. A dependency table must account for inherited values and ancestor/sibling geometry before incremental updates use it. Full-tree recomputation remains the correctness reference.
+
+## Proposed animation
+
+After baseline UI is correct, animate resolved opacity, transforms, color, size, and scroll offset through an injected host `AnimationClock`. Replay supplies that clock's values; no hidden wall clock or CSS animation compatibility is required. Geometry changes invalidate layout; paint-only changes need not. Interruption, easing, authored-versus-animated precedence, and scroll interaction are open decisions. Complex game animation remains host-owned.
 
 ## Verification
 

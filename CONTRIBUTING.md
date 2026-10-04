@@ -1,6 +1,6 @@
 # Contributing
 
-Tessera is implementing the v0.1.0 minimal Vulkan menu candidate after the Phase 0 foundation and Phase 1 layout prototype. Read the [documentation index](docs/README.md), [architecture](docs/design/architecture.md), and [current work](docs/roadmap/current.md) before making changes.
+Read the [documentation index](docs/README.md), [architecture](docs/design/architecture.md), and [current work](docs/roadmap/current.md) before making changes.
 
 ## Scope changes around a boundary
 
@@ -10,13 +10,13 @@ Design pages define intended contracts. Mark unresolved alternatives as proposal
 
 ## Verification
 
-For documentation changes, check relative links, code fences, terminology, and agreement between current work, backlog, and support claims. For code changes, follow the [testing strategy](docs/guides/testing.md) and the verified commands in the [development guide](docs/guides/development.md).
+For documentation changes, run the documentation checker and review canonical ownership under the [testing guide](docs/guides/testing.md#documentation-verification). For code changes, follow the [testing strategy](docs/guides/testing.md) and the verified commands in the [development guide](docs/guides/development.md).
 
 A change description should state the resulting behavior, relevant boundary, verification performed, and unresolved limitations. Support claims require reproducible evidence in the [support matrix](docs/reference/support-matrix.md).
 
 ## Keep plans and evidence separate
 
-- [Current](docs/roadmap/current.md) contains active and immediately next work.
+- [Current](docs/roadmap/current.md) contains remaining active work; remove completed tasks.
 - [Backlog](docs/roadmap/backlog.md) contains inactive candidates and deferred work.
 - [Support matrix](docs/reference/support-matrix.md) records implemented and validated capabilities.
-- Add changelog entries and release records when code or artifacts are delivered; do not count proposed features as shipped.
+- [Changelog](CHANGELOG.md) owns dated delivery history. Follow the [change-routing rules](docs/README.md#change-routing); indexes and design introductions do not repeat status.

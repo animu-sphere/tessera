@@ -10,4 +10,4 @@
 - Added Phase 0 subsystem contracts: logical-unit geometry, `ResolvedStyle` and `LayoutInput`/`LayoutBox`, normalized `InputEvent` values and host `ActionRequest` lifetime rules, `UiDrawList` with balanced clip/transform validation, `FrameInfo`/`UiRenderer` submission and retirement rules, and the `TextShaper` boundary with a deterministic `PlaceholderTextShaper`.
 - Added a core-only serialization example and focused document/failure/lifetime and contract validation checks. Verification configuration and limitations are recorded in the [support matrix](docs/reference/support-matrix.md).
 
-No public release, style resolver, focus/navigation dispatcher, real text shaper, native host, or renderer backend is delivered yet. Active work is tracked in [current work](docs/roadmap/current.md).
+Release records belong here; live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).

@@ -1,11 +1,9 @@
 # Dependency policy
 
-Status: The foundation slice uses only C++20 standard-library code at runtime. Graphics/text dependencies remain candidates. Tested tools are recorded in the [support matrix](support-matrix.md).
-
 ## Adopted foundation choices
 
-- Core language: C++20, including defaulted equality, heterogeneous string lookup, and floating-point `std::from_chars`/`std::to_chars`. Compiler compatibility is currently validated only with the recorded MSVC configuration; no other minimum compiler version is claimed.
-- Build: CMake 3.20 declared minimum, `tessera::core` library target, CTest for the standalone checks. The declared minimum itself has not been exercised; the validated CMake version is recorded separately.
+- Core language: C++20, including defaulted equality, heterogeneous string lookup, and floating-point `std::from_chars`/`std::to_chars`. Toolchain compatibility evidence belongs in [support](support-matrix.md).
+- Build: CMake 3.20 declared minimum, `tessera::core` library target, CTest for standalone checks. Declared requirements are distinct from configurations actually exercised in support.
 - Serialization: a bounded in-repository JSON reader/writer in `src/ui/serialization.cpp`, no parser dependency or runtime filesystem access. Encoding policy is in [JSON v1](../../formats/tessera-ui/README.md).
 - Acquisition: no network fetches, vendored libraries, external fonts, or graphics SDKs. Core-only builds are offline once the host C++ toolchain/CMake are installed. CMake/CTest and compiler tools are build/development requirements, not runtime dependencies.
 
@@ -21,7 +19,7 @@ No third-party code/assets have been introduced, so there are no adopted library
 | Vulkan backend | Vulkan SDK/toolchain | SDK types remain within the concrete backend and host integration |
 | WebGPU backend | Implementation/toolchain to evaluate | Later module; no current WGSL, browser, or WASM claim |
 | Example host | Minimal window/input integration to select | Window ownership remains outside the UI core |
-| Serialized frontend | Parser/encoding to select | Runtime IR remains independent of source syntax |
+| Additional authoring frontends | Compiler/parser to evaluate after IR stabilization | Runtime IR remains independent of source syntax; JSON v1 uses the adopted in-repository parser |
 
 OpenUSD, Chromium/WebView, a JavaScript VM, Qt, and large application frameworks are not foundational dependencies. Optional adapters must not introduce them transitively into core-only consumption.
 

@@ -1,6 +1,6 @@
 # Tessera UI JSON v1
 
-Status: Implemented foundation encoding. Not a stable release format. The model and lifetime rules are owned by [UI model](../../docs/design/ui-model.md).
+This page defines the implemented encoding contract, not a stable release format. Model and lifetime rules belong to [UI model](../../docs/design/ui-model.md); validation/configuration evidence belongs to [support](../../docs/reference/support-matrix.md).
 
 ## Envelope and nodes
 

@@ -1,7 +1,5 @@
 # Input, focus, and navigation
 
-Status: Normalized events, rectangular hit testing, and primary-pointer activation dispatch implemented. Focus, keyboard/gamepad dispatch, scrolling, and native device integration remain planned.
-
 ## Host boundary
 
 The host polls platform devices and translates their data into normalized Tessera events. Tessera does not poll OS input APIs.
@@ -59,6 +57,12 @@ Host action registration is explicit. The foundation stores `activate`/`cancel` 
 
 Implemented contract: Tessera never stores host callbacks. Pointer dispatch produces `ActionRequest` values (binding name, owned action name, target binding-owner `NodeHandle`) and returns them to the host. The host runs its own action implementations after dispatch returns, and applies resulting mutations at its next update point, so no callback runs during traversal and callback lifetime is entirely host-owned. A request's target handle is valid only while the producing tree snapshot is alive; after replacement, `UiTree::get` rejects stale targets. Pointer states are cleared on replacement as specified above.
 
+## Event-to-action boundary
+
+Normalized device events describe interaction; application-facing actions describe intent. Pointer, keyboard, gamepad, touch, accessibility, and external automation should reach the same declared action path after eligibility checks. Components do not directly call host functions. The implemented `ActionRequest` contract above is the baseline; value-setting/open/back payloads and semantic invocation are proposals requiring validation and lifetime rules before extending it.
+
+[Semantics](semantics.md) owns exposed roles/names/action availability. It consumes input state and refers to actions here, rather than duplicating focus or dispatch policy.
+
 ## Interaction state
 
 Input owns interaction behavior. Pointer hover/active and inherited disabled filtering are implemented above; focus and stylesheet [pseudo states](styling.md) remain planned. Host updates must resolve styles/layout and call `refresh` or dispatch with the new snapshot. Disabled focus policy and automatic style/layout/paint invalidation remain to be defined.
@@ -71,11 +75,17 @@ Proposed baseline: tree-ordered sequential traversal and explicit overrides; dir
 
 Map gamepad input into logical navigation/activation/cancel actions at the host boundary. Dead zones and repeat policy must have an explicit owner. Do not put device-specific polling in buttons.
 
-The first public candidate includes pointer hit testing. Keyboard/gamepad focus and navigation are required for the next menu milestone; this staging does not remove them from the design.
+Delivery scope is owned by [current](../roadmap/current.md) and [backlog](../roadmap/backlog.md).
 
-## Accessibility metadata
+## Proposed overlay interaction
 
-The node model should support roles, accessible names, values/states, and relationships independent of graphics. Exact schema fields remain open. Native accessibility adapters can consume this metadata later. Metadata availability is separate from operating-system assistive technology integration, and neither is implemented today.
+Use the [portal model](ui-model.md#proposed-overlays-and-portals) and shared [overlay geometry](layout.md#scrolling-and-overlay-geometry) for targeting. Define modal input capture, focus scope/restoration, dismissal/back, and hit order consistently with presentation order. Tooltip lifetime belongs to interaction state. Specify behavior when anchors or owners disappear; no implicit OS pointer capture is introduced by a portal.
+
+## Proposed editing, IME, and clipboard boundary
+
+Keep committed `TextInput` separate from composition start/update/commit/cancel. A text-editing contract needs replacement ranges, selection, caret, and copy/cut/paste requests. Declare index units and validate ranges against the document revision; UTF-8 bytes, graphemes, and glyph indices are distinct under [text](text.md).
+
+The host normalizes platform IME events, owns clipboard access, and receives caret/selection geometry for candidate-window placement. Core stores editing state without platform types or implicit clipboard calls. Composition cancellation, focus loss, asynchronous paste, read-only/disabled policy, and stale replacement ranges need explicit fixtures. Japanese composition is a first-class requirement; boundary design can precede platform adapters and editable TextInput implementation.
 
 ## Verification
 

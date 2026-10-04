@@ -2,7 +2,8 @@
 
 ## Read first
 
-- `README.md` and `docs/README.md` explain repository status and document ownership.
+- `README.md` and `docs/README.md` provide navigation and canonical document ownership.
+- `docs/reference/support-matrix.md` is the sole live implementation/validation status record.
 - `docs/design/architecture.md` defines subsystem and ecosystem boundaries.
 - `docs/roadmap/current.md` identifies active implementation scope.
 - Read the relevant subsystem design before changing its contract.
@@ -20,8 +21,8 @@
 
 ## Documentation and checks
 
-Design snippets currently describe proposals, not implemented APIs. Do not invent build commands, dependency pins, platform support, or completed test evidence.
+Design sections distinguish implemented contracts (with source links) from proposed APIs. Preserve that distinction. Do not invent build commands, dependency pins, platform support, or completed test evidence.
 
-Update the canonical subsystem page when a contract changes. Update current work, backlog, and support claims only when their status changes. Keep relative Markdown links portable and check them after edits.
+Update the canonical subsystem page when a contract changes. Current owns remaining active scope; backlog owns inactive candidates; support owns live capability/configuration evidence; changelog owns delivery history. Follow `docs/README.md` change routing and do not copy status into other pages. Keep relative Markdown links portable and check them after edits.
 
-For code changes, verify the affected algorithms and boundaries using the testing guide. For documentation-only work, link and consistency checks are sufficient. Do not generate redundant tests or extensive widget screenshot suites.
+For code changes, verify the affected algorithms and boundaries using the testing guide. For documentation-only work, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-docs.ps1` and review canonical ownership; runtime tests are unnecessary. Do not generate redundant tests or extensive widget screenshot suites.
