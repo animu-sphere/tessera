@@ -5,9 +5,20 @@
 - Core language: C++20, including defaulted equality, heterogeneous string lookup, and floating-point `std::from_chars`/`std::to_chars`. Toolchain compatibility evidence belongs in [support](support-matrix.md).
 - Build: CMake 3.20 declared minimum, `tessera::core` library target, CTest for standalone checks. Declared requirements are distinct from configurations actually exercised in support.
 - Serialization: a bounded in-repository JSON reader/writer in `src/ui/serialization.cpp`, no parser dependency or runtime filesystem access. Encoding policy is in [JSON v1](../../formats/tessera-ui/README.md).
-- Acquisition: no network fetches, vendored libraries, external fonts, or graphics SDKs. Core-only builds are offline once the host C++ toolchain/CMake are installed. CMake/CTest and compiler tools are build/development requirements, not runtime dependencies.
+- Acquisition: no automatic network fetches or vendored libraries. Core-only builds are offline once the host C++ toolchain/CMake are installed, without graphics SDKs or external fonts. CMake/CTest and compiler tools are build/development requirements, not runtime dependencies.
 
-No third-party code/assets have been introduced, so there are no adopted library/font redistribution notices in this slice. Optional dependencies still require the adoption records below when introduced.
+Optional Vulkan tools/libraries are adopted below. [Third-party notices](../../THIRD_PARTY_NOTICES.md) records their upstream licenses; no SDK binaries, headers, compiler, fonts, or external image assets are vendored or redistributed.
+
+## Adopted Vulkan choices
+
+| Dependency | Owner and purpose | Constraint and acquisition | License and runtime use |
+| --- | --- | --- | --- |
+| Vulkan headers and loader import library | Optional `tessera::vulkan`, explicit C API device/command integration | Installed Vulkan SDK, CMake `find_package(Vulkan 1.3 REQUIRED)`; explicit include/library cache overrides permitted; runtime device API >= 1.1 | Selected SDK 1.4.350.0 headers and upstream loader are Apache-2.0; host provides its system Vulkan loader/driver at runtime |
+| Slang `slangc` | Vulkan shader build only | Pinned compiler 2026.8, found locally or via `TESSERA_SLANGC`; configure rejects a different version; emits SPIR-V 1.3 | Apache-2.0 WITH LLVM-exception; no Slang runtime link or compiler distribution |
+| Khronos validation layer / SPIR-V Tools | GPU fixture diagnostics and artifact verification only | Installed SDK tooling, validation layer required by GPU fixture; tools are not linked into core | Apache-2.0; development-only, not a backend runtime requirement |
+| Windows SDK / Win32 | Selected next native example host, window/pointer/DPI/surface ownership | Existing host toolchain SDK; no GLFW/SDL or new window framework selected | Microsoft SDK terms apply; platform APIs remain in the example host |
+
+The backend option defaults OFF and performs no Vulkan/Slang discovery then. With it ON, installed tools are used without downloads. This optional module requires CMake >= 3.23 for [SDK version discovery](https://cmake.org/cmake/help/v3.23/module/FindVulkan.html); the core retains its declared 3.20 floor. [Rendering](../design/rendering.md#implemented-vulkan-primitive-boundary) owns target, color, image, synchronization and lifetime rules; [development](../guides/development.md#optional-vulkan-workflow) owns shader output paths and commands. Actual SDK/compiler/GPU/layer combinations are recorded only in [support](support-matrix.md#vulkan-primitive-evidence--2026-10-05). Win32 is an example-host choice, not a core platform requirement or a native-host support claim.
 
 ## Module boundaries
 
@@ -15,10 +26,10 @@ No third-party code/assets have been introduced, so there are no adopted library
 | --- | --- | --- |
 | Core UI/style/layout/input and common contracts | C++ standard library; optional fmt if justified | No GPU SDK, browser, engine/editor SDK, or font implementation dependency |
 | Text implementation | FreeType, HarfBuzz; ICU/equivalent only if needed | Public text/layout contracts hide implementation types |
-| Shader build | Slang | Build tool below the rendering boundary; not an authoring/runtime language requirement |
-| Vulkan backend | Vulkan SDK/toolchain | SDK types remain within the concrete backend and host integration |
+| Shader build | Adopted Slang compiler above | Build tool below the rendering boundary; not an authoring/runtime language requirement |
+| Vulkan backend | Adopted Vulkan SDK/toolchain above | SDK types remain within the concrete backend and host integration |
 | WebGPU backend | Implementation/toolchain to evaluate | Later module; no current WGSL, browser, or WASM claim |
-| Example host | Minimal window/input integration to select | Window ownership remains outside the UI core |
+| Example host | Selected Win32 for the first native example | Window ownership remains outside the UI core; implementation is active scope |
 | Additional authoring frontends | Compiler/parser to evaluate after IR stabilization | Runtime IR remains independent of source syntax; JSON v1 uses the adopted in-repository parser |
 
 OpenUSD, Chromium/WebView, a JavaScript VM, Qt, and large application frameworks are not foundational dependencies. Optional adapters must not introduce them transitively into core-only consumption.
@@ -35,7 +46,7 @@ Fonts, icons, and example images also need provenance and redistributable licens
 
 - Additional compiler/toolchain validation and optional-module dependency acquisition.
 - Text library/font fixtures and default fallback strategy.
-- Vulkan requirements and Slang compiler/artifact targets.
+- Deployment/redistribution policy for packaged native hosts and future SDK/compiler upgrades.
 - Explicit JSON version migrations and expanded property schemas, when a consumer requires them.
 
 Record final choices here and validated combinations in the [support matrix](support-matrix.md). Hydra-merlin's pins are reference-project choices and must not be copied as Tessera validation evidence.
