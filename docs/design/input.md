@@ -61,7 +61,7 @@ Implemented contract: Tessera never stores host callbacks. Pointer dispatch prod
 
 ## Event-to-action boundary
 
-Normalized device events describe interaction; application-facing actions describe intent. Pointer, keyboard, gamepad, touch, accessibility, and external automation should reach the same declared action path after eligibility checks. Components do not directly call host functions. The implemented `ActionRequest` contract above is the baseline; value-setting/open/back payloads and semantic invocation are proposals requiring validation and lifetime rules before extending it.
+Normalized device events describe interaction; application-facing actions describe intent. Pointer, keyboard, gamepad, touch, accessibility, and external automation should reach the same declared action path after eligibility checks. Components do not directly call host functions. The implemented `ActionRequest` contract above is the baseline. Prototype [semantic activation](semantics.md#implemented-prototype-projection) returns the same request as pointer activation under the same disabled/hidden eligibility; value-setting/open/back payloads and generation-aware external invocation are proposals requiring validation and lifetime rules before extending it.
 
 [Semantics](semantics.md) owns exposed roles/names/action availability. It consumes input state and refers to actions here, rather than duplicating focus or dispatch policy.
 

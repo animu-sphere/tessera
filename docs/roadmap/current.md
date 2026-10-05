@@ -14,10 +14,9 @@ Depends on document, resolved-style, layout, paint, and pointer contracts. Exist
 
 ## Optional early prototypes
 
-- Minimal [semantic schema](../design/semantics.md) review/prototype ahead of navigable menus.
-- [Inspection foundation](../design/inspection.md): review scoped IDs versus runtime handles, source mapping, coherent layout/property observations, and structured diagnostics before designing a transport or CLI.
+- [Inspection foundation](../design/inspection.md): review scoped IDs versus runtime handles, source mapping, coherent layout/property/semantic observations, and structured diagnostics before designing a transport or CLI.
 
-These prototypes are recommended foundations, not additional release gates. They must not silently extend JSON v1 or imply stable public APIs. Reuse core-only inspection and existing offscreen fixtures to explore the boundaries; reusable capture, snapshot/diff, and transports have their scope in [backlog](backlog.md).
+This prototype is a recommended foundation, not an additional release gate. It must not silently extend JSON v1 or imply stable public APIs. Reuse core-only inspection and existing offscreen fixtures to explore the boundaries; reusable capture, snapshot/diff, and transports have their scope in [backlog](backlog.md).
 
 ## Exit criteria
 

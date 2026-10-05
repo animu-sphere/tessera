@@ -14,10 +14,10 @@ The implemented semantic property vocabulary is deliberately small:
 
 | Property | Nodes | Value | Current behavior |
 | --- | --- | --- | --- |
-| `text` | Text only, required | UTF-8 string, including empty text | Measured by layout and shaped by paint through `TextShaper`; placeholder implementation only |
-| `focusable` | Box/Text | Boolean | Stored interaction intent; no focus runtime |
-| `disabled` | Box/Text | Boolean | Excludes the node/subtree from pointer targeting; absent means false; see [input](input.md) |
-| `labelled_by` | Box/Text | `NodeReference` to an existing author ID | Relationship storage/existence validation; no native accessibility adapter |
+| `text` | Text only, required | UTF-8 string, including empty text | Measured by layout and shaped by paint through `TextShaper`; placeholder implementation only. Also names [semantic](semantics.md#implemented-prototype-projection) entries |
+| `focusable` | Box/Text | Boolean | Stored interaction intent exposed as semantic state; no focus runtime |
+| `disabled` | Box/Text | Boolean | Excludes the node/subtree from pointer targeting and semantic actions; absent means false; see [input](input.md) |
+| `labelled_by` | Box/Text | `NodeReference` to an existing author ID | Existence validation; names the prototype semantic entry; no native accessibility adapter |
 
 `Property` has explicit boolean, binary64, string, and reference alternatives. No current semantic property accepts a number; unknown properties or mismatched types fail without coercion. Absent boolean properties remain absent rather than materializing defaults. Layout/style properties and asset references are deferred; they are not arbitrary semantic properties.
 
@@ -111,7 +111,7 @@ Property-level dependency tracking is the long-term reactive direction. Define d
 | `disabled` | boolean | Box/Text / none | `false` | input, semantics | interaction |
 | `focusable` | boolean | Box/Text / none | `false` | semantics | interaction |
 | `labelled_by` | reference | Box/Text / none | none | semantics | accessibility |
-| `text` | string | Text / Text | none | layout, paint | content |
+| `text` | string | Text / Text | none | layout, paint, semantics | content |
 
 `validate` derives property name, node-kind, type, and required-property checks from these descriptors; string UTF-8, finite-number, and reference-existence checks remain value rules. JSON v1 encodes a property under its descriptor name using its `Property` alternative. `effective_property` returns the authored value or the descriptor's absent value, borrowing from the node or the static table; pointer targeting reads `disabled` through it, and layout/paint read `text` through `property_names`. Descriptors cover authored properties only; resolved style, layout, and other derived values are not listed. The current vocabulary has no numeric range or enumeration, so descriptors carry no range/enum fields yet.
 
