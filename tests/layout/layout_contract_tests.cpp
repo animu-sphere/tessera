@@ -54,6 +54,20 @@ void layout_input() {
     check(has(errors, "invalid_number", "/viewport/width"), "Unbounded viewport accepted");
     check(has(errors, "missing_input", "/text"), "Missing text shaper accepted");
     check(has(tessera::validate(tessera::LayoutInput{}), "missing_input", "/tree"), "Missing tree accepted");
+
+    styles[1].gap = 0;
+    styles[2].overflow = tessera::Overflow::scroll;
+    std::vector<tessera::Point> offsets(3);
+    input = {tree.value->get(), styles, {640, 480}, &text, offsets};
+    check(tessera::validate(input).empty(), "Valid scroll offsets rejected");
+    offsets[1].y = std::nanf("");
+    input.scroll_offsets = std::span(offsets).first(2);
+    const auto scroll = tessera::validate(input);
+    check(has(scroll, "scroll_count", "/scroll_offsets"), "Scroll offset count mismatch accepted");
+    check(has(scroll, "invalid_number", "/scroll_offsets/1/y"), "Non-finite scroll offset accepted");
+    styles[2].overflow = static_cast<tessera::Overflow>(3);
+    check(has(tessera::validate(styles[2], "/styles/2"), "unknown_value", "/styles/2/overflow"),
+          "Unknown overflow accepted");
 }
 
 void box_geometry() {

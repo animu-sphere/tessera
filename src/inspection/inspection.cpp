@@ -99,7 +99,7 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
     }
     for (const auto& box : input.layout->boxes)
         snapshot.elements[box.node.index].geometry = {box.border_box, box.padding_box(), box.content_box(), box.visible,
-                                                     box.clip};
+                                                     box.clip, box.scroll};
     const auto& entries = semantics.value->nodes;
     for (std::uint32_t i = 0; i < entries.size(); ++i) snapshot.elements[entries[i].node.index].semantic = i;
     snapshot.semantics = std::move(*semantics.value);

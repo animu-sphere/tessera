@@ -4,9 +4,10 @@
 
 namespace tessera::detail {
 
-// Clip recorded for the children of `parent`: its own clip, narrowed by its padding box when it clips.
+// Clip recorded for the children of `parent`: its own clip, narrowed by its padding box when it clips or
+// scrolls.
 inline std::optional<Rect> descendant_clip(const LayoutBox& parent, Overflow overflow) {
-    if (overflow != Overflow::clip) return parent.clip;
+    if (overflow == Overflow::visible) return parent.clip;
     const auto own = parent.padding_box();
     return parent.clip ? intersect(*parent.clip, own) : own;
 }

@@ -1,5 +1,6 @@
 #include "../detail/layout_snapshot.hpp"
 #include "../detail/checks.hpp"
+#include <cmath>
 #include <string>
 
 namespace tessera::detail {
@@ -52,6 +53,18 @@ std::vector<Diagnostic> validate_layout_snapshot(const UiTree* tree, std::span<c
             descendant_clip(boxes[parent], styles[expected[parent].node.index].overflow);
         if (box.clip != clip)
             check.error("layout_clip", path + "/clip", "Recompute layout after changing overflow or ancestor geometry.");
+        if (box.scroll.has_value() != (style.overflow == Overflow::scroll)) {
+            check.error("layout_scroll", path + "/scroll", "Recompute layout after changing overflow.");
+        } else if (box.scroll) {
+            const auto& scroll = *box.scroll;
+            const auto limit = box.scroll_limit();
+            const auto within = [](float offset, float maximum) { return offset >= 0 && offset <= maximum; };
+            if (!std::isfinite(scroll.extent.width) || !std::isfinite(scroll.extent.height) ||
+                !within(scroll.offset.x, limit.x) || !within(scroll.offset.y, limit.y))
+                check.error("layout_scroll", path + "/scroll",
+                            "Recompute layout: the extent must cover the padding box and the offset must lie in "
+                            "[0, extent - viewport].");
+        }
     }
     return errors;
 }

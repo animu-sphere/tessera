@@ -24,7 +24,7 @@ enum class Visibility : std::uint8_t { visible, hidden };
 enum class FlexDirection : std::uint8_t { column, row };
 enum class Justify : std::uint8_t { start, center, end, space_between };
 enum class Align : std::uint8_t { start, center, end, stretch };
-enum class Overflow : std::uint8_t { visible, clip };
+enum class Overflow : std::uint8_t { visible, clip, scroll };
 
 // Typed values after defaults, inheritance, rules, and local overrides have been applied.
 // Default construction yields the primitive defaults.
@@ -34,7 +34,9 @@ struct ResolvedStyle {
     FlexDirection direction = FlexDirection::column;
     Justify justify = Justify::start;
     Align align = Align::stretch;
-    Overflow overflow = Overflow::visible; // clip: descendants paint and hit only inside the padding box.
+    // clip: descendants paint and hit only inside the padding box. scroll: clips the same way and moves
+    // descendants by the box's layout scroll offset.
+    Overflow overflow = Overflow::visible;
     Dimension width;
     Dimension height;
     float min_width = 0;

@@ -18,6 +18,12 @@ std::vector<Diagnostic> validate(const LayoutInput& input) {
         auto style = validate(input.styles[i], "/styles/" + std::to_string(i));
         errors.insert(errors.end(), style.begin(), style.end());
     }
+    if (input.tree && !input.scroll_offsets.empty() && input.scroll_offsets.size() != input.tree->size()) {
+        check.error("scroll_count", "/scroll_offsets", "Provide no scroll offsets, or one per tree node (" +
+                    std::to_string(input.tree->size()) + "), indexed by NodeHandle::index.");
+    }
+    for (std::size_t i = 0; i < input.scroll_offsets.size(); ++i)
+        check.point(input.scroll_offsets[i], "/scroll_offsets/" + std::to_string(i));
     return errors;
 }
 

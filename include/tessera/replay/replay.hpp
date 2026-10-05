@@ -28,7 +28,8 @@ struct ReplayReload {
     std::vector<ResolvedStyle> styles;
     bool operator==(const ReplayReload&) const = default;
 };
-// Input steps must be pointer events; they share one non-decreasing timestamp stream.
+// Input steps must be pointer or scroll events; they share one non-decreasing timestamp stream. A scroll
+// step is routed by route_scroll and applied at an update point.
 using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload>;
 
 struct ReplayRecording {
@@ -49,9 +50,10 @@ struct ReplayBox {
     Edges padding;
     bool visible = true;
     std::optional<Rect> clip;
+    std::optional<ScrollGeometry> scroll;
     bool operator==(const ReplayBox&) const = default;
 };
-// Full-tree layout and paint for one snapshot: the initial one and one per resize/reload step.
+// Full-tree layout and paint for one snapshot: the initial one and one per resize/reload/scroll step.
 struct ReplayGeneration {
     std::optional<std::size_t> step; // Producing step; absent for the initial snapshot.
     std::vector<ReplayBox> boxes;
@@ -78,8 +80,8 @@ struct ReplayOutput {
 // snapshot, /steps/<index> for a step) and return no partial output. Renderer-free.
 Result<ReplayOutput> play_replay(const ReplayRecording&, TextShaper&);
 
-// One replay_mismatch diagnostic per difference, located in the expected output. Box rectangles
-// and edges match within geometry_tolerance logical units; all other values must be equal.
+// One replay_mismatch diagnostic per difference, located in the expected output. Box rectangles,
+// edges, and scroll geometry match within geometry_tolerance logical units; all other values must be equal.
 std::vector<Diagnostic> compare_replay(const ReplayOutput& expected, const ReplayOutput& actual,
                                        float geometry_tolerance = 0);
 

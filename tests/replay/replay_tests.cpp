@@ -130,6 +130,55 @@ void playback_observes_geometry_paint_and_actions() {
     check(tessera::compare_replay(output, play(recording)).empty(), "Identical playback must compare clean");
 }
 
+// A scroll step routes against the current snapshot and settles a generation at the new offset; a click
+// then targets the moved button.
+void scroll_steps_relayout_before_clicks() {
+    auto scrolled = recording();
+    scrolled.document = menu({button("start", "Start", "start-game"), button("options", "Options", "start-game"),
+                              button("quit", "Quit", "quit-game")});
+    scrolled.styles = menu_styles(3);
+    scrolled.styles[0].overflow = tessera::Overflow::scroll;
+    scrolled.viewport = {200, 60};
+    scrolled.steps = {tessera::InputEvent{1us, tessera::Scroll{{100, 30}, {0, 1000}}}};
+    const auto first = play(scrolled);
+    check(first.generations.size() == 2 && first.generations[1].step == 0u, "A scroll step must settle a generation");
+    const auto& before = first.generations[0].boxes;
+    const auto& after = first.generations[1].boxes;
+    check(before[0].scroll && before[0].scroll->offset == tessera::Point{} && after[0].scroll &&
+              after[0].scroll->offset.y > 0 && after[0].scroll->offset.y == after[0].scroll->extent.height - 60,
+          "The routed offset must clamp at the root's limit");
+    check(after[1].border_box.origin.y == before[1].border_box.origin.y - after[0].scroll->offset.y,
+          "Children must move by the routed offset");
+
+    // Preorder: menu 0, start 1, options 3, quit 5.
+    const auto quit = center(after.at(5));
+    scrolled.steps.push_back(tessera::InputEvent{2us, tessera::PointerDown{{1}, quit}});
+    scrolled.steps.push_back(tessera::InputEvent{3us, tessera::PointerUp{{1}, quit}});
+    const auto output = play(scrolled);
+    check(output.actions == std::vector<tessera::ReplayAction>{{2, 1, "activate", "quit-game", 5, "quit"}},
+          "A click after scrolling must target the moved button");
+    check(output == play(scrolled), "Repeated scroll playback must be identical");
+
+    auto expected = output;
+    expected.generations[1].boxes[0].scroll->offset.y -= 1;
+    const auto diagnostics = tessera::compare_replay(expected, output, 0.5f);
+    check(diagnostics.size() == 1 && has(diagnostics, "replay_mismatch", "/generations/1/boxes/0/scroll"),
+          "Scroll geometry must be compared within the geometry tolerance");
+    check(tessera::compare_replay(expected, output, 1).empty(), "Scroll tolerance must accept the difference");
+
+    auto bad = scrolled;
+    bad.steps = {tessera::InputEvent{2us, tessera::Scroll{{100, 30}, {0, 5}}},
+                 tessera::InputEvent{1us, tessera::PointerMove{{1}, {1, 1}}}};
+    check(has(play_invalid(bad).diagnostics, "event_order", "/steps/1/timestamp"),
+          "Pointer steps must not run backwards after a scroll step");
+    bad.steps = {tessera::InputEvent{2us, tessera::PointerMove{{1}, {1, 1}}},
+                 tessera::InputEvent{1us, tessera::Scroll{{100, 30}, {0, 5}}}};
+    check(has(play_invalid(bad).diagnostics, "event_order", "/steps/1/timestamp"),
+          "Scroll steps must share the pointer timestamp stream");
+    bad.steps = {tessera::InputEvent{1us, tessera::Scroll{{100, 30}, {0, std::numeric_limits<float>::infinity()}}}};
+    check(has(play_invalid(bad).diagnostics, "invalid_number", "/steps/0/delta/y"), "Scroll deltas must be validated");
+}
+
 void comparison_locates_differences() {
     const auto actual = play(interaction());
     auto expected = actual;
@@ -231,6 +280,7 @@ void invalid_recordings_are_located_without_output() {
 int main() {
     try {
         playback_observes_geometry_paint_and_actions();
+        scroll_steps_relayout_before_clicks();
         comparison_locates_differences();
         invalid_recordings_are_located_without_output();
         std::cout << "Replay playback, comparison, and rejection checks passed.\n";
