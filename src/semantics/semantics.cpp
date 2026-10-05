@@ -2,6 +2,7 @@
 #include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
+#include "../detail/targeting.hpp"
 #include <algorithm>
 #include <utility>
 
@@ -29,20 +30,18 @@ void subtree_text(const UiNode& node, std::string& out) {
 
 class Projection {
 public:
-    explicit Projection(const SemanticInput& input) : input_(input) {}
+    explicit Projection(const SemanticInput& input)
+        : input_(input), snapshot_{input.tree, input.styles, input.layout}, targeting_(snapshot_) {}
 
     SemanticTree build() {
         const auto& boxes = input_.layout->boxes;
         // Nearest included entry for each box, or no_semantic_parent.
         std::vector<std::uint32_t> owner(boxes.size(), no_semantic_parent);
-        std::vector<bool> disabled(boxes.size(), false);
         std::vector<std::string> content;
         for (std::size_t i = 0; i < boxes.size(); ++i) {
             const auto& box = boxes[i];
             const auto& node = *input_.tree->get(box.node);
             const auto inherited = box.parent == no_layout_parent ? no_semantic_parent : owner[box.parent];
-            disabled[i] = std::get<bool>(*effective_property(node, property_names::disabled)) ||
-                          (box.parent != no_layout_parent && disabled[box.parent]);
             owner[i] = inherited;
             if (!box.visible) continue;
 
@@ -61,8 +60,10 @@ public:
             }
 
             SemanticNode entry{box.node, node.id, inherited, static_cast<std::uint32_t>(i), *role};
-            entry.enabled = !disabled[i];
-            entry.focusable = std::get<bool>(*effective_property(node, property_names::focusable));
+            entry.enabled = !targeting_.disabled(i);
+            // Entries are displayed and visible, so this is exactly focus dispatch eligibility.
+            entry.focusable = targeting_.focusable(i);
+            entry.focused = entry.focusable && input_.focused == box.node;
             if (activate && entry.enabled) entry.actions.push_back({"activate", *activate});
             if (const auto* reference = effective_property(node, property_names::labelled_by)) {
                 entry.labelled_by = input_.tree->find(std::get<NodeReference>(*reference).id);
@@ -82,27 +83,46 @@ public:
         return std::move(tree_);
     }
 
+    // An eligible focused node that has no entry, such as a focusable label or flattened Box.
+    std::optional<NodeHandle> unexposed_focus(const SemanticTree& tree) const {
+        if (!input_.focused) return {};
+        const auto box = targeting_.box(*input_.focused);
+        if (box == no_layout_parent || !targeting_.focusable(box)) return {};
+        const auto exposed = std::any_of(tree.nodes.begin(), tree.nodes.end(), [](const SemanticNode& entry) { return entry.focused; });
+        return exposed ? std::nullopt : input_.focused;
+    }
+
 private:
     const SemanticInput& input_;
+    HitTestInput snapshot_;
+    detail::Targeting targeting_;
     SemanticTree tree_;
 };
 
 } // namespace
 
 std::vector<Diagnostic> validate(const SemanticInput& input) {
-    return detail::validate_layout_snapshot(input.tree, input.styles, input.layout);
+    auto errors = detail::validate_layout_snapshot(input.tree, input.styles, input.layout);
+    if (errors.empty() && input.focused && !input.tree->get(*input.focused))
+        detail::Checker(errors).error("stale_target", "/focused",
+                                      "Pass the focus reported for this snapshot; this handle belongs to another tree.");
+    return errors;
 }
 
 Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
     auto errors = validate(input);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
-    auto tree = Projection(input).build();
+    Projection projection(input);
+    auto tree = projection.build();
     std::vector<Diagnostic> warnings;
     for (const auto& entry : tree.nodes) {
         if (entry.role == SemanticRole::button && entry.name.empty())
             warnings.push_back({"missing_name", Severity::warning, "/nodes/" + std::to_string(entry.node.index),
                                 "Give the button visible Text content or a labelled_by reference to named text.", {}});
     }
+    if (const auto focused = projection.unexposed_focus(tree))
+        warnings.push_back({"focus_not_exposed", Severity::warning, "/nodes/" + std::to_string(focused->index),
+                            "Make the focusable node a button with an activate binding, or move focusable to its button.", {}});
     return {std::move(tree), std::move(warnings)};
 }
 

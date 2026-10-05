@@ -54,8 +54,8 @@ struct Fixture {
         layout = std::move(*result.value);
     }
     tessera::NodeHandle node(std::uint32_t index) const { return {tree->root().tree, index}; }
-    tessera::InspectionInput input(bool sources = true) const {
-        return {tree.get(), styles, &layout, sources ? &sourced.sources : nullptr};
+    tessera::InspectionInput input(bool sources = true, std::optional<tessera::NodeHandle> focused = {}) const {
+        return {tree.get(), styles, &layout, sources ? &sourced.sources : nullptr, focused};
     }
     tessera::SemanticInput semantic_input() const { return {tree.get(), styles, &layout}; }
     tessera::InspectionSnapshot capture(bool sources = true) const {
@@ -124,6 +124,11 @@ void capture_joins_one_generation() {
           "Warnings belong to the generation and carry a source offset when mapped");
     check(fixture.capture() == snapshot, "Capture is deterministic for one snapshot");
 
+    const auto focused = tessera::capture_inspection(fixture.input(true, fixture.node(2)));
+    check(focused && focused.value->semantics.nodes[*start.semantic].focused &&
+              !snapshot.semantics.nodes[*start.semantic].focused,
+          "Supplied focus is projected into the captured semantics");
+
     const auto unmapped = fixture.capture(false);
     check(unmapped.sources == tessera::SourceStatus::not_supplied && unmapped.source_file.empty() &&
               !unmapped.elements[2].source && !unmapped.diagnostics[0].byte_offset,
@@ -143,6 +148,8 @@ void capture_rejects_incoherent_inputs() {
     input.layout = &other.layout;
     check(has(tessera::capture_inspection(input).diagnostics, "layout_node", "/layout/boxes/0/node"),
           "Layout from another generation is rejected");
+    check(has(tessera::capture_inspection(fixture.input(true, other.node(2))).diagnostics, "stale_target", "/focused"),
+          "Focus from another generation is rejected");
 
     const auto smaller = load(R"({"version":1,"root":{"type":"Box"}})");
     input = fixture.input();

@@ -40,7 +40,8 @@ struct SemanticNode {
     NameSource name_source = NameSource::none;
     std::optional<NodeHandle> labelled_by; // Referenced node; it need not have an entry.
     bool enabled = true;                   // False when the node or an ancestor is disabled.
-    bool focusable = false;                // Authored intent; focused state is not projected.
+    bool focusable = false;                // Focus eligibility, as FocusDispatcher decides it.
+    bool focused = false;                  // The supplied focus is this eligible node.
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
     bool operator==(const SemanticNode&) const = default;
 };
@@ -56,12 +57,14 @@ struct SemanticInput {
     const UiTree* tree = nullptr;
     std::span<const ResolvedStyle> styles;
     const LayoutResult* layout = nullptr;
+    std::optional<NodeHandle> focused; // Host focus for this snapshot, e.g. FocusDispatchResult::focused.
 };
 
 std::vector<Diagnostic> validate(const SemanticInput&);
 
 // Display-none and locally hidden nodes are excluded; visible descendants of a hidden node attach to
-// the nearest included ancestor. A successful result may carry missing_name warnings for buttons.
+// the nearest included ancestor. A successful result may carry missing_name warnings for buttons and a
+// focus_not_exposed warning when an eligible focused node has no entry.
 Result<SemanticTree> build_semantic_tree(const SemanticInput&);
 
 // Invokes a semantic action through the ordinary eligibility rules and returns the same ActionRequest
