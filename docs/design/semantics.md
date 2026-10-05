@@ -2,7 +2,7 @@
 
 ## Proposed semantic projection
 
-`SemanticTree` is a backend-neutral projection of the settled UI snapshot, separate from paint commands and geometry. It represents meaning for accessibility, automated tests, external agents, and inspection. This page defines a proposal, not JSON v1 fields or an implemented public API. Actual capability status is in [support](../reference/support-matrix.md).
+`SemanticTree` is a backend-neutral projection of the settled UI snapshot, separate from paint commands and geometry. It represents meaning for accessibility, automated tests, external agents, and inspection. This section defines a proposal, not JSON v1 fields or a stable public API; the [implemented prototype](#implemented-prototype-projection) covers a small in-process subset. Actual capability status is in [support](../reference/support-matrix.md).
 
 Each semantic entry needs:
 
@@ -15,6 +15,18 @@ Each semantic entry needs:
 Derive enabled/focused/action availability from settled interaction state rather than maintaining competing state in adapters. Names may use explicit labels or relationships; define missing-reference, cycle, and fallback diagnostics before freezing schema v1. Existing `labelled_by` storage remains governed by [UI model](ui-model.md) and [JSON v1](../../formats/tessera-ui/README.md).
 
 Semantic inclusion for hidden, display-none, virtualized, and modal content needs explicit fixtures. Do not infer eligibility solely from whether a paint command exists.
+
+## Implemented prototype projection
+
+[semantics.hpp](../../include/tessera/semantics/semantics.hpp) implements an in-process subset of this proposal. It is a prototype, not a serialized semantic schema or stable API, and it does not extend JSON v1. Roles are derived from the existing vocabulary because no authored role property exists.
+
+- **Input.** `SemanticInput` borrows the same coherent tree/resolved-style/layout snapshot as [hit testing](input.md#implemented-rectangular-hit-testing) and is rejected with the same located snapshot codes. No text shaper or renderer is involved.
+- **Inclusion and order.** `build_semantic_tree` scans displayed nodes in tree preorder. Display-none subtrees have no entries. Visibility is local: a hidden node is excluded, while its visible descendants attach to the nearest included ancestor. Roles are `button` for a Box or Text with an `activate` binding, `text` for a Text node outside a button, and `root` for a Box root with neither. Other Boxes are flattened. Text whose nearest included ancestor is a button is presentational: it names that button and has no entry. A nested button keeps its own entry and label. A hidden root yields top-level entries without a parent.
+- **Entries.** `SemanticNode` owns the author ID and records the live `NodeHandle`, parent entry index, `LayoutResult` box index for bounds, role, name and `NameSource`, the `labelled_by` target handle, `enabled` (false when the node or an ancestor is disabled), authored `focusable` intent, and eligible actions. Disabled entries remain exposed without actions. There is no focused, selected, or value state because no focus runtime or value-bearing role exists. Handles expire with their tree; entries are not a serialized identity.
+- **Names.** A `labelled_by` reference names the entry with the Text content of the referenced subtree in preorder, including hidden or display-none content. References are not followed transitively, so relationship cycles cannot recurse. An empty relationship result falls back to content: a button's visible presentational Text runs, or a Text entry's own text. Nonempty runs are joined by one space without other whitespace normalization. Document validation already rejects missing references. A button without a name produces a successful result with a `missing_name` warning at `/nodes/<preorder index>`.
+- **Invocation.** `request_semantic_action(input, target, binding)` re-projects the supplied snapshot and returns the same `ActionRequest` as a [pointer activation](input.md#implemented-pointer-dispatch) of that binding owner. A handle from another or destroyed tree fails as `stale_target` at `/target`, even when the replacement reuses author IDs. Display-none or hidden targets are `hidden_target` and disabled entries are `disabled_target`, both at `/target`. Bindings other than an exposed `activate`, labels, and flattened containers are `unsupported_action` at `/binding`. No host callback runs and no state changes.
+
+Generation-aware identities for external adapters, focus/selection/value state, semantic replay outputs, scoped target resolution, and platform/DOM adapters remain proposals.
 
 ## Snapshot and identity
 
@@ -32,4 +44,4 @@ Path-finder and external tools consume this projection through [shared inspectio
 
 ## Verification
 
-Check deterministic order, roles/names/relationships, state consistency, supported-action eligibility, hidden/modal content, and stale identity rejection. Native accessibility and external automation each require their own adapter evidence. Use semantic and expected-action fixtures with [Replay](replay.md), and record results in support.
+Check deterministic order, roles/names/relationships, state consistency, supported-action eligibility, hidden/modal content, and stale identity rejection. [Semantic checks](../../tests/semantics/semantics_tests.cpp) cover prototype roles, flattening, hidden/display-none inclusion, relationship/content names with fallback and warnings, disabled state, repeated-projection equality, and pointer-equivalent invocation with stale/hidden/disabled/unsupported rejection; modal content and focus state still need fixtures. Native accessibility and external automation each require their own adapter evidence. Use semantic and expected-action fixtures with [Replay](replay.md), and record results in support.

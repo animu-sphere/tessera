@@ -77,7 +77,8 @@ void descriptor_table() {
     const auto& text = *tessera::find_property_descriptor(tessera::property_names::text);
     check(text.type == tessera::PropertyType::string && text.required == tessera::NodeKinds::text &&
           tessera::affects(text.stages, tessera::PropertyStages::layout) &&
-          tessera::affects(text.stages, tessera::PropertyStages::paint), "Text descriptor differs");
+          tessera::affects(text.stages, tessera::PropertyStages::paint) &&
+          tessera::affects(text.stages, tessera::PropertyStages::semantics), "Text descriptor differs");
     const auto& disabled = *tessera::find_property_descriptor(tessera::property_names::disabled);
     check(tessera::affects(disabled.stages, tessera::PropertyStages::input), "Disabled must invalidate input targeting");
 }

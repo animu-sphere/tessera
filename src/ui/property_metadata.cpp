@@ -22,7 +22,7 @@ std::span<const PropertyDescriptor> property_descriptors() noexcept {
         {property_names::labelled_by, PropertyType::reference, NodeKinds::all, NodeKinds::none, std::nullopt,
          semantics, PropertyCategory::accessibility},
         {property_names::text, PropertyType::string, NodeKinds::text, NodeKinds::text, std::nullopt,
-         layout | paint, PropertyCategory::content},
+         layout | paint | semantics, PropertyCategory::content},
     }};
     return descriptors;
 }
