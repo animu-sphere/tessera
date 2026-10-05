@@ -91,6 +91,57 @@ World-space adapters and streamed resources require bounded host requirements. M
 
 Owners: [architecture](../design/architecture.md), [Web host](../design/web-host.md), [rendering](../design/rendering.md), [semantics](../design/semantics.md), [input](../design/input.md), [dependencies](../reference/dependencies.md), [replay](../design/replay.md).
 
+## Later — Typography expansion
+
+Prerequisites: v0.2.0 real text (faces, shaping, bitmap glyph cache, fallback, wrapping, deterministic fixtures) and the v0.4.0 editing/selection work.
+
+Candidates, in dependency order:
+
+- Logical font aliases and application/user font registration; caret and selection geometry for text inputs.
+- Read-only rich text spans, SDF/MSDF glyphs for zoomable canvases, and variable font instances.
+- Unicode line breaking, script segmentation, advanced bidirectional layout, color emoji, and advanced OpenType features.
+- Font asset metadata, license metadata hooks, and packaging warnings under [font licensing](../reference/dependencies.md#font-licensing).
+
+Exit criteria to refine per item: measurement/paint agreement holds across fallback and variation changes, zoomed text meets declared image tolerances, and each script or emoji format claim has dedicated fixtures.
+
+Owners: [text](../design/text.md), [rendering](../design/rendering.md), [dependencies](../reference/dependencies.md).
+
+## Later — Graph canvas and node editor
+
+Objective: a domain-agnostic [graph canvas](../design/graph-editor.md) over ordinary components and custom paint.
+
+Prerequisites: Canvas/custom paint and transformed paint/hit-test agreement, overlays/portals, keyed reconciliation, themes, and inspection target resolution.
+
+Stages:
+
+- Canvas base: grid, viewport transform, pan/zoom, coordinate conversion.
+- Nodes and connections: container nodes, ports, drag, selection, edges, temporary edges, domain compatibility, curve hit testing.
+- Editor UX: search palette, context menus, clipboard, transactions for application-owned undo, minimap.
+- Scale: spatial index, culling, edge batching, LOD, text culling and caching.
+- Advanced: subgraphs, layout providers, execution overlays, profiling, graph diff, node registry.
+- Agent operation: ID-based inspection and operations, deterministic graph snapshots.
+
+Planning scale (not support claims): about 500 nodes/1,000 edges for an MVP, 5,000+ nodes/10,000+ edges for a production editor, and 10,000-100,000 nodes with LOD or partial browsing.
+
+Owners: [graph editor](../design/graph-editor.md), [rendering](../design/rendering.md), [layout](../design/layout.md), [input](../design/input.md), [inspection](../design/inspection.md).
+
+## Later — Conversational and agent workspace
+
+Objective: a reference [conversational workspace](../design/conversational-ui.md) that exercises text, virtualization, streaming, async work, and automation together.
+
+Prerequisites: production VirtualList with key-plus-offset anchors, editable text with IME/clipboard, real text with fallback, and inspection fixtures.
+
+Stages:
+
+- Conversation foundation: message model, read-only rich text, basic Markdown, code blocks, composer, streaming append with update coalescing, host task/cancellation bridge.
+- Structured content: attachments and images, tool call/result views, syntax highlighting, tables, diffs, message actions, persistence, basic branching.
+- Agent workspace: agent timeline, approvals, progress, terminal, file browser, artifact panel, docking.
+- Interactive workspace: interactive message content, custom block registry, graph/3D/USD artifacts, remote and collaborative sessions.
+
+Exit criteria to refine from the reference application: its long-conversation, streaming Markdown, large code, tool-heavy, and mixed workspace fixtures run deterministically under inspection with recorded baselines.
+
+Owners: [conversational UI](../design/conversational-ui.md), [layout](../design/layout.md), [text](../design/text.md), [input](../design/input.md), [semantics](../design/semantics.md), [inspection](../design/inspection.md).
+
 ## Unscheduled extensions
 
 - Host-clock property animation after baseline style/layout correctness; see [styling](../design/styling.md#proposed-animation).
@@ -103,6 +154,6 @@ Owners: [architecture](../design/architecture.md), [Web host](../design/web-host
 
 ## Explicitly deferred
 
-Full DOM/CSS compatibility, JavaScript VM, embedded browser, complete SVG, complex filters/effects, rich-text editor suite, huge widget catalog, scene-graph coupling, and an OpenUSD-backed internal UI tree are outside early/mid scope. Premature multithreaded API or stable ABI guarantees are also excluded.
+Full DOM/CSS compatibility, JavaScript VM, embedded browser, complete SVG, complex filters/effects, rich-text editor suite (read-only rich text and Markdown rendering are separate candidates above), huge widget catalog, scene-graph coupling, and an OpenUSD-backed internal UI tree are outside early/mid scope. Premature multithreaded API or stable ABI guarantees are also excluded.
 
 Optional USD/engine integration reaches the runtime through view models and adapters under [architecture](../design/architecture.md).

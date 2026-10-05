@@ -2,7 +2,7 @@
 
 ## Purpose and constraints
 
-Tessera provides web-inspired authoring for game and tool UI with a small native runtime and a shared model for future Web hosting. Its retained, declarative component model targets dense application UI, including inspectors, timelines, node graphs, and UI alongside 3D viewports. Source review, reusable composition, predictable updates, live reload, accessibility, and machine observation/operation are design requirements.
+Tessera provides web-inspired authoring for game and tool UI with a small native runtime and a shared model for future Web hosting. Its retained, declarative component model targets dense application UI, including inspectors, timelines, node graphs, conversational/agent workspaces, and UI alongside 3D viewports. [Graph editors](graph-editor.md) and [conversational workspaces](conversational-ui.md) are reference workloads that stress text, virtualization, input, custom paint, and automation together; they remain layers over the common runtime. Source review, reusable composition, predictable updates, live reload, accessibility, and machine observation/operation are design requirements.
 
 Long-term constraints:
 
@@ -53,7 +53,7 @@ C++ construction, future DSLs, and visual authoring lower to the same [UI model]
 
 [Inspection](inspection.md) joins semantic, layout, property, and source observations for DevTools, testing, and agent adapters. It observes settled generations and invokes declared operations without exposing mutable internals. [Web hosting](web-host.md) projects the same semantics to DOM and renders resolved draw data to a WebGPU canvas, with platform editing handled at the host boundary.
 
-The retained model may provide `Canvas` / custom paint callbacks for graphs, profilers, and debug drawing. These callbacks emit the same bounded paint vocabulary described in [rendering](rendering.md). They do not create a second widget framework.
+The retained model may provide `Canvas` / custom paint callbacks for graphs, profilers, and debug drawing; the [graph canvas](graph-editor.md#proposed-canvas-structure) is the main proposed consumer. These callbacks emit the same bounded paint vocabulary described in [rendering](rendering.md). They do not create a second widget framework.
 
 ## Frame scheduling
 
