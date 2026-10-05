@@ -94,7 +94,7 @@ With `TESSERA_BUILD_VULKAN=ON` and examples enabled on Windows, the build above 
 & .\build-vulkan\backends\vulkan\Debug\tessera_vulkan_menu.exe --smoke  # scripted; exits 0 on success
 ```
 
-The executable loads the SPIR-V artifacts from the build tree's shader directory. The smoke needs an interactive desktop session, the Khronos validation layer, and a device presenting an sRGB swapchain with transfer-source usage. It writes `vulkan-menu-{1,2,3}.ppm` presentation captures to `build-vulkan/backends/vulkan/artifacts` and fails after 30 seconds if the sequence stalls. Physical mouse activity over the window during the smoke can perturb it.
+The executable loads the SPIR-V artifacts from the build tree's shader directory. The smoke needs an interactive desktop session, the Khronos validation layer, and a device presenting an sRGB swapchain with transfer-source usage. It writes `vulkan-menu-{1,2,3,4}.ppm` presentation captures to `build-vulkan/backends/vulkan/artifacts` and fails after 30 seconds if the sequence stalls. Physical mouse activity over the window during the smoke can perturb it; the smoke reads no game controller.
 
 A separate fresh directory reproduces the host slice's independence check:
 

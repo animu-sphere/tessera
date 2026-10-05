@@ -54,7 +54,7 @@ endif()
 # Win32 example host: window, OS input, DPI, swapchain and presentation stay outside the backend.
 if(WIN32 AND TESSERA_BUILD_EXAMPLES)
     add_executable(tessera_vulkan_menu ../../examples/vulkan-menu/main.cpp)
-    target_link_libraries(tessera_vulkan_menu PRIVATE tessera::vulkan)
+    target_link_libraries(tessera_vulkan_menu PRIVATE tessera::vulkan xinput)
     target_compile_definitions(tessera_vulkan_menu PRIVATE
         TESSERA_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders"
         TESSERA_GPU_ARTIFACT_DIR="${CMAKE_CURRENT_BINARY_DIR}/artifacts")
