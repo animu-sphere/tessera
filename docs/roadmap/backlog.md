@@ -2,6 +2,8 @@
 
 Inactive milestone candidates live here; [current](current.md) owns the active scope. Versions are candidates without committed dates. Implementation and validation status is owned by the [support matrix](../reference/support-matrix.md).
 
+Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below. External strategy phase numbers do not replace these candidate scopes.
+
 ## v0.2.0 candidate — Usable navigable menus
 
 Objective: make game/tool menus usable with real text and mouse, keyboard, or gamepad.
@@ -16,6 +18,7 @@ Work:
 - Style classes, hover/focus/disabled/active states, deterministic precedence and inheritance boundaries.
 - SemanticTree v1 and Replay v1.
 - IME/clipboard boundary contracts; DPI and pixel-snapping validation.
+- In-process inspection with scoped target resolution, source mapping where available, and structured diagnostics; deterministic offscreen runner/capture prototype with declared state, time, viewport/scale, locale, fonts, and resources.
 
 Exit criteria:
 
@@ -24,8 +27,9 @@ Exit criteria:
 - Scrolled/clipped nodes paint and hit-test consistently; disabled nodes do not activate.
 - Class/state resolution is deterministic and semantic state matches focus/action eligibility.
 - Replay reproduces representative interactions, including expected action sequences.
+- An in-process consumer observes one coherent tree/layout/semantic generation and rejects ambiguous or stale targets; controlled host fixtures reproduce it without a window, with optional completed-frame capture.
 
-Owners: [text](../design/text.md), [input](../design/input.md), [layout](../design/layout.md), [styling](../design/styling.md), [semantics](../design/semantics.md), [replay](../design/replay.md).
+Owners: [text](../design/text.md), [input](../design/input.md), [layout](../design/layout.md), [styling](../design/styling.md), [semantics](../design/semantics.md), [replay](../design/replay.md), [inspection](../design/inspection.md), [rendering](../design/rendering.md).
 
 ## v0.3.0 candidate — Dynamic UI and editor prototype
 
@@ -41,6 +45,8 @@ Work:
 - Full property reflection/introspection v1 and a schema-driven Inspector.
 - OverlayRoot/Portal and bounded Tooltip/Dropdown/Modal primitives.
 - TextInput contract and VirtualList prototype based on stable item keys.
+- A small inspection/render CLI consumer and versioned snapshot bundle prototype; semantic/layout/counter comparisons and selective visual regression artifacts across declared viewport fixtures.
+- Reload-to-snapshot linkage and source-edit-to-verification instrumentation shared with Path-finder.
 
 Exit criteria:
 
@@ -49,8 +55,9 @@ Exit criteria:
 - Invalid edits keep the last valid UI; compatible edits preserve declared state and retire old resources.
 - Runtime and Path-finder round-trip the same document, including editor metadata.
 - Inspector properties derive from runtime metadata; portal focus/ownership and list item identity remain coherent.
+- Tooling uses host-declared state slots, captures one generation, and emits machine-readable observations/differences; invalid bundle versions or incompatible comparison conditions are diagnosed.
 
-Owners: [UI model](../design/ui-model.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [input](../design/input.md), [layout](../design/layout.md), [Path-finder](../design/path-finder-integration.md).
+Owners: [UI model](../design/ui-model.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [input](../design/input.md), [layout](../design/layout.md), [Path-finder](../design/path-finder-integration.md), [inspection](../design/inspection.md).
 
 ## v0.4.0 candidate — Productive tool UI
 
@@ -64,10 +71,11 @@ Candidates:
 - Editable TextInput, IME implementation, clipboard, selection, and drag/drop.
 - Canvas/custom paint and performance instrumentation.
 - Dirty style/layout/paint tracking after full-tree correctness.
+- Representative dense/high-frequency tool benchmarks, measured iteration latency, and consumer-specific regression budgets after recording a baseline; thin scenario tooling and compact CI reports/artifacts.
 
-Exit criteria to refine from a consumer prototype: long lists preserve keyed selection/focus, Japanese composition and clipboard work under declared platform evidence, custom paint respects the common draw/resource contract, and incremental results match full-tree output.
+Exit criteria to refine from a consumer prototype: long lists preserve keyed selection/focus, Japanese composition and clipboard work under declared platform evidence, custom paint respects the common draw/resource contract, and incremental results match full-tree output. Benchmark/iteration reports identify representative fixtures and measurement conditions; consumer budgets and CI reports distinguish timing noise from deterministic counter regressions.
 
-Owners: [UI model](../design/ui-model.md), [layout](../design/layout.md), [input](../design/input.md), [text](../design/text.md), [rendering](../design/rendering.md), [styling](../design/styling.md).
+Owners: [UI model](../design/ui-model.md), [layout](../design/layout.md), [input](../design/input.md), [text](../design/text.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [inspection](../design/inspection.md).
 
 ## v0.5.0 candidate — Accessibility, automation, and robust runtime
 
@@ -77,23 +85,33 @@ Depends on stable semantics/actions, replay, and lifecycle contracts.
 
 Candidates:
 
-- Native accessibility adapters, semantic inspection, external automation and semantic action invocation.
+- Native accessibility adapters and external semantic invocation using the earlier shared inspection foundation.
 - Replay recording tools, focus recovery/modal navigation hardening.
 - Resource/device-loss diagnostics, install/export packaging, downstream integration checks.
+- Persistent automation adapters built on the earlier inspection/action API: bounded stdin/stdout JSON-RPC first, local RPC/subscriptions only for a consumer, optional MCP last; explicit development enablement and production exclusion.
 
-Exit criteria to refine per adapter: semantic invocation obeys ordinary action eligibility, stale identities fail safely, adapter behavior has platform-specific evidence, replay reproduces failures, and downstream consumers exercise documented lifetime boundaries.
+Exit criteria to refine per adapter: semantic invocation obeys ordinary action eligibility, stale identities fail safely, adapter behavior has platform-specific evidence, replay reproduces failures, and downstream consumers exercise documented lifetime boundaries. Transport validation must cover request limits, cancellation/teardown, permitted state slots, and exclusion of development mutation/source exports from production.
 
-Owners: [semantics](../design/semantics.md), [input](../design/input.md), [replay](../design/replay.md), [rendering](../design/rendering.md), [dependencies](../reference/dependencies.md).
+Owners: [semantics](../design/semantics.md), [input](../design/input.md), [replay](../design/replay.md), [rendering](../design/rendering.md), [dependencies](../reference/dependencies.md), [inspection](../design/inspection.md).
 
 ## Later — WebGPU, WASM, and world-space UI
 
 Prerequisites: stable document, draw/resource and text boundaries, and replay fixtures suitable for parity checks.
 
-Evaluate native WebGPU, browser WebGPU hosting, and WASM separately. Require equivalent document/geometry behavior and rendered fixture parity under declared tolerances. A backend name or shader target does not establish browser support.
+Evaluate native WebGPU, browser WebGPU hosting, and WASM separately. The intended Web path is the shared runtime in WASM, WebGPU canvas visuals, and semantic DOM/browser editing adapters under [Web host](../design/web-host.md).
+
+Candidates:
+
+- WASM packaging and browser host with explicit device/canvas/input/asset ownership and a thin typed JS state/action bridge.
+- Semantic DOM accessibility and focus synchronization from the common SemanticTree.
+- Hybrid browser text editing, Japanese IME, selection and clipboard; evaluate mobile keyboard/autofill/password-manager needs separately.
+- Worker/OffscreenCanvas only after single-thread correctness and measured need, with ordered generation-aware messages and teardown.
+
+Exit criteria to refine per host: equivalent document/state/geometry/actions and selective rendered fixture parity under declared tolerances; semantic DOM focus/removal and Japanese editing work in recorded browser configurations; bridge lifetime and malformed inputs are tested. A backend name or shader target does not establish browser support.
 
 World-space adapters and streamed resources require bounded host requirements. Metal/D3D12 need a concrete consumer before scheduling.
 
-Owners: [architecture](../design/architecture.md), [rendering](../design/rendering.md), [dependencies](../reference/dependencies.md), [replay](../design/replay.md).
+Owners: [architecture](../design/architecture.md), [Web host](../design/web-host.md), [rendering](../design/rendering.md), [semantics](../design/semantics.md), [input](../design/input.md), [dependencies](../reference/dependencies.md), [replay](../design/replay.md).
 
 ## Unscheduled extensions
 
@@ -102,6 +120,8 @@ Owners: [architecture](../design/architecture.md), [rendering](../design/renderi
 - Finer dirty-subtree/reactive updates after measured need and full-tree parity.
 - TypeScript-inspired DSL, then optional JSX/TSX compilation after the IR stabilizes; no JavaScript VM requirement.
 - Broader editor bridge transport/process choices driven by actual consumers.
+- Responsive viewport/container rules and general constraint/flow layout after the existing [layout extension order](../design/layout.md#extension-order), when a tool consumer requires them.
+- Gradients, shadows, paths, richer composition, and retained/partial GPU updates after bounded paint/resource contracts and measured workloads; blur/complex filters stay outside early/mid scope.
 
 ## Explicitly deferred
 

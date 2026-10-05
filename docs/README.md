@@ -1,6 +1,8 @@
 # Documentation
 
-These documents incorporate the owner-provided implementation direction dated 2026-10-05 (`tessera-implementation-roadmap.md`), superseding the earlier strategy draft. The external file is an input, not a second maintained roadmap. Repository documents below own subsequent changes; no local Desktop path is required to use them.
+These documents incorporate the owner-provided implementation direction dated 2026-10-05 (`tessera-implementation-roadmap.md`), supplemented by `tessera-agent-operable-implementation-plan.md` and `tessera_ui_architecture_web_strategy.md`. The latter inputs refine shared inspection/automation and native/Web application architecture. External files are design inputs, not additional maintained roadmaps; repository documents below own subsequent changes, with no local Desktop path required.
+
+Adopted direction includes a shared component IR, bounded styling, inspection shared by DevTools/tests/agents, reproducible snapshot comparisons, and a WASM/WebGPU host with semantic DOM and platform editing adapters. Illustrative CLI/build switches, DSL syntax, framework-speedup estimates, and phase numbering are not contracts. Retain milestone dependencies, full-tree correctness before incremental optimization, and host ownership of application/world state.
 
 ## Reading order
 
@@ -21,8 +23,10 @@ These documents incorporate the owner-provided implementation direction dated 20
 | [Rendering](design/rendering.md) | Paint vocabulary/order, backend/resource contract, pixel conversion, shaders, batching, custom paint, asset boundary | Layout or application state |
 | [Text](design/text.md) | Font/shaping abstraction, indices, metrics, fallback, glyph caching | Editing events and clipboard operations |
 | [Input](design/input.md) | Normalized events, hit tests, focus/navigation, event-to-action translation, editing/IME/clipboard boundary | Semantic schema or OS adapters |
-| [Semantics](design/semantics.md) | Semantic projection, roles/names/state/actions, inspection and accessibility/automation adapter boundary | Focus algorithms or host action implementation |
+| [Semantics](design/semantics.md) | Semantic projection, roles/names/state/actions, accessibility/automation projection boundary | Focus/dispatch algorithms, inspection protocols, browser mapping, or host action implementation |
 | [Replay](design/replay.md) | Versioned recording inputs, deterministic playback and observable outputs | Test procedure or CLI support claims |
+| [Inspection and tooling](design/inspection.md) | Shared observation records, source mapping, target resolution, declared state injection, snapshot bundles/diffs, diagnostics envelope, metrics and tooling/production boundaries | Semantic schema, dispatch policy, replay inputs, or live tool availability |
+| [Web host](design/web-host.md) | WASM/browser ownership, semantic DOM, browser editing and JS bridge, optional worker integration | Core semantics/input algorithms, renderer commands, or browser support claims |
 | [Path-finder integration](design/path-finder-integration.md) | Shared-schema editing, diagnostics, reload transaction, preview bridge | A second property/semantic schema or runtime |
 | [Development](guides/development.md) | Build/run commands and workflow | Test-result history or subsystem contracts |
 | [Testing](guides/testing.md) | Verification methods and documentation checks | Test-target inventory or capability status |

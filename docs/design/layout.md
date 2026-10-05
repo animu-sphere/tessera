@@ -71,6 +71,8 @@ Settled by the resolved-style contract: the only units are `automatic` and logic
 
 These rules are implementation decisions to record with examples and algorithm tests. Percent sizing, advanced grid, and browser-specific formatting behavior are deferred until needed.
 
+Responsive application layout should consume an explicit logical viewport or containing-box size. Breakpoint/rule syntax and general constraint/flow solvers are later consumer-driven candidates, following flex, scrolling, absolute positioning, and explicit grid. They must remain backend-neutral and diagnose conflicting or unsatisfiable rules. Validate selected viewport/scale fixtures through [inspection tooling](inspection.md), without claiming browser layout compatibility.
+
 ## Invalidation
 
 Initially recompute the full layout tree. Later classify changes as geometry-affecting or paint-only. Size changes can invalidate ancestors and siblings, so dirty-subtree optimization must preserve the result of a full calculation. Text measurement and resolved font changes participate in layout invalidation.

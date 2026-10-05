@@ -59,6 +59,8 @@ A user component maps `props + local state` to a subtree. Examples include `Heal
 
 The foundation should implement only the minimum node/property/document representation. A list of candidate primitives is not a requirement to implement them all in Phase 0.
 
+Proposed component descriptions should express typed props, declared signals/actions, named slots/children, local state, bindings, and composed subtrees. Keep drawing primitives, interactive controls, and application composites distinguishable without making them separate runtimes. C++ builders and later textual/visual frontends should have equivalent meaning for the same supported vocabulary; source mapping survives lowering under [inspection](inspection.md#proposed-inspection-records-and-source-mapping). These descriptions extend the common IR only after identity, validation, and lifetime rules are defined.
+
 ## Properties and validation
 
 Separate semantic node properties, [style properties](styling.md), and host-resolved event bindings. Use a small explicit type vocabulary with named validation rules; avoid opaque reflection or silently coercing arbitrary values.
@@ -66,6 +68,8 @@ Separate semantic node properties, [style properties](styling.md), and host-reso
 Event bindings identify host-registered actions rather than embedding function pointers or executable scripts in the document. Unknown actions must produce diagnostics under a declared policy. Registration and dispatch details are owned by [input](input.md).
 
 Diagnostics should carry a stable code, message, document/node/property location, and source span when available. Recoverable warnings must be distinguishable from errors that prevent instantiation. Validation should complete before replacing a live document.
+
+[Inspection](inspection.md#proposed-diagnostics-and-comparisons) adapts validation into a common tooling envelope while preserving original codes and locations. That proposal does not change the implemented diagnostics or JSON v1.
 
 ## Serialization
 
@@ -86,6 +90,8 @@ Applications retain ownership of game/application state. Tessera supplies minima
 Proposed update semantics: state writes schedule a defined update, rendering observes settled values, and subscriptions end with their owning component. Conditional children and dynamic lists require identity rules before reconciliation is implemented. Use stable sibling keys; reject or diagnose duplicate keys. Specify mount/update/unmount cleanup and focus/interaction recovery when nodes disappear.
 
 Keyed reconciliation is planned for a later component milestone. Compatible-state preservation during reload uses the same identity rules; see [Path-finder integration](path-finder-integration.md).
+
+Property-level dependency tracking is the long-term reactive direction. Define dependency ownership, cycle/reentrancy handling, settled update order, and subscription cleanup before selecting an API. Dirty property/subtree updates must match full-tree results. Test state capture/restore uses only host-declared slots through [inspection](inspection.md#proposed-inspection-records-and-source-mapping), with application state ownership unchanged.
 
 ## Implemented property metadata
 

@@ -65,6 +65,8 @@ Normalized device events describe interaction; application-facing actions descri
 
 [Semantics](semantics.md) owns exposed roles/names/action availability. It consumes input state and refers to actions here, rather than duplicating focus or dispatch policy.
 
+[Inspection operations](inspection.md#proposed-target-resolution-and-operations) resolve targets before entering this path. Semantic activate/set-value and raw pointer/key injection are distinct operations with the same eligibility constraints. Automation must not turn unsupported text editing or value actions into direct property mutation.
+
 ## Interaction state
 
 Input owns interaction behavior. Pointer hover/active and inherited disabled filtering are implemented above; focus and stylesheet [pseudo states](styling.md) remain planned. Host updates must resolve styles/layout and call `refresh` or dispatch with the new snapshot. Disabled focus policy and automatic style/layout/paint invalidation remain to be defined.
@@ -88,6 +90,8 @@ Use the [portal model](ui-model.md#proposed-overlays-and-portals) and shared [ov
 Keep committed `TextInput` separate from composition start/update/commit/cancel. A text-editing contract needs replacement ranges, selection, caret, and copy/cut/paste requests. Declare index units and validate ranges against the document revision; UTF-8 bytes, graphemes, and glyph indices are distinct under [text](text.md).
 
 The host normalizes platform IME events, owns clipboard access, and receives caret/selection geometry for candidate-window placement. Core stores editing state without platform types or implicit clipboard calls. Composition cancellation, focus loss, asynchronous paste, read-only/disabled policy, and stale replacement ranges need explicit fixtures. Japanese composition is a first-class requirement; boundary design can precede platform adapters and editable TextInput implementation.
+
+The [Web editing adapter](web-host.md#proposed-text-editing-adapter) may use browser-native input facilities alongside GPU visuals. It translates index units, revisions, focus, and composition into this same contract without exposing browser-specific controls in the UI model.
 
 ## Verification
 

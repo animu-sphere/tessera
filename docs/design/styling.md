@@ -29,16 +29,18 @@ Resolved values, units, defaults, and enumerations are fixed by the contract abo
 
 ## Selectors and cascade
 
-Initial selector candidates are type, `.class`, `#id`, and `:hover`, `:active`, `:focus`, `:disabled`. Do not implement full CSS selector grammar early. Compound selectors and combinators require a separate scope decision.
+Initial selector candidates are type, `.class`, `#id`, and `:hover`, `:active`, `:focus`, `:disabled`. Checked/selected states follow controls that define them. Do not implement full CSS selector grammar early. Compound selectors and combinators require a separate scope decision. Selectors choose applicable rules; they do not introduce browser-style specificity.
 
 Proposed resolution order:
 
 1. Primitive defaults.
 2. Inherited values for a small explicitly listed set of properties.
-3. Matching stylesheet rules ordered by specificity, then source order.
-4. Explicit node-local style overrides.
+3. Theme-provided defaults/styles.
+4. Explicit style classes and their matching state rules.
+5. Component-local style.
+6. Instance overrides.
 
-Proposed specificity is ID above class/pseudo state above type. Equal-specificity rules use stable source order. Finalize the inheritance whitelist and precedence with fixtures before exposing a format contract. Layout/spacing values should not inherit by accident. Unsupported selectors or properties require useful diagnostics rather than implied browser behavior.
+Use explicit layers and stable source order for ties within a layer. Decide how multiple authored classes and base/state rules compose before freezing syntax; class-list order must have one declared meaning. IDs identify matches without silently outranking instance overrides. Finalize the inheritance whitelist and theme-variable behavior with fixtures before exposing a format contract. Layout/spacing values should not inherit by accident. Unsupported selectors or properties require useful diagnostics rather than implied browser behavior.
 
 ## Interaction states
 
@@ -58,6 +60,8 @@ Theme variables are planned after basic stylesheet resolution. Specify variable 
 
 After baseline UI is correct, animate resolved opacity, transforms, color, size, and scroll offset through an injected host `AnimationClock`. Replay supplies that clock's values; no hidden wall clock or CSS animation compatibility is required. Geometry changes invalidate layout; paint-only changes need not. Interruption, easing, authored-versus-animated precedence, and scroll interaction are open decisions. Complex game animation remains host-owned.
 
+Opacity/transform and other paint-only changes may avoid layout, but compositor-only execution needs a concrete retained-render contract and evidence. Color can require repaint/upload; clip/transform changes may also affect input or semantic bounds. Do not classify all visual animations as GPU-only or skip those consumers.
+
 ## Verification
 
-Prioritize selector matching, specificity ties, inheritance boundaries, local overrides, state changes, and invalid properties. Later add variable cycles and animation invalidation. Numeric resolved-style tests should prove these semantics without rendering a widget gallery.
+Prioritize selector matching, layer/source-order ties, inheritance boundaries, component/instance overrides, state changes, and invalid properties. Later add variable cycles and animation invalidation. Numeric resolved-style tests should prove these semantics without rendering a widget gallery.
