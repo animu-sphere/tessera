@@ -1,4 +1,5 @@
 #include <tessera/ui/document.hpp>
+#include <tessera/ui/property_metadata.hpp>
 #include "json_detail.hpp"
 #include <algorithm>
 #include <cmath>
@@ -7,6 +8,19 @@
 #include <utility>
 
 namespace tessera {
+namespace {
+
+std::string expected(PropertyType type) {
+    switch (type) {
+    case PropertyType::boolean: return "a boolean";
+    case PropertyType::number: return "a finite number";
+    case PropertyType::string: return "a UTF-8 string";
+    case PropertyType::reference: return "an author-ID reference {\"ref\":\"id\"}";
+    }
+    return "a supported value";
+}
+
+} // namespace
 
 std::vector<Diagnostic> validate(const UiDocument& document, const ValidationContext& context) {
     std::vector<Diagnostic> errors;
@@ -82,18 +96,11 @@ std::vector<Diagnostic> validate(const UiDocument& document, const ValidationCon
         }
         for (const auto& [name, value] : node.properties) {
             const auto location = path + "/properties/" + detail::pointer_token(name);
-            const bool text = name == "text" && node.kind == NodeKind::text;
-            const bool boolean = name == "focusable" || name == "disabled";
-            const bool reference = name == "labelled_by";
-            if (!text && !boolean && !reference) {
+            const auto* descriptor = find_property_descriptor(name);
+            if (!descriptor || !contains(descriptor->accepted, node.kind))
                 error("unknown_property", location, "This property is not supported on this node kind.");
-            } else if ((text && !std::holds_alternative<std::string>(value)) ||
-                       (boolean && !std::holds_alternative<bool>(value)) ||
-                       (reference && !std::holds_alternative<NodeReference>(value))) {
-                error("property_type", location, text ? "Expected a UTF-8 string." :
-                    boolean ? "Expected a boolean; numeric/string coercion is not supported." :
-                              "Expected an author-ID reference: {\"ref\":\"id\"}.");
-            }
+            else if (property_type(value) != descriptor->type)
+                error("property_type", location, "Expected " + expected(descriptor->type) + "; values are not coerced.");
             if (const auto* string = std::get_if<std::string>(&value)) check_string(*string, location, false);
             if (const auto* number = std::get_if<double>(&value); number && !std::isfinite(*number))
                 error("invalid_number", location, "Numbers must be finite.");
@@ -102,8 +109,12 @@ std::vector<Diagnostic> validate(const UiDocument& document, const ValidationCon
                 references.emplace_back(ref->id, location + "/ref");
             }
         }
-        if (node.kind == NodeKind::text && !node.properties.contains("text"))
-            error("missing_property", path + "/properties/text", "Text nodes require the 'text' string property.");
+        for (const auto& descriptor : property_descriptors()) {
+            if (contains(descriptor.required, node.kind) && !node.properties.contains(descriptor.name))
+                error("missing_property", path + "/properties/" + detail::pointer_token(descriptor.name),
+                      std::string(node.kind == NodeKind::box ? "Box" : "Text") + " nodes require the '" +
+                      std::string(descriptor.name) + "' property: " + expected(descriptor.type) + ".");
+        }
         if (node.kind == NodeKind::text && !node.children.empty())
             error("invalid_children", path + "/children", "Text is a leaf; place children in a Box.");
         for (const auto& [event, action] : node.events) {

@@ -59,7 +59,7 @@ poll/normalize input -> update application -> dispatch UI events
 -> submit UI rendering -> host presents
 ```
 
-Full-tree style/layout/semantic/paint updates are the reference path. Property metadata identifies affected stages under [UI model](ui-model.md#proposed-property-reflection) and [styling](styling.md#property-effects). Introduce dirty flags, then dirty-subtree and finer reactive updates only after proving equivalence to that reference.
+Full-tree style/layout/semantic/paint updates are the reference path. Property metadata identifies affected stages under [UI model](ui-model.md#implemented-property-metadata) and [styling](styling.md#property-effects). Introduce dirty flags, then dirty-subtree and finer reactive updates only after proving equivalence to that reference.
 
 ### Update and snapshot rules
 

@@ -1,4 +1,5 @@
 #include <tessera/render/paint.hpp>
+#include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
 #include <algorithm>
@@ -56,7 +57,7 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         const auto color = faded(style.color, opacity);
         const auto path = "/nodes/" + std::to_string(box.node.index);
         if (node.kind == NodeKind::text && color.a > 0) {
-            const auto property = node.properties.find("text");
+            const auto property = node.properties.find(property_names::text);
             const auto* text = property == node.properties.end() ? nullptr : std::get_if<std::string>(&property->second);
             auto shaped = input.text->shape(text ? std::string_view(*text) : std::string_view(), style.text);
             if (!shaped) {

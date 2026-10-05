@@ -1,4 +1,5 @@
 #include <tessera/input/pointer.hpp>
+#include <tessera/ui/property_metadata.hpp>
 #include "../check.hpp"
 #include <iostream>
 #include <limits>
@@ -95,6 +96,14 @@ void hit_order_edges_overflow_and_eligibility() {
     root.properties["disabled"] = true;
     Fixture disabled_root(std::move(root));
     check(!disabled_root.hit({1, 1}).target, "Disabled root must exclude all descendants");
+    // Absence follows the descriptor's absent value (false), matching an explicit false.
+    auto implicit = button("start");
+    implicit.properties.erase("disabled");
+    const auto absent_value = tessera::find_property_descriptor(tessera::property_names::disabled)->absent_value;
+    const auto implicit_target = Fixture(box({std::move(implicit)})).hit({1, 1}).target;
+    const auto explicit_target = Fixture(box({button("start", false)})).hit({1, 1}).target;
+    check(absent_value == tessera::Property{false} && implicit_target && explicit_target &&
+          implicit_target->index == explicit_target->index, "Absent disabled must target like the descriptor default");
     Fixture absent;
     absent.styles[1].display = tessera::Display::none;
     absent.compute();
