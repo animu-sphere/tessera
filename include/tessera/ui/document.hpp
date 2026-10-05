@@ -26,6 +26,7 @@ struct Diagnostic {
     std::string path; // JSON-pointer location; empty means the document root.
     std::string message;
     std::optional<std::size_t> byte_offset; // Zero-based UTF-8 offset, when parsed.
+    bool operator==(const Diagnostic&) const = default;
 };
 
 template<class T>

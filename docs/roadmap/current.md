@@ -12,12 +12,6 @@ Depends on document, resolved-style, layout, paint, and pointer contracts. Exist
 - Validate clip/transform agreement between native pointer mapping and rendering once menu paint or hit testing uses clips/transforms; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
 - Preserve deterministic geometry/paint, offscreen primitive/placeholder Text GPU fixtures, adjacent-batch/reference agreement, and the native menu smoke through the [testing strategy](../guides/testing.md).
 
-## Optional early prototypes
-
-- [Inspection foundation](../design/inspection.md): review scoped IDs versus runtime handles, source mapping, coherent layout/property/semantic observations, and structured diagnostics before designing a transport or CLI.
-
-This prototype is a recommended foundation, not an additional release gate. It must not silently extend JSON v1 or imply stable public APIs. Reuse core-only inspection and existing offscreen fixtures to explore the boundaries; reusable capture, snapshot/diff, and transports have their scope in [backlog](backlog.md).
-
 ## Exit criteria
 
 - A JSON document produces deterministic geometry/paint and a visible Vulkan menu.

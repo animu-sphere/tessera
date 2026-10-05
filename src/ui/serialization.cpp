@@ -54,7 +54,8 @@ public:
         if (position_ != source_.size()) fail("json_syntax", "", "Unexpected data after the JSON value.");
         return result;
     }
-    std::map<std::string, std::size_t, std::less<>> offsets;
+    std::map<std::string, std::size_t, std::less<>> offsets; // Value start by JSON pointer.
+    std::map<std::string, std::size_t, std::less<>> ends;    // Value end (exclusive) by JSON pointer.
 private:
     std::string_view source_;
     std::size_t position_ = 0;
@@ -165,6 +166,11 @@ private:
         return JsonValue{result};
     }
     JsonValue value(const std::string& path, std::size_t depth) {
+        auto result = value_at(path, depth);
+        ends[path] = position_;
+        return result;
+    }
+    JsonValue value_at(const std::string& path, std::size_t depth) {
         if (depth > max_json_depth) fail("depth_limit", path, "JSON exceeds the nesting limit (256).");
         whitespace();
         offsets[path] = position_;
@@ -370,14 +376,23 @@ void annotate(std::vector<Diagnostic>& diagnostics, const Parser& parser) {
         }
     }
 }
-} // namespace
+void map_sources(const UiNode& node, const std::string& path, const Parser& parser, std::vector<NodeSource>& out) {
+    NodeSource source{path, {parser.offsets.at(path), parser.ends.at(path)}, {}};
+    for (const auto& [name, property] : node.properties) {
+        (void)property;
+        const auto location = path + "/properties/" + detail::pointer_token(name);
+        source.properties.emplace(name, SourceSpan{parser.offsets.at(location), parser.ends.at(location)});
+    }
+    out.push_back(std::move(source));
+    for (std::size_t i = 0; i < node.children.size(); ++i)
+        map_sources(node.children[i], path + "/children/" + std::to_string(i), parser, out);
+}
 
-Result<UiDocument> load_document(std::string_view source, const ValidationContext& context) {
+Result<UiDocument> load(std::string_view source, const ValidationContext& context, Parser& parser) {
     if (source.size() > max_serialized_bytes)
         return {std::nullopt, {{"size_limit", Severity::error, "", "Document exceeds the byte limit (4 MiB).", 0}}};
     if (!detail::valid_utf8(source))
         return {std::nullopt, {{"invalid_utf8", Severity::error, "", "JSON input must be valid UTF-8 without a BOM.", 0}}};
-    Parser parser(source);
     try {
         const auto json = parser.parse();
         const auto& object = as<JsonValue::Object>(json, "", "a document object");
@@ -400,6 +415,23 @@ Result<UiDocument> load_document(std::string_view source, const ValidationContex
         if (!diagnostics.front().byte_offset) annotate(diagnostics, parser);
         return {std::nullopt, std::move(diagnostics)};
     }
+}
+
+} // namespace
+
+Result<UiDocument> load_document(std::string_view source, const ValidationContext& context) {
+    Parser parser(source);
+    return load(source, context, parser);
+}
+
+Result<SourcedDocument> load_document_with_sources(std::string_view source, std::string file,
+                                                   const ValidationContext& context) {
+    Parser parser(source);
+    auto loaded = load(source, context, parser);
+    if (!loaded) return {std::nullopt, std::move(loaded.diagnostics)};
+    SourcedDocument result{std::move(*loaded.value), {std::move(file), {}}};
+    map_sources(result.document.root, "/root", parser, result.sources.nodes);
+    return {std::move(result), {}};
 }
 
 Result<std::string> save_document(const UiDocument& document, const ValidationContext& context) {
