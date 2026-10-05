@@ -1,6 +1,6 @@
 # Support matrix
 
-Evidence through: 2026-10-05. This is the sole live implementation/validation status record. Dated evidence below retains the limits of each tested slice; it is not a claim that documentation edits reran those checks. No public version has been released.
+Evidence through: 2026-10-05. This is the sole live implementation/validation status record. Dated evidence below retains the limits of each tested slice; it is not a claim that documentation edits reran those checks. v0.1.0 is a repository milestone record in the [changelog](../../CHANGELOG.md); no package, installation/export, or binary has been distributed.
 
 ## Evidence vocabulary
 
@@ -210,6 +210,17 @@ Core, offscreen Vulkan, and Win32 host evidence below are distinct. The operator
 - Result: exit code 0 with no validation-layer messages. The log recorded an interactive vertical resize from 480x360 to 480x648 at scale 1; `activate: start-game from start` and `activate: show-credits from credits` at scale 1; one held press cancelled as `cancel mode` with no action on release; swapchain/logical updates `602x812` -> `481.6x649.6` at 1.25, `1088x1467` -> `483.556x652` at 2.25, and `844x1138` -> `482.286x650.286` at 1.75, each but the last followed by a return to scale 1; then `start-game` and `quit-game` at 1.75, which shut the host down in order. 10829 swapchain frames were presented and as many renderer frames retired. The operator reported that hover feedback and rendering were correct at every scale and that the click below the clip edge and the drag-out release produced no action; those outcomes emit no log line.
 - Artifacts: the redirected session log was a local temporary file; `build-vulkan/Testing/Temporary/LastTest.log` and `build-vulkan/backends/vulkan/Debug/tessera_vulkan_menu.exe` are local ignored outputs reproduced by the source.
 - Limits: one operator, mouse, machine, and GPU; Debug only. Scale changes came from the Windows display-scale setting; moving the window between monitors of different scale was not exercised. Physical clicks were logged only at scales 1 and 1.75. No presented-pixel readback or per-pixel paint/hit comparison was taken in this session, so clip-edge agreement at non-integer scales rests on operator observation and the scripted smoke. No touch/pen, keyboard/gamepad, real text, transforms, device loss, or performance claim.
+
+## v0.1.0 release verification — 2026-10-05
+
+- Revision: commit `ec2cb85` (`ec2cb855cb78bd994e31a06fd789e55862de702f`), clean working tree before the release documentation edits. No source changed for this record.
+- Source fingerprint: SHA-256 `fff36f747ff58406ac324ddc247f021d743d5bf7da80d43c4e4972144a40b524`, computed with the foundation procedure over `CMakeLists.txt`, `include`, `src`, `examples`, `tests`, and `backends` (65 files, relative paths sorted ordinally); identical to the focus prototype and interactive session evidence. Documentation is outside this fingerprint.
+- Configuration: Windows NT `10.0.26200` x64, Visual Studio Community 2026, MSVC `19.51.36256.0`, CMake/CTest `4.4.3`, `Visual Studio 18 2026`, `-A x64`, Debug. Vulkan SDK `1.4.350.0` headers/import library and `slangc`, selected explicitly; installed Khronos validation layer `1.3.290`. No dependency download or vendoring occurred.
+- GPU/runtime: NVIDIA RTX A5000 (`vendorID=0x10de`, `deviceID=0x2231`), raw driver `2504261632`, device Vulkan `1.4.329`; native host `B8G8R8A8_SRGB`, FIFO.
+- Procedure: in newly created directories, the [development](../guides/development.md) core configure/build/CTest in `build-v010`; the [optional Vulkan](../guides/development.md#optional-vulkan-workflow) configure/build/CTest in `build-v010-vulkan`, including `vulkan_menu_smoke`, and the four SPIR-V checks; a library-only configure/build in `build-v010-core` with Vulkan/tests/examples disabled.
+- Result: all sixteen core and all eighteen Vulkan CTest targets passed, including `vulkan` and `vulkan_menu_smoke`. The three builds reported no compiler warnings, and all four shaders passed `spirv-val --target-env vulkan1.1`. The core-only configuration did not discover Vulkan or Slang. The smoke batched 32 primitives into two draws with 3584 upload bytes per frame. It rebuilt the swapchain at 480x360 (scale 1), 726x557 (1.5), and 603x459 (1.25) and produced `start-game`, `start-game`, `show-credits`, and `quit-game`. It presented and retired 21 frames and verified three captures.
+- Artifacts: `build-v010/Testing/Temporary/LastTest.log`, `build-v010-vulkan/Testing/Temporary/LastTest.log`, `build-v010-vulkan/backends/vulkan/artifacts/*.ppm`, and `build-v010-core/Debug/tessera_core.lib`. These are local ignored outputs reproduced by the source.
+- Limits: this rerun confirms the earlier dated evidence at one revision and adds no capability. It was Debug only on one machine and GPU, with posted window messages rather than physical input. The menu has no transforms, and Text is placeholder only. Packaging and installation were not exercised.
 
 ## Recording future evidence
 

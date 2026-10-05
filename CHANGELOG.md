@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased — 2026-10-05
+## v0.1.0 — 2026-10-05
+
+Minimal Vulkan menu milestone: a JSON v1 document is laid out, painted, and presented as a pointer-operated Win32 Vulkan menu. This is a repository milestone record; no package, installation/export, or binary is distributed. The release source is identical at commits `56ff965` and `ec2cb85`; its fresh-build verification is in the [support matrix](docs/reference/support-matrix.md#v010-release-verification--2026-10-05).
+
+Exit criteria accepted against support evidence:
+
+- Deterministic geometry/paint from JSON and a visible Vulkan menu: [layout](docs/reference/support-matrix.md#layout-prototype-evidence--2026-10-05), [paint](docs/reference/support-matrix.md#paint-and-pointer-evidence--2026-10-05), and [Win32 host](docs/reference/support-matrix.md#win32-vulkan-menu-host-evidence--2026-10-05) evidence.
+- Overlap, border, clip, transform, and alpha images within 2/255: [primitive](docs/reference/support-matrix.md#vulkan-primitive-evidence--2026-10-05), [batching](docs/reference/support-matrix.md#vulkan-adjacent-batching-evidence--2026-10-05), and [overflow clip](docs/reference/support-matrix.md#overflow-clip-evidence--2026-10-05) evidence.
+- Native clicks produce expected action requests, and capture loss/cancel mode cancel presses: [Win32 host](docs/reference/support-matrix.md#win32-vulkan-menu-host-evidence--2026-10-05) smoke and the [interactive session](docs/reference/support-matrix.md#win32-interactive-session-evidence--2026-10-05).
+- Logical/physical conversion at scales 1, 1.25, 1.5, 1.75, 2, and 2.25 with backend-neutral core types, confirmed by core-only builds that discover no Vulkan/Slang.
+- Property metadata agreeing with validation and defaults: [property metadata](docs/reference/support-matrix.md#property-metadata-evidence--2026-10-05) evidence.
+- Submission and resource retirement on the concrete host, with OS/compiler/GPU, placeholders, and unsupported cases recorded in support.
+
+Not included: native transform agreement, because the menu paints and hit-tests no transforms; real fonts (Text uses explicit placeholder marks); keyboard/gamepad host input; Release-configuration, non-Windows, or other-GPU evidence. Later scope is in [current work](docs/roadmap/current.md).
 
 - Recorded an operator session of the Win32 `tessera_vulkan_menu` host with a physical mouse and Windows display-scale changes (1.25, 2.25, 1.75): clicks requested `start-game`, `show-credits`, and `quit-game`, a held press was cancelled by cancel mode, and the swapchain and logical viewport were rebuilt at each scale. No source changed. Configuration and limits are in the [support matrix](docs/reference/support-matrix.md#win32-interactive-session-evidence--2026-10-05).
 - Added prototype focus dispatch: host-owned `FocusDispatcher` accepts logical `FocusNext`/`FocusPrevious`/`Navigate`/`Activate`/`Cancel` commands over the hit-testing snapshot. Focus requires a displayed, locally visible, enabled node whose `focusable` property is true. Traversal follows tree preorder and wraps. Directional movement picks the nearest border box wholly beyond the focused edge, preferring aligned boxes, with a preorder tie-break and no wrapping. `Activate` returns the same `ActionRequest` as a pointer click, and `Cancel` requests the nearest `cancel` binding. Refresh/dispatch recover focus beside an ineligible node and restore it by author ID across tree replacement; a command that triggers recovery is consumed. `focus` rejects stale, hidden, disabled, and non-focusable targets. Pointer eligibility moved into a shared internal header, `focusable` now lists the input stage, and the pointer-menu example repeats its actions through focus commands. The contract is in [input](docs/design/input.md#implemented-prototype-focus-dispatch); JSON v1 is unchanged.

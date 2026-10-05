@@ -4,32 +4,9 @@ Inactive milestone candidates live here; [current](current.md) owns the active s
 
 Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below. External strategy phase numbers do not replace these candidate scopes.
 
-## v0.2.0 candidate — Usable navigable menus
+## v0.2.0 — Usable navigable menus
 
-Objective: make game/tool menus usable with real text and mouse, keyboard, or gamepad.
-
-Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries.
-
-Work:
-
-- Real font abstraction, shaping, glyph cache, fallback, wrapping, and fixed Latin/Japanese fixtures.
-- Keyboard focus traversal, directional gamepad navigation, activate/back, and focus recovery.
-- ScrollView with matching paint/hit-test clipping.
-- Style classes, hover/focus/disabled/active states, deterministic precedence and inheritance boundaries.
-- SemanticTree v1 and Replay v1.
-- IME/clipboard boundary contracts; DPI and pixel-snapping validation.
-- In-process inspection with scoped target resolution, source mapping where available, and structured diagnostics; deterministic offscreen runner/capture prototype with declared state, time, viewport/scale, locale, fonts, and resources.
-
-Exit criteria:
-
-- The same menu produces equivalent actions through mouse, keyboard, and gamepad.
-- Real measurement and painted glyph geometry agree in mixed Latin/Japanese wrapping fixtures.
-- Scrolled/clipped nodes paint and hit-test consistently; disabled nodes do not activate.
-- Class/state resolution is deterministic and semantic state matches focus/action eligibility.
-- Replay reproduces representative interactions, including expected action sequences.
-- An in-process consumer observes one coherent tree/layout/semantic generation and rejects ambiguous or stale targets; controlled host fixtures reproduce it without a window, with optional completed-frame capture.
-
-Owners: [text](../design/text.md), [input](../design/input.md), [layout](../design/layout.md), [styling](../design/styling.md), [semantics](../design/semantics.md), [replay](../design/replay.md), [inspection](../design/inspection.md), [rendering](../design/rendering.md).
+Active; its complete scope and exit criteria are in [current](current.md).
 
 ## v0.3.0 candidate — Dynamic UI and editor prototype
 
