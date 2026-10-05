@@ -81,6 +81,8 @@ void descriptor_table() {
           tessera::affects(text.stages, tessera::PropertyStages::semantics), "Text descriptor differs");
     const auto& disabled = *tessera::find_property_descriptor(tessera::property_names::disabled);
     check(tessera::affects(disabled.stages, tessera::PropertyStages::input), "Disabled must invalidate input targeting");
+    const auto& focusable = *tessera::find_property_descriptor(tessera::property_names::focusable);
+    check(tessera::affects(focusable.stages, tessera::PropertyStages::input), "Focusable must invalidate focus eligibility");
 }
 
 // Every descriptor/kind/type combination must agree with validation and JSON v1 encoding.

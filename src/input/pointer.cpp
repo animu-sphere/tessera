@@ -1,76 +1,12 @@
 #include <tessera/input/pointer.hpp>
-#include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
+#include "../detail/targeting.hpp"
 #include <type_traits>
 #include <utility>
 
 namespace tessera {
 namespace {
-
-// Half-open containment; double subtraction avoids float overflow at a finite rectangle's far edge.
-bool inside(const Rect& rect, Point point) {
-    const double x = static_cast<double>(point.x) - rect.origin.x;
-    const double y = static_cast<double>(point.y) - rect.origin.y;
-    return x >= 0 && x < rect.size.width && y >= 0 && y < rect.size.height;
-}
-
-bool disabled(const UiNode& node) {
-    return std::get<bool>(*effective_property(node, property_names::disabled));
-}
-
-// One validated snapshot, independent of paint generation or renderer state.
-class Targeting {
-public:
-    explicit Targeting(const HitTestInput& input) : input_(input), by_node_(input.tree->size(), no_layout_parent) {
-        const auto& boxes = input.layout->boxes;
-        disabled_.reserve(boxes.size());
-        for (std::size_t i = 0; i < boxes.size(); ++i) {
-            const auto& box = boxes[i];
-            by_node_[box.node.index] = static_cast<std::uint32_t>(i);
-            disabled_.push_back(disabled(*input.tree->get(box.node)) ||
-                                (box.parent != no_layout_parent && disabled_[box.parent]));
-        }
-    }
-
-    std::optional<NodeHandle> hit(Point point) const {
-        const auto& boxes = input_.layout->boxes;
-        for (std::size_t i = boxes.size(); i > 0; --i) {
-            const auto& box = boxes[i - 1];
-            if (eligible(i - 1) && inside(box.border_box, point) && (!box.clip || inside(*box.clip, point)))
-                return box.node;
-        }
-        return {};
-    }
-
-    bool eligible(NodeHandle node) const {
-        return input_.tree->get(node) && by_node_[node.index] != no_layout_parent && eligible(by_node_[node.index]);
-    }
-
-    std::optional<NodeHandle> binding_owner(std::optional<NodeHandle> target) const {
-        if (!target) return {};
-        auto index = by_node_[target->index];
-        while (index != no_layout_parent) {
-            const auto& box = input_.layout->boxes[index];
-            if (eligible(index) && input_.tree->get(box.node)->events.contains("activate")) return box.node;
-            index = box.parent;
-        }
-        return {};
-    }
-
-    void refresh(PointerState& pointer) const {
-        pointer.hovered = hit(pointer.position);
-        if (pointer.pressed && !eligible(*pointer.pressed)) pointer.pressed.reset();
-        pointer.active = pointer.pressed && pointer.pressed == binding_owner(pointer.hovered) ? pointer.pressed :
-                                                                                              std::nullopt;
-    }
-
-private:
-    bool eligible(std::size_t index) const { return input_.layout->boxes[index].visible && !disabled_[index]; }
-    const HitTestInput& input_;
-    std::vector<std::uint32_t> by_node_;
-    std::vector<bool> disabled_;
-};
 
 bool is_pointer(const InputEvent& event) {
     return std::holds_alternative<PointerMove>(event.data) || std::holds_alternative<PointerDown>(event.data) ||
@@ -97,13 +33,13 @@ Result<HitTestResult> hit_test(const HitTestInput& input, Point position) {
     auto errors = validate(input);
     detail::Checker(errors).point(position, "/position");
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
-    return {HitTestResult{Targeting(input).hit(position)}, {}};
+    return {HitTestResult{detail::Targeting(input).hit(position)}, {}};
 }
 
 Result<PointerDispatchResult> PointerDispatcher::refresh(const HitTestInput& input) {
     auto errors = validate(input);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
-    const Targeting targeting(input);
+    const detail::Targeting targeting(input);
     if (tree_ != input.tree->root().tree) pointers_.clear();
     tree_ = input.tree->root().tree;
     for (auto& [id, pointer] : pointers_) {
@@ -123,7 +59,7 @@ Result<PointerDispatchResult> PointerDispatcher::dispatch(const HitTestInput& in
         check.error("event_order", "/timestamp", "Send non-decreasing timestamps within this dispatcher's stream.");
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
 
-    const Targeting targeting(input);
+    const detail::Targeting targeting(input);
     if (tree_ != input.tree->root().tree) pointers_.clear();
     tree_ = input.tree->root().tree;
     for (auto& [id, pointer] : pointers_) {

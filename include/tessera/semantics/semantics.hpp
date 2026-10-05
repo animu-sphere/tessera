@@ -40,7 +40,7 @@ struct SemanticNode {
     NameSource name_source = NameSource::none;
     std::optional<NodeHandle> labelled_by; // Referenced node; it need not have an entry.
     bool enabled = true;                   // False when the node or an ancestor is disabled.
-    bool focusable = false;                // Authored intent; there is no focus runtime yet.
+    bool focusable = false;                // Authored intent; focused state is not projected.
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
     bool operator==(const SemanticNode&) const = default;
 };
