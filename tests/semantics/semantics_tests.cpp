@@ -1,5 +1,6 @@
-#include <tessera/input/pointer.hpp>
+#include <tessera/input/focus.hpp>
 #include <tessera/semantics/semantics.hpp>
+#include <tessera/style/style_sheet.hpp>
 #include "../check.hpp"
 #include <iostream>
 #include <memory>
@@ -71,9 +72,11 @@ struct Fixture {
         layout = std::move(*result.value);
     }
     tessera::NodeHandle node(std::uint32_t index) const { return {tree->root().tree, index}; }
-    tessera::SemanticInput input() const { return {tree.get(), styles, &layout}; }
-    tessera::SemanticTree project() const {
-        auto result = tessera::build_semantic_tree(input());
+    tessera::SemanticInput input(std::optional<tessera::NodeHandle> focused = {}) const {
+        return {tree.get(), styles, &layout, focused};
+    }
+    tessera::SemanticTree project(std::optional<tessera::NodeHandle> focused = {}) const {
+        auto result = tessera::build_semantic_tree(input(focused));
         check(result && result.diagnostics.empty(), "Valid semantic projection rejected or warned");
         return std::move(*result.value);
     }
@@ -116,6 +119,7 @@ void projection_derives_roles_names_states_and_actions() {
               nodes[5].parent == 0 && nodes[5].layout_box == 10,
           "Visible Text under a hidden box attaches to the nearest included ancestor");
     for (std::size_t i = 1; i < nodes.size(); ++i) check(nodes[i].parent == 0, "Flattened entries are root children");
+    for (const auto& entry : nodes) check(!entry.focused, "Without supplied focus no entry is focused");
 
     check(fixture.project() == semantics, "Projection is deterministic for one snapshot");
 }
@@ -215,6 +219,89 @@ void invocation_rejects_ineligible_and_stale_targets() {
     check(has(tessera::validate(tessera::SemanticInput{}), "missing_input", "/tree"), "Missing inputs rejected");
 }
 
+
+// Focus state must agree with focus dispatch eligibility and with `:focus` style resolution.
+void focus_state_matches_dispatch_and_style() {
+    auto document = menu();
+    document.root.children[2].properties["focusable"] = true; // Options, disabled.
+    document.root.children[3].properties["focusable"] = true; // Quit.
+    Fixture fixture(document);
+    constexpr tessera::Color ring{1, 0, 0, 1};
+    tessera::StyleDeclarations focus_rule;
+    focus_rule.border_color = ring;
+    const tessera::StyleSheet sheet{{{tessera::StyleSelector::of_type(tessera::NodeKind::box, {.focus = true}), focus_rule}}};
+    std::vector<tessera::StyleDeclarations> overrides(fixture.tree->size());
+    overrides[9].display = tessera::Display::none;
+    overrides[10].visibility = tessera::Visibility::hidden;
+    // Resolves styles for the focus and recomputes layout, as a host does at an update point.
+    const auto settle = [&](std::optional<tessera::NodeHandle> focused) {
+        auto styles = tessera::resolve_styles({fixture.tree.get(), &sheet, {{}, {}, focused}, overrides});
+        check(static_cast<bool>(styles), "Focus styles rejected");
+        fixture.styles = std::move(*styles.value);
+        auto layout = tessera::compute_layout({fixture.tree.get(), fixture.styles, {200, 200}, &fixture.shaper});
+        check(static_cast<bool>(layout), "Focus layout rejected");
+        fixture.layout = std::move(*layout.value);
+    };
+    // Exactly the styled node is focused, and only eligible buttons report focusable.
+    const auto agrees = [&](std::optional<tessera::NodeHandle> focused, std::optional<tessera::NodeHandle> expected) {
+        const auto semantics = fixture.project(focused);
+        for (const auto& entry : semantics.nodes) {
+            const bool styled = fixture.styles[entry.node.index].border_color == ring;
+            if (entry.focused != (entry.node == expected) || entry.focused != styled) return false;
+            const bool eligible = entry.node == fixture.node(2) || (entry.node == fixture.node(6) && fixture.layout.boxes[6].visible);
+            if (entry.focusable != eligible) return false;
+        }
+        return true;
+    };
+
+    settle({});
+    tessera::FocusDispatcher focus;
+    const std::vector<std::uint32_t> order{2, 6, 2}; // Disabled Options is skipped; traversal wraps.
+    auto time = 1ms;
+    for (const auto expected : order) {
+        const auto moved = focus.dispatch({fixture.tree.get(), fixture.styles, &fixture.layout}, {time++, tessera::FocusNext{}});
+        check(moved && moved.value->focused == fixture.node(expected), "Focus traversal fixture");
+        settle(moved.value->focused);
+        check(agrees(moved.value->focused, fixture.node(expected)), "Semantic focus follows dispatch and :focus style");
+    }
+
+    // A disabled node supplied as focus is neither styled nor reported, without a warning.
+    settle(fixture.node(4));
+    check(agrees(fixture.node(4), {}), "Disabled focus is suppressed in both style and semantics");
+    check(tessera::build_semantic_tree(fixture.input(fixture.node(4))).diagnostics.empty(), "Ineligible focus is not a warning");
+
+    // Hiding the focused node reports no focus until the host refreshes dispatch, which recovers to Start.
+    overrides[6].visibility = tessera::Visibility::hidden;
+    settle(fixture.node(6));
+    check(agrees(fixture.node(6), {}), "Hidden focus has no entry and no style match on an entry");
+    const auto recovered = focus.refresh({fixture.tree.get(), fixture.styles, &fixture.layout});
+    check(recovered && recovered.value->focused == fixture.node(2), "Recovery fixture");
+    settle(recovered.value->focused);
+    check(agrees(recovered.value->focused, fixture.node(2)), "Recovered focus is projected");
+}
+
+void focus_without_entry_and_stale_focus() {
+    auto document = menu();
+    document.root.children[4].properties["focusable"] = true;             // Flattened hint Box.
+    document.root.children[1].children[0].properties["focusable"] = true; // Start's presentational label.
+    const Fixture fixture(document);
+    for (const std::uint32_t index : {3u, 8u}) {
+        const auto result = tessera::build_semantic_tree(fixture.input(fixture.node(index)));
+        check(result && result.diagnostics.size() == 1 && result.diagnostics[0].code == "focus_not_exposed" &&
+                  result.diagnostics[0].severity == tessera::Severity::warning &&
+                  result.diagnostics[0].path == "/nodes/" + std::to_string(index),
+              "Eligible focus without an entry produces a located warning");
+        for (const auto& entry : result.value->nodes) check(!entry.focused, "Focus is not moved to another entry");
+    }
+
+    const Fixture replacement(document);
+    const auto stale = tessera::build_semantic_tree(replacement.input(fixture.node(2)));
+    check(!stale && has(stale.diagnostics, "stale_target", "/focused"), "Focus from a replaced tree is rejected");
+    check(has(tessera::request_semantic_action(replacement.input(fixture.node(2)), replacement.node(2), "activate").diagnostics,
+              "stale_target", "/focused"),
+          "Invocation validates the supplied focus");
+}
+
 } // namespace
 
 int main() {
@@ -223,6 +310,8 @@ int main() {
         nesting_fallback_and_missing_names();
         invocation_matches_pointer_activation();
         invocation_rejects_ineligible_and_stale_targets();
+        focus_state_matches_dispatch_and_style();
+        focus_without_entry_and_stale_focus();
         std::cout << "Semantic projection and invocation checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

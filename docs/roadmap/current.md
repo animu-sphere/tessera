@@ -29,6 +29,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [layout](../desi
 
 ## Immediately next
 
-Real text requires recording the intended FreeType/HarfBuzz adoption (versions, acquisition, licenses) and fixture fonts under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Work needing no new dependency can proceed meanwhile, such as SemanticTree v1 focus state consistent with the [styled](../design/styling.md#implemented-prototype-style-resolution) focus/disabled state, or focus recovery hardening for scrolled menus. A physical-controller session can confirm the gamepad path whenever a controller is available.
+Real text requires recording the intended FreeType/HarfBuzz adoption (versions, acquisition, licenses) and fixture fonts under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Work needing no new dependency can proceed meanwhile, such as focus recovery hardening for scrolled menus, or Replay v1 logical-command steps with semantic outputs now that [semantic projection](../design/semantics.md#implemented-prototype-projection) reports focus. A physical-controller session can confirm the gamepad path whenever a controller is available.
 
 Later candidate scopes are in [backlog](backlog.md).

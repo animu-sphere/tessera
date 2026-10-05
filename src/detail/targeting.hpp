@@ -43,6 +43,8 @@ public:
         return input_.tree->get(node) && by_node_[node.index] != no_layout_parent && eligible(by_node_[node.index]);
     }
     bool eligible(std::size_t box) const { return input_.layout->boxes[box].visible && !disabled_[box]; }
+    // Disabled by the node or an ancestor, regardless of visibility.
+    bool disabled(std::size_t box) const { return disabled_[box]; }
     bool focusable(std::size_t box) const {
         return eligible(box) &&
                std::get<bool>(*effective_property(*input_.tree->get(input_.layout->boxes[box].node), property_names::focusable));

@@ -1,7 +1,6 @@
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
-#include "../detail/layout_snapshot.hpp"
 #include <charconv>
 #include <utility>
 
@@ -47,7 +46,7 @@ std::string node_list(const std::vector<std::uint32_t>& matches) {
 } // namespace
 
 std::vector<Diagnostic> validate(const InspectionInput& input) {
-    auto errors = detail::validate_layout_snapshot(input.tree, input.styles, input.layout);
+    auto errors = validate(SemanticInput{input.tree, input.styles, input.layout, input.focused});
     if (!errors.empty() || !input.sources) return errors;
     detail::Checker check(errors);
     const auto& nodes = input.sources->nodes;
@@ -69,7 +68,7 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
     auto errors = validate(input);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     // Shares the snapshot validation above, so projection cannot fail here.
-    auto semantics = build_semantic_tree({input.tree, input.styles, input.layout});
+    auto semantics = build_semantic_tree({input.tree, input.styles, input.layout, input.focused});
 
     const auto& tree = *input.tree;
     InspectionSnapshot snapshot;

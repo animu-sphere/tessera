@@ -67,12 +67,13 @@ struct InspectionSnapshot {
 };
 
 // Borrowed for one capture; use a coherent tree/styles/layout snapshot. `sources` is optional and must
-// come from the document the tree was created from.
+// come from the document the tree was created from; `focused` is projected as in SemanticInput.
 struct InspectionInput {
     const UiTree* tree = nullptr;
     std::span<const ResolvedStyle> styles;
     const LayoutResult* layout = nullptr;
     const DocumentSourceMap* sources = nullptr;
+    std::optional<NodeHandle> focused;
 };
 
 std::vector<Diagnostic> validate(const InspectionInput&);
