@@ -8,11 +8,11 @@ Depends on document, resolved-style, layout, paint, and pointer contracts. Exist
 
 ## Remaining required work
 
-- Build the selected Win32 standalone menu host with explicit window/device/queue/swapchain ownership, the [placeholder Text path](../design/rendering.md#implemented-vulkan-placeholder-text), normalized pointer input, and cancellation delivery; see [dependencies](../reference/dependencies.md#adopted-vulkan-choices) and [input](../design/input.md).
+- Record an interactive session of the [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) with physical mouse input and a real monitor DPI change; its automated smoke posts window messages. Mapping rules are in [input](../design/input.md#host-boundary).
 - Exercise conservative adjacent batching preserving visible order where the native host justifies it; use the existing ordered primitive path as the reference under [rendering](../design/rendering.md#batching).
-- Validate native logical/pointer coordinates, framebuffer size, device scale, resize, and clip/transform agreement at the host boundary; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
+- Validate clip/transform agreement between native pointer mapping and rendering once menu paint or hit testing uses clips/transforms; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
 - Introduce basic property metadata for the existing vocabulary, sharing validation/default information with the runtime; see [reflection](../design/ui-model.md#proposed-property-reflection).
-- Preserve deterministic geometry/paint and offscreen primitive/placeholder Text GPU fixtures, and add focused native-menu/presentation evidence through the [testing strategy](../guides/testing.md).
+- Preserve deterministic geometry/paint, offscreen primitive/placeholder Text GPU fixtures, and the native menu smoke through the [testing strategy](../guides/testing.md).
 
 ## Optional early prototypes
 
@@ -32,6 +32,6 @@ These prototypes are recommended foundations, not additional release gates. They
 
 ## Immediately next
 
-Connect the selected Win32 menu host to the optional Vulkan renderer with explicit [placeholder Text opt-in](../design/rendering.md#implemented-vulkan-placeholder-text). Keep window/input/DPI/swapchain ownership in the host. Paint output/limits are defined in [rendering](../design/rendering.md#implemented-paint-generation); the [Vulkan boundary](../design/rendering.md#implemented-vulkan-primitive-boundary) defines recording and retirement.
+Introduce basic property metadata for the existing Box/Text vocabulary so validation, defaults, and encoded names come from one description; see [reflection](../design/ui-model.md#proposed-property-reflection) and [JSON v1](../../formats/tessera-ui/README.md). Do not extend JSON v1. The [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) remains the native evidence path for later menu changes.
 
 Later candidate scopes are in [backlog](backlog.md).

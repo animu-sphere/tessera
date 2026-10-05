@@ -4,6 +4,8 @@
 
 The host polls platform devices and translates their data into normalized Tessera events. Tessera does not poll OS input APIs.
 
+The [Win32 example host](rendering.md#implemented-win32-vulkan-example-host) is the first native normalization. The mouse is `PointerId` 1; client pixels map to logical positions by its pixel-center rule, and timestamps come from the monotonic performance counter. Left/right/middle messages become primary/secondary/middle down/up with shift/control/alt/super modifiers. The host captures the mouse while any button is held and releases capture after dispatching the last up. It sends `PointerCancel` on capture loss it did not initiate (`WM_CAPTURECHANGED`), `WM_CANCELMODE`, `WM_KILLFOCUS`, and `WM_MOUSELEAVE` with no button held (clearing hover). Input before the first layout snapshot is ignored. Returned action requests run after dispatch; the example maps `start-game` to a title change and `quit-game` to orderly shutdown.
+
 ## Implemented event contract
 
 [event.hpp](../../include/tessera/input/event.hpp) defines `InputEvent`: a host monotonic timestamp in microseconds (non-negative, non-decreasing within one stream) and one of these values:
@@ -91,4 +93,4 @@ The host normalizes platform IME events, owns clipboard access, and receives car
 
 [Pointer checks](../../tests/input/pointer_tests.cpp) cover overlap/preorder, half-open edges, overflow, zero-area boxes, display/visibility/opacity, disabled subtrees, label-to-button binding lookup, press/release/drag/cancel, secondary buttons, multiple pointers, snapshot replacement/refresh, timestamps, and rejected calls preserving state. The core-only [pointer-menu example](../../examples/pointer-menu/main.cpp) creates a document, lays it out, generates paint, and delivers synthetic clicks as host action requests.
 
-Clips/transforms, scrolling, full propagation, focus traversal/recovery, directional ties, and logical activation/cancel need later fixtures. A native interactive menu must separately demonstrate OS normalization, cancellation delivery, and GPU integration; synthetic checks do not establish that evidence.
+Clips/transforms, scrolling, full propagation, focus traversal/recovery, directional ties, and logical activation/cancel need later fixtures. The Win32 host smoke exercises OS-message normalization, capture-loss/cancel-mode delivery, and GPU integration through posted window messages; it is not physical-device evidence.

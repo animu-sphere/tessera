@@ -49,3 +49,17 @@ if(BUILD_TESTING)
         TESSERA_GPU_ARTIFACT_DIR="${CMAKE_CURRENT_BINARY_DIR}/artifacts")
     add_test(NAME vulkan COMMAND tessera_vulkan_tests)
 endif()
+# Win32 example host: window, OS input, DPI, swapchain and presentation stay outside the backend.
+if(WIN32 AND TESSERA_BUILD_EXAMPLES)
+    add_executable(tessera_vulkan_menu ../../examples/vulkan-menu/main.cpp)
+    target_link_libraries(tessera_vulkan_menu PRIVATE tessera::vulkan)
+    target_compile_definitions(tessera_vulkan_menu PRIVATE
+        TESSERA_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        TESSERA_GPU_ARTIFACT_DIR="${CMAKE_CURRENT_BINARY_DIR}/artifacts")
+    if(MSVC)
+        target_compile_options(tessera_vulkan_menu PRIVATE /W4 /permissive-)
+    endif()
+    if(BUILD_TESTING)
+        add_test(NAME vulkan_menu_smoke COMMAND tessera_vulkan_menu --smoke)
+    endif()
+endif()
