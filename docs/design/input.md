@@ -55,7 +55,7 @@ The owned `PointerDispatchResult` contains the current event's hit target, actio
 - **Cancel.** `PointerCancel` erases only that pointer, produces no action, and makes a later release harmless. The host must send cancellation on focus/capture/device loss. Multiple pointers retain independent presses; there is no OS capture or device polling in the dispatcher.
 - **Snapshot changes.** Each accepted dispatch refreshes all remembered positions against the supplied layout. `refresh(snapshot)` does the same without an event, timestamp change, or action, so stationary pointers can recover after geometry/style changes. An absent, hidden, or disabled press owner is cancelled and cannot revive before another press. A different tree identity clears all pointers before accepting new events; author IDs do not restore a press across replacement.
 
-Hover is stored only on the hit target, and active only on its selected binding owner. Ancestor pseudo-state matching and stylesheet invalidation remain for style resolution. Logical `Activate`/`Cancel` and `cancel` bindings belong to [focus dispatch](#implemented-prototype-focus-dispatch).
+Hover is stored only on the hit target, and active only on its selected binding owner. Ancestor pseudo-state matching belongs to [style resolution](styling.md#implemented-prototype-style-resolution); stylesheet invalidation is not defined. Logical `Activate`/`Cancel` and `cancel` bindings belong to [focus dispatch](#implemented-prototype-focus-dispatch).
 
 ### Action registration and lifetime
 
@@ -73,7 +73,7 @@ Normalized device events describe interaction; application-facing actions descri
 
 ## Interaction state
 
-Input owns interaction behavior. Pointer hover/active, inherited disabled filtering, and prototype focus are implemented in this page; stylesheet [pseudo states](styling.md) remain planned, so focus has no resolved-style or visual effect yet. Host updates must resolve styles/layout and call `refresh` or dispatch with the new snapshot. Disabled focus policy and automatic style/layout/paint invalidation remain to be defined.
+Input owns interaction behavior. Pointer hover/active, inherited disabled filtering, and prototype focus are implemented in this page. The host passes the resulting states to the [prototype style resolver](styling.md#implemented-prototype-style-resolution) for `:hover`, `:active`, `:focus`, and `:disabled` rules. Host updates must resolve styles/layout and call `refresh` or dispatch with the new snapshot. Disabled focus policy and automatic style/layout/paint invalidation remain to be defined.
 
 ## Focus and navigation
 
@@ -91,7 +91,7 @@ Keyboard and gamepad operation are architectural requirements even though pointe
 - **Recovery.** `refresh(snapshot)` and `dispatch` first reconcile the stored focus with the supplied snapshot. In the same tree, a focused node that became ineligible moves focus to the nearest following eligible node in preorder, else the nearest preceding one, else none. Under a different tree identity, focus is restored to the node with the same author ID, followed by the same rule. A focused node without an author ID, or an ID absent from the new tree, clears focus. When `dispatch` moves or clears focus this way, the command is consumed: the result reports the recovered focus without further movement or action, so input aimed at a stale view cannot activate another node.
 - **Programmatic focus.** `focus(snapshot, target)` focuses an eligible node, for example under a host's pointer-press policy. At `/target` it rejects a handle from another tree (`stale_target`), display-none or hidden nodes (`hidden_target`), disabled nodes (`disabled_target`), and non-focusable nodes (`not_focusable`). Pointer dispatch never changes focus.
 
-Explicit neighbor overrides and focus scopes need authored vocabulary beyond JSON v1. Modal scopes follow the [overlay proposal](#proposed-overlay-interaction). Directional wrapping options, scroll-into-view, `:focus` style resolution, semantic focused state, and replay of logical commands remain open.
+Explicit neighbor overrides and focus scopes need authored vocabulary beyond JSON v1. Modal scopes follow the [overlay proposal](#proposed-overlay-interaction). Directional wrapping options, scroll-into-view, semantic focused state, and replay of logical commands remain open.
 
 Map gamepad input into logical navigation/activation/cancel actions at the host boundary. Dead zones and repeat policy must have an explicit owner, as in the [Win32 host](#host-boundary). Do not put device-specific polling in buttons.
 

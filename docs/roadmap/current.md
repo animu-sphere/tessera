@@ -11,7 +11,6 @@ Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Exi
 - Real font abstraction, shaping, glyph cache, fallback, wrapping, and fixed Latin/Japanese fixtures.
 - Focus recovery hardening as menus require it; an operator session with a physical controller for the Win32 host's [gamepad translation](../design/input.md#host-boundary).
 - ScrollView with matching paint/hit-test clipping.
-- Style classes, hover/focus/disabled/active states, deterministic precedence and inheritance boundaries.
 - SemanticTree v1 and Replay v1.
 - IME/clipboard boundary contracts; DPI and pixel-snapping validation.
 - In-process inspection with scoped target resolution, source mapping where available, and structured diagnostics; deterministic offscreen runner/capture prototype with declared state, time, viewport/scale, locale, fonts, and resources.
@@ -31,6 +30,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [layout](../desi
 
 ## Immediately next
 
-Real text requires an adoption decision for the font/shaping implementation under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Work needing no new dependency can proceed meanwhile: style classes with hover/focus/disabled/active states under [styling](../design/styling.md) can replace the [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host)'s color policy. A physical-controller session can confirm the gamepad path whenever a controller is available.
+Real text requires an adoption decision for the font/shaping implementation under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Work needing no new dependency can proceed meanwhile, such as ScrollView with matching paint/hit-test clipping or SemanticTree v1 focus state consistent with the [styled](../design/styling.md#implemented-prototype-style-resolution) focus/disabled state. A physical-controller session can confirm the gamepad path whenever a controller is available.
 
 Later candidate scopes are in [backlog](backlog.md).
