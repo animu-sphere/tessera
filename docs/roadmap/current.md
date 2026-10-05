@@ -31,6 +31,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [layout](../desi
 
 ## Immediately next
 
-Real text requires an adoption decision for the font/shaping implementation under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Gamepad translation in the [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) into the same [focus dispatch](../design/input.md#implemented-prototype-focus-dispatch) commands as its keyboard path likewise needs its platform input API recorded there first. Work needing no new dependency, such as style classes with hover/focus/disabled/active states replacing the host's color policy, can proceed meanwhile.
+Translate gamepad input in the [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) into the same [focus dispatch](../design/input.md#implemented-prototype-focus-dispatch) commands as its keyboard path. The core needs no gamepad API: device polling, dead zones, and repeat timing stay in the host, which can use the Windows SDK's XInput without a download. Keep the mapping from stick/button state to commands free of device calls so it can be checked without a controller. Real text requires an adoption decision for the font/shaping implementation under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands.
 
 Later candidate scopes are in [backlog](backlog.md).
