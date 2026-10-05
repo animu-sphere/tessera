@@ -20,6 +20,13 @@ struct VulkanContext {
     // Opt in only for PlaceholderTextShaper runs with default FontId (0).
     // Built-in bitmap marks are test/menu placeholders, not real font rendering.
     bool placeholder_text = false;
+    // Optional instanced vertex shader. An empty span keeps the ordered reference path.
+    std::span<const std::uint32_t> batch_vertex_spirv;
+};
+struct VulkanSubmissionStats {
+    std::uint64_t primitives = 0;
+    std::uint64_t draw_calls = 0;
+    std::uint64_t upload_bytes = 0;
 };
 struct VulkanTarget {
     VkCommandBuffer commands = VK_NULL_HANDLE; // Recording inside the compatible render pass.
@@ -39,6 +46,9 @@ public:
     std::vector<Diagnostic> unbind_image(ImageHandle);
     std::vector<Diagnostic> submit(const FrameInfo&, const UiDrawList&) override;
     void retire(std::uint64_t completed_frame) override;
+    // Last successful submission; rejection leaves these counters unchanged.
+    VulkanSubmissionStats submission_stats() const;
+    std::size_t pending_uploads() const; // Retained until host completion/retire.
 
 private:
     struct Impl;

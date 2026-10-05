@@ -303,11 +303,13 @@ void pixel(const std::vector<std::uint8_t>& pixels, unsigned width, unsigned x, 
             " channel " + std::to_string(c) + ": got " + std::to_string(pixels[index+c]) + " expected " + std::to_string(expected[c]));
     }
 }
-void fixtures(Host& host) {
+void fixtures(Host& host, bool batched = false) {
     const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+    const auto batch = shader("primitive.batch.spv");
     tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB, vertex, fragment, image, 1};
+    if (batched) context.batch_vertex_spirv = batch;
     tessera::VulkanRenderer renderer(context);
-    host.make_texture(); host.resize({64,64});
+    host.resize({64,64});
     check(renderer.bind_image({1},host.texture.view,host.sampler).empty(), "Image binding failed");
     check(has(renderer.bind_image({2},host.texture.view,host.sampler), "image_limit", "/image"), "Image capacity not enforced");
     const tessera::UiDrawList list{{
@@ -419,9 +421,11 @@ void fixtures(Host& host) {
     check(has(renderer.submit({9,{32,32},1},{}),"invalid_target","/target"),"Null target accepted");
 }
 
-void glyph_fixtures(Host& host) {
+void glyph_fixtures(Host& host, bool batched = false) {
     const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+    const auto batch = shader("primitive.batch.spv");
     tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,1,true};
+    if (batched) context.batch_vertex_spirv = batch;
     tessera::VulkanRenderer renderer(context);
     tessera::PlaceholderTextShaper shaper;
     tessera::TextStyle style;
@@ -523,10 +527,86 @@ void glyph_fixtures(Host& host) {
     const auto blank = host.finish("glyph-blank.ppm"); renderer.retire(frame);
     for (unsigned y=0;y<64;++y) for (unsigned x=0;x<96;++x) pixel(blank,96,x,y,{0,0,0,255},"Blank runs drew pixels");
 }
+void batch_fixtures(Host& host) {
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+    const auto batch = shader("primitive.batch.spv");
+    tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,2,true};
+    tessera::VulkanRenderer reference(context);
+    context.batch_vertex_spirv = batch;
+    tessera::VulkanRenderer renderer(context);
+    for (auto* current : {&reference, &renderer}) {
+        check(current->bind_image({1},host.texture.view,host.sampler).empty(),"Batch image binding failed");
+        check(current->bind_image({2},host.texture.view,host.sampler).empty(),"Second batch image binding failed");
+    }
+    tessera::PlaceholderTextShaper shaper;
+    tessera::TextStyle style; style.size = 20;
+    const auto run = shaper.shape("Aa",style); check(bool(run),"Batch glyph shaping failed");
+    const tessera::UiDrawList list{{
+        tessera::DrawRect{{{0,0},{64,64}},{1,0,0,1}},
+        tessera::DrawRect{{{8,8},{48,48}},{0,0,1,0.5f},4},
+        tessera::DrawImage{{{12,12},{32,32}},{1}},
+        tessera::DrawImage{{{16,16},{32,32}},{1},{{0.5f,0},{0.5f,1}},{1,1,1,0.5f}},
+        tessera::DrawImage{{{24,24},{32,32}},{2}},
+        tessera::DrawRect{{{4,4},{32,32}},{0,1,0,0.25f}},
+        tessera::PushTransform{{0,1,-1,0,48,4}},
+        tessera::DrawGlyphRun{{},*run.value,{1,1,1,0.5f}}, tessera::PopTransform{},
+        tessera::PushTransform{{-1,0,0,1,64,0}},
+        tessera::PushClip{{{5.2f,5.2f},{30.4f,30.4f}}},
+        tessera::DrawRect{{{0,0},{64,64}},{1,1,0,0.25f}},
+        tessera::DrawBorder{{{4,4},{40,40}},{2,3,4,1},{0,1,1,0.5f},5},
+        tessera::PopClip{}, tessera::PopTransform{},
+        tessera::DrawImage{{{0,40},{24,24}},{1}},
+        tessera::DrawRect{{{8,48},{16,16}},{1,1,1,0.25f}},
+    }};
+    const tessera::UiDrawList overlay{{tessera::DrawRect{{{0,0},{64,64}},{0,0,1,0.125f}}}};
+    std::uint64_t frame = 1;
+    for (float scale : {1.0f,1.25f,1.5f,2.0f}) {
+        host.resize({unsigned(64*scale),unsigned(64*scale)});
+        host.begin(reference);
+        check(reference.submit({frame,{64,64},scale},list).empty(),"Batch reference submission failed");
+        check(reference.submission_stats().primitives == 12 && reference.submission_stats().draw_calls == 12 &&
+            reference.submission_stats().upload_bytes == 0 && reference.pending_uploads() == 0,"Reference counters disagree");
+        check(reference.submit({frame+1,{64,64},scale},overlay).empty(),"Reference overlay failed");
+        const auto expected = host.finish(("batch-reference-" + std::to_string(frame) + ".ppm").c_str());
+        reference.retire(frame+1);
+
+        host.begin(renderer);
+        check(renderer.submit({frame,{64,64},scale},list).empty(),"Adjacent batch submission failed");
+        const auto stats = renderer.submission_stats();
+        check(stats.primitives == 12 && stats.draw_calls == 7 && stats.upload_bytes == 12*112,
+            "Adjacent batches must split at scissor, pipeline and image changes without sorting");
+        check(renderer.pending_uploads() == 1,"Batch upload was not retained");
+        const tessera::UiDrawList bad{{tessera::DrawRect{{{0,0},{64,64}},{1,1,1,1}},
+            tessera::DrawImage{{{0,0},{64,64}},{3}}}};
+        check(has(renderer.submit({frame+1,{64,64},scale},bad),"invalid_handle","/commands/1/image"),"Invalid batched image accepted");
+        check(renderer.pending_uploads() == 1 && renderer.submission_stats().draw_calls == stats.draw_calls &&
+            renderer.submission_stats().upload_bytes == stats.upload_bytes,"Rejected batch changed uploads/counters");
+        check(renderer.submit({frame+1,{64,64},scale},overlay).empty(),"Rejected batch consumed frame number");
+        check(renderer.pending_uploads() == 2,"Multiple submissions reused in-flight upload memory");
+        check(has(renderer.unbind_image({2}),"resource_in_use","/image"),"Batch image unbound before completion");
+        renderer.retire(frame-1);
+        check(renderer.pending_uploads() == 2,"Early retirement freed live uploads");
+        const auto actual = host.finish(("batch-adjacent-" + std::to_string(frame) + ".ppm").c_str());
+        for (std::size_t i=0; i<actual.size(); ++i)
+            check(std::abs(int(actual[i])-int(expected[i])) <= 2,"Batched pixels differ from ordered reference");
+        renderer.retire(frame);
+        check(renderer.pending_uploads() == 1,"Partial retirement did not free only the completed upload");
+        renderer.retire(UINT64_MAX);
+        check(renderer.pending_uploads() == 0,"Completed batch uploads leaked");
+        check(renderer.bind_image({2},host.texture.view,host.sampler).empty(),"Retired batch image cannot be replaced");
+        frame += 2;
+    }
+    host.begin(renderer);
+    check(renderer.submit({frame,{64,64},2},{}).empty(),"Empty batched submission failed");
+    check(renderer.pending_uploads() == 0 && renderer.submission_stats().draw_calls == 0 &&
+        renderer.submission_stats().upload_bytes == 0,"Empty batch allocated upload memory");
+    host.finish("batch-empty.ppm"); renderer.retire(frame);
+}
 }
 int main() {
     try {
-        { Host host; host.initialize(); fixtures(host); glyph_fixtures(host); }
+        { Host host; host.initialize(); host.make_texture();
+          fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host); }
         check(validation_errors == 0,"Vulkan validation errors occurred");
         std::cout << "Vulkan GPU primitive, image, placeholder Text/menu, scale, rejection and retirement fixtures passed (RGBA8 sRGB, tolerance 2/255).\n";
     } catch (const std::exception& error) {

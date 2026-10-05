@@ -362,9 +362,10 @@ struct App {
             require(vkCreateFence(device, &fence, nullptr, &slot.fence), "create fence");
         }
         const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+        const auto batch = shader("primitive.batch.spv");
         // Explicit placeholder opt-in: every glyph run comes from PlaceholderTextShaper with FontId 0.
         renderer = std::make_unique<tessera::VulkanRenderer>(tessera::VulkanContext{
-            physical, device, present_pass, format.format, vertex, fragment, image, 1, true});
+            physical, device, present_pass, format.format, vertex, fragment, image, 1, true, batch});
     }
     void destroy_images() {
         for (auto& image : images) {
@@ -485,6 +486,14 @@ struct App {
         renderer->set_target({slot.commands, extent});
         const tessera::FrameInfo frame{last_frame + 1, menu.viewport, scale};
         const auto diagnostics = renderer->submit(frame, menu.paint);
+        if (smoke && diagnostics.empty()) {
+            const auto stats = renderer->submission_stats();
+            if (stats.draw_calls != 1 || stats.primitives <= stats.draw_calls ||
+                stats.upload_bytes != stats.primitives * 112 || renderer->pending_uploads() > frames_in_flight)
+                fail("Menu adjacent batching or upload retirement counters disagree");
+            if (last_frame == 0) std::cout << "Menu batching: " << stats.primitives << " primitives, "
+                << stats.draw_calls << " draw, " << stats.upload_bytes << " upload bytes per frame.\n";
+        }
         if (diagnostics.empty()) last_frame = frame.frame;
         else { print(diagnostics); ++submit_errors; }
         vkCmdEndRenderPass(slot.commands);

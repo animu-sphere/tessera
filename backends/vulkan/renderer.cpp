@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -35,6 +36,11 @@ struct Packet {
     VkRect2D scissor{};
     std::uint64_t image = 0;
 };
+bool compatible(const Packet& a, const Packet& b) {
+    return a.image == b.image && a.scissor.offset.x == b.scissor.offset.x &&
+        a.scissor.offset.y == b.scissor.offset.y && a.scissor.extent.width == b.scissor.extent.width &&
+        a.scissor.extent.height == b.scissor.extent.height;
+}
 bool representable(double value) {
     return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
 }
@@ -78,6 +84,8 @@ struct VulkanRenderer::Impl {
     VkDescriptorSetLayout image_layout = VK_NULL_HANDLE;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     VkPipeline solid = VK_NULL_HANDLE, textured = VK_NULL_HANDLE;
+    VkPipeline batch_solid = VK_NULL_HANDLE, batch_textured = VK_NULL_HANDLE;
+    VkPhysicalDeviceMemoryProperties memory{};
     VkPhysicalDeviceLimits limits{};
     VulkanTarget target;
     std::uint64_t last_frame = 0, completed = 0;
@@ -85,8 +93,22 @@ struct VulkanRenderer::Impl {
     bool placeholder_text = false;
     struct Image { VkDescriptorSet set; std::uint64_t last_use = 0; };
     std::map<std::uint64_t, Image> images;
+    struct Upload {
+        VkDevice device;
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        explicit Upload(VkDevice value) : device(value) {}
+        ~Upload() {
+            if (buffer) vkDestroyBuffer(device, buffer, nullptr);
+            if (memory) vkFreeMemory(device, memory, nullptr);
+        }
+    };
+    std::map<std::uint64_t, std::unique_ptr<Upload>> uploads;
+    VulkanSubmissionStats stats;
 
     ~Impl() {
+        if (batch_textured) vkDestroyPipeline(device, batch_textured, nullptr);
+        if (batch_solid) vkDestroyPipeline(device, batch_solid, nullptr);
         if (textured) vkDestroyPipeline(device, textured, nullptr);
         if (solid) vkDestroyPipeline(device, solid, nullptr);
         if (layout) vkDestroyPipelineLayout(device, layout, nullptr);
@@ -103,13 +125,58 @@ struct VulkanRenderer::Impl {
         require(vkCreateShaderModule(device, &info, nullptr, &module), "vkCreateShaderModule");
         return module;
     }
-    VkPipeline pipeline(VkRenderPass pass, VkShaderModule vertex, VkShaderModule fragment, const char* entry) {
+    std::unique_ptr<Upload> upload(const std::vector<Packet>& packets) {
+        auto result = std::make_unique<Upload>(device);
+        VkBufferCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        info.size = VkDeviceSize(packets.size()) * sizeof(Primitive);
+        info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        require(vkCreateBuffer(device, &info, nullptr, &result->buffer), "vkCreateBuffer");
+        VkMemoryRequirements requirements;
+        vkGetBufferMemoryRequirements(device, result->buffer, &requirements);
+        std::uint32_t type = UINT32_MAX;
+        for (std::uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
+            if (!(requirements.memoryTypeBits & (1u << i)) ||
+                !(memory.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) continue;
+            type = i;
+            if (memory.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) break;
+        }
+        if (type == UINT32_MAX) throw std::runtime_error("Batch uploads require host-visible vertex buffer memory.");
+        VkMemoryAllocateInfo allocation{}; allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocation.allocationSize = requirements.size; allocation.memoryTypeIndex = type;
+        require(vkAllocateMemory(device, &allocation, nullptr, &result->memory), "vkAllocateMemory");
+        require(vkBindBufferMemory(device, result->buffer, result->memory, 0), "vkBindBufferMemory");
+        void* mapped;
+        require(vkMapMemory(device, result->memory, 0, VK_WHOLE_SIZE, 0, &mapped), "vkMapMemory");
+        auto* destination = static_cast<unsigned char*>(mapped);
+        for (const auto& packet : packets) {
+            std::memcpy(destination, &packet.primitive, sizeof(Primitive)); destination += sizeof(Primitive);
+        }
+        VkResult flushed = VK_SUCCESS;
+        if (!(memory.memoryTypes[type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            VkMappedMemoryRange range{}; range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+            range.memory = result->memory; range.size = VK_WHOLE_SIZE;
+            flushed = vkFlushMappedMemoryRanges(device, 1, &range);
+        }
+        vkUnmapMemory(device, result->memory);
+        require(flushed, "vkFlushMappedMemoryRanges");
+        return result;
+    }
+    VkPipeline pipeline(VkRenderPass pass, VkShaderModule vertex, VkShaderModule fragment, const char* entry, bool batch = false) {
         VkPipelineShaderStageCreateInfo stages[2]{};
         for (auto& stage : stages) stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT; stages[0].module = vertex; stages[0].pName = "vertexMain";
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT; stages[0].module = vertex; stages[0].pName = batch ? "batchMain" : "vertexMain";
         stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT; stages[1].module = fragment; stages[1].pName = entry;
         VkPipelineVertexInputStateCreateInfo vertices{};
         vertices.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        const VkVertexInputBindingDescription binding{0, sizeof(Primitive), VK_VERTEX_INPUT_RATE_INSTANCE};
+        std::array<VkVertexInputAttributeDescription, 7> attributes{};
+        for (std::uint32_t i = 0; i < attributes.size(); ++i)
+            attributes[i] = {i, 0, VK_FORMAT_R32G32B32A32_SFLOAT, i * 16};
+        if (batch) {
+            vertices.vertexBindingDescriptionCount = 1; vertices.pVertexBindingDescriptions = &binding;
+            vertices.vertexAttributeDescriptionCount = std::uint32_t(attributes.size());
+            vertices.pVertexAttributeDescriptions = attributes.data();
+        }
         VkPipelineInputAssemblyStateCreateInfo assembly{};
         assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
         assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -163,6 +230,7 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
     p.placeholder_text = context.placeholder_text;
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(context.physical_device, &properties);
+    vkGetPhysicalDeviceMemoryProperties(context.physical_device, &p.memory);
     p.limits = properties.limits;
     VkDescriptorSetLayoutBinding bindings[2]{};
     bindings[0] = {0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
@@ -185,19 +253,26 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
     layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &constants;
     require(vkCreatePipelineLayout(p.device, &layout, nullptr, &p.layout), "vkCreatePipelineLayout");
     // Clean up shader modules even when a later pipeline creation fails.
-    VkShaderModule vertex = VK_NULL_HANDLE, fragment = VK_NULL_HANDLE, image = VK_NULL_HANDLE;
+    VkShaderModule vertex = VK_NULL_HANDLE, fragment = VK_NULL_HANDLE, image = VK_NULL_HANDLE, batch = VK_NULL_HANDLE;
     try {
         vertex = p.shader(context.vertex_spirv); fragment = p.shader(context.fragment_spirv); image = p.shader(context.image_spirv);
         p.solid = p.pipeline(context.render_pass, vertex, fragment, "fragmentMain");
         p.textured = p.pipeline(context.render_pass, vertex, image, "imageMain");
+        if (!context.batch_vertex_spirv.empty()) {
+            batch = p.shader(context.batch_vertex_spirv);
+            p.batch_solid = p.pipeline(context.render_pass, batch, fragment, "fragmentMain", true);
+            p.batch_textured = p.pipeline(context.render_pass, batch, image, "imageMain", true);
+        }
     } catch (...) {
         if (vertex) vkDestroyShaderModule(p.device, vertex, nullptr);
         if (fragment) vkDestroyShaderModule(p.device, fragment, nullptr);
         if (image) vkDestroyShaderModule(p.device, image, nullptr);
+        if (batch) vkDestroyShaderModule(p.device, batch, nullptr);
         throw;
     }
     vkDestroyShaderModule(p.device, vertex, nullptr); vkDestroyShaderModule(p.device, fragment, nullptr);
     vkDestroyShaderModule(p.device, image, nullptr);
+    if (batch) vkDestroyShaderModule(p.device, batch, nullptr);
 }
 VulkanRenderer::~VulkanRenderer() = default;
 void VulkanRenderer::set_target(VulkanTarget target) { impl_->target = target; }
@@ -244,7 +319,10 @@ std::vector<Diagnostic> VulkanRenderer::unbind_image(ImageHandle handle) {
 }
 void VulkanRenderer::retire(std::uint64_t frame) {
     impl_->completed = std::max(impl_->completed, std::min(frame, impl_->last_frame));
+    impl_->uploads.erase(impl_->uploads.begin(), impl_->uploads.upper_bound(impl_->completed));
 }
+VulkanSubmissionStats VulkanRenderer::submission_stats() const { return impl_->stats; }
+std::size_t VulkanRenderer::pending_uploads() const { return impl_->uploads.size(); }
 
 std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiDrawList& list) {
     auto& p = *impl_;
@@ -391,24 +469,44 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         }, list.commands[i]);
     }
     if (!errors.empty()) return errors;
+    if (packets.size() > std::numeric_limits<std::uint32_t>::max())
+        return {error("primitive_limit", "/commands", "Use at most UINT32_MAX emitted primitives per submission.")};
+    const bool batch = p.batch_solid != VK_NULL_HANDLE;
+    Impl::Upload* upload = nullptr;
+    if (batch && !packets.empty()) {
+        auto owned = p.upload(packets);
+        upload = owned.get();
+        p.uploads.emplace(frame.frame, std::move(owned));
+    }
+    VulkanSubmissionStats stats{packets.size(), 0, upload ? packets.size() * sizeof(Primitive) : 0};
     // All diagnostics and allocations precede command recording and resource-use changes.
     const VkViewport viewport{0, 0, float(extent.width), float(extent.height), 0, 1};
     vkCmdSetViewport(p.target.commands, 0, 1, &viewport);
     VkPipeline bound = VK_NULL_HANDLE;
-    for (const auto& packet : packets) {
-        const auto pipeline = packet.image ? p.textured : p.solid;
+    if (upload) {
+        const VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(p.target.commands, 0, 1, &upload->buffer, &offset);
+    }
+    for (std::size_t first = 0; first < packets.size();) {
+        const auto& packet = packets[first];
+        std::size_t end = first + 1;
+        if (batch) while (end < packets.size() && compatible(packet, packets[end])) ++end;
+        const auto pipeline = batch ? (packet.image ? p.batch_textured : p.batch_solid) : (packet.image ? p.textured : p.solid);
         if (pipeline != bound) { vkCmdBindPipeline(p.target.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline); bound = pipeline; }
         if (packet.image) {
             auto& image = p.images.at(packet.image);
             vkCmdBindDescriptorSets(p.target.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &image.set, 0, nullptr);
         }
         vkCmdSetScissor(p.target.commands, 0, 1, &packet.scissor);
-        vkCmdPushConstants(p.target.commands, p.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(Primitive), &packet.primitive);
-        vkCmdDraw(p.target.commands, 6, 1, 0, 0);
+        if (!batch) vkCmdPushConstants(p.target.commands, p.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                      0, sizeof(Primitive), &packet.primitive);
+        vkCmdDraw(p.target.commands, 6, std::uint32_t(end - first), 0, batch ? std::uint32_t(first) : 0);
+        ++stats.draw_calls;
+        first = end;
     }
     for (auto image : referenced_images) p.images.at(image).last_use = frame.frame;
     p.last_frame = frame.frame;
+    p.stats = stats;
     return {};
 }
 } // namespace tessera
