@@ -19,6 +19,12 @@ void relocate(std::vector<Diagnostic>& out, std::vector<Diagnostic> diagnostics,
     }
 }
 
+bool is_command(const InputEvent& event) {
+    return std::holds_alternative<FocusNext>(event.data) || std::holds_alternative<FocusPrevious>(event.data) ||
+           std::holds_alternative<Navigate>(event.data) || std::holds_alternative<Activate>(event.data) ||
+           std::holds_alternative<Cancel>(event.data);
+}
+
 // The current coherent tree/styles/layout. Only values are copied into observations.
 struct Snapshot {
     std::unique_ptr<UiTree> tree;
@@ -38,7 +44,9 @@ public:
             const auto& step = recording_.steps[i];
             bool ok = true;
             if (const auto* event = std::get_if<InputEvent>(&step)) {
-                ok = std::holds_alternative<Scroll>(event->data) ? scroll(*event, i, at) : dispatch(*event, i, at);
+                if (std::holds_alternative<Scroll>(event->data)) ok = scroll(*event, i, at);
+                else if (is_command(*event)) ok = command(*event, i, at);
+                else ok = dispatch(*event, i, at);
             } else if (const auto* resize = std::get_if<ReplayResize>(&step)) {
                 viewport_ = resize->viewport;
                 ok = settle(i, at);
@@ -47,7 +55,7 @@ public:
             }
             if (!ok) return fail();
         }
-        return {std::move(output_), {}};
+        return {std::move(output_), std::move(warnings_)};
     }
 
 private:
@@ -65,7 +73,7 @@ private:
         return true;
     }
 
-    // Full-tree layout and paint at an update point, then re-target stationary pointers.
+    // Full-tree layout and paint at an update point, then re-target stationary pointers and recover focus.
     bool settle(std::optional<std::size_t> step, const std::string& at) {
         auto layout = compute_layout({current_.tree.get(), current_.styles, viewport_, &text_, offsets_});
         if (!layout) {
@@ -83,23 +91,51 @@ private:
             relocate(errors_, std::move(refreshed.diagnostics), at);
             return false;
         }
+        auto recovered = focus_.refresh(current_.input());
+        if (!recovered) {
+            relocate(errors_, std::move(recovered.diagnostics), at);
+            return false;
+        }
+        focused_ = recovered.value->focused;
         ReplayGeneration generation{step, {}, std::move(*paint.value)};
         generation.boxes.reserve(current_.layout.boxes.size());
         for (const auto& box : current_.layout.boxes)
             generation.boxes.push_back(
                 {box.node.index, box.parent, box.border_box, box.border, box.padding, box.visible, box.clip, box.scroll});
         output_.generations.push_back(std::move(generation));
+        return observe(step, at);
+    }
+
+    // Projects the current generation with the current focus.
+    bool observe(std::optional<std::size_t> step, const std::string& at) {
+        auto projected = build_semantic_tree({current_.tree.get(), current_.styles, &current_.layout, focused_});
+        if (!projected) {
+            relocate(errors_, std::move(projected.diagnostics), at);
+            return false;
+        }
+        relocate(warnings_, std::move(projected.diagnostics), at);
+        ReplaySemantics semantics{step, output_.generations.size() - 1, {}, {}};
+        if (focused_) semantics.focused = focused_->index;
+        semantics.nodes.reserve(projected.value->nodes.size());
+        for (auto& entry : projected.value->nodes) {
+            std::optional<std::uint32_t> labelled_by;
+            if (entry.labelled_by) labelled_by = entry.labelled_by->index;
+            semantics.nodes.push_back({entry.node.index, std::move(entry.id), entry.parent, entry.role,
+                                       std::move(entry.name), entry.name_source, labelled_by, entry.enabled,
+                                       entry.focusable, entry.focused, std::move(entry.actions)});
+        }
+        output_.semantics.push_back(std::move(semantics));
         return true;
     }
 
-    // Rejects time running backwards across pointer and scroll steps, which share one stream.
+    // Rejects time running backwards across pointer, scroll, and command steps, which share one stream.
     bool ordered(const InputEvent& event, const std::string& at) {
         if (!clock_ || event.timestamp >= *clock_) {
             clock_ = event.timestamp;
             return true;
         }
         errors_.push_back({"event_order", Severity::error, at + "/timestamp",
-                           "Send non-decreasing timestamps across pointer and scroll steps.", {}});
+                           "Send non-decreasing timestamps across pointer, scroll, and command steps.", {}});
         return false;
     }
 
@@ -126,14 +162,31 @@ private:
             relocate(errors_, std::move(result.diagnostics), at);
             return false;
         }
-        // The dispatcher checks time only within pointer steps; a scroll step may have advanced the clock.
+        // The dispatcher checks time only within pointer steps; other steps may have advanced the clock.
         if (!ordered(event, at)) return false;
-        for (auto& request : result.value->actions) {
+        record(step, result.value->actions);
+        return true;
+    }
+
+    // Moves focus or requests an action through focus dispatch, then observes semantics with the new focus.
+    bool command(const InputEvent& event, std::size_t step, const std::string& at) {
+        auto result = focus_.dispatch(current_.input(), event);
+        if (!result) {
+            relocate(errors_, std::move(result.diagnostics), at);
+            return false;
+        }
+        if (!ordered(event, at)) return false;
+        focused_ = result.value->focused;
+        record(step, result.value->actions);
+        return observe(step, at);
+    }
+
+    void record(std::size_t step, std::vector<ActionRequest>& requests) {
+        for (auto& request : requests) {
             output_.actions.push_back({step, output_.generations.size() - 1, std::move(request.binding),
                                        std::move(request.action), request.target.index,
                                        current_.tree->get(request.target)->id});
         }
-        return true;
     }
 
     const ReplayRecording& recording_;
@@ -143,8 +196,11 @@ private:
     std::vector<Point> offsets_; // Requested scroll offsets by node index; reset by reload.
     std::optional<std::chrono::microseconds> clock_;
     PointerDispatcher input_;
+    FocusDispatcher focus_;
+    std::optional<NodeHandle> focused_; // Current focus in the current tree.
     ReplayOutput output_;
     std::vector<Diagnostic> errors_;
+    std::vector<Diagnostic> warnings_;
 };
 
 std::string format(float value) {
@@ -168,6 +224,19 @@ std::string format(const ReplayAction& action) {
     return action.binding + " '" + action.action + "' from " + (action.id ? "'" + *action.id + "'" : "node") +
            " #" + std::to_string(action.node) + " at step " + std::to_string(action.step) + " (generation " +
            std::to_string(action.generation) + ")";
+}
+
+std::string format(const ReplaySemanticNode& entry) {
+    static constexpr const char* roles[] = {"root", "button", "text"};
+    std::string result = std::string(roles[static_cast<int>(entry.role)]) + " '" + entry.name + "' " +
+                         (entry.id ? "'" + *entry.id + "' " : "") + "#" + std::to_string(entry.node);
+    if (!entry.enabled) result += ", disabled";
+    if (entry.focusable) result += ", focusable";
+    if (entry.focused) result += ", focused";
+    return result + ", " + std::to_string(entry.actions.size()) + " actions";
+}
+std::string format(std::optional<std::uint32_t> focused) {
+    return focused ? "focus on #" + std::to_string(*focused) : "no focus";
 }
 
 class Comparison {
@@ -240,6 +309,21 @@ public:
         }
     }
 
+    void semantics(const ReplaySemantics& expected, const ReplaySemantics& actual, const std::string& path) {
+        if (expected.step != actual.step) mismatch(path + "/step", "Semantics were observed at a different step.");
+        if (expected.generation != actual.generation)
+            mismatch(path + "/generation", "Semantics were observed in a different generation.");
+        if (expected.focused != actual.focused)
+            mismatch(path + "/focused", "Expected " + format(expected.focused) + ", got " + format(actual.focused) + ".");
+        const auto nodes = path + "/nodes";
+        count(expected.nodes.size(), actual.nodes.size(), nodes, "semantic entries");
+        for (std::size_t i = 0; i < std::min(expected.nodes.size(), actual.nodes.size()); ++i) {
+            if (expected.nodes[i] != actual.nodes[i])
+                mismatch(nodes + "/" + std::to_string(i), "Expected " + format(expected.nodes[i]) + ", got " +
+                                                              format(actual.nodes[i]) + ".");
+        }
+    }
+
 private:
     std::vector<Diagnostic>& out_;
     float tolerance_;
@@ -267,6 +351,9 @@ std::vector<Diagnostic> compare_replay(const ReplayOutput& expected, const Repla
     compare.count(expected.generations.size(), actual.generations.size(), "/generations", "generations");
     for (std::size_t i = 0; i < std::min(expected.generations.size(), actual.generations.size()); ++i)
         compare.generation(expected.generations[i], actual.generations[i], "/generations/" + std::to_string(i));
+    compare.count(expected.semantics.size(), actual.semantics.size(), "/semantics", "semantic observations");
+    for (std::size_t i = 0; i < std::min(expected.semantics.size(), actual.semantics.size()); ++i)
+        compare.semantics(expected.semantics[i], actual.semantics[i], "/semantics/" + std::to_string(i));
     compare.count(expected.actions.size(), actual.actions.size(), "/actions", "action requests");
     for (std::size_t i = 0; i < std::min(expected.actions.size(), actual.actions.size()); ++i) {
         if (expected.actions[i] != actual.actions[i])

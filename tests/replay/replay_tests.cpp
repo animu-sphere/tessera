@@ -23,6 +23,12 @@ tessera::UiNode button(std::string id, std::string caption, std::string action) 
     return result;
 }
 
+tessera::UiNode focusable(tessera::UiNode node, bool disabled = false) {
+    node.properties["focusable"] = true;
+    if (disabled) node.properties["disabled"] = true;
+    return node;
+}
+
 tessera::UiDocument menu(std::vector<tessera::UiNode> buttons) {
     tessera::UiDocument document;
     document.root.id = "menu";
@@ -126,6 +132,10 @@ void playback_observes_geometry_paint_and_actions() {
         {12, 2, "activate", "start-game", 1, "resume"},
     };
     check(output.actions == expected, "Replay must preserve action order, steps, generations, and identities");
+    check(output.semantics.size() == 3 && !output.semantics[0].step && output.semantics[1].step == 5u &&
+              output.semantics[2].generation == 2 && output.semantics[2].nodes.size() == 2 &&
+              output.semantics[2].nodes[1].name == "Resume",
+          "Each generation must be projected once when no command runs");
     check(output == play(recording), "Repeated playback must be identical");
     check(tessera::compare_replay(output, play(recording)).empty(), "Identical playback must compare clean");
 }
@@ -179,6 +189,110 @@ void scroll_steps_relayout_before_clicks() {
     check(has(play_invalid(bad).diagnostics, "invalid_number", "/steps/0/delta/y"), "Scroll deltas must be validated");
 }
 
+// Commands move focus and activate through focus dispatch, request what clicks request, and are observed
+// in semantic projections; settled generations recover focus.
+void logical_commands_match_clicks_and_semantics() {
+    auto keyboard = recording();
+    keyboard.document = menu({focusable(button("start", "Start", "start-game")),
+                              focusable(button("quit", "Quit", "quit-game"))});
+    const auto initial = play(keyboard);
+    // Preorder: menu 0, start 1, start-label 2, quit 3, quit-label 4.
+    const auto start = center(initial.generations[0].boxes.at(1));
+    const auto quit = center(initial.generations[0].boxes.at(3));
+    std::chrono::microseconds time{0};
+    const auto at = [&](auto data) { return tessera::InputEvent{time += 1us, std::move(data)}; };
+    auto clicks = keyboard;
+    clicks.steps = {at(tessera::PointerDown{{1}, quit}), at(tessera::PointerUp{{1}, quit}),
+                    at(tessera::PointerDown{{1}, start}), at(tessera::PointerUp{{1}, start})};
+    auto& steps = keyboard.steps;
+    steps.push_back(at(tessera::FocusNext{}));                                  // 0: start
+    steps.push_back(at(tessera::Navigate{tessera::Direction::down}));           // 1: quit
+    steps.push_back(at(tessera::Activate{}));                                   // 2: quit-game
+    steps.push_back(at(tessera::FocusNext{}));                                  // 3: wraps to start
+    steps.push_back(at(tessera::Activate{}));                                   // 4: start-game
+    steps.push_back(at(tessera::Cancel{}));                                     // 5: no binding
+    steps.push_back(at(tessera::PointerDown{{1}, quit}));                       // 6
+    steps.push_back(at(tessera::PointerUp{{1}, quit}));                         // 7: quit-game, focus stays
+    steps.push_back(at(tessera::Navigate{tessera::Direction::down}));           // 8: quit
+    steps.push_back(tessera::ReplayReload{                                      // 9: restored by ID
+        menu({focusable(button("resume", "Resume", "start-game")), focusable(button("quit", "Quit", "quit-game"))}),
+        menu_styles(2)});
+    steps.push_back(tessera::ReplayReload{                                      // 10: quit disabled
+        menu({focusable(button("resume", "Resume", "start-game")),
+              focusable(button("quit", "Quit", "quit-game"), true)}),
+        menu_styles(2)});
+    steps.push_back(at(tessera::Activate{}));                                   // 11: start-game from resume
+    const auto output = play(keyboard);
+
+    const auto pointer = play(clicks).actions;
+    check(output.actions.size() == 4 && pointer.size() == 2, "Commands and clicks must request one action each");
+    for (std::size_t i = 0; i < pointer.size(); ++i) {
+        const auto& command = output.actions[i];
+        check(command.binding == pointer[i].binding && command.action == pointer[i].action &&
+                  command.node == pointer[i].node && command.id == pointer[i].id,
+              "Commands must request exactly what clicks on the same buttons request");
+    }
+    const std::vector<tessera::ReplayAction> expected{
+        {2, 0, "activate", "quit-game", 3, "quit"},
+        {4, 0, "activate", "start-game", 1, "start"},
+        {7, 0, "activate", "quit-game", 3, "quit"},
+        {11, 2, "activate", "start-game", 1, "resume"},
+    };
+    check(output.actions == expected, "Command actions must keep their steps, generations, and identities");
+
+    // Initial, six commands, the Navigate at step 8, two reload generations, and the final Activate.
+    const auto& semantics = output.semantics;
+    check(semantics.size() == 11, "Semantics must be observed per generation and per command step");
+    const std::vector<std::optional<std::size_t>> observed{std::nullopt, 0u, 1u, 2u, 3u, 4u, 5u, 8u, 9u, 10u, 11u};
+    const std::vector<std::optional<std::uint32_t>> focus{std::nullopt, 1u, 3u, 3u, 1u, 1u, 1u, 3u, 3u, 1u, 1u};
+    for (std::size_t i = 0; i < semantics.size(); ++i) {
+        check(semantics[i].step == observed[i] && semantics[i].focused == focus[i],
+              "Each observation must name its step and the focus after it");
+        std::size_t focused = 0;
+        for (const auto& entry : semantics[i].nodes) focused += entry.focused;
+        check(focused == (focus[i] ? 1u : 0u), "Exactly the focused eligible entry must report focus");
+    }
+    const auto& first = semantics[0].nodes;
+    check(first.size() == 3 && first[0].role == tessera::SemanticRole::root && first[0].id == "menu" &&
+              first[1].node == 1 && first[1].role == tessera::SemanticRole::button && first[1].name == "Start" &&
+              first[1].name_source == tessera::NameSource::content && first[1].parent == 0 && first[1].focusable &&
+              first[1].actions == std::vector<tessera::SemanticAction>{{"activate", "start-game"}} &&
+              first[2].node == 3 && first[2].id == "quit",
+          "Entries must own preorder indices, roles, names, state, and actions");
+    check(semantics[1].nodes[1].focused && !semantics[1].nodes[2].focused, "FocusNext must focus Start");
+    check(semantics[8].generation == 1 && semantics[8].nodes[2].focused && semantics[8].nodes[1].name == "Resume",
+          "A reload must restore focus by author ID");
+    const auto& disabled = semantics[9].nodes[2];
+    check(semantics[9].generation == 2 && !disabled.enabled && !disabled.focusable && !disabled.focused &&
+              disabled.actions.empty() && semantics[9].nodes[1].focused,
+          "Focus on a disabled button must recover to an eligible one, which is projected");
+    check(output == play(keyboard), "Repeated command playback must be identical");
+
+    auto bad = keyboard;
+    bad.steps = {tessera::InputEvent{2us, tessera::PointerMove{{1}, {1, 1}}}, tessera::InputEvent{1us, tessera::FocusNext{}}};
+    check(has(play_invalid(bad).diagnostics, "event_order", "/steps/1/timestamp"),
+          "Command steps must share the pointer timestamp stream");
+    bad.steps = {tessera::InputEvent{2us, tessera::FocusNext{}}, tessera::InputEvent{1us, tessera::Scroll{{1, 1}, {0, 1}}}};
+    check(has(play_invalid(bad).diagnostics, "event_order", "/steps/1/timestamp"),
+          "Scroll steps must not run backwards after a command step");
+
+    // Semantic warnings are located per observation and returned with the output.
+    auto unnamed = keyboard;
+    unnamed.document.root.children[0].children.clear();
+    unnamed.styles = menu_styles(2);
+    unnamed.styles.erase(unnamed.styles.begin() + 2);
+    unnamed.steps = {tessera::InputEvent{1us, tessera::FocusNext{}}};
+    tessera::PlaceholderTextShaper text;
+    const auto warned = tessera::play_replay(unnamed, text);
+    check(warned && warned.diagnostics.size() == 2, "Semantic warnings must accompany the output");
+    for (const auto& [diagnostic, path] : {std::pair{warned.diagnostics[0], "/nodes/1"},
+                                           std::pair{warned.diagnostics[1], "/steps/0/nodes/1"}}) {
+        check(diagnostic.code == "missing_name" && diagnostic.severity == tessera::Severity::warning &&
+                  diagnostic.path == path,
+              "Semantic warnings must be located under their observation");
+    }
+}
+
 void comparison_locates_differences() {
     const auto actual = play(interaction());
     auto expected = actual;
@@ -215,6 +329,21 @@ void comparison_locates_differences() {
               has(diagnostics, "replay_mismatch", "/generations/0/paint/commands"),
           "Count differences must be located");
 
+    expected = actual;
+    expected.semantics[1].focused = 1;
+    expected.semantics[2].nodes[1].name = "Continue";
+    expected.semantics[0].nodes.pop_back();
+    diagnostics = tessera::compare_replay(expected, actual, 1);
+    check(diagnostics.size() == 3 && has(diagnostics, "replay_mismatch", "/semantics/1/focused") &&
+              has(diagnostics, "replay_mismatch", "/semantics/2/nodes/1") &&
+              has(diagnostics, "replay_mismatch", "/semantics/0/nodes"),
+          "Semantic differences must be located without geometry tolerance");
+    expected = actual;
+    expected.semantics.pop_back();
+    diagnostics = tessera::compare_replay(expected, actual);
+    check(diagnostics.size() == 1 && has(diagnostics, "replay_mismatch", "/semantics"),
+          "Semantic observation counts must be compared");
+
     diagnostics = tessera::compare_replay(actual, actual, -1);
     check(diagnostics.size() == 1 && has(diagnostics, "out_of_range", "/geometry_tolerance"), "Negative tolerance accepted");
     diagnostics = tessera::compare_replay(actual, actual, std::numeric_limits<float>::quiet_NaN());
@@ -246,7 +375,7 @@ void invalid_recordings_are_located_without_output() {
     bad = recording();
     bad.steps = {tessera::InputEvent{1us, tessera::KeyDown{}}};
     check(has(play_invalid(bad).diagnostics, "unsupported_event", "/steps/0/event"),
-          "Non-pointer input must be rejected until focus dispatch exists");
+          "Keys must be rejected; hosts translate them into commands");
 
     bad = recording();
     bad.steps = {tessera::InputEvent{2us, tessera::PointerMove{{1}, {1, 1}}},
@@ -281,9 +410,10 @@ int main() {
     try {
         playback_observes_geometry_paint_and_actions();
         scroll_steps_relayout_before_clicks();
+        logical_commands_match_clicks_and_semantics();
         comparison_locates_differences();
         invalid_recordings_are_located_without_output();
-        std::cout << "Replay playback, comparison, and rejection checks passed.\n";
+        std::cout << "Replay playback, command, semantic, comparison, and rejection checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
