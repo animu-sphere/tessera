@@ -16,7 +16,7 @@ Optional Vulkan tools/libraries are adopted below. [Third-party notices](../../T
 | Vulkan headers and loader import library | Optional `tessera::vulkan`, explicit C API device/command integration | Installed Vulkan SDK, CMake `find_package(Vulkan 1.3 REQUIRED)`; explicit include/library cache overrides permitted; runtime device API >= 1.1 | Selected SDK 1.4.350.0 headers and upstream loader are Apache-2.0; host provides its system Vulkan loader/driver at runtime |
 | Slang `slangc` | Vulkan shader build only | Pinned compiler 2026.8, found locally or via `TESSERA_SLANGC`; configure rejects a different version; emits SPIR-V 1.3 | Apache-2.0 WITH LLVM-exception; no Slang runtime link or compiler distribution |
 | Khronos validation layer / SPIR-V Tools | GPU fixture diagnostics and artifact verification only | Installed SDK tooling, validation layer required by GPU fixture; tools are not linked into core | Apache-2.0; development-only, not a backend runtime requirement |
-| Windows SDK / Win32 | Selected next native example host, window/pointer/DPI/surface ownership | Existing host toolchain SDK; no GLFW/SDL or new window framework selected | Microsoft SDK terms apply; platform APIs remain in the example host |
+| Windows SDK / Win32 | `tessera_vulkan_menu` example host, window/pointer/DPI/surface ownership | Existing host toolchain SDK; per-monitor-v2 DPI APIs (Windows 10 1703 or newer); built only with the Vulkan option and examples on Windows; no GLFW/SDL or new window framework selected | Microsoft SDK terms apply; platform APIs remain in the example host |
 
 The backend option defaults OFF and performs no Vulkan/Slang discovery then. With it ON, installed tools are used without downloads. This optional module requires CMake >= 3.23 for [SDK version discovery](https://cmake.org/cmake/help/v3.23/module/FindVulkan.html); the core retains its declared 3.20 floor. [Rendering](../design/rendering.md#implemented-vulkan-primitive-boundary) owns target, color, image, synchronization and lifetime rules; [development](../guides/development.md#optional-vulkan-workflow) owns shader output paths and commands. Actual SDK/compiler/GPU/layer combinations are recorded only in [support](support-matrix.md#vulkan-primitive-evidence--2026-10-05). Win32 is an example-host choice, not a core platform requirement or a native-host support claim.
 
@@ -29,7 +29,7 @@ The backend option defaults OFF and performs no Vulkan/Slang discovery then. Wit
 | Shader build | Adopted Slang compiler above | Build tool below the rendering boundary; not an authoring/runtime language requirement |
 | Vulkan backend | Adopted Vulkan SDK/toolchain above | SDK types remain within the concrete backend and host integration |
 | WebGPU backend | Implementation/toolchain to evaluate | Later module; no current WGSL, browser, or WASM claim |
-| Example host | Selected Win32 for the first native example | Window ownership remains outside the UI core; implementation is active scope |
+| Example host | Win32 [Vulkan menu host](../design/rendering.md#implemented-win32-vulkan-example-host) | Window ownership remains outside the UI core and the backend library |
 | Additional authoring frontends | Compiler/parser to evaluate after IR stabilization | Runtime IR remains independent of source syntax; JSON v1 uses the adopted in-repository parser |
 
 OpenUSD, Chromium/WebView, a JavaScript VM, Qt, and large application frameworks are not foundational dependencies. Optional adapters must not introduce them transitively into core-only consumption.

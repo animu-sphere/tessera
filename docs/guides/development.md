@@ -77,6 +77,25 @@ cmake --build build-vulkan-core --config Debug
 
 That configuration performs no Vulkan/Slang dependency discovery or shader compilation. Actual results/configurations belong in [support](../reference/support-matrix.md#vulkan-primitive-evidence--2026-10-05).
 
+### Win32 Vulkan menu host
+
+With `TESSERA_BUILD_VULKAN=ON` and examples enabled on Windows, the build above also produces the [example host](../design/rendering.md#implemented-win32-vulkan-example-host); CTest registers its smoke as `vulkan_menu_smoke`. Run it from the repository root:
+
+```powershell
+& .\build-vulkan\backends\vulkan\Debug\tessera_vulkan_menu.exe          # interactive; click Quit or close the window
+& .\build-vulkan\backends\vulkan\Debug\tessera_vulkan_menu.exe --smoke  # scripted; exits 0 on success
+```
+
+The executable loads the SPIR-V artifacts from the build tree's shader directory. The smoke needs an interactive desktop session, the Khronos validation layer, and a device presenting an sRGB swapchain with transfer-source usage. It writes `vulkan-menu-{1,2,3}.ppm` presentation captures to `build-vulkan/backends/vulkan/artifacts` and fails after 30 seconds if the sequence stalls. Physical mouse activity over the window during the smoke can perturb it.
+
+A separate fresh directory reproduces the host slice's independence check:
+
+```powershell
+cmake -S . -B build-host-core -G "Visual Studio 18 2026" -A x64 `
+    -DBUILD_TESTING=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_VULKAN=OFF
+cmake --build build-host-core --config Debug
+```
+
 A separate fresh directory reproduces the placeholder Text slice's independence check:
 
 ```powershell

@@ -31,7 +31,7 @@ Concrete-backend validation is recorded in [support](../reference/support-matrix
 
 `FrameInfo::device_scale` expresses physical pixels per logical unit. Layout and draw geometry follow [logical coordinates](layout.md#coordinate-spaces); the renderer/host boundary converts them to the physical framebuffer and backend viewport/scissor conventions. Define framebuffer extent, rounding, clip-edge conversion, and resize handling with the concrete backend. Pixel snapping is a later explicit scale-aware policy, not hidden rounding in layout.
 
-Validate fractional scales and scale changes as well as 1:1 rendering. Normalized input must map back to the same logical space. World-space projection belongs to a host adapter.
+Validate fractional scales and scale changes as well as 1:1 rendering. Normalized input must map back to the same logical space. World-space projection belongs to a host adapter. The [Win32 example host](#implemented-win32-vulkan-example-host) defines one concrete logical-size and pointer-pixel mapping.
 
 ## Paint boundary
 
@@ -83,7 +83,7 @@ Reassess shader-source strategy for WebGPU, including WGSL suitability, against 
 - **Primitive pixels.** A six-vertex quad carries local coordinates; fragments discard outside circular rounded corners. Radius clamps to half the smaller side. Borders subtract an inset rounded inner rectangle; its radius is `max(0, authored_radius - max(edge_widths))`, then clamps to the inner dimensions. If inner dimensions collapse the whole outer shape is filled. This is the prototype's explicit unequal-border corner rule. No antialiasing/MSAA or pixel snapping is introduced. RGB command colors convert from sRGB to linear; straight-alpha source-over blending occurs in the sRGB attachment's linear domain before attachment encoding. Two general-purpose pipelines cover solid and image commands. Each primitive stays a separate draw; only adjacent pipeline binds are reused, with no sorting or merged batches.
 - **Images and retirement.** `bind_image` associates a nonzero neutral handle with borrowed host `VkImageView`/`VkSampler` from the same device; views expose linear RGB to the shader (normally an sRGB view for encoded assets), and samples use straight alpha. The host uploads/transitions the image to `SHADER_READ_ONLY_OPTIMAL` and maintains that state and object lifetime through retirement. The source rectangle must fit normalized [0,1] coordinates; tint uses the same linear color/straight-alpha rules. `max_images` bounds live bindings (`image_limit`). Rebind/unbind returns `resource_in_use` until the last successful referencing frame is retired, including clipped/zero-area image references. Unknown unbinds fail. `retire` advances monotonically, clamps to the last successful frame, and does not authorize resource changes in future frames. The host calls it only after observing completion of every covered frame. Replacement updates only retired descriptors; no external asset loading API is implied.
 
-Native swapchain/presentation, real font rasterization, and device-loss recovery require subsequent implementation.
+Real font rasterization and device-loss recovery require subsequent implementation. Swapchain presentation is host work; see the [Win32 example host](#implemented-win32-vulkan-example-host).
 
 ### Implemented Vulkan placeholder Text
 
@@ -94,6 +94,18 @@ The original [5x7 bitmap marks](../../backends/vulkan/placeholder_glyph.hpp) cov
 Each non-space glyph records one solid-pipeline quad. Its top left is `command.origin + glyph.position + (0.05 em, -0.8 em)`; size is `(0.4 em, 0.7 em)`, using `GlyphRun::size`. Rows are supplied in push constants and the fragment shader discards unset cells. Placement honors the shaper's baseline pen positions, including explicit line heights and multiline runs, without deriving positions from run metrics. It preserves the placeholder shaper's 0.5 em advance. Cells have hard edges, with no antialiasing or pixel snapping.
 
 Glyphs inherit the current affine transform, physical scissor, authored order, and linear-light straight-alpha blending. Origin/pen sums, quad bounds, and transformed intermediates are checked before recording, including whitespace and fully clipped glyphs. A rejected run records nothing, consumes no frame number, and does not pin preceding image references. Empty runs and spaces draw no pixels. Bitmap data is copied into command-buffer push constants; it needs no atlas retirement, and uses the existing host completion/destruction rule.
+
+### Implemented Win32 Vulkan example host
+
+[vulkan-menu](../../examples/vulkan-menu/main.cpp) is an example host built with the optional module on Windows (`tessera_vulkan_menu`). It is not a library API: window, OS input, DPI, instance/device/queue/surface/swapchain, synchronization, presentation, and retirement stay in the executable. The renderer receives only the borrowed context, a recording command buffer, `FrameInfo`, and the owned paint list.
+
+- **Document path.** An embedded JSON v1 menu becomes a `UiTree`; host code supplies `ResolvedStyle` values until stylesheets exist, runs `compute_layout` and `build_paint_list` with `PlaceholderTextShaper`, and enables `VulkanContext::placeholder_text`. Hover/press feedback changes only button backgrounds, so the layout stays coherent and only paint is rebuilt.
+- **Presentation.** One graphics queue family that also presents, an sRGB-nonlinear `B8G8R8A8_SRGB` (preferred) or `R8G8B8A8_SRGB` surface format, FIFO, and two frames in flight. Each slot owns a command buffer, acquire semaphore, and fence; each swapchain image owns its render-finished semaphore. After waiting a slot or image fence, the host calls `retire` with the last successful renderer frame submitted before that fence, because the fence also covers earlier submissions on the queue. A rejected submission still presents the cleared image and consumes no frame number.
+- **Update point.** `WM_SIZE` and `WM_DPICHANGED` (scale = DPI / 96, suggested window rectangle applied) idle the device, retire every submitted frame, recreate the swapchain/framebuffers, recompute layout, and `refresh` the pointer dispatcher before later input is mapped. A zero client extent suspends rendering. The swapchain extent is authoritative; each logical axis is the largest `float` whose `ceil(logical * scale)`, computed as the renderer does, equals the physical extent.
+- **Pointer pixels.** Integer client pixel `(x, y)` maps to logical `((x + 0.5) / scale, (y + 0.5) / scale)`, the pixel center sampled by rasterization, so a pixel painted by a half-open border box hits the same box. [Input](input.md#host-boundary) owns the message-to-event mapping.
+- **Smoke readback.** `--smoke` requires the validation layer with synchronization validation, adds transfer-source usage to swapchain images, and reads selected frames back through a render pass that differs only in final layout (compatible passes carry identical dependencies). It posts mouse, capture-loss, cancel-mode, and synthetic `WM_DPICHANGED` messages through the window procedure, checks the host action sequence and presented pixels against the styles that produced them, and fails on validation errors or rejected submissions/events.
+
+Separate present queues, device loss, real fonts, and keyboard/gamepad input are not handled by this host.
 
 ## Batching
 

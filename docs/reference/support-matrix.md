@@ -19,8 +19,8 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | --- | --- | --- |
 | UI tree, properties, serialization | Validated for Box/Text foundation only | CTest round trip, validation failures, deterministic representation, metadata and handle lifetime |
 | Fixed/stack/flex layout | Validated for the single-line prototype with placeholder text; wrapping, absolute, scroll, and grid planned | Numeric geometry fixtures without GPU |
-| Paint list and Vulkan primitives | CPU background/border/Text paint generation; optional Vulkan solid/rounded/border/clip/transform/alpha/image and explicit placeholder Text/menu execution verified with offscreen GPU fixtures below | Native menu/presentation and real font evidence remain required |
-| Pointer input and hit testing | Rectangular targeting, hover/primary activation, cancellation, and snapshot refresh verified with synthetic events; native input planned | Synthetic events plus interactive host smoke |
+| Paint list and Vulkan primitives | CPU background/border/Text paint generation; optional Vulkan solid/rounded/border/clip/transform/alpha/image and explicit placeholder Text/menu execution verified with offscreen GPU fixtures; Win32 swapchain menu presentation verified by readback below | Real font evidence and further native configurations remain required |
+| Pointer input and hit testing | Rectangular targeting, hover/primary activation, cancellation, and snapshot refresh verified with synthetic events; Win32 normalization of posted mouse, capture-loss, and cancel-mode messages verified below; no physical-device session recorded | Synthetic events plus interactive host smoke |
 | Focus, keyboard/gamepad navigation | Planned | Deterministic navigation and recovery fixtures plus menu smoke |
 | Text shaping and Latin/Japanese fallback | Measurement/shaping boundary and deterministic placeholder shaper implemented; optional Vulkan bitmap placeholders verified, with missing boxes for Japanese; real shaping planned | Declared fonts, metrics/wrapping fixtures, real glyph images |
 | Stylesheets, selectors, pseudo states | Planned | Cascade, inheritance, state invalidation fixtures |
@@ -33,7 +33,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Property reflection/introspection | Planned; explicit typed values/validation exist, no descriptor API | Schema/default/range/encoded-name agreement and Inspector consumer |
 | SemanticTree and semantic actions | Planned; relationship storage is not a semantic projection | Deterministic roles/names/state/actions, eligibility and stale-target checks |
 | Deterministic replay tooling | Planned; repeated-run fixtures are not a recording/playback tool | Versioned controlled inputs, expected geometry/semantics/actions/paint |
-| DPI/coordinate integration | Vulkan framebuffer/scissor conversion and target resize verified at scales 1/1.25/1.5/2; native DPI/input mapping unvalidated | Native fractional-scale/input/resize integration; pixel snapping remains planned |
+| DPI/coordinate integration | Vulkan framebuffer/scissor conversion and target resize verified at scales 1/1.25/1.5/2; Win32 swapchain extent, logical viewport, and pointer mapping verified at 1/1.5/1.25 through synthetic `WM_DPICHANGED` below; real monitor DPI changes unvalidated | Native fractional-scale/input/resize integration; pixel snapping remains planned |
 | Overlay/Portal and virtualized lists | Planned | Layer geometry/order, ownership/focus cleanup and keyed scroll stability |
 | Editing/IME/clipboard | Committed text event validation only; composition/editing and clipboard planned | Replacement/selection units, Japanese composition and platform adapter evidence |
 
@@ -42,13 +42,13 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Configuration | Current evidence |
 | --- | --- |
 | Core-only build | Windows x64/MSVC Debug library-only build plus document/contract/layout/paint/pointer tests and examples verified; no external runtime dependencies |
-| Vulkan | SDK/Slang artifacts and offscreen GPU runtime fixtures verified below; native window/swapchain/menu unvalidated |
+| Vulkan | SDK/Slang artifacts, offscreen GPU runtime fixtures, and a Win32 FIFO swapchain menu smoke verified below |
 | WebGPU native | No selected implementation or toolchain |
 | Browser / WASM | Feasibility candidate only; no build or browser tests |
 | Metal / Direct3D 12 | Possible later targets; no scheduled implementation |
-| Windows / Linux / macOS | Windows x64/MSVC Debug core and offscreen Vulkan fixtures verified below; Linux/macOS and other Windows toolchains unvalidated |
+| Windows / Linux / macOS | Windows x64/MSVC Debug core, offscreen Vulkan fixtures, and the Win32 Vulkan menu smoke verified below; Linux/macOS and other Windows toolchains unvalidated |
 
-Core configurations are distinct from the offscreen Vulkan evidence below. Neither establishes native-window/device input, real text, packaging, or broad Windows support.
+Core, offscreen Vulkan, and Win32 host evidence below are distinct. None establishes physical-device input, real text, packaging, or broad Windows support.
 
 ## Foundation evidence — 2026-10-05
 
@@ -110,6 +110,17 @@ Core configurations are distinct from the offscreen Vulkan evidence below. Neith
 - Result: all twelve CTest targets passed, including the extended `vulkan` fixture, with no validation-layer errors. All three shaders passed `spirv-val --target-env vulkan1.1`. Final Vulkan and fresh core-only builds produced no warnings. Glyph pixels establish default-font bitmap placement from baseline pens, lowercase uppercase-shape policy, space/empty suppression, multiline/missing-scalar marks, scales 1/1.25/1.5/2, mirrored clip and rotation, ordered linear-light alpha, and restoration. Font/scalar/nonfinite/overflow rejection records no partial pixels, consumes no frame, and pins no preceding image. A JSON document produced deterministic paint and offscreen Start/Quit Text pixels.
 - Artifacts: `build-vulkan/Testing/Temporary/LastTest.log`, `build-vulkan/backends/vulkan/artifacts/glyph-scale-{1,2,3,4}.ppm`, `glyph-transforms.ppm`, `glyph-rejected.ppm`, `glyph-blank.ppm`, `placeholder-menu.ppm` in that directory, the rebuilt three SPIR-V artifacts, and `build-glyph-core/Debug/tessera_core.lib`. These are local ignored outputs reproduced by the source fixture.
 - Limits: explicitly enabled `PlaceholderTextShaper` / `FontId` 0 runs only, original hard-edged 5x7 marks, uppercase shapes for lowercase, and boxes for unsupported scalars including Japanese. No real fonts/shaping/fallback, atlas, antialiasing, native window/swapchain/presentation/input/DPI, batching, device loss, or performance claim. Only the existing Windows/MSVC Debug/offscreen GPU configuration was exercised; fractional glyph-cell boundary pixels are excluded from the exhaustive bitmap reference comparison. The renderer does not infer shaper identity from glyph IDs; hosts must honor the [placeholder contract](../design/rendering.md#implemented-vulkan-placeholder-text).
+
+## Win32 Vulkan menu host evidence — 2026-10-05
+
+- Revision: uncommitted implementation on base `fca5053c9003927cc5f42d1ab9899f4948d67f1c`. Identifiable source adds the [example host](../../examples/vulkan-menu/main.cpp) and registers `tessera_vulkan_menu` and `vulkan_menu_smoke` in the [optional module build](../../backends/vulkan/CMakeLists.txt).
+- Source fingerprint: SHA-256 `be4a359be0472525468032f6f110b47bea9f98ae6c32d8e0cdbeb63dcbd44e7c`, computed with the foundation procedure over `CMakeLists.txt`, `include`, `src`, `examples`, `tests`, and `backends` (49 files). Documentation is outside this fingerprint.
+- Configuration: Windows NT `10.0.26200.0` x64, MSVC `19.51.36256.0`, Visual Studio 18 2026, Windows SDK `10.0.26100.0`, CMake/CTest `4.4.3`, Debug, existing `build-vulkan` configuration (Vulkan SDK `1.4.350.0` headers/import library, Slang `2026.8`). Installed Khronos validation layer `1.3.290` with synchronization validation. No dependency download or vendoring occurred.
+- GPU/runtime: NVIDIA RTX A5000 (`vendorID=0x10de`, `deviceID=0x2231`), raw driver version `2504261632`, device Vulkan `1.4.329`; Vulkan 1.1 instance. Surface format `B8G8R8A8_SRGB` / sRGB nonlinear, FIFO, two frames in flight. Initial system scale 1 (96 DPI).
+- Procedure: [optional Vulkan build/CTest](../guides/development.md#optional-vulkan-workflow) and the [menu host workflow](../guides/development.md#win32-vulkan-menu-host), including direct `--smoke` execution and a short interactive launch, followed by fresh `build-host-core` configure/build with Vulkan/tests/examples disabled.
+- Result: all thirteen CTest targets passed, including `vulkan` and `vulkan_menu_smoke`, with no validation-layer messages. Vulkan and core-only builds produced no warnings; the host compiles under `/W4 /permissive-`. Posted messages produced `activate: start-game from start`; a held Quit press cancelled by `ReleaseCapture` and a held Start press cancelled by `WM_CANCELMODE` produced no action on release. Synthetic `WM_DPICHANGED` resized the swapchain to 726x557 at scale 1.5 (logical 484x371.333) and 603x459 at scale 1.25 (logical 482.4x367.2); clicks at physical button centers produced `start-game` and then `quit-game`, which shut the host down in order. Seventeen frames were presented and retired. Presentation readbacks at 480x360, 726x557, and 603x459 matched screen/panel/button backgrounds within 2/255 and contained label pixels. The interactive launch created the device and first swapchain and ran until terminated; no manual clicks were recorded.
+- Artifacts: `build-vulkan/Testing/Temporary/LastTest.log`, `build-vulkan/backends/vulkan/artifacts/vulkan-menu-{1,2,3}.ppm`, `build-vulkan/backends/vulkan/Debug/tessera_vulkan_menu.exe`, and `build-host-core/Debug/tessera_core.lib`. These are local ignored outputs reproduced by the source.
+- Limits: OS messages were posted to the window procedure, not generated by physical devices, and the DPI changes were synthetic messages on a 96-DPI monitor. One device, one surface format, FIFO only, a shared graphics/present family, and Debug only. The menu paint contains no clips/transforms, so clip/transform agreement between pointer mapping and rendering is not shown. No batching, device loss, real fonts, keyboard/gamepad input, deployment, or performance claim. Placeholder Text follows the [placeholder contract](../design/rendering.md#implemented-vulkan-placeholder-text).
 
 ## Recording future evidence
 
