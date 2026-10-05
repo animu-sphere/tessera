@@ -1,7 +1,8 @@
 #pragma once
 
-#include <tessera/input/pointer.hpp>
+#include <tessera/input/focus.hpp>
 #include <tessera/render/draw_list.hpp>
+#include <tessera/semantics/semantics.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -28,8 +29,9 @@ struct ReplayReload {
     std::vector<ResolvedStyle> styles;
     bool operator==(const ReplayReload&) const = default;
 };
-// Input steps must be pointer or scroll events; they share one non-decreasing timestamp stream. A scroll
-// step is routed by route_scroll and applied at an update point.
+// Input steps must be pointer, scroll, or logical focus commands (FocusNext/FocusPrevious/Navigate/Activate/
+// Cancel); they share one non-decreasing timestamp stream. A scroll step is routed by route_scroll and
+// applied at an update point; a command goes through FocusDispatcher. Keys are host-translated, not replayed.
 using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload>;
 
 struct ReplayRecording {
@@ -60,6 +62,30 @@ struct ReplayGeneration {
     UiDrawList paint;
     bool operator==(const ReplayGeneration&) const = default;
 };
+// Owned semantic entry; preorder indices replace the snapshot's handles.
+struct ReplaySemanticNode {
+    std::uint32_t node = 0;                    // Tree preorder index within its generation.
+    std::optional<std::string> id;             // Author ID, when present.
+    std::uint32_t parent = no_semantic_parent; // Index into ReplaySemantics::nodes.
+    SemanticRole role = SemanticRole::root;
+    std::string name;
+    NameSource name_source = NameSource::none;
+    std::optional<std::uint32_t> labelled_by; // Referenced node's preorder index.
+    bool enabled = true;
+    bool focusable = false;
+    bool focused = false;
+    std::vector<SemanticAction> actions;
+    bool operator==(const ReplaySemanticNode&) const = default;
+};
+// Semantic projection of one generation with the focus held at an observation point: after each generation
+// settles and after each logical command step.
+struct ReplaySemantics {
+    std::optional<std::size_t> step; // Observing step; absent for the initial snapshot.
+    std::size_t generation = 0;
+    std::optional<std::uint32_t> focused; // Focused node's preorder index, whether or not it has an entry.
+    std::vector<ReplaySemanticNode> nodes;
+    bool operator==(const ReplaySemantics&) const = default;
+};
 struct ReplayAction {
     std::size_t step = 0;       // Input step whose dispatch requested it.
     std::size_t generation = 0; // Snapshot the request's target belongs to.
@@ -71,17 +97,20 @@ struct ReplayAction {
 };
 struct ReplayOutput {
     std::vector<ReplayGeneration> generations;
-    std::vector<ReplayAction> actions; // In request order.
+    std::vector<ReplaySemantics> semantics; // In observation order.
+    std::vector<ReplayAction> actions;      // In request order.
     bool operator==(const ReplayOutput&) const = default;
 };
 
-// Plays the steps through UiTree::create, compute_layout, build_paint_list, and PointerDispatcher,
-// with the host-injected shaper. Failures are located under the recording ("" for the initial
-// snapshot, /steps/<index> for a step) and return no partial output. Renderer-free.
+// Plays the steps through UiTree::create, compute_layout, build_paint_list, PointerDispatcher,
+// FocusDispatcher, and build_semantic_tree, with the host-injected shaper. Failures are located under the
+// recording ("" for the initial snapshot, /steps/<index> for a step) and return no partial output; semantic
+// warnings are located the same way and returned with the output. Renderer-free.
 Result<ReplayOutput> play_replay(const ReplayRecording&, TextShaper&);
 
 // One replay_mismatch diagnostic per difference, located in the expected output. Box rectangles,
-// edges, and scroll geometry match within geometry_tolerance logical units; all other values must be equal.
+// edges, and scroll geometry match within geometry_tolerance logical units; all other values, including
+// semantic observations, must be equal.
 std::vector<Diagnostic> compare_replay(const ReplayOutput& expected, const ReplayOutput& actual,
                                        float geometry_tolerance = 0);
 
