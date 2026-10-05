@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem in Tessera.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check existing issues and the [support matrix](https://github.com/animu-sphere/tessera/blob/main/docs/reference/support-matrix.md) before filing; an unvalidated configuration is not necessarily a defect. Do not report vulnerabilities here; use the [private security process](https://github.com/animu-sphere/tessera/security/advisories/new).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - UI model / JSON v1
+        - Layout
+        - Style
+        - Input / focus
+        - Text
+        - Paint / draw list
+        - Vulkan backend
+        - Example hosts
+        - Semantics / inspection / replay
+        - Build / release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the release or commit, OS, compiler, and build configuration. Add GPU/driver and Vulkan SDK for backend issues. Mark anything not applicable.
+      placeholder: "Release or commit: ...\nOS and compiler: ...\nCMake options and configuration: ...\nGPU, driver, Vulkan SDK (if relevant): ..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the command and a minimal input, such as a JSON v1 document, resolved styles, or event sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Describe the result, including diagnostics (code, path, message).
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and evidence
+      description: Add CTest output, validation-layer messages, or images when relevant. Note if a required GPU or SDK was unavailable.
+    validations:
+      required: false

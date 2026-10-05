@@ -6,6 +6,7 @@
 - Build: CMake 3.20 declared minimum, `tessera::core` library target, CTest for standalone checks. Declared requirements are distinct from configurations actually exercised in support.
 - Serialization: a bounded in-repository JSON reader/writer in `src/ui/serialization.cpp`, no parser dependency or runtime filesystem access. Encoding policy is in [JSON v1](../../formats/tessera-ui/README.md).
 - Acquisition: no automatic network fetches or vendored libraries. Core-only builds are offline once the host C++ toolchain/CMake are installed, without graphics SDKs or external fonts. CMake/CTest and compiler tools are build/development requirements, not runtime dependencies.
+- Release automation: GitHub-hosted runners with `actions/checkout` and `actions/upload-artifact` pinned to full commit SHAs in the [release workflow](../../.github/workflows/release.yml); the GitHub CLI preinstalled on hosted runners publishes releases. These are repository infrastructure, not build or runtime dependencies. The runner's toolchain is whatever its image provides; it is not a validated configuration until its results are recorded in support.
 
 Optional Vulkan tools/libraries are adopted below. [Third-party notices](../../THIRD_PARTY_NOTICES.md) records their upstream licenses; no SDK binaries, headers, compiler, fonts, or external image assets are vendored or redistributed.
 

@@ -1,0 +1,95 @@
+name: Release
+
+# A vX.Y.Z tag push verifies the tag against VERSION and CHANGELOG.md, builds and
+# tests the core, and publishes a source-only GitHub Release from the changelog
+# section. Pull requests touching release inputs and manual runs perform the same
+# checks against v<VERSION> without publishing. GPU fixtures and the Win32 menu
+# smoke need a device and desktop session; their evidence is recorded locally in
+# docs/reference/support-matrix.md.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  pull_request:
+    paths:
+      - VERSION
+      - CHANGELOG.md
+      - CMakeLists.txt
+      - cmake/**
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Empty for pull requests and manual runs: cmake/release.cmake then uses v<VERSION>.
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+jobs:
+  core:
+    name: Core / windows-x64 / ${{ matrix.config }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify tag, VERSION, and changelog
+        run: cmake "-DTESSERA_RELEASE_TAG=${{ env.RELEASE_TAG }}" -P cmake/release.cmake
+
+      - name: Configure core
+        run: cmake -S . -B build -A x64 -DTESSERA_BUILD_VULKAN=OFF
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure --no-tests=error
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: core-windows-x64-${{ matrix.config }}
+          if-no-files-found: warn
+          path: build/Testing/Temporary/LastTest.log
+
+  publish:
+    name: Publish GitHub Release
+    needs: core
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Extract release notes
+        run: >-
+          cmake
+          "-DTESSERA_SOURCE_DIR=${{ github.workspace }}"
+          "-DTESSERA_RELEASE_TAG=${{ env.RELEASE_TAG }}"
+          "-DTESSERA_NOTES_OUTPUT=${{ runner.temp }}/notes.md"
+          "-DTESSERA_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}"
+          -P cmake/release.cmake
+
+      - name: Create source-only release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # 0.x releases carry no compatibility guarantee and are marked as pre-releases.
+          prerelease=()
+          case "$RELEASE_TAG" in v0.*) prerelease=(--prerelease) ;; esac
+          gh release create "$RELEASE_TAG" --verify-tag "${prerelease[@]}" \
+            --title "Tessera $RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.md"

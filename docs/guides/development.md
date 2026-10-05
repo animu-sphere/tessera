@@ -112,6 +112,29 @@ cmake -S . -B build-glyph-core -G "Visual Studio 18 2026" -A x64 `
 cmake --build build-glyph-core --config Debug
 ```
 
+## Release workflow
+
+[VERSION](../../VERSION) holds the single `MAJOR.MINOR.PATCH` value; CMake reads it as the project version. A release is cut only after the active milestone's exit criteria are accepted against [support](../reference/support-matrix.md); 0.x versions carry no API/ABI compatibility guarantee. Patch releases fix defects in released scope; otherwise development continues on `main` without maintenance branches.
+
+1. Rerun the core and optional Vulkan workflows above in fresh build directories and record the result in support.
+2. In the release pull request, set `VERSION` and turn the changelog's `## Unreleased` section into `## vX.Y.Z — YYYY-MM-DD`.
+3. Before merging, check the metadata locally:
+
+   ```powershell
+   cmake -P cmake/release.cmake
+   ```
+
+4. After merging, tag the merge commit and push the tag:
+
+   ```powershell
+   git tag -a vX.Y.Z -m "Tessera vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+The [release workflow](../../.github/workflows/release.yml) then checks that the tag matches `VERSION` and has a dated changelog section, builds and tests the core in Debug and Release with Vulkan disabled, and publishes a source-only GitHub Release whose notes are that changelog section. 0.x releases are marked as pre-releases. Hosted runners have no GPU or interactive session, so the GPU fixtures and native menu smoke are not part of this gate; their evidence comes from step 1. Pull requests that change release inputs run the same checks against `v<VERSION>` without publishing.
+
+No binaries or installed packages are published; consumers build from source. Packaging scope is owned by the [backlog](../roadmap/backlog.md).
+
 ## Adding workflows
 
 When a backend, native host, real-font fixture, or package/export consumer lands, add the concrete procedure here. Record the shell/generator/configuration, required tools, expected output location, and reproducible clean-build steps. Record actual results and configuration limits only in support.
