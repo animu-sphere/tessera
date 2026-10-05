@@ -32,7 +32,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Animation and advanced custom paint | Planned | Resolved-value/time/invalidation and draw-list boundary checks |
 | Property reflection/introspection | Box/Text property descriptors drive validation, absence values, and encoded names, verified below; range/enum metadata, derived values, invalidation, and Inspector consumer planned | Schema/default/range/encoded-name agreement and Inspector consumer |
 | SemanticTree and semantic actions | Planned; relationship storage is not a semantic projection | Deterministic roles/names/state/actions, eligibility and stale-target checks |
-| Deterministic replay tooling | Planned; repeated-run fixtures are not a recording/playback tool | Versioned controlled inputs, expected geometry/semantics/actions/paint |
+| Deterministic replay tooling | In-process prototype playback/comparison of pointer, resize, and reload steps verified below for geometry, paint, and actions; serialized format, recording tool, semantics, scale/time/resource inputs planned | Versioned controlled inputs, expected geometry/semantics/actions/paint |
 | Shared runtime inspection and source mapping | Author-ID lookup, borrowed immutable tree inspection, property descriptors, and located validation diagnostics implemented under [UI model](../design/ui-model.md); joined generation-aware inspection/source-map protocol planned | Coherent tree/semantics/layout observations, frontend source spans, ambiguous/stale target rejection |
 | Offscreen runner and capture tooling | Vulkan fixtures implement host-owned offscreen readback and PPM artifacts; reusable runner, declared-state restore, PNG capture, and CLI planned under [inspection](../design/inspection.md) | Controlled viewport/scale/time/locale/fonts/resources/state, window-free execution and generation-matched readback |
 | Snapshot bundles, diff, and performance tooling | Versioned bundles, semantic/layout/visual diff, iteration latency, benchmark budgets and CI reports planned; Vulkan submission counters are not timing/profiling evidence | Version/bounds checks, reproducible comparisons, measurement conditions, representative baselines |
@@ -46,7 +46,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 
 | Configuration | Current evidence |
 | --- | --- |
-| Core-only build | Windows x64/MSVC Debug library-only build plus document/contract/layout/paint/pointer tests and examples verified; no external runtime dependencies |
+| Core-only build | Windows x64/MSVC Debug library-only build plus document/contract/layout/paint/pointer/replay tests and examples verified; no external runtime dependencies |
 | Vulkan | SDK/Slang artifacts, offscreen GPU runtime fixtures, and a Win32 FIFO swapchain menu smoke verified below |
 | WebGPU native | No selected implementation or toolchain |
 | Browser / WASM | Planned shared-runtime Web host with WebGPU canvas and semantic DOM/editing adapters; no selected toolchain, build, or browser tests |
@@ -148,6 +148,16 @@ Core, offscreen Vulkan, and Win32 host evidence below are distinct. None establi
 - Native result: twenty-three menu primitives became one draw with 2576 payload upload bytes per frame; the smoke verified at most two retained uploads. Seventeen frames were presented and retired; posted Start/capture-loss/cancel-mode/DPI/Quit messages preserved the expected action sequence. Three presentation readbacks at 480x360, 726x557, and 603x459 passed the existing background/label checks at scales 1/1.5/1.25.
 - Artifacts: `build-vulkan/Testing/Temporary/LastTest.log`, `build-vulkan/backends/vulkan/artifacts/batch-{reference,adjacent}-{1,3,5,7}.ppm`, `batch-empty.ppm`, existing primitive/glyph/menu captures in that directory, four SPIR-V artifacts, and `build-batch-core/Debug/tessera_core.lib`. These are ignored local outputs reproduced by the source fixtures.
 - Limits: one Windows/MSVC Debug device configuration only; no CPU/GPU timing or throughput claim, buffer pooling, allocation-failure injection, or forced noncoherent-memory runtime fixture. Native menu still has no clips/transforms, physical-device input or real monitor DPI-change evidence. Text remains explicit placeholder data. Image equivalence covers the declared fixtures, not arbitrary shaders or alternate blend modes.
+
+## Replay prototype evidence — 2026-10-05
+
+- Revision: uncommitted implementation on base `0eaa8f08df2ce07cc8135e5e4f83644e77f540fa`. Identifiable source adds [replay.hpp](../../include/tessera/replay/replay.hpp), `src/replay/replay.cpp`, and [replay checks](../../tests/replay/replay_tests.cpp), and registers the source/test in `CMakeLists.txt`.
+- Source fingerprint: SHA-256 `cb1c8dbcf71952c886aa76e76e780f66827225aa806c59daad14f3fc2e3a288f`, computed with the foundation procedure over `CMakeLists.txt`, `include`, `src`, `examples`, and `tests` (50 files). Documentation is outside this fingerprint.
+- Configuration: the same OS, Visual Studio/MSVC `19.51.36256.0`, CMake/CTest `4.4.3`, `Visual Studio 18 2026`, `-A x64`, Debug configuration as the foundation evidence. Vulkan disabled.
+- Procedure: the [development](../guides/development.md) configure/build/CTest commands in the existing `build` directory, plus a fresh library-only configure/build in a new `build-replay-core` directory with tests/examples disabled.
+- Result: all thirteen CTest targets (`document`, `property_metadata`, `layout_contract`, `layout`, `text`, `event`, `pointer`, `draw_list`, `paint`, `replay`, `hello_ui`, `flex_layout`, `pointer_menu`) passed. Both builds produced no warnings under `/W4`. The replay fixture played a two-button in-memory menu document through clicks, drag-out, a 200x120 to 300x160 resize, and a reload with a held press, producing three generations and three ordered action requests; repeated playback compared equal. No external dependency was configured or fetched.
+- Fixtures/artifacts: playback, comparison, and rejection cases in the replay checks; `build/Testing/Temporary/LastTest.log`, `build/Debug/tessera_replay_tests.exe`, and `build-replay-core/Debug/tessera_core.lib` are local ignored outputs.
+- Limits: in-memory recordings only, with pre-resolved styles and the placeholder shaper; no serialized format, recording tool, CLI, semantic output, device scale, animation/resource timing, target resolution by fixture identity, or keyboard/logical input. Paint commands compare exactly; tolerance applies to box geometry only. Determinism is checked by repeated runs on this toolchain only. The Vulkan backend and Win32 host were not rebuilt for this slice.
 
 ## Recording future evidence
 

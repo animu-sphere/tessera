@@ -14,7 +14,6 @@ Depends on document, resolved-style, layout, paint, and pointer contracts. Exist
 
 ## Optional early prototypes
 
-- [Replay](../design/replay.md) recording/playback v0 for deterministic geometry, paint, and expected actions.
 - Minimal [semantic schema](../design/semantics.md) review/prototype ahead of navigable menus.
 - [Inspection foundation](../design/inspection.md): review scoped IDs versus runtime handles, source mapping, coherent layout/property observations, and structured diagnostics before designing a transport or CLI.
 
