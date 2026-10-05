@@ -8,7 +8,7 @@ The public headers are [document.hpp](../../include/tessera/ui/document.hpp), [t
 
 `UiTree::create` validates a borrowed const document before copying its own immutable snapshot, so a rejected candidate is not consumed or recursively copied first. `UiTree` is neither copyable nor movable; its owning `unique_ptr` can move. Inspection returns borrowed const node pointers valid until the tree is destroyed. Preorder indices and a process-unique monotonically allocated tree identity form `NodeHandle`; handles from another or destroyed tree fail lookup in a later tree. Index 0 is the root, and the all-zero handle is invalid. Tree identities are never reused; identity exhaustion throws. There is no node removal/reuse in this slice. No runtime handle is serialized. A process identity counter does not provide multithreaded mutation or callback guarantees.
 
-Author IDs are optional document-scoped names used for diagnostics, lookup, and references. Duplicate IDs fail validation. They are distinct from runtime handles; reconciliation keys are deferred. Class names are stored in authored order without stylesheet behavior.
+Author IDs are optional document-scoped names used for diagnostics, lookup, and references. Duplicate IDs fail validation. They are distinct from runtime handles; reconciliation keys are deferred. Class names are stored in authored order; the [prototype style resolver](styling.md#implemented-prototype-style-resolution) matches them regardless of that order.
 
 The implemented semantic property vocabulary is deliberately small:
 

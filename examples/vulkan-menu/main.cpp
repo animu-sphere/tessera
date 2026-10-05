@@ -16,6 +16,7 @@
 #include <tessera/vulkan/renderer.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/render/paint.hpp>
+#include <tessera/style/style_sheet.hpp>
 #include <tessera/ui/serialization.hpp>
 #include "gamepad.hpp"
 #include <algorithm>
@@ -42,9 +43,9 @@ constexpr const char* menu_json = R"({"version":1,"root":{"type":"Box","id":"scr
 {"type":"Box","id":"panel","children":[
 {"type":"Text","id":"title","properties":{"text":"Tessera"}},
 {"type":"Box","id":"list","children":[
-{"type":"Box","id":"start","properties":{"focusable":true},"events":{"activate":"start-game"},"children":[{"type":"Text","id":"start-label","properties":{"text":"Start"}}]},
-{"type":"Box","id":"quit","properties":{"focusable":true},"events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]},
-{"type":"Box","id":"credits","properties":{"focusable":true},"events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]}]}]}})";
+{"type":"Box","id":"start","classes":["button"],"properties":{"focusable":true},"events":{"activate":"start-game"},"children":[{"type":"Text","id":"start-label","properties":{"text":"Start"}}]},
+{"type":"Box","id":"quit","classes":["button"],"properties":{"focusable":true},"events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]},
+{"type":"Box","id":"credits","classes":["button"],"properties":{"focusable":true},"events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]}]}]}})";
 constexpr const char* buttons[]{"start", "quit", "credits"};
 
 void require(VkResult result, const char* operation) {
@@ -112,13 +113,14 @@ tessera::Modifiers modifiers(WPARAM wparam) {
             GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0};
 }
 
-// Backend-neutral document state: JSON -> tree -> styles -> layout -> paint.
+// Backend-neutral document state: JSON -> tree -> stylesheet + interaction state -> styles -> layout -> paint.
 struct Menu {
     static constexpr tessera::Color screen = rgb(18,20,26), panel = rgb(34,39,52), label = rgb(255,255,255);
     static constexpr tessera::Color idle = rgb(47,74,128), hover = rgb(66,104,176), pressed = rgb(32,50,88);
     static constexpr tessera::Color outline = rgb(90,120,180), focus_ring = rgb(255,214,102);
     std::unique_ptr<tessera::UiTree> tree;
     std::vector<std::uint32_t> parents;
+    tessera::StyleSheet sheet;
     std::vector<tessera::ResolvedStyle> styles;
     tessera::PlaceholderTextShaper text;
     tessera::LayoutResult layout;
@@ -134,26 +136,30 @@ struct Menu {
             const auto node = pending.back(); pending.pop_back();
             for (const auto child : tree->children(node)) { parents[child.index] = node.index; pending.push_back(child); }
         }
-        styles.resize(tree->size());
-        auto& root = style("screen");
-        root.justify = tessera::Justify::center; root.align = tessera::Align::center; root.background = screen;
-        auto& box = style("panel");
-        box.width = tessera::Dimension::points(240); box.padding = {20,20,20,20}; box.gap = 12;
-        box.border = {1,1,1,1}; box.border_color = rgb(70,82,105); box.corner_radius = 10; box.background = panel;
-        auto& title = style("title");
-        title.text.size = 28; title.color = rgb(235,238,245);
+        // Button labels inherit text size and color. Pseudo states change colors only, so geometry
+        // stays the same in every interaction state.
+        using S = tessera::StyleSelector;
+        const auto rule = [&](S selector, auto declare) {
+            tessera::StyleDeclarations values; declare(values); sheet.rules.push_back({std::move(selector), values});
+        };
+        rule(S::of_id("screen"), [](auto& s) { s.justify = tessera::Justify::center; s.align = tessera::Align::center; s.background = screen; });
+        rule(S::of_id("panel"), [](auto& s) {
+            s.width = tessera::Dimension::points(240); s.padding = tessera::Edges{20,20,20,20}; s.gap = 12.0f;
+            s.border = tessera::Edges{1,1,1,1}; s.border_color = rgb(70,82,105); s.corner_radius = 10.0f; s.background = panel;
+        });
+        rule(S::of_id("title"), [](auto& s) { s.text.size = 28.0f; s.color = rgb(235,238,245); });
         // A fixed-height clipping list cuts Credits roughly in half at a fractional edge.
-        auto& list = style("list");
-        list.height = tessera::Dimension::points(141.3f); list.gap = 12; list.overflow = tessera::Overflow::clip;
-        for (const char* id : buttons) {
-            auto& button = style(id);
-            button.padding = {10,16,10,16}; button.border = {1,1,1,1}; button.border_color = outline;
-            button.corner_radius = 6; button.align = tessera::Align::center; button.background = idle;
-            auto& caption = style((std::string(id) + "-label").c_str());
-            caption.text.size = 20; caption.color = label;
-        }
+        rule(S::of_id("list"), [](auto& s) { s.height = tessera::Dimension::points(141.3f); s.gap = 12.0f; s.overflow = tessera::Overflow::clip; });
+        rule(S::of_class("button"), [](auto& s) {
+            s.padding = tessera::Edges{10,16,10,16}; s.border = tessera::Edges{1,1,1,1}; s.border_color = outline;
+            s.corner_radius = 6.0f; s.align = tessera::Align::center; s.background = idle; s.text.size = 20.0f; s.color = label;
+        });
+        rule(S::of_class("button", {.hover = true}), [](auto& s) { s.background = hover; });
+        rule(S::of_class("button", {.active = true}), [](auto& s) { s.background = pressed; });
+        rule(S::of_class("button", {.focus = true}), [](auto& s) { s.border_color = focus_ring; });
+        styles = take(tessera::resolve_styles({tree.get(), &sheet, {}, {}}), "Menu styles rejected");
     }
-    tessera::ResolvedStyle& style(const char* id) { return styles[tree->find(id)->index]; }
+    const tessera::ResolvedStyle& style(const char* id) const { return styles[tree->find(id)->index]; }
     const tessera::LayoutBox& box(const char* id) const {
         const auto node = *tree->find(id);
         for (const auto& b : layout.boxes) if (b.node == node) return b;
@@ -166,21 +172,12 @@ struct Menu {
         repaint();
     }
     void repaint() { paint = take(tessera::build_paint_list({tree.get(), styles, &layout, &text}), "Menu paint rejected"); }
-    // Host-side visual policy until stylesheet pseudo states exist: background and border colors
-    // only, so the existing layout stays coherent with the styles.
-    void show(std::optional<tessera::NodeHandle> hovered, std::optional<tessera::NodeHandle> active,
-              std::optional<tessera::NodeHandle> focused) {
-        bool changed = false;
-        for (const char* id : buttons) {
-            const auto node = *tree->find(id);
-            auto& style = styles[node.index];
-            const auto color = active == node ? pressed : hovered == node ? hover : idle;
-            const auto border = focused == node ? focus_ring : outline;
-            if (style.background != color || style.border_color != border) {
-                style.background = color; style.border_color = border; changed = true;
-            }
-        }
-        if (changed) repaint();
+    // Full-tree restyle for the current interaction state; changed styles re-run layout and paint.
+    void show(tessera::InteractionState state) {
+        auto resolved = take(tessera::resolve_styles({tree.get(), &sheet, std::move(state), {}}), "Menu styles rejected");
+        if (resolved == styles) return;
+        styles = std::move(resolved);
+        resize(viewport);
     }
     std::optional<tessera::NodeHandle> button_of(std::optional<tessera::NodeHandle> node) const {
         while (node) {
@@ -659,9 +656,12 @@ struct App {
 
     // ---- Input normalization -------------------------------------------------------------
     void present() {
-        std::optional<tessera::NodeHandle> hovered, active;
-        for (const auto& pointer : pointers) { hovered = menu.button_of(pointer.hovered); active = pointer.active; }
-        menu.show(hovered, active, focused);
+        tessera::InteractionState state{{}, {}, focused};
+        for (const auto& pointer : pointers) {
+            if (pointer.hovered) state.hovered.push_back(*pointer.hovered);
+            if (pointer.active) state.active.push_back(*pointer.active);
+        }
+        menu.show(std::move(state));
     }
     void run(const std::vector<tessera::ActionRequest>& requests) {
         // Action names are owned copies; host work runs after dispatch has returned.
@@ -886,6 +886,7 @@ struct App {
         case 1: expect(actions == std::vector<std::string>{"start-game"}, "Start click did not request start-game");
                 post(WM_LBUTTONDOWN, MK_LBUTTON, center("quit")); break;
         case 2: expect(pressed() && GetCapture() == window, "press did not capture");
+                expect(menu.style("quit").background == Menu::pressed, "Pressed Quit was not styled as active");
                 ReleaseCapture(); // Capture taken away while held: WM_CAPTURECHANGED.
                 post(WM_LBUTTONUP, 0, center("quit")); break;
         case 3: expect(actions.size() == 1 && !pressed(), "release after capture loss activated");
