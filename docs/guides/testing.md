@@ -7,7 +7,7 @@ Test algorithms and boundaries heavily; test appearance selectively. Keep tests 
 | Subsystem | Primary checks |
 | --- | --- |
 | [UI model](../design/ui-model.md) | Semantic round trip, stable ordering, schema/type failures, invalid IDs/references/versions |
-| [Layout](../design/layout.md) | Fixed, stack/flex, constraints, nested spacing; later absolute/scroll/grid/intrinsic geometry |
+| [Layout](../design/layout.md) | Fixed, stack/flex, constraints, nested spacing, scroll extents/offsets; later absolute/grid/intrinsic geometry |
 | [Styling](../design/styling.md) | Selector matching, layer/source-order ties, inheritance, overrides, pseudo-state invalidation |
 | [Input](../design/input.md) | Hit testing, clip/transform agreement, cancellation, propagation, focus/navigation recovery |
 | [Text](../design/text.md) | Shaping/measurement agreement, UTF-8 errors, fallback, wrapping, cache invalidation |

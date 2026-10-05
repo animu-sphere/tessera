@@ -32,6 +32,7 @@ struct GeometryObservation {
     Rect content_box;
     bool visible = true;
     std::optional<Rect> clip; // Recorded ancestor clip; absent when unclipped.
+    std::optional<ScrollGeometry> scroll; // Present for scroll boxes.
     bool operator==(const GeometryObservation&) const = default;
 };
 

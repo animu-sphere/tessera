@@ -1,4 +1,5 @@
 #include <tessera/replay/replay.hpp>
+#include <tessera/input/scroll.hpp>
 #include <tessera/render/paint.hpp>
 #include "../detail/checks.hpp"
 #include <algorithm>
@@ -37,7 +38,7 @@ public:
             const auto& step = recording_.steps[i];
             bool ok = true;
             if (const auto* event = std::get_if<InputEvent>(&step)) {
-                ok = dispatch(*event, i, at);
+                ok = std::holds_alternative<Scroll>(event->data) ? scroll(*event, i, at) : dispatch(*event, i, at);
             } else if (const auto* resize = std::get_if<ReplayResize>(&step)) {
                 viewport_ = resize->viewport;
                 ok = settle(i, at);
@@ -60,12 +61,13 @@ private:
         }
         current_.tree = std::move(*created.value);
         current_.styles = styles;
+        offsets_.assign(current_.tree->size(), Point{});
         return true;
     }
 
     // Full-tree layout and paint at an update point, then re-target stationary pointers.
     bool settle(std::optional<std::size_t> step, const std::string& at) {
-        auto layout = compute_layout({current_.tree.get(), current_.styles, viewport_, &text_});
+        auto layout = compute_layout({current_.tree.get(), current_.styles, viewport_, &text_, offsets_});
         if (!layout) {
             relocate(errors_, std::move(layout.diagnostics), at);
             return false;
@@ -85,9 +87,37 @@ private:
         generation.boxes.reserve(current_.layout.boxes.size());
         for (const auto& box : current_.layout.boxes)
             generation.boxes.push_back(
-                {box.node.index, box.parent, box.border_box, box.border, box.padding, box.visible, box.clip});
+                {box.node.index, box.parent, box.border_box, box.border, box.padding, box.visible, box.clip, box.scroll});
         output_.generations.push_back(std::move(generation));
         return true;
+    }
+
+    // Rejects time running backwards across pointer and scroll steps, which share one stream.
+    bool ordered(const InputEvent& event, const std::string& at) {
+        if (!clock_ || event.timestamp >= *clock_) {
+            clock_ = event.timestamp;
+            return true;
+        }
+        errors_.push_back({"event_order", Severity::error, at + "/timestamp",
+                           "Send non-decreasing timestamps across pointer and scroll steps.", {}});
+        return false;
+    }
+
+    // Routes the scroll against the current snapshot, stores the new offsets, and settles a new generation.
+    bool scroll(const InputEvent& event, std::size_t step, const std::string& at) {
+        auto invalid = validate(event);
+        if (!invalid.empty()) {
+            relocate(errors_, std::move(invalid), at);
+            return false;
+        }
+        if (!ordered(event, at)) return false;
+        auto routed = route_scroll(current_.input(), std::get<Scroll>(event.data));
+        if (!routed) {
+            relocate(errors_, std::move(routed.diagnostics), at);
+            return false;
+        }
+        for (const auto& update : routed.value->updates) offsets_[update.container.index] = update.offset;
+        return settle(step, at);
     }
 
     bool dispatch(const InputEvent& event, std::size_t step, const std::string& at) {
@@ -96,6 +126,8 @@ private:
             relocate(errors_, std::move(result.diagnostics), at);
             return false;
         }
+        // The dispatcher checks time only within pointer steps; a scroll step may have advanced the clock.
+        if (!ordered(event, at)) return false;
         for (auto& request : result.value->actions) {
             output_.actions.push_back({step, output_.generations.size() - 1, std::move(request.binding),
                                        std::move(request.action), request.target.index,
@@ -108,6 +140,8 @@ private:
     TextShaper& text_;
     Size viewport_ = recording_.viewport;
     Snapshot current_;
+    std::vector<Point> offsets_; // Requested scroll offsets by node index; reset by reload.
+    std::optional<std::chrono::microseconds> clock_;
     PointerDispatcher input_;
     ReplayOutput output_;
     std::vector<Diagnostic> errors_;
@@ -125,6 +159,10 @@ std::string format(const Rect& rect) {
 std::string format(const Edges& edges) {
     return "(top " + format(edges.top) + ", right " + format(edges.right) + ", bottom " + format(edges.bottom) +
            ", left " + format(edges.left) + ")";
+}
+std::string format(const ScrollGeometry& scroll) {
+    return "(extent " + format(scroll.extent.width) + "x" + format(scroll.extent.height) + ", offset " +
+           format(scroll.offset.x) + ", " + format(scroll.offset.y) + ")";
 }
 std::string format(const ReplayAction& action) {
     return action.binding + " '" + action.action + "' from " + (action.id ? "'" + *action.id + "'" : "node") +
@@ -152,6 +190,10 @@ public:
         return near(expected.origin.x, actual.origin.x) && near(expected.origin.y, actual.origin.y) &&
                near(expected.size.width, actual.size.width) && near(expected.size.height, actual.size.height);
     }
+    bool near(const ScrollGeometry& expected, const ScrollGeometry& actual) const {
+        return near(expected.extent.width, actual.extent.width) && near(expected.extent.height, actual.extent.height) &&
+               near(expected.offset.x, actual.offset.x) && near(expected.offset.y, actual.offset.y);
+    }
     bool near(const Edges& expected, const Edges& actual) const {
         return near(expected.top, actual.top) && near(expected.right, actual.right) &&
                near(expected.bottom, actual.bottom) && near(expected.left, actual.left);
@@ -176,6 +218,10 @@ public:
             mismatch(path + "/clip", expected.clip ? "Expected a clipped box." : "Expected an unclipped box.");
         else if (expected.clip && !near(*expected.clip, *actual.clip))
             mismatch(path + "/clip", "Expected " + format(*expected.clip) + ", got " + format(*actual.clip) + ".");
+        if (expected.scroll.has_value() != actual.scroll.has_value())
+            mismatch(path + "/scroll", expected.scroll ? "Expected a scroll box." : "Expected a box without scrolling.");
+        else if (expected.scroll && !near(*expected.scroll, *actual.scroll))
+            mismatch(path + "/scroll", "Expected " + format(*expected.scroll) + ", got " + format(*actual.scroll) + ".");
     }
 
     void generation(const ReplayGeneration& expected, const ReplayGeneration& actual, const std::string& path) {

@@ -93,6 +93,7 @@ void capture_joins_one_generation() {
     check(start.geometry && start.geometry->border_box == box.border_box &&
               start.geometry->content_box == box.content_box() && start.geometry->visible && start.style == fixture.styles[2],
           "Geometry and style come from the captured snapshot");
+    check(!start.geometry->scroll && !elements[0].geometry->scroll, "Only scroll boxes observe scroll geometry");
     check(!elements[10].geometry && !elements[11].geometry && elements[11].parent == 10 &&
               elements[0].children.size() == 7,
           "Display-none elements stay in the runtime hierarchy without geometry");
@@ -220,6 +221,13 @@ void targets_resolve_exactly_one_element() {
     const tessera::Point hidden{quit.border_box.origin.x + 1, quit.border_box.origin.y + 1};
     const auto beneath = tessera::resolve_target(clipped_snapshot, tessera::PointTarget{hidden});
     check(beneath && *beneath.value == clipped.node(0), "Points must not select clipped-out elements");
+
+    clipped.styles[0].overflow = tessera::Overflow::scroll;
+    clipped.compute();
+    const auto scrolled = clipped.capture();
+    check(scrolled.elements[0].geometry->scroll && scrolled.elements[0].geometry->scroll == clipped.layout.boxes[0].scroll &&
+              scrolled.elements[7].geometry->clip == quit.clip,
+          "Scroll boxes must expose their scroll geometry and clip like overflow clip");
 }
 
 void actions_use_ordinary_eligibility_and_reject_stale_generations() {

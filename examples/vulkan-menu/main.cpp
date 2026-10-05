@@ -1,7 +1,7 @@
 // Win32 + Vulkan native menu host. The host owns the window, OS input normalization, DPI, the
 // Vulkan instance/device/queue/surface/swapchain, synchronization, presentation and retirement.
-// Tessera receives logical pointer events and focus commands, resolved styles and a recording
-// command buffer only. Gamepad polling and its dead-zone/repeat policy also stay in the host.
+// Tessera receives logical pointer/scroll events and focus commands, resolved styles, scroll offsets
+// and a recording command buffer only. Gamepad polling and its dead-zone/repeat policy also stay in the host.
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -15,6 +15,7 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <tessera/vulkan/renderer.hpp>
 #include <tessera/input/focus.hpp>
+#include <tessera/input/scroll.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/style/style_sheet.hpp>
 #include <tessera/ui/serialization.hpp>
@@ -39,6 +40,7 @@ namespace {
 constexpr std::uint32_t frames_in_flight = 2;
 constexpr tessera::PointerId mouse{1};
 constexpr float base_dpi = 96;
+constexpr float wheel_step = 40; // Logical units per WHEEL_DELTA; partial deltas scroll proportionally.
 constexpr const char* menu_json = R"({"version":1,"root":{"type":"Box","id":"screen","children":[
 {"type":"Box","id":"panel","children":[
 {"type":"Text","id":"title","properties":{"text":"Tessera"}},
@@ -126,11 +128,13 @@ struct Menu {
     tessera::LayoutResult layout;
     tessera::UiDrawList paint;
     tessera::Size viewport;
+    std::vector<tessera::Point> offsets; // Host-owned requested scroll offsets by node index.
 
     Menu() {
         const tessera::ValidationContext actions{{"start-game", "quit-game", "show-credits"}};
         tree = take(tessera::UiTree::create(take(tessera::load_document(menu_json, actions), "Menu JSON rejected"), actions), "Menu tree rejected");
         parents.assign(tree->size(), 0);
+        offsets.assign(tree->size(), {});
         std::vector<tessera::NodeHandle> pending{tree->root()};
         while (!pending.empty()) {
             const auto node = pending.back(); pending.pop_back();
@@ -148,8 +152,8 @@ struct Menu {
             s.border = tessera::Edges{1,1,1,1}; s.border_color = rgb(70,82,105); s.corner_radius = 10.0f; s.background = panel;
         });
         rule(S::of_id("title"), [](auto& s) { s.text.size = 28.0f; s.color = rgb(235,238,245); });
-        // A fixed-height clipping list cuts Credits roughly in half at a fractional edge.
-        rule(S::of_id("list"), [](auto& s) { s.height = tessera::Dimension::points(141.3f); s.gap = 12.0f; s.overflow = tessera::Overflow::clip; });
+        // A fixed-height scrolling list cuts Credits roughly in half at a fractional edge when unscrolled.
+        rule(S::of_id("list"), [](auto& s) { s.height = tessera::Dimension::points(141.3f); s.gap = 12.0f; s.overflow = tessera::Overflow::scroll; });
         rule(S::of_class("button"), [](auto& s) {
             s.padding = tessera::Edges{10,16,10,16}; s.border = tessera::Edges{1,1,1,1}; s.border_color = outline;
             s.corner_radius = 6.0f; s.align = tessera::Align::center; s.background = idle; s.text.size = 20.0f; s.color = label;
@@ -168,8 +172,13 @@ struct Menu {
     tessera::HitTestInput snapshot() const { return {tree.get(), styles, &layout}; }
     void resize(tessera::Size size) {
         viewport = size;
-        layout = take(tessera::compute_layout({tree.get(), styles, viewport, &text}), "Menu layout rejected");
+        layout = take(tessera::compute_layout({tree.get(), styles, viewport, &text, offsets}), "Menu layout rejected");
         repaint();
+    }
+    // Update point for new scroll offsets: layout clamps them, and paint and hit testing share the result.
+    void scroll(const std::vector<tessera::ScrollUpdate>& updates) {
+        for (const auto& update : updates) offsets[update.container.index] = update.offset;
+        resize(viewport);
     }
     void repaint() { paint = take(tessera::build_paint_list({tree.get(), styles, &layout, &text}), "Menu paint rejected"); }
     // Full-tree restyle for the current interaction state; changed styles re-run layout and paint.
@@ -219,6 +228,7 @@ struct App {
     std::optional<DWORD> pad_slot;
     std::chrono::microseconds next_pad_scan{0};
     std::optional<gamepad::Sample> scripted_pad; // Smoke-only replacement for the controller.
+    float wheeled_from = 0; // Smoke-only list offset before the scripted wheel.
     unsigned buttons = 0;
     bool releasing_capture = false, tracking_leave = false;
     std::string failure;
@@ -631,26 +641,36 @@ struct App {
                     glyph = matches(x, y, Menu::label);
             if (!glyph) fail(std::string("No placeholder label pixels for ") + id + " in " + name);
         }
-        // Clip agreement: near the list's clip edge, a pixel shows the straddling Credits button
-        // exactly when its pixel-center pointer position targets that button.
-        const auto credits = menu.tree->find("credits");
-        const auto& straddling = menu.box("credits");
-        const auto edge = pixel(straddling.clip->origin.y + straddling.clip->size.height);
-        const tessera::Color shown[]{menu.style("credits").background, menu.style("credits").border_color, Menu::label};
-        unsigned painted = 0, clipped = 0;
-        for (auto y = edge - 3; y <= edge + 3; ++y) {
-            for (auto x = pixel(straddling.border_box.origin.x) - 2;
-                 x < pixel(straddling.border_box.origin.x + straddling.border_box.size.width) + 2; ++x) {
-                const bool paints = std::any_of(std::begin(shown), std::end(shown), [&](tessera::Color c) { return matches(x, y, c); });
-                const auto hit = tessera::hit_test(menu.snapshot(), logical_point(int(x), int(y), scale));
-                if (!hit) return fail("Hit test rejected during clip agreement");
-                const bool targets = menu.button_of(hit.value->target) == credits;
-                if (paints != targets)
-                    return fail("Clip edge paint/hit disagreement in " + name + " at pixel " + std::to_string(x) + ',' + std::to_string(y));
-                ++(targets ? painted : clipped);
+        // Clip agreement: near a list clip edge, a pixel shows the straddling button exactly when its
+        // pixel-center pointer position targets that button.
+        const auto agree = [&](const char* id, float logical_edge) {
+            const auto node = menu.tree->find(id);
+            const auto& straddling = menu.box(id);
+            const auto edge = pixel(logical_edge);
+            const tessera::Color shown[]{menu.style(id).background, menu.style(id).border_color, Menu::label};
+            unsigned painted = 0, clipped = 0;
+            for (auto y = edge - 3; y <= edge + 3; ++y) {
+                for (auto x = pixel(straddling.border_box.origin.x) - 2;
+                     x < pixel(straddling.border_box.origin.x + straddling.border_box.size.width) + 2; ++x) {
+                    const bool paints = std::any_of(std::begin(shown), std::end(shown), [&](tessera::Color c) { return matches(x, y, c); });
+                    const auto hit = tessera::hit_test(menu.snapshot(), logical_point(int(x), int(y), scale));
+                    if (!hit) { fail("Hit test rejected during clip agreement"); return false; }
+                    const bool targets = menu.button_of(hit.value->target) == node;
+                    if (paints != targets) {
+                        fail("Clip edge paint/hit disagreement for " + std::string(id) + " in " + name + " at pixel " +
+                             std::to_string(x) + ',' + std::to_string(y));
+                        return false;
+                    }
+                    ++(targets ? painted : clipped);
+                }
             }
-        }
-        if (!painted || !clipped) fail("Clip agreement scan did not straddle the list clip in " + name);
+            if (!painted || !clipped) { fail("Clip agreement scan did not straddle the list clip for " + std::string(id) + " in " + name); return false; }
+            return true;
+        };
+        // Credits straddles the bottom edge at every offset the smoke uses; Start the top edge once scrolled.
+        const auto& clip = *menu.box("credits").clip;
+        if (!agree("credits", clip.origin.y + clip.size.height)) return;
+        if (menu.box("list").scroll->offset.y > 0 && !agree("start", clip.origin.y)) return;
         std::cout << "Captured " << name << " (" << extent.width << 'x' << extent.height << ")\n";
     }
 
@@ -690,13 +710,42 @@ struct App {
         present();
         run(result.value->actions);
     }
+    // New offsets change geometry under stationary pointers and focus, so both dispatchers refresh.
+    void scroll_to(const std::vector<tessera::ScrollUpdate>& updates) {
+        if (updates.empty()) return;
+        menu.scroll(updates);
+        pointers = take(dispatcher.refresh(menu.snapshot()), "Pointer refresh rejected").pointers;
+        focused = take(focus.refresh(menu.snapshot()), "Focus refresh rejected").focused;
+        present();
+    }
     void command(const tessera::InputEvent& event) {
         if (menu.layout.boxes.empty()) return;
         const auto result = focus.dispatch(menu.snapshot(), event);
         if (!result) { print(result.diagnostics); ++input_errors; return; }
+        const auto previous = focused;
         focused = result.value->focused;
         present();
+        // Host focus policy: focus moved by a logical command scrolls into view; pointer presses do not,
+        // so a click never moves its button out from under the cursor.
+        if (focused && focused != previous) {
+            const auto revealed = tessera::scroll_into_view(menu.snapshot(), *focused);
+            if (!revealed) { print(revealed.diagnostics); ++input_errors; }
+            else scroll_to(*revealed.value);
+        }
         run(result.value->actions);
+    }
+    // Wheel policy: WHEEL_DELTA scrolls wheel_step logical units. A forward vertical wheel reveals content
+    // above, and a right horizontal tilt content to the right. Message positions are screen pixels.
+    void wheel(WPARAM wparam, LPARAM lparam, bool horizontal) {
+        if (menu.layout.boxes.empty()) return;
+        POINT p{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        ScreenToClient(window, &p);
+        const float amount = float(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * wheel_step;
+        const tessera::Scroll scroll{logical_point(p.x, p.y, scale), horizontal ? tessera::Point{amount, 0} : tessera::Point{0, -amount},
+                                     modifiers(GET_KEYSTATE_WPARAM(wparam))};
+        const auto routed = tessera::route_scroll(menu.snapshot(), scroll);
+        if (!routed) { print(routed.diagnostics); ++input_errors; return; }
+        scroll_to(routed.value->updates);
     }
     // Keyboard policy: each handled key press becomes one logical command and never also a
     // KeyDown. Navigation repeats with the OS auto-repeat; Activate/Cancel fire once per press.
@@ -783,6 +832,8 @@ struct App {
         case WM_CAPTURECHANGED:
             if (!releasing_capture && buttons && HWND(lparam) != window) cancel("capture lost");
             return 0;
+        case WM_MOUSEWHEEL: wheel(wparam, lparam, false); return 0;
+        case WM_MOUSEHWHEEL: wheel(wparam, lparam, true); return 0;
         case WM_KEYDOWN: if (keyboard(wparam, lparam)) return 0; break;
         case WM_CANCELMODE: cancel("cancel mode"); break;
         case WM_KILLFOCUS: cancel("focus lost"); break;
@@ -857,6 +908,13 @@ struct App {
     void click(POINT p) { post(WM_MOUSEMOVE, 0, p); post(WM_LBUTTONDOWN, MK_LBUTTON, p); post(WM_LBUTTONUP, 0, p); }
     void click(const char* id) { click(center(id)); }
     void post_key(WPARAM vk, bool repeat = false) { PostMessageW(window, WM_KEYDOWN, vk, 1 | (repeat ? 1 << 30 : 0)); }
+    void post_wheel(POINT p, short delta) {
+        ClientToScreen(window, &p);
+        PostMessageW(window, WM_MOUSEWHEEL, MAKEWPARAM(0, WORD(delta)), MAKELPARAM(p.x, p.y));
+    }
+    const tessera::LayoutBox& list() const { return menu.box("list"); }
+    // Revealing a fractional list position can land within float rounding of its limit.
+    static bool close_to(float a, float b) { return std::abs(a - b) <= 1e-4f; }
     // The Credits column's last pixel row inside the list clip, or the first row outside it, by the
     // pixel-center rule the renderer's scissor also uses.
     POINT clip_edge(bool inside) const {
@@ -905,6 +963,7 @@ struct App {
                 change_dpi(120, 601, 451); capture_next = true; break;
         case 10: expect_scale(1.25f); expect(captures == 3, "1.25x presentation was not captured");
                  expect(focused == menu.tree->find("credits"), "Primary press did not focus Credits");
+                 expect(list().scroll->offset == tessera::Point{}, "Primary press focus scrolled the list");
                  post_key(VK_UP); post_key(VK_UP, true); post_key(VK_RETURN); break;
         case 11: expect(focused == menu.tree->find("start"), "Up arrows did not focus Start");
                  expect(actions.size() == 4 && actions.back() == "start-game", "Enter did not request start-game");
@@ -923,13 +982,25 @@ struct App {
                  scripted_pad = gamepad::Sample{}; break;
         case 17: scripted_pad = gamepad::Sample{gamepad::dpad_down}; break;
         case 18: expect(focused == menu.tree->find("credits"), "Second D-pad down did not focus Credits");
+                 expect(list().scroll_limit().y > 0 && close_to(list().scroll->offset.y, list().scroll_limit().y),
+                        "Gamepad focus did not scroll Credits into view");
                  scripted_pad = gamepad::Sample{gamepad::accept}; break;
         case 19: expect(actions.size() == 5 && actions.back() == "show-credits", "A did not request show-credits");
                  scripted_pad = gamepad::Sample{gamepad::back}; break;
         case 20: expect(actions.size() == 5, "B with no cancel binding requested an action");
                  scripted_pad = gamepad::Sample{gamepad::dpad_up}; break;
         case 21: expect(focused == menu.tree->find("quit"), "D-pad up did not focus Quit");
-                 scripted_pad = gamepad::Sample{gamepad::accept}; break;
+                 expect(close_to(list().scroll->offset.y, list().scroll_limit().y), "Focusing visible Quit scrolled the list");
+                 scripted_pad = gamepad::Sample{};
+                 wheeled_from = list().scroll->offset.y;
+                 post_wheel(center("list"), WHEEL_DELTA / 4); capture_next = true; break; // Forward: reveal above.
+        case 22: expect(list().scroll->offset.y == wheeled_from - wheel_step / 4, "Partial wheel did not scroll the list");
+                 expect(captures == 5, "Scrolled presentation was not captured");
+                 click("credits"); break;
+        case 23: expect(actions.size() == 6 && actions.back() == "show-credits", "Click on scrolled Credits did not request show-credits");
+                 post_wheel(center("title"), -WHEEL_DELTA); break;
+        case 24: expect(list().scroll->offset.y == wheeled_from - wheel_step / 4, "Wheel outside the list scrolled it");
+                 click("quit"); break;
         default: return;
         }
         ++step;
@@ -991,13 +1062,13 @@ int main(int argc, char** argv) {
     app.shutdown_vulkan();
     if (app.window) DestroyWindow(app.window);
     if (app.smoke) {
-        if (app.failure.empty() && app.step != 22) app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
-        if (app.actions != std::vector<std::string>{"start-game", "start-game", "show-credits", "start-game", "show-credits", "quit-game"}) app.fail("Unexpected host action sequence");
+        if (app.failure.empty() && app.step != 25) app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
+        if (app.actions != std::vector<std::string>{"start-game", "start-game", "show-credits", "start-game", "show-credits", "show-credits", "quit-game"}) app.fail("Unexpected host action sequence");
     }
     if (validation_errors) app.fail(std::to_string(validation_errors) + " Vulkan validation errors");
     if (app.submit_errors || app.input_errors) app.fail("Rejected renderer submissions or input events");
     if (!app.failure.empty()) { std::cerr << app.failure << '\n'; return 1; }
     std::cout << "Presented " << app.presented << " swapchain frames (" << frames << " renderer frames retired)";
-    if (app.smoke) std::cout << "; native mouse/cancel/clip/keyboard/gamepad smoke passed at scales 1, 1.5 and 1.25 with " << app.captures << " verified captures";
+    if (app.smoke) std::cout << "; native mouse/cancel/clip/keyboard/gamepad/scroll smoke passed at scales 1, 1.5 and 1.25 with " << app.captures << " verified captures";
     std::cout << ".\n";
 }

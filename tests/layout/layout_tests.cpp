@@ -42,8 +42,10 @@ struct Fixture {
         tree = std::move(*created.value);
         styles.resize(tree->size());
     }
+    std::vector<tessera::Point> offsets; // Empty, or one requested scroll offset per node.
+
     tessera::Result<tessera::LayoutResult> run(tessera::Size viewport) {
-        return tessera::compute_layout({tree.get(), styles, viewport, shaper});
+        return tessera::compute_layout({tree.get(), styles, viewport, shaper, offsets});
     }
     tessera::LayoutResult layout(tessera::Size viewport) {
         auto result = run(viewport);
@@ -219,6 +221,67 @@ void overflow_clip() {
           "Disjoint intersection must keep the larger origin with zero size");
 }
 
+// Preorder: 0 root, 1 scroller, 2 wide, 3 nested scroller, 4 inner, 5 tall.
+void scroll_geometry() {
+    Fixture f(box({box({box(), box({box()}), box()})}));
+    f.styles[0].align = tessera::Align::start;
+    auto& scroller = f.styles[1];
+    scroller.width = Dimension::points(60);
+    scroller.height = Dimension::points(40);
+    scroller.border = {2, 2, 2, 2};
+    scroller.padding = {3, 3, 3, 3};
+    scroller.gap = 4;
+    scroller.align = tessera::Align::start;
+    scroller.overflow = tessera::Overflow::scroll;
+    f.styles[2].width = Dimension::points(80);
+    f.styles[2].height = Dimension::points(10);
+    f.styles[3].width = Dimension::points(20);
+    f.styles[3].height = Dimension::points(20);
+    f.styles[3].overflow = tessera::Overflow::scroll;
+    f.styles[4].width = Dimension::points(10);
+    f.styles[4].height = Dimension::points(50);
+    f.styles[5].width = Dimension::points(10);
+    f.styles[5].height = Dimension::points(30);
+    f.styles[5].margin.bottom = 1;
+
+    const auto still = f.layout({100, 100});
+    const Rect viewport{{2, 2}, {56, 36}};
+    check(still.boxes[1].scroll == tessera::ScrollGeometry{{86, 75}, {0, 0}} && !still.boxes[0].scroll,
+          "Extent must cover each child's margin box plus trailing padding, only on scroll boxes");
+    check(still.boxes[1].scroll_limit() == tessera::Point{30, 39}, "Scroll limit must be extent less viewport");
+    check(at(still, 2) == Rect{{5, 5}, {80, 10}} && at(still, 5) == Rect{{5, 43}, {10, 30}} &&
+              still.boxes[2].clip == viewport && !still.boxes[1].clip,
+          "Without offsets, scroll boxes place and clip like overflow clip");
+    check(still.boxes[3].scroll == tessera::ScrollGeometry{{20, 50}, {0, 0}}, "Nested extent differs");
+
+    f.offsets.assign(f.tree->size(), {});
+    f.offsets[0] = {7, 7}; // Ignored: the root does not scroll.
+    f.offsets[1] = {10, 12.5f};
+    f.offsets[3] = {-5, 100};
+    const auto moved = f.layout({100, 100});
+    check(at(moved, 0) == at(still, 0) && at(moved, 1) == at(still, 1) && !moved.boxes[0].scroll,
+          "Offsets must not move the scroll box itself or apply to other boxes");
+    check(moved.boxes[1].scroll == tessera::ScrollGeometry{{86, 75}, {10, 12.5f}}, "In-range offset must apply");
+    check(at(moved, 2) == Rect{{-5, -7.5f}, {80, 10}} && at(moved, 3) == Rect{{-5, 6.5f}, {20, 20}} &&
+              at(moved, 5) == Rect{{-5, 30.5f}, {10, 30}}, "Children must move back by the offset");
+    check(moved.boxes[2].clip == viewport && moved.boxes[5].clip == viewport, "The scroll viewport clip must not move");
+    check(moved.boxes[3].scroll == tessera::ScrollGeometry{{20, 50}, {0, 30}}, "Requested offsets must clamp per axis");
+    check(at(moved, 4) == Rect{{-5, -23.5f}, {10, 50}} && moved.boxes[4].clip == Rect{{2, 6.5f}, {13, 20}},
+          "Nested scrolling must compose offsets and intersect viewports");
+
+    f.offsets[1] = {1000, -3};
+    check(f.layout({100, 100}).boxes[1].scroll->offset == tessera::Point{30, 0}, "Offsets must clamp to [0, limit]");
+
+    Fixture empty(box({box()}));
+    empty.styles[1].height = Dimension::points(10);
+    empty.styles[1].padding = {1, 1, 1, 1};
+    empty.styles[1].overflow = tessera::Overflow::scroll;
+    empty.offsets = {{}, {5, 5}};
+    const auto lone = empty.layout({20, 20});
+    check(lone.boxes[1].scroll == tessera::ScrollGeometry{{20, 10}, {0, 0}},
+          "An empty scroll box's extent is its padding box");
+}
+
 void fractional_sizes() {
     Fixture f(box({box(), box(), box()}));
     f.styles[0].direction = tessera::FlexDirection::row;
@@ -280,6 +343,14 @@ void failures() {
     const auto overflowed = o.run({10, 10});
     check(!overflowed && has(overflowed.diagnostics, "non_finite_geometry", "/nodes/2"),
           "Float overflow must be diagnosed");
+
+    Fixture s(box({box()}));
+    s.styles[0].overflow = tessera::Overflow::scroll;
+    s.styles[1].height = Dimension::points(3e38f);
+    s.styles[1].margin.bottom = 3e38f; // The child fits in float range; the extent does not.
+    const auto extent = s.run({10, 10});
+    check(!extent && has(extent.diagnostics, "non_finite_geometry", "/nodes/0"),
+          "A non-finite scroll extent must be diagnosed");
 }
 
 } // namespace
@@ -293,6 +364,7 @@ int main() {
         grow_shrink_and_limits();
         overflow();
         overflow_clip();
+        scroll_geometry();
         fractional_sizes();
         display_and_visibility();
         failures();

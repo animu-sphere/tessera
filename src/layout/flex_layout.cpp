@@ -16,6 +16,7 @@ float& along(Size& size, bool horizontal) { return horizontal ? size.width : siz
 float along(const Point& point, bool horizontal) { return horizontal ? point.x : point.y; }
 float& along(Point& point, bool horizontal) { return horizontal ? point.x : point.y; }
 float leading(const Edges& edges, bool horizontal) { return horizontal ? edges.left : edges.top; }
+float trailing(const Edges& edges, bool horizontal) { return horizontal ? edges.right : edges.bottom; }
 float total(const Edges& edges, bool horizontal) {
     return horizontal ? edges.left + edges.right : edges.top + edges.bottom;
 }
@@ -38,7 +39,8 @@ Limits limits(const ResolvedStyle& style, bool horizontal) {
 class Engine {
 public:
     explicit Engine(const LayoutInput& input)
-        : tree_(*input.tree), styles_(input.styles), text_(*input.text), basis_(tree_.size()) {}
+        : tree_(*input.tree), styles_(input.styles), offsets_(input.scroll_offsets), text_(*input.text),
+          basis_(tree_.size()) {}
 
     Result<LayoutResult> run(Size viewport) {
         const auto& style = styles_[0];
@@ -56,8 +58,12 @@ public:
             return std::isfinite(r.origin.x) && std::isfinite(r.origin.y) &&
                    std::isfinite(r.size.width) && std::isfinite(r.size.height);
         };
+        const auto finite_scroll = [&](const ScrollGeometry& scroll) {
+            return finite({scroll.offset, scroll.extent});
+        };
         for (const auto& placed : result_.boxes) {
-            if (!finite(placed.border_box) || (placed.clip && !finite(*placed.clip))) {
+            if (!finite(placed.border_box) || (placed.clip && !finite(*placed.clip)) ||
+                (placed.scroll && !finite_scroll(*placed.scroll))) {
                 errors_.push_back({"non_finite_geometry", Severity::error, node_path(placed.node.index),
                                    "Layout overflowed float range; reduce sizes, margins, or gaps.", {}});
             }
@@ -129,10 +135,14 @@ private:
         auto clip = parent == no_layout_parent ? std::nullopt :
             detail::descendant_clip(result_.boxes[parent], styles_[result_.boxes[parent].node.index].overflow);
         result_.boxes.push_back({handle(index), parent, border_box, style.border, style.padding,
-                                 style.visibility == Visibility::visible, std::move(clip)});
+                                 style.visibility == Visibility::visible, std::move(clip), std::nullopt});
+        if (style.overflow == Overflow::scroll) result_.boxes[at].scroll = ScrollGeometry{};
         const auto content = result_.boxes[at].content_box();
         const auto children = displayed_children(index);
-        if (children.empty()) return;
+        if (children.empty()) {
+            if (style.overflow == Overflow::scroll) scroll(at, {}, {});
+            return;
+        }
 
         const bool row = style.direction == FlexDirection::row;
         const auto sizes = flex(style, children, along(content.size, row));
@@ -168,7 +178,35 @@ private:
                                             leading(child.margin, !row) + offset;
             along(boxes[i].size, !row) = cross;
         }
+        if (style.overflow == Overflow::scroll) scroll(at, children, boxes);
         for (std::size_t i = 0; i < children.size(); ++i) place(children[i], at, boxes[i]);
+    }
+
+    // Records a scroll box's extent (its padding box grown to cover each child's margin box plus the box's
+    // trailing padding), clamps the requested offset into [0, extent - viewport], and moves the children's
+    // border boxes back by the applied offset before they are placed.
+    void scroll(std::uint32_t at, std::span<const std::uint32_t> children, std::span<Rect> boxes) {
+        auto& box = result_.boxes[at];
+        const auto viewport = box.padding_box();
+        const auto& style = styles_[box.node.index];
+        auto& geometry = *box.scroll;
+        for (bool horizontal : {true, false}) {
+            float extent = along(viewport.size, horizontal);
+            for (std::size_t i = 0; i < children.size(); ++i) {
+                const float end = along(boxes[i].origin, horizontal) + along(boxes[i].size, horizontal) +
+                                  trailing(styles_[children[i]].margin, horizontal) +
+                                  trailing(style.padding, horizontal);
+                extent = std::max(extent, end - along(viewport.origin, horizontal));
+            }
+            along(geometry.extent, horizontal) = extent;
+        }
+        const auto limit = box.scroll_limit();
+        const auto requested = offsets_.empty() ? Point{} : offsets_[box.node.index];
+        for (bool horizontal : {true, false}) {
+            const float offset = std::min(std::max(along(requested, horizontal), 0.0f), along(limit, horizontal));
+            along(geometry.offset, horizontal) = offset;
+            for (auto& rect : boxes) along(rect.origin, horizontal) -= offset;
+        }
     }
 
     // Resolves main-axis border-box sizes for one single-line container: grow distributes positive free
@@ -226,6 +264,7 @@ private:
 
     const UiTree& tree_;
     std::span<const ResolvedStyle> styles_;
+    std::span<const Point> offsets_;
     TextShaper& text_;
     std::vector<std::optional<Size>> basis_;
     std::vector<Diagnostic> errors_;
