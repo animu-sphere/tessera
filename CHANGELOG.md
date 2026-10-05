@@ -2,6 +2,10 @@
 
 Dated delivery history and release records. Each release is a `## vX.Y.Z — YYYY-MM-DD` section matching [VERSION](VERSION); unreleased entries collect under `## Unreleased`. Live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).
 
+## Unreleased
+
+- Added keyboard focus to the Win32 `tessera_vulkan_menu` host: its buttons are `focusable`, and `WM_KEYDOWN` becomes `FocusNext`/`FocusPrevious` (Tab, Shift+Tab), `Navigate` (arrows, repeat from the OS auto-repeat), `Activate` (Enter, Space, once per press), and `Cancel` (Escape), never also a `KeyDown`. A primary press focuses the pressed button, the focus dispatcher refreshes with the pointer dispatcher at update points, and the focused button's border color shows focus. The smoke now drives the menu with posted keys after the mouse steps and checks that keyboard activation produces the same `start-game`/`quit-game` requests as clicks. Rules are in [input](docs/design/input.md#host-boundary); evidence is in the [support matrix](docs/reference/support-matrix.md#win32-keyboard-focus-evidence--2026-10-05). No core or JSON v1 contract changed.
+
 ## v0.1.0 — 2026-10-05
 
 Minimal Vulkan menu milestone: a JSON v1 document is laid out, painted, and presented as a pointer-operated Win32 Vulkan menu. This is a repository milestone record; no package, installation/export, or binary is distributed. The release is the `v0.1.0` tag; its fresh-build verification is in the [support matrix](docs/reference/support-matrix.md#v010-release-verification--2026-10-05).

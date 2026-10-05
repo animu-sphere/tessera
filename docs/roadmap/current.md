@@ -9,7 +9,7 @@ Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Exi
 ## Remaining required work
 
 - Real font abstraction, shaping, glyph cache, fallback, wrapping, and fixed Latin/Japanese fixtures.
-- Keyboard focus traversal, directional gamepad navigation, activate/back, and focus recovery.
+- Directional gamepad navigation and activate/back at a native host, with an explicit dead-zone/repeat owner; focus recovery hardening as menus require it.
 - ScrollView with matching paint/hit-test clipping.
 - Style classes, hover/focus/disabled/active states, deterministic precedence and inheritance boundaries.
 - SemanticTree v1 and Replay v1.
@@ -31,6 +31,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [layout](../desi
 
 ## Immediately next
 
-Translate native keyboard input in the [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) into the logical commands of the [prototype focus dispatch](../design/input.md#implemented-prototype-focus-dispatch), so the host menu produces its pointer actions from the keyboard; this needs no new dependency. Real text requires an adoption decision for the font/shaping implementation under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands.
+Translate gamepad input in the [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) into the same [focus dispatch](../design/input.md#implemented-prototype-focus-dispatch) commands as its keyboard path. The core needs no gamepad API: device polling, dead zones, and repeat timing stay in the host, which can use the Windows SDK's XInput without a download. Keep the mapping from stick/button state to commands free of device calls so it can be checked without a controller. Real text requires an adoption decision for the font/shaping implementation under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands.
 
 Later candidate scopes are in [backlog](backlog.md).

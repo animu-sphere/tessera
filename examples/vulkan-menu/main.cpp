@@ -1,6 +1,7 @@
 // Win32 + Vulkan native menu host. The host owns the window, OS input normalization, DPI, the
 // Vulkan instance/device/queue/surface/swapchain, synchronization, presentation and retirement.
-// Tessera receives logical pointer events, resolved styles and a recording command buffer only.
+// Tessera receives logical pointer events and focus commands, resolved styles and a recording
+// command buffer only.
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -12,7 +13,7 @@
 #include <windowsx.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <tessera/vulkan/renderer.hpp>
-#include <tessera/input/pointer.hpp>
+#include <tessera/input/focus.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/serialization.hpp>
 #include <algorithm>
@@ -39,9 +40,9 @@ constexpr const char* menu_json = R"({"version":1,"root":{"type":"Box","id":"scr
 {"type":"Box","id":"panel","children":[
 {"type":"Text","id":"title","properties":{"text":"Tessera"}},
 {"type":"Box","id":"list","children":[
-{"type":"Box","id":"start","events":{"activate":"start-game"},"children":[{"type":"Text","id":"start-label","properties":{"text":"Start"}}]},
-{"type":"Box","id":"quit","events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]},
-{"type":"Box","id":"credits","events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]}]}]}})";
+{"type":"Box","id":"start","properties":{"focusable":true},"events":{"activate":"start-game"},"children":[{"type":"Text","id":"start-label","properties":{"text":"Start"}}]},
+{"type":"Box","id":"quit","properties":{"focusable":true},"events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]},
+{"type":"Box","id":"credits","properties":{"focusable":true},"events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]}]}]}})";
 constexpr const char* buttons[]{"start", "quit", "credits"};
 
 void require(VkResult result, const char* operation) {
@@ -104,6 +105,7 @@ tessera::Modifiers modifiers(WPARAM wparam) {
 struct Menu {
     static constexpr tessera::Color screen = rgb(18,20,26), panel = rgb(34,39,52), label = rgb(255,255,255);
     static constexpr tessera::Color idle = rgb(47,74,128), hover = rgb(66,104,176), pressed = rgb(32,50,88);
+    static constexpr tessera::Color outline = rgb(90,120,180), focus_ring = rgb(255,214,102);
     std::unique_ptr<tessera::UiTree> tree;
     std::vector<std::uint32_t> parents;
     std::vector<tessera::ResolvedStyle> styles;
@@ -134,7 +136,7 @@ struct Menu {
         list.height = tessera::Dimension::points(141.3f); list.gap = 12; list.overflow = tessera::Overflow::clip;
         for (const char* id : buttons) {
             auto& button = style(id);
-            button.padding = {10,16,10,16}; button.border = {1,1,1,1}; button.border_color = rgb(90,120,180);
+            button.padding = {10,16,10,16}; button.border = {1,1,1,1}; button.border_color = outline;
             button.corner_radius = 6; button.align = tessera::Align::center; button.background = idle;
             auto& caption = style((std::string(id) + "-label").c_str());
             caption.text.size = 20; caption.color = label;
@@ -153,14 +155,19 @@ struct Menu {
         repaint();
     }
     void repaint() { paint = take(tessera::build_paint_list({tree.get(), styles, &layout, &text}), "Menu paint rejected"); }
-    // Host-side visual policy until stylesheet pseudo states exist: background only, so the
-    // existing layout stays coherent with the styles.
-    void show(std::optional<tessera::NodeHandle> hovered, std::optional<tessera::NodeHandle> active) {
+    // Host-side visual policy until stylesheet pseudo states exist: background and border colors
+    // only, so the existing layout stays coherent with the styles.
+    void show(std::optional<tessera::NodeHandle> hovered, std::optional<tessera::NodeHandle> active,
+              std::optional<tessera::NodeHandle> focused) {
         bool changed = false;
         for (const char* id : buttons) {
             const auto node = *tree->find(id);
+            auto& style = styles[node.index];
             const auto color = active == node ? pressed : hovered == node ? hover : idle;
-            if (styles[node.index].background != color) { styles[node.index].background = color; changed = true; }
+            const auto border = focused == node ? focus_ring : outline;
+            if (style.background != color || style.border_color != border) {
+                style.background = color; style.border_color = border; changed = true;
+            }
         }
         if (changed) repaint();
     }
@@ -196,7 +203,9 @@ struct App {
     bool minimized = false, resizing = false, swapchain_dirty = true, quit = false;
     Menu menu;
     tessera::PointerDispatcher dispatcher;
+    tessera::FocusDispatcher focus;
     std::vector<tessera::PointerState> pointers;
+    std::optional<tessera::NodeHandle> focused;
     std::vector<std::string> actions;
     unsigned buttons = 0;
     bool releasing_capture = false, tracking_leave = false;
@@ -435,7 +444,9 @@ struct App {
         std::cout << "Swapchain " << extent.width << 'x' << extent.height << " at scale " << scale
                   << " -> logical " << logical.width << 'x' << logical.height << '\n';
         menu.resize(logical);
-        apply(take(dispatcher.refresh(menu.snapshot()), "Pointer refresh rejected"));
+        pointers = take(dispatcher.refresh(menu.snapshot()), "Pointer refresh rejected").pointers;
+        focused = take(focus.refresh(menu.snapshot()), "Focus refresh rejected").focused;
+        present();
     }
     void shutdown_vulkan() {
         if (device) {
@@ -597,6 +608,10 @@ struct App {
         for (const char* id : {"start", "quit"}) {
             const auto button = menu.box(id).border_box;
             expect(button.origin.x + 6, button.origin.y + button.size.height / 2, menu.style(id).background, "Button padding");
+            // First pixel whose center lies in the 1-unit left border; its color shows focus.
+            const auto border_x = unsigned(std::ceil(double(button.origin.x) * scale - 0.5));
+            if (!matches(border_x, pixel(button.origin.y + button.size.height / 2), menu.style(id).border_color))
+                fail(std::string("Button border pixel mismatch for ") + id + " in " + name);
             const auto label = menu.box((std::string(id) + "-label").c_str()).content_box();
             bool glyph = false;
             for (auto y = pixel(label.origin.y); y < pixel(label.origin.y + label.size.height) && !glyph; ++y)
@@ -628,13 +643,14 @@ struct App {
     }
 
     // ---- Input normalization -------------------------------------------------------------
-    void apply(const tessera::PointerDispatchResult& result) {
-        pointers = result.pointers;
+    void present() {
         std::optional<tessera::NodeHandle> hovered, active;
         for (const auto& pointer : pointers) { hovered = menu.button_of(pointer.hovered); active = pointer.active; }
-        menu.show(hovered, active);
+        menu.show(hovered, active, focused);
+    }
+    void run(const std::vector<tessera::ActionRequest>& requests) {
         // Action names are owned copies; host work runs after dispatch has returned.
-        for (const auto& action : result.actions) {
+        for (const auto& action : requests) {
             actions.push_back(action.action);
             std::cout << "Host action " << action.binding << ": " << action.action << " from " << *menu.tree->get(action.target)->id << '\n';
             if (action.action == "start-game") SetWindowTextW(window, L"Tessera Vulkan menu - started");
@@ -646,7 +662,47 @@ struct App {
         if (menu.layout.boxes.empty()) return; // No snapshot before the first swapchain/layout.
         const auto result = dispatcher.dispatch(menu.snapshot(), event);
         if (!result) { print(result.diagnostics); ++input_errors; return; }
-        apply(*result.value);
+        pointers = result.value->pointers;
+        // Host press policy: a primary press on a button also focuses it, so keyboard navigation
+        // continues from the button the mouse last pressed. Pointer dispatch never moves focus.
+        if (const auto* down = std::get_if<tessera::PointerDown>(&event.data); down && down->button == tessera::PointerButton::primary)
+            for (const auto& state : pointers)
+                if (state.pointer == down->pointer && state.pressed && state.pressed != focused) {
+                    const auto moved = focus.focus(menu.snapshot(), *state.pressed);
+                    if (!moved) { print(moved.diagnostics); ++input_errors; }
+                    else focused = moved.value->focused;
+                }
+        present();
+        run(result.value->actions);
+    }
+    void command(const tessera::InputEvent& event) {
+        if (menu.layout.boxes.empty()) return;
+        const auto result = focus.dispatch(menu.snapshot(), event);
+        if (!result) { print(result.diagnostics); ++input_errors; return; }
+        focused = result.value->focused;
+        present();
+        run(result.value->actions);
+    }
+    // Keyboard policy: each handled key press becomes one logical command and never also a
+    // KeyDown. Navigation repeats with the OS auto-repeat; Activate/Cancel fire once per press.
+    // Keys with Ctrl/Alt and unmapped keys are left to the system.
+    bool keyboard(WPARAM key, LPARAM lparam) {
+        const bool repeat = (lparam & (1 << 30)) != 0;
+        if (GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_MENU) < 0) return false;
+        const auto navigate = [&](tessera::Direction direction) { command({now(), tessera::Navigate{direction, repeat}}); };
+        switch (key) {
+        case VK_TAB:
+            if (GetKeyState(VK_SHIFT) < 0) command({now(), tessera::FocusPrevious{}});
+            else command({now(), tessera::FocusNext{}});
+            return true;
+        case VK_UP: navigate(tessera::Direction::up); return true;
+        case VK_DOWN: navigate(tessera::Direction::down); return true;
+        case VK_LEFT: navigate(tessera::Direction::left); return true;
+        case VK_RIGHT: navigate(tessera::Direction::right); return true;
+        case VK_RETURN: case VK_SPACE: if (!repeat) command({now(), tessera::Activate{}}); return true;
+        case VK_ESCAPE: if (!repeat) command({now(), tessera::Cancel{}}); return true;
+        default: return false;
+        }
     }
     bool pressed() const {
         return std::any_of(pointers.begin(), pointers.end(), [](const auto& p) { return p.pressed.has_value(); });
@@ -692,6 +748,7 @@ struct App {
         case WM_CAPTURECHANGED:
             if (!releasing_capture && buttons && HWND(lparam) != window) cancel("capture lost");
             return 0;
+        case WM_KEYDOWN: if (keyboard(wparam, lparam)) return 0; break;
         case WM_CANCELMODE: cancel("cancel mode"); break;
         case WM_KILLFOCUS: cancel("focus lost"); break;
         case WM_SIZE:
@@ -729,6 +786,7 @@ struct App {
     void post(UINT msg, WPARAM wparam, POINT p) { PostMessageW(window, msg, wparam, MAKELPARAM(p.x, p.y)); }
     void click(POINT p) { post(WM_MOUSEMOVE, 0, p); post(WM_LBUTTONDOWN, MK_LBUTTON, p); post(WM_LBUTTONUP, 0, p); }
     void click(const char* id) { click(center(id)); }
+    void post_key(WPARAM vk, bool repeat = false) { PostMessageW(window, WM_KEYDOWN, vk, 1 | (repeat ? 1 << 30 : 0)); }
     // The Credits column's last pixel row inside the list clip, or the first row outside it, by the
     // pixel-center rule the renderer's scissor also uses.
     POINT clip_edge(bool inside) const {
@@ -774,7 +832,16 @@ struct App {
                 click(clip_edge(true)); break;
         case 9: expect(actions.size() == 3 && actions.back() == "show-credits", "Click inside the list clip did not activate Credits");
                 change_dpi(120, 601, 451); capture_next = true; break;
-        case 10: expect_scale(1.25f); expect(captures == 3, "1.25x presentation was not captured"); click("quit"); break;
+        case 10: expect_scale(1.25f); expect(captures == 3, "1.25x presentation was not captured");
+                 expect(focused == menu.tree->find("credits"), "Primary press did not focus Credits");
+                 post_key(VK_UP); post_key(VK_UP, true); post_key(VK_RETURN); break;
+        case 11: expect(focused == menu.tree->find("start"), "Up arrows did not focus Start");
+                 expect(actions.size() == 4 && actions.back() == "start-game", "Enter did not request start-game");
+                 post_key(VK_TAB); post_key(VK_RETURN, true); post_key(VK_ESCAPE); capture_next = true; break;
+        case 12: expect(focused == menu.tree->find("quit"), "Tab did not focus Quit");
+                 expect(actions.size() == 4, "Repeated Enter or unbound Escape requested an action");
+                 expect(captures == 4 && menu.style("quit").border_color == Menu::focus_ring, "Focus ring was not presented");
+                 post_key(VK_RETURN); break;
         default: return;
         }
         ++step;
@@ -835,13 +902,13 @@ int main(int argc, char** argv) {
     app.shutdown_vulkan();
     if (app.window) DestroyWindow(app.window);
     if (app.smoke) {
-        if (app.failure.empty() && app.step != 11) app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
-        if (app.actions != std::vector<std::string>{"start-game", "start-game", "show-credits", "quit-game"}) app.fail("Unexpected host action sequence");
+        if (app.failure.empty() && app.step != 13) app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
+        if (app.actions != std::vector<std::string>{"start-game", "start-game", "show-credits", "start-game", "quit-game"}) app.fail("Unexpected host action sequence");
     }
     if (validation_errors) app.fail(std::to_string(validation_errors) + " Vulkan validation errors");
-    if (app.submit_errors || app.input_errors) app.fail("Rejected renderer submissions or pointer events");
+    if (app.submit_errors || app.input_errors) app.fail("Rejected renderer submissions or input events");
     if (!app.failure.empty()) { std::cerr << app.failure << '\n'; return 1; }
     std::cout << "Presented " << app.presented << " swapchain frames (" << frames << " renderer frames retired)";
-    if (app.smoke) std::cout << "; native Start/cancel/clip/Quit smoke passed at scales 1, 1.5 and 1.25 with " << app.captures << " verified captures";
+    if (app.smoke) std::cout << "; native mouse/cancel/clip/keyboard smoke passed at scales 1, 1.5 and 1.25 with " << app.captures << " verified captures";
     std::cout << ".\n";
 }
