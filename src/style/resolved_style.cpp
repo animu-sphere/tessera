@@ -13,6 +13,7 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     check.enumeration(style.direction, FlexDirection::row, path + "/direction");
     check.enumeration(style.justify, Justify::space_between, path + "/justify");
     check.enumeration(style.align, Align::stretch, path + "/align");
+    check.enumeration(style.overflow, Overflow::clip, path + "/overflow");
     check.enumeration(style.visibility, Visibility::hidden, path + "/visibility");
 
     auto dimension = [&](const Dimension& value, const std::string& location) {

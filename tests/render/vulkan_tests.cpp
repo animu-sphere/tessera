@@ -410,8 +410,9 @@ void fixtures(Host& host, bool batched = false) {
         check(renderer.submit({frame,{32,32},scale},scaled).empty(),"Fractional scale submission failed");
         const std::string artifact = "scale-" + std::to_string(frame) + ".ppm";
         const auto scaled_pixels = host.finish(artifact.c_str()); renderer.retire(frame);
-        const auto l = unsigned(std::floor(13.4*scale)), r = unsigned(std::ceil(19.8*scale));
-        const auto t = unsigned(std::floor(4.2*scale)), b = unsigned(std::ceil(10.6*scale));
+        // Pixel-center scissor: the same pixels an unclipped rectangle with these edges would cover.
+        const auto edge = [&](double logical) { return unsigned(std::ceil(logical*scale - 0.5)); };
+        const auto l = edge(13.4), r = edge(19.8), t = edge(4.2), b = edge(10.6);
         for (unsigned y=0; y<unsigned(20*scale); ++y) for(unsigned x=0;x<extent;++x)
             pixel(scaled_pixels,extent,x,y,x>=l && x<r && y>=t && y<b ? std::array<int,4>{255,0,0,255} : std::array<int,4>{0,0,0,255},"Fractional mirrored scissor");
         pixel(scaled_pixels,extent,unsigned(4*scale),unsigned(28*scale),{128,128,128,255},"Scale restoration/sRGB conversion");

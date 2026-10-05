@@ -189,6 +189,36 @@ void overflow() {
     check(at(result, 2) == Rect{{0, 30}, {80, 40}}, "Overflow must extend past the end edges without shifting");
 }
 
+// Preorder: 0 root, 1 clipper, 2 wide, 3 tall (clips too), 4 inner, 5 sibling.
+void overflow_clip() {
+    Fixture f(box({box({box(), box({box()})}), box()}));
+    f.styles[0].align = tessera::Align::start;
+    auto& clipper = f.styles[1];
+    clipper.width = Dimension::points(60);
+    clipper.height = Dimension::points(40);
+    clipper.border = {2, 2, 2, 2};
+    clipper.padding = {3, 3, 3, 3};
+    clipper.align = tessera::Align::start;
+    clipper.overflow = tessera::Overflow::clip;
+    f.styles[2].width = Dimension::points(80);
+    f.styles[2].height = Dimension::points(10);
+    f.styles[3].width = Dimension::points(20);
+    f.styles[3].height = Dimension::points(50);
+    f.styles[3].overflow = tessera::Overflow::clip;
+    f.styles[4].width = Dimension::points(30);
+    f.styles[4].height = Dimension::points(30);
+    f.styles[5].height = Dimension::points(10);
+    const auto result = f.layout({100, 100});
+    const Rect padding{{2, 2}, {56, 36}};
+    check(!result.boxes[0].clip && !result.boxes[1].clip && !result.boxes[5].clip,
+          "A box's own overflow must not clip itself or its siblings");
+    check(at(result, 2) == Rect{{5, 5}, {80, 10}} && result.boxes[2].clip == padding &&
+              result.boxes[3].clip == padding, "Children must record the clipper's padding box without moving");
+    check(result.boxes[4].clip == Rect{{5, 15}, {20, 23}}, "Nested clips must intersect");
+    check(tessera::intersect({{0, 0}, {10, 10}}, {{20, 5}, {5, 5}}) == Rect{{20, 5}, {0, 5}},
+          "Disjoint intersection must keep the larger origin with zero size");
+}
+
 void fractional_sizes() {
     Fixture f(box({box(), box(), box()}));
     f.styles[0].direction = tessera::FlexDirection::row;
@@ -262,6 +292,7 @@ int main() {
         justify_and_align();
         grow_shrink_and_limits();
         overflow();
+        overflow_clip();
         fractional_sizes();
         display_and_visibility();
         failures();

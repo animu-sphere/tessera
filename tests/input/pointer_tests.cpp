@@ -113,6 +113,31 @@ void hit_order_edges_overflow_and_eligibility() {
     check(!absent.hit({1, 1}).target, "Display-none root must yield no hit");
 }
 
+// Preorder: 0 root, 1 list (clips at y = 30), 2 start, 3 label, 4 quit (straddles the clip), 5 label.
+void clipped_targets_and_activation() {
+    Fixture f(box({box({button("start"), button("quit")})}));
+    f.styles[1].height = tessera::Dimension::points(30);
+    f.styles[1].overflow = tessera::Overflow::clip;
+    f.compute();
+    check(f.layout.boxes[4].border_box == tessera::Rect{{0, 20}, {40, 20}} &&
+              f.layout.boxes[5].clip == tessera::Rect{{0, 0}, {40, 30}}, "Clip fixture geometry differs");
+    check(f.hit({10, 29.5f}).target == f.node(5), "Visible part of a straddling box must hit");
+    check(f.hit({10, 30}).target == f.node(0) && f.hit({10, 35}).target == f.node(0),
+          "Clipped part must fall through to the box below, with a half-open clip edge");
+
+    f.send(tessera::PointerDown{{1}, {10, 35}});
+    check(f.send(tessera::PointerUp{{1}, {10, 35}}).actions.empty(), "Clipped click must not activate");
+    f.send(tessera::PointerDown{{1}, {10, 25}});
+    auto dragged = f.send(tessera::PointerMove{{1}, {10, 35}});
+    check(dragged.pointers[0].pressed == f.node(4) && !dragged.pointers[0].active,
+          "Dragging into the clipped part must leave the binding");
+    check(f.send(tessera::PointerUp{{1}, {10, 35}}).actions.empty(), "Release in the clipped part must not activate");
+    f.send(tessera::PointerDown{{1}, {10, 25}});
+    check(f.send(tessera::PointerUp{{1}, {10, 25}}).actions ==
+              std::vector<tessera::ActionRequest>{{"activate", "quit", f.node(4)}},
+          "Click in the visible part must activate");
+}
+
 void click_binding_lookup_and_drag() {
     auto root = box({button("start"), button("quit")});
     root.events["activate"] = "root";
@@ -233,6 +258,7 @@ void refresh_replacement_and_invalid_input() {
 int main() {
     try {
         hit_order_edges_overflow_and_eligibility();
+        clipped_targets_and_activation();
         click_binding_lookup_and_drag();
         cancellation_buttons_and_multiple_pointers();
         refresh_replacement_and_invalid_input();

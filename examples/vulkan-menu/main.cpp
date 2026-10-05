@@ -38,8 +38,11 @@ constexpr float base_dpi = 96;
 constexpr const char* menu_json = R"({"version":1,"root":{"type":"Box","id":"screen","children":[
 {"type":"Box","id":"panel","children":[
 {"type":"Text","id":"title","properties":{"text":"Tessera"}},
+{"type":"Box","id":"list","children":[
 {"type":"Box","id":"start","events":{"activate":"start-game"},"children":[{"type":"Text","id":"start-label","properties":{"text":"Start"}}]},
-{"type":"Box","id":"quit","events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]}]}]}})";
+{"type":"Box","id":"quit","events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]},
+{"type":"Box","id":"credits","events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]}]}]}})";
+constexpr const char* buttons[]{"start", "quit", "credits"};
 
 void require(VkResult result, const char* operation) {
     if (result != VK_SUCCESS) throw std::runtime_error(std::string(operation) + ": " + std::to_string(result));
@@ -84,10 +87,13 @@ float logical_length(std::uint32_t pixels, float scale) {
     while (std::ceil(double(value) * scale) < pixels) value = std::nextafter(value, std::numeric_limits<float>::infinity());
     return value;
 }
-// Client pixel (x, y) covers [x, x+1) x [y, y+1); its center is the rasterizer's coverage sample,
-// so a pixel painted by a half-open border box is also a hit on that box.
+// Client pixel (x, y) covers [x, x+1) x [y, y+1); its center is the rasterizer's coverage and
+// scissor sample, so a pixel painted by a half-open border box inside a clip is also a hit on it.
+tessera::Point logical_point(int x, int y, float scale) {
+    return {float((x + 0.5) / scale), float((y + 0.5) / scale)};
+}
 tessera::Point logical_point(LPARAM lparam, float scale) {
-    return {float((GET_X_LPARAM(lparam) + 0.5) / scale), float((GET_Y_LPARAM(lparam) + 0.5) / scale)};
+    return logical_point(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam), scale);
 }
 tessera::Modifiers modifiers(WPARAM wparam) {
     return {(wparam & MK_SHIFT) != 0, (wparam & MK_CONTROL) != 0, GetKeyState(VK_MENU) < 0,
@@ -107,7 +113,7 @@ struct Menu {
     tessera::Size viewport;
 
     Menu() {
-        const tessera::ValidationContext actions{{"start-game", "quit-game"}};
+        const tessera::ValidationContext actions{{"start-game", "quit-game", "show-credits"}};
         tree = take(tessera::UiTree::create(take(tessera::load_document(menu_json, actions), "Menu JSON rejected"), actions), "Menu tree rejected");
         parents.assign(tree->size(), 0);
         std::vector<tessera::NodeHandle> pending{tree->root()};
@@ -123,7 +129,10 @@ struct Menu {
         box.border = {1,1,1,1}; box.border_color = rgb(70,82,105); box.corner_radius = 10; box.background = panel;
         auto& title = style("title");
         title.text.size = 28; title.color = rgb(235,238,245);
-        for (const char* id : {"start", "quit"}) {
+        // A fixed-height clipping list cuts Credits roughly in half at a fractional edge.
+        auto& list = style("list");
+        list.height = tessera::Dimension::points(141.3f); list.gap = 12; list.overflow = tessera::Overflow::clip;
+        for (const char* id : buttons) {
             auto& button = style(id);
             button.padding = {10,16,10,16}; button.border = {1,1,1,1}; button.border_color = rgb(90,120,180);
             button.corner_radius = 6; button.align = tessera::Align::center; button.background = idle;
@@ -148,7 +157,7 @@ struct Menu {
     // existing layout stays coherent with the styles.
     void show(std::optional<tessera::NodeHandle> hovered, std::optional<tessera::NodeHandle> active) {
         bool changed = false;
-        for (const char* id : {"start", "quit"}) {
+        for (const char* id : buttons) {
             const auto node = *tree->find(id);
             const auto color = active == node ? pressed : hovered == node ? hover : idle;
             if (styles[node.index].background != color) { styles[node.index].background = color; changed = true; }
@@ -488,7 +497,8 @@ struct App {
         const auto diagnostics = renderer->submit(frame, menu.paint);
         if (smoke && diagnostics.empty()) {
             const auto stats = renderer->submission_stats();
-            if (stats.draw_calls != 1 || stats.primitives <= stats.draw_calls ||
+            // One batch for the unclipped screen/panel/title and one for the clipped list.
+            if (stats.draw_calls != 2 || stats.primitives <= stats.draw_calls ||
                 stats.upload_bytes != stats.primitives * 112 || renderer->pending_uploads() > frames_in_flight)
                 fail("Menu adjacent batching or upload retirement counters disagree");
             if (last_frame == 0) std::cout << "Menu batching: " << stats.primitives << " primitives, "
@@ -594,6 +604,26 @@ struct App {
                     glyph = matches(x, y, Menu::label);
             if (!glyph) fail(std::string("No placeholder label pixels for ") + id + " in " + name);
         }
+        // Clip agreement: near the list's clip edge, a pixel shows the straddling Credits button
+        // exactly when its pixel-center pointer position targets that button.
+        const auto credits = menu.tree->find("credits");
+        const auto& straddling = menu.box("credits");
+        const auto edge = pixel(straddling.clip->origin.y + straddling.clip->size.height);
+        const tessera::Color shown[]{menu.style("credits").background, menu.style("credits").border_color, Menu::label};
+        unsigned painted = 0, clipped = 0;
+        for (auto y = edge - 3; y <= edge + 3; ++y) {
+            for (auto x = pixel(straddling.border_box.origin.x) - 2;
+                 x < pixel(straddling.border_box.origin.x + straddling.border_box.size.width) + 2; ++x) {
+                const bool paints = std::any_of(std::begin(shown), std::end(shown), [&](tessera::Color c) { return matches(x, y, c); });
+                const auto hit = tessera::hit_test(menu.snapshot(), logical_point(int(x), int(y), scale));
+                if (!hit) return fail("Hit test rejected during clip agreement");
+                const bool targets = menu.button_of(hit.value->target) == credits;
+                if (paints != targets)
+                    return fail("Clip edge paint/hit disagreement in " + name + " at pixel " + std::to_string(x) + ',' + std::to_string(y));
+                ++(targets ? painted : clipped);
+            }
+        }
+        if (!painted || !clipped) fail("Clip agreement scan did not straddle the list clip in " + name);
         std::cout << "Captured " << name << " (" << extent.width << 'x' << extent.height << ")\n";
     }
 
@@ -609,6 +639,7 @@ struct App {
             std::cout << "Host action " << action.binding << ": " << action.action << " from " << *menu.tree->get(action.target)->id << '\n';
             if (action.action == "start-game") SetWindowTextW(window, L"Tessera Vulkan menu - started");
             else if (action.action == "quit-game") quit = true;
+            else if (action.action == "show-credits") SetWindowTextW(window, L"Tessera Vulkan menu - credits");
         }
     }
     void pointer(const tessera::InputEvent& event) {
@@ -696,9 +727,14 @@ struct App {
         return {LONG((r.origin.x + r.size.width / 2) * scale), LONG((r.origin.y + r.size.height / 2) * scale)};
     }
     void post(UINT msg, WPARAM wparam, POINT p) { PostMessageW(window, msg, wparam, MAKELPARAM(p.x, p.y)); }
-    void click(const char* id) {
-        const auto p = center(id);
-        post(WM_MOUSEMOVE, 0, p); post(WM_LBUTTONDOWN, MK_LBUTTON, p); post(WM_LBUTTONUP, 0, p);
+    void click(POINT p) { post(WM_MOUSEMOVE, 0, p); post(WM_LBUTTONDOWN, MK_LBUTTON, p); post(WM_LBUTTONUP, 0, p); }
+    void click(const char* id) { click(center(id)); }
+    // The Credits column's last pixel row inside the list clip, or the first row outside it, by the
+    // pixel-center rule the renderer's scissor also uses.
+    POINT clip_edge(bool inside) const {
+        const auto& clip = *menu.box("credits").clip;
+        const auto outside = LONG(std::ceil(double(clip.origin.y + clip.size.height) * scale - 0.5));
+        return {center("credits").x, inside ? outside - 1 : outside};
     }
     void change_dpi(UINT dpi, int width, int height) {
         RECT r{0, 0, width, height}, current;
@@ -733,8 +769,12 @@ struct App {
                 change_dpi(144, 720, 540); capture_next = true; break;
         case 6: expect_scale(1.5f); expect(captures == 2, "1.5x presentation was not captured"); click("start"); break;
         case 7: expect(actions.size() == 2 && actions.back() == "start-game", "1.5x Start click failed");
+                click(clip_edge(false)); break;
+        case 8: expect(actions.size() == 2, "Click below the list clip activated Credits");
+                click(clip_edge(true)); break;
+        case 9: expect(actions.size() == 3 && actions.back() == "show-credits", "Click inside the list clip did not activate Credits");
                 change_dpi(120, 601, 451); capture_next = true; break;
-        case 8: expect_scale(1.25f); expect(captures == 3, "1.25x presentation was not captured"); click("quit"); break;
+        case 10: expect_scale(1.25f); expect(captures == 3, "1.25x presentation was not captured"); click("quit"); break;
         default: return;
         }
         ++step;
@@ -795,13 +835,13 @@ int main(int argc, char** argv) {
     app.shutdown_vulkan();
     if (app.window) DestroyWindow(app.window);
     if (app.smoke) {
-        if (app.failure.empty() && app.step != 9) app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
-        if (app.actions != std::vector<std::string>{"start-game", "start-game", "quit-game"}) app.fail("Unexpected host action sequence");
+        if (app.failure.empty() && app.step != 11) app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
+        if (app.actions != std::vector<std::string>{"start-game", "start-game", "show-credits", "quit-game"}) app.fail("Unexpected host action sequence");
     }
     if (validation_errors) app.fail(std::to_string(validation_errors) + " Vulkan validation errors");
     if (app.submit_errors || app.input_errors) app.fail("Rejected renderer submissions or pointer events");
     if (!app.failure.empty()) { std::cerr << app.failure << '\n'; return 1; }
     std::cout << "Presented " << app.presented << " swapchain frames (" << frames << " renderer frames retired)";
-    if (app.smoke) std::cout << "; native Start/cancel/Quit smoke passed at scales 1, 1.5 and 1.25 with " << app.captures << " verified captures";
+    if (app.smoke) std::cout << "; native Start/cancel/clip/Quit smoke passed at scales 1, 1.5 and 1.25 with " << app.captures << " verified captures";
     std::cout << ".\n";
 }

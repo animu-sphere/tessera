@@ -19,7 +19,8 @@ std::vector<Diagnostic> validate(const PaintInput&);
 
 // Owned background/border/glyph commands in tree preorder, in root logical coordinates.
 // Ancestor opacity multiplies command alpha; this is not offscreen group composition.
-// Hidden boxes suppress only their own commands. Overflow is not implicitly clipped.
+// Hidden boxes suppress only their own commands. Recorded layout clips become PushClip/PopClip
+// around each box's commands; other overflow is not clipped.
 // Invalid input or shaping failure returns diagnostics and no partial draw list.
 Result<UiDrawList> build_paint_list(const PaintInput&);
 

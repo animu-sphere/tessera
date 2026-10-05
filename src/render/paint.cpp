@@ -37,6 +37,7 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
     auto diagnostics = validate(input);
     if (!diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
     UiDrawList list;
+    std::optional<Rect> clip; // Currently pushed in `list`.
     std::vector<float> opacities;
     opacities.reserve(input.layout->boxes.size());
     bool failed = false;
@@ -78,8 +79,16 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
             diagnostic.path = path + diagnostic.path;
             diagnostics.push_back(std::move(diagnostic));
         }
+        if (commands.commands.empty()) continue;
+        // Consecutive boxes under the same recorded clip share one push/pop pair.
+        if (box.clip != clip) {
+            if (clip) list.commands.push_back(PopClip{});
+            if (box.clip) list.commands.push_back(PushClip{*box.clip});
+            clip = box.clip;
+        }
         for (auto& command : commands.commands) list.commands.push_back(std::move(command));
     }
+    if (clip) list.commands.push_back(PopClip{});
     if (failed || has_error(diagnostics)) return {std::nullopt, std::move(diagnostics)};
     return {std::move(list), std::move(diagnostics)};
 }

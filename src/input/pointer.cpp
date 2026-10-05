@@ -8,6 +8,13 @@
 namespace tessera {
 namespace {
 
+// Half-open containment; double subtraction avoids float overflow at a finite rectangle's far edge.
+bool inside(const Rect& rect, Point point) {
+    const double x = static_cast<double>(point.x) - rect.origin.x;
+    const double y = static_cast<double>(point.y) - rect.origin.y;
+    return x >= 0 && x < rect.size.width && y >= 0 && y < rect.size.height;
+}
+
 bool disabled(const UiNode& node) {
     return std::get<bool>(*effective_property(node, property_names::disabled));
 }
@@ -30,11 +37,7 @@ public:
         const auto& boxes = input_.layout->boxes;
         for (std::size_t i = boxes.size(); i > 0; --i) {
             const auto& box = boxes[i - 1];
-            if (!eligible(i - 1)) continue;
-            // Double subtraction avoids float overflow at a finite box's far edge.
-            const double x = static_cast<double>(point.x) - box.border_box.origin.x;
-            const double y = static_cast<double>(point.y) - box.border_box.origin.y;
-            if (x >= 0 && x < box.border_box.size.width && y >= 0 && y < box.border_box.size.height)
+            if (eligible(i - 1) && inside(box.border_box, point) && (!box.clip || inside(*box.clip, point)))
                 return box.node;
         }
         return {};

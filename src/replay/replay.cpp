@@ -84,7 +84,8 @@ private:
         ReplayGeneration generation{step, {}, std::move(*paint.value)};
         generation.boxes.reserve(current_.layout.boxes.size());
         for (const auto& box : current_.layout.boxes)
-            generation.boxes.push_back({box.node.index, box.parent, box.border_box, box.border, box.padding, box.visible});
+            generation.boxes.push_back(
+                {box.node.index, box.parent, box.border_box, box.border, box.padding, box.visible, box.clip});
         output_.generations.push_back(std::move(generation));
         return true;
     }
@@ -171,6 +172,10 @@ public:
                                         format(actual.padding) + ".");
         if (expected.visible != actual.visible)
             mismatch(path + "/visible", expected.visible ? "Expected a visible box." : "Expected a hidden box.");
+        if (expected.clip.has_value() != actual.clip.has_value())
+            mismatch(path + "/clip", expected.clip ? "Expected a clipped box." : "Expected an unclipped box.");
+        else if (expected.clip && !near(*expected.clip, *actual.clip))
+            mismatch(path + "/clip", "Expected " + format(*expected.clip) + ", got " + format(*actual.clip) + ".");
     }
 
     void generation(const ReplayGeneration& expected, const ReplayGeneration& actual, const std::string& path) {
