@@ -18,7 +18,7 @@ std::span<const PropertyDescriptor> property_descriptors() noexcept {
         {property_names::disabled, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{false},
          input | semantics, PropertyCategory::interaction},
         {property_names::focusable, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{false},
-         semantics, PropertyCategory::interaction},
+         input | semantics, PropertyCategory::interaction},
         {property_names::labelled_by, PropertyType::reference, NodeKinds::all, NodeKinds::none, std::nullopt,
          semantics, PropertyCategory::accessibility},
         {property_names::text, PropertyType::string, NodeKinds::text, NodeKinds::text, std::nullopt,

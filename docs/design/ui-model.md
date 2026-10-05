@@ -15,13 +15,13 @@ The implemented semantic property vocabulary is deliberately small:
 | Property | Nodes | Value | Current behavior |
 | --- | --- | --- | --- |
 | `text` | Text only, required | UTF-8 string, including empty text | Measured by layout and shaped by paint through `TextShaper`; placeholder implementation only. Also names [semantic](semantics.md#implemented-prototype-projection) entries |
-| `focusable` | Box/Text | Boolean | Stored interaction intent exposed as semantic state; no focus runtime |
+| `focusable` | Box/Text | Boolean | Stored interaction intent read by [focus dispatch](input.md#implemented-prototype-focus-dispatch) and exposed as semantic state |
 | `disabled` | Box/Text | Boolean | Excludes the node/subtree from pointer targeting and semantic actions; absent means false; see [input](input.md) |
 | `labelled_by` | Box/Text | `NodeReference` to an existing author ID | Existence validation; names the prototype semantic entry; no native accessibility adapter |
 
 `Property` has explicit boolean, binary64, string, and reference alternatives. No current semantic property accepts a number; unknown properties or mismatched types fail without coercion. Absent boolean properties remain absent rather than materializing defaults. Layout/style properties and asset references are deferred; they are not arbitrary semantic properties.
 
-`events` stores `activate`/`cancel` action names. Every bound action must exist in the caller's `ValidationContext.actions`; the default empty context rejects all bound actions. Validation snapshots the names for the call only. Pointer dispatch consumes `activate` names to return host action requests as defined in [input](input.md); logical cancel dispatch remains planned. The document stores no callback, and the host remains responsible for action implementations.
+`events` stores `activate`/`cancel` action names. Every bound action must exist in the caller's `ValidationContext.actions`; the default empty context rejects all bound actions. Validation snapshots the names for the call only. Pointer and focus dispatch consume `activate` names, and focus dispatch consumes `cancel` names, to return host action requests as defined in [input](input.md). The document stores no callback, and the host remains responsible for action implementations.
 
 Document/node `extensions` preserve namespaced backend-neutral JSON metadata. Validation and runtime behavior do not interpret its contents. Names, strings, and metadata must be valid UTF-8; numeric metadata must be finite. Diagnostics and bounded recursion are described by the encoding page.
 
@@ -109,11 +109,11 @@ Property-level dependency tracking is the long-term reactive direction. Define d
 | Name | Type | Accepted / required | Absent value | Stages | Category |
 | --- | --- | --- | --- | --- | --- |
 | `disabled` | boolean | Box/Text / none | `false` | input, semantics | interaction |
-| `focusable` | boolean | Box/Text / none | `false` | semantics | interaction |
+| `focusable` | boolean | Box/Text / none | `false` | input, semantics | interaction |
 | `labelled_by` | reference | Box/Text / none | none | semantics | accessibility |
 | `text` | string | Text / Text | none | layout, paint, semantics | content |
 
-`validate` derives property name, node-kind, type, and required-property checks from these descriptors; string UTF-8, finite-number, and reference-existence checks remain value rules. JSON v1 encodes a property under its descriptor name using its `Property` alternative. `effective_property` returns the authored value or the descriptor's absent value, borrowing from the node or the static table; pointer targeting reads `disabled` through it, and layout/paint read `text` through `property_names`. Descriptors cover authored properties only; resolved style, layout, and other derived values are not listed. The current vocabulary has no numeric range or enumeration, so descriptors carry no range/enum fields yet.
+`validate` derives property name, node-kind, type, and required-property checks from these descriptors; string UTF-8, finite-number, and reference-existence checks remain value rules. JSON v1 encodes a property under its descriptor name using its `Property` alternative. `effective_property` returns the authored value or the descriptor's absent value, borrowing from the node or the static table; pointer and focus targeting read `disabled` and focus dispatch reads `focusable` through it, and layout/paint read `text` through `property_names`. Descriptors cover authored properties only; resolved style, layout, and other derived values are not listed. The current vocabulary has no numeric range or enumeration, so descriptors carry no range/enum fields yet.
 
 [Property metadata checks](../../tests/ui/property_metadata_tests.cpp) validate every descriptor, node kind, and value type against validation, absence handling, and canonical encoded names, and [pointer checks](../../tests/input/pointer_tests.cpp) compare absent and explicit `disabled`.
 

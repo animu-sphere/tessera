@@ -1,4 +1,4 @@
-#include <tessera/input/pointer.hpp>
+#include <tessera/input/focus.hpp>
 #include <tessera/render/paint.hpp>
 #include <iostream>
 #include <string>
@@ -14,6 +14,7 @@ tessera::UiNode button(std::string id, std::string caption, std::string action) 
     tessera::UiNode result;
     result.id = std::move(id);
     result.events["activate"] = std::move(action);
+    result.properties["focusable"] = true;
     result.children.push_back(std::move(label));
     return result;
 }
@@ -49,6 +50,7 @@ int main() {
     tessera::PointerDispatcher input;
     const tessera::HitTestInput snapshot{&tree, styles, &*layout.value};
     std::chrono::microseconds time{0};
+    std::vector<tessera::ActionRequest> clicked;
     for (const auto& box : layout.value->boxes) {
         const auto& node = *tree.get(box.node);
         if (node.kind != tessera::NodeKind::text) continue;
@@ -65,6 +67,19 @@ int main() {
         if (!owner || !owner->id || (action.action != "start-game" && action.action != "quit-game")) return 6;
         // Host application work belongs here, after dispatch has returned.
         std::cout << "Host received " << action.binding << ": " << action.action << " from " << *owner->id << '\n';
+        clicked.push_back(action);
     }
-    std::cout << "Synthetic pointer menu completed. No native window, GPU, or device input is used.\n";
+
+    // Keyboard/gamepad hosts translate keys or buttons into logical commands; the same requests result.
+    tessera::FocusDispatcher focus;
+    for (const auto& expected : clicked) {
+        time += std::chrono::microseconds(1);
+        const auto moved = focus.dispatch(snapshot, {time, tessera::Navigate{tessera::Direction::down}});
+        if (!moved || moved.value->focused != expected.target) return 7;
+        time += std::chrono::microseconds(1);
+        const auto activated = focus.dispatch(snapshot, {time, tessera::Activate{}});
+        if (!activated || activated.value->actions != std::vector{expected}) return 8;
+        std::cout << "Focus activation matched " << expected.action << '\n';
+    }
+    std::cout << "Synthetic pointer and focus menu completed. No native window, GPU, or device input is used.\n";
 }
