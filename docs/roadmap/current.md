@@ -8,7 +8,6 @@ Depends on document, resolved-style, layout, paint, and pointer contracts. Exist
 
 ## Remaining required work
 
-- Record an interactive session of the [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) with physical mouse input and a real monitor DPI change; its automated smoke posts window messages. Mapping rules are in [input](../design/input.md#host-boundary).
 - Validate transform agreement between native pointer mapping and rendering once menu paint or hit testing uses transforms; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
 - Preserve deterministic geometry/paint, offscreen primitive/placeholder Text GPU fixtures, adjacent-batch/reference agreement, and the native menu smoke, including its clip-edge agreement, through the [testing strategy](../guides/testing.md).
 
@@ -23,6 +22,6 @@ Depends on document, resolved-style, layout, paint, and pointer contracts. Exist
 
 ## Immediately next
 
-Record the interactive [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) session with physical mouse input and a real monitor DPI change; this needs an operator. Transform agreement remains conditional on transformed menu paint or hit testing; follow the coordinate contracts above.
+Review the exit criteria against the [support matrix](../reference/support-matrix.md) and, if accepted, record the v0.1.0 release in the changelog. Transform agreement remains conditional on transformed menu paint or hit testing; follow the coordinate contracts above.
 
 Later candidate scopes are in [backlog](backlog.md).
