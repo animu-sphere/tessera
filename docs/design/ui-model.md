@@ -87,13 +87,35 @@ Proposed update semantics: state writes schedule a defined update, rendering obs
 
 Keyed reconciliation is planned for a later component milestone. Compatible-state preservation during reload uses the same identity rules; see [Path-finder integration](path-finder-integration.md).
 
+## Implemented property metadata
+
+[property_metadata.hpp](../../include/tessera/ui/property_metadata.hpp) describes the authored semantic property vocabulary above without a reflection framework or editor dependency. `property_descriptors()` returns one `PropertyDescriptor` per property, ordered by name; `find_property_descriptor` performs exact, case-sensitive lookup. Descriptors have static storage duration and remain valid for the rest of the program.
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Stable identifier and JSON v1 member name under node `properties`; not a display label. `property_names` holds the same constants for runtime consumers. |
+| `type` | `PropertyType` mirroring the `Property` alternative; `property_type` maps a value to it. No coercion. |
+| `accepted` / `required` | `NodeKinds` bit sets. Other kinds reject the property as `unknown_property`; absence on a required kind is `missing_property`. |
+| `absent_value` | Meaning of absence on an accepted, non-required kind, or none. It is never materialized into documents or output. |
+| `stages` | `PropertyStages` bit set whose meaning is owned by [styling](styling.md#property-effects). |
+| `category` | Editor grouping (`content`, `interaction`, `accessibility`); it never affects validation or defaults. |
+
+| Name | Type | Accepted / required | Absent value | Stages | Category |
+| --- | --- | --- | --- | --- | --- |
+| `disabled` | boolean | Box/Text / none | `false` | input, semantics | interaction |
+| `focusable` | boolean | Box/Text / none | `false` | semantics | interaction |
+| `labelled_by` | reference | Box/Text / none | none | semantics | accessibility |
+| `text` | string | Text / Text | none | layout, paint | content |
+
+`validate` derives property name, node-kind, type, and required-property checks from these descriptors; string UTF-8, finite-number, and reference-existence checks remain value rules. JSON v1 encodes a property under its descriptor name using its `Property` alternative. `effective_property` returns the authored value or the descriptor's absent value, borrowing from the node or the static table; pointer targeting reads `disabled` through it, and layout/paint read `text` through `property_names`. Descriptors cover authored properties only; resolved style, layout, and other derived values are not listed. The current vocabulary has no numeric range or enumeration, so descriptors carry no range/enum fields yet.
+
+[Property metadata checks](../../tests/ui/property_metadata_tests.cpp) validate every descriptor, node kind, and value type against validation, absence handling, and canonical encoded names, and [pointer checks](../../tests/input/pointer_tests.cpp) compare absent and explicit `disabled`.
+
 ## Proposed property reflection
 
-Expose explicit property metadata from the runtime schema, without a general reflection framework or editor SDK dependency. A descriptor needs a stable property/serialization name, value type, authored default or absence policy, valid range/enum, editor category, and affected stages. A property can affect multiple stages; do not force style/layout/paint/semantics into a mutually exclusive enum. Stage meaning is owned by [styling](styling.md#property-effects).
+Extend the implemented descriptors as the schema evolves, without a general reflection framework or editor SDK dependency. Add valid range/enum metadata when a numeric or enumerated property is introduced, and distinguish derived or read-only values if they are exposed. A property can affect multiple stages; do not force style/layout/paint/semantics into a mutually exclusive enum.
 
-Use the same descriptors or shared definitions for validation, serialization, Inspector generation, and invalidation. Do not maintain a second editor-owned list of types/defaults. Derived or read-only values must be distinguished from authored properties. Property identifiers are independent of display labels, and descriptor lifetime must be explicit for consumers.
-
-Basic metadata starts with the existing vocabulary; full introspection follows schema evolution. This proposal does not add fields to JSON v1. Tests must catch disagreement between descriptors, accepted values, defaults, and encoded names. Path-finder consumes this metadata under its [bridge contract](path-finder-integration.md).
+Use the same descriptors for Inspector generation and invalidation. Do not maintain a second editor-owned list of types/defaults. No dirty tracking consumes `stages` yet. This proposal does not add fields to JSON v1. Path-finder consumes this metadata under its [bridge contract](path-finder-integration.md).
 
 ## Proposed overlays and portals
 

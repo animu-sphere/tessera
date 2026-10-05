@@ -52,7 +52,7 @@ Theme variables are planned after basic stylesheet resolution. Specify variable 
 
 ## Property effects
 
-[Property descriptors](ui-model.md#proposed-property-reflection) identify a set of affected stages: style resolution, layout, paint, and semantics, or none. Interaction state can affect more than one stage through pseudo states. Text/font changes affect measurement and paint; semantic label/state changes affect semantic projection. A dependency table must account for inherited values and ancestor/sibling geometry before incremental updates use it. Full-tree recomputation remains the correctness reference.
+[Property descriptors](ui-model.md#implemented-property-metadata) identify a set of affected stages: style resolution, layout, paint, input targeting, and semantics, or none. Input targeting covers pointer eligibility derived from a snapshot, such as inherited `disabled`. Interaction state can affect more than one stage through pseudo states. Text/font changes affect measurement and paint; semantic label/state changes affect semantic projection. A dependency table must account for inherited values and ancestor/sibling geometry before incremental updates use it. Full-tree recomputation remains the correctness reference.
 
 ## Proposed animation
 

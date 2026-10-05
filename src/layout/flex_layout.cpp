@@ -1,4 +1,5 @@
 #include <tessera/layout/layout_box.hpp>
+#include <tessera/ui/property_metadata.hpp>
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -108,7 +109,7 @@ private:
     }
 
     Size measure(std::uint32_t index, const UiNode& node) {
-        const auto found = node.properties.find("text");
+        const auto found = node.properties.find(property_names::text);
         const auto* text = found == node.properties.end() ? nullptr : std::get_if<std::string>(&found->second);
         auto metrics = text_.measure(text ? *text : std::string(), styles_[index].text);
         if (metrics) return metrics.value->size;

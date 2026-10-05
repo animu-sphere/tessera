@@ -1,4 +1,5 @@
 #include <tessera/input/pointer.hpp>
+#include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
 #include <type_traits>
@@ -8,8 +9,7 @@ namespace tessera {
 namespace {
 
 bool disabled(const UiNode& node) {
-    const auto found = node.properties.find("disabled");
-    return found != node.properties.end() && std::get<bool>(found->second);
+    return std::get<bool>(*effective_property(node, property_names::disabled));
 }
 
 // One validated snapshot, independent of paint generation or renderer state.
