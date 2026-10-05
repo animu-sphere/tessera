@@ -14,7 +14,7 @@ The foundation uses namespaced document/node `extensions` objects for design met
 
 Expose narrow operations for document/schema inspection, validation diagnostics, reload requests, and preview results. Source locations allow Path-finder to link runtime/validation errors back to authored text. Avoid adding editor SDKs or reflection frameworks to the core.
 
-Generate property inspectors from the runtime's [reflection metadata](ui-model.md#proposed-property-reflection), and read [semantic projection](semantics.md) for meaning/state inspection. Editor categories are metadata, not a second validation/default table. Keep runtime and editor schema versions compatible and preserve source locations in diagnostics.
+Generate property inspectors from the runtime's [reflection metadata](ui-model.md#proposed-property-reflection), and consume [shared inspection](inspection.md) for semantic/property/layout/source observations. Editor categories are metadata, not a second validation/default table. Keep runtime and editor schema versions compatible and preserve source locations in diagnostics.
 
 Bridge transport, protocol versioning, process boundaries, preview asset resolution, and source-generation ownership are open. Start with an in-process adapter only if that is enough to prove shared-model behavior; do not commit to IPC before a consumer requires it.
 
@@ -31,6 +31,8 @@ Proposed sequence:
 A rejected candidate leaves the last valid tree usable. Successful reload cleans up removed bindings/components and preserves only state declared compatible by identity, node/component type, and state schema. Author IDs and reconciliation keys must have explicit scopes before this can be reliable.
 
 Application state remains host-owned throughout reload. GPU resources replaced by a document follow completion-safe retirement; see [rendering](rendering.md). Initial atomic full-document reload can precede fine-grained patches.
+
+Compatible reload should preserve keyed component identity/local state, focus, and scroll anchors under their subsystem rules, and reuse still-valid resources. Type/state-schema changes, removed nodes, or incompatible bindings require declared reset/cleanup and recovery rather than forced preservation. A successful reload publishes a new generation before inspection/capture. Tooling may request a snapshot after that generation renders and measure edit-to-verified-snapshot latency under [inspection](inspection.md#proposed-diagnostics-and-comparisons).
 
 ## Verification and scope
 

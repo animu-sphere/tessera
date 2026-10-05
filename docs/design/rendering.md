@@ -67,7 +67,7 @@ CPU data and resource lifetimes follow the frame contract above: GPU-visible res
 
 ## Backends and shaders
 
-The optional Vulkan module is defined below. WebGPU, Metal, and Direct3D 12 remain future candidates without a delivery commitment.
+The optional Vulkan module is defined below. WebGPU is the intended rendering boundary for the [Web host](web-host.md), with native WebGPU evaluated separately. Metal and Direct3D 12 require a concrete consumer. Scheduling remains in backlog and configuration evidence in support.
 
 Slang compiles the Vulkan [primitive shader](../../backends/vulkan/shaders/primitive.slang) below `UiDrawList`; ordinary components do not refer to shader entry points or pipeline objects. It is a build tool for this module, not a core requirement. The [module build](../../backends/vulkan/CMakeLists.txt) emits separate SPIR-V 1.3 reference vertex, batch vertex, solid fragment, and image fragment artifacts, preserving entry-point names. `SV_VulkanVertexID` avoids requiring the optional draw-parameters feature; see the [Slang SPIR-V mapping](https://docs.shader-slang.org/en/latest/external/slang/docs/user-guide/a2-01-spirv-target-specific.html).
 
@@ -120,6 +120,14 @@ The optional [renderer](../../backends/vulkan/include/tessera/vulkan/renderer.hp
 Keep the reference path for image comparison whenever grouping or packet encoding changes. Future blend modes must become batch keys before they can be merged.
 
 `Canvas` / custom paint uses this command vocabulary and observes balanced clip/transform state. It must not bypass draw-list resource lifetime or depend on a concrete backend.
+
+Retained packets, atlas use, packed instance data, and partial uploads are future optimization choices driven by representative tool workloads. Preserve ordering, blend/clip/transform batch boundaries, and completion-safe ownership. A separate Paint Tree or Render Tree is not required merely to mirror an architecture diagram; introduce a representation only with a defined consumer and lifetime.
+
+## Proposed capture boundary
+
+An offscreen host owns targets, submission, completion, and readback. A reusable capture service associates an image with the submitted frame/update generation, physical extent, scale, format/color convention, and backend/device metadata. CPU inspection and GPU completion must agree under the [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle) contract. Readback does not weaken retirement requirements or add window/platform types to core.
+
+Image encoding/export belongs to optional tooling, with explicit dependency/licensing choices. Existing fixture readback and PPM artifacts are examples of backend evidence, not a general PNG-capture API, runner, or CLI. A future software/reference backend is evaluated separately; headless means no window, not no GPU.
 
 ## Proposed overlay paint
 

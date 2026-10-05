@@ -33,6 +33,11 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Property reflection/introspection | Box/Text property descriptors drive validation, absence values, and encoded names, verified below; range/enum metadata, derived values, invalidation, and Inspector consumer planned | Schema/default/range/encoded-name agreement and Inspector consumer |
 | SemanticTree and semantic actions | Planned; relationship storage is not a semantic projection | Deterministic roles/names/state/actions, eligibility and stale-target checks |
 | Deterministic replay tooling | Planned; repeated-run fixtures are not a recording/playback tool | Versioned controlled inputs, expected geometry/semantics/actions/paint |
+| Shared runtime inspection and source mapping | Author-ID lookup, borrowed immutable tree inspection, property descriptors, and located validation diagnostics implemented under [UI model](../design/ui-model.md); joined generation-aware inspection/source-map protocol planned | Coherent tree/semantics/layout observations, frontend source spans, ambiguous/stale target rejection |
+| Offscreen runner and capture tooling | Vulkan fixtures implement host-owned offscreen readback and PPM artifacts; reusable runner, declared-state restore, PNG capture, and CLI planned under [inspection](../design/inspection.md) | Controlled viewport/scale/time/locale/fonts/resources/state, window-free execution and generation-matched readback |
+| Snapshot bundles, diff, and performance tooling | Versioned bundles, semantic/layout/visual diff, iteration latency, benchmark budgets and CI reports planned; Vulkan submission counters are not timing/profiling evidence | Version/bounds checks, reproducible comparisons, measurement conditions, representative baselines |
+| Agent transports and MCP adapter | Planned optional development tooling; no CLI/RPC/MCP implementation or build switch | Shared action eligibility, declared-state limits, bounded protocol, teardown and production exclusion |
+| Web semantic DOM, editing, and JS bridge | Planned under [Web host](../design/web-host.md); no browser adapter or worker evidence | Shared semantics, focus synchronization, Japanese IME/clipboard, WASM bridge lifetime and recorded browser configurations |
 | DPI/coordinate integration | Vulkan framebuffer/scissor conversion and target resize verified at scales 1/1.25/1.5/2; Win32 swapchain extent, logical viewport, and pointer mapping verified at 1/1.5/1.25 through synthetic `WM_DPICHANGED` below; real monitor DPI changes unvalidated | Native fractional-scale/input/resize integration; pixel snapping remains planned |
 | Overlay/Portal and virtualized lists | Planned | Layer geometry/order, ownership/focus cleanup and keyed scroll stability |
 | Editing/IME/clipboard | Committed text event validation only; composition/editing and clipboard planned | Replacement/selection units, Japanese composition and platform adapter evidence |
@@ -44,7 +49,7 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 | Core-only build | Windows x64/MSVC Debug library-only build plus document/contract/layout/paint/pointer tests and examples verified; no external runtime dependencies |
 | Vulkan | SDK/Slang artifacts, offscreen GPU runtime fixtures, and a Win32 FIFO swapchain menu smoke verified below |
 | WebGPU native | No selected implementation or toolchain |
-| Browser / WASM | Feasibility candidate only; no build or browser tests |
+| Browser / WASM | Planned shared-runtime Web host with WebGPU canvas and semantic DOM/editing adapters; no selected toolchain, build, or browser tests |
 | Metal / Direct3D 12 | Possible later targets; no scheduled implementation |
 | Windows / Linux / macOS | Windows x64/MSVC Debug core, offscreen Vulkan fixtures, and the Win32 Vulkan menu smoke verified below; Linux/macOS and other Windows toolchains unvalidated |
 

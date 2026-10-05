@@ -24,11 +24,11 @@ Semantic output is deterministic for the same document, state, input, time, and 
 
 ## Accessibility and automation boundary
 
-Platform adapters translate this projection to native services such as Windows UI Automation or macOS accessibility. Browser-host accessibility is a separate integration. OS SDK types stay outside core.
+Platform adapters translate this projection to native services such as Windows UI Automation or macOS accessibility. The [Web host](web-host.md#proposed-semantic-dom-bridge) projects it to semantic DOM alongside canvas rendering. OS/DOM types stay outside core, and all adapters share the same semantic schema.
 
 An external automation adapter may find a role/name, inspect state, and invoke a declared semantic action. Invocation passes through the same eligibility and host action path as normal interaction; adapters do not call component callbacks or host functions directly. A semantic schema does not imply native screen-reader integration, a bundled AI runtime, or supported automation transport.
 
-Path-finder consumes this projection for inspection alongside [reflection](ui-model.md#proposed-property-reflection), without defining a second semantic schema. Adapter transport, authorization policy, and platform-specific lifetime mapping are integration decisions.
+Path-finder and external tools consume this projection through [shared inspection](inspection.md), alongside [reflection](ui-model.md#proposed-property-reflection), without defining a second semantic schema. Inspection owns target resolution and source/geometry joins; it does not redefine accessible names or actions. Adapter transport, authorization policy, and platform-specific lifetime mapping are integration decisions.
 
 ## Verification
 

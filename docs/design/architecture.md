@@ -2,7 +2,7 @@
 
 ## Purpose and constraints
 
-Tessera provides web-inspired authoring for game and tool UI with a small native runtime. Its retained, declarative model supports source review, reusable components, predictable state updates, editor tooling, and accessibility metadata without requiring a visual editor.
+Tessera provides web-inspired authoring for game and tool UI with a small native runtime and a shared model for future Web hosting. Its retained, declarative component model targets dense application UI, including inspectors, timelines, node graphs, and UI alongside 3D viewports. Source review, reusable composition, predictable updates, live reload, accessibility, and machine observation/operation are design requirements.
 
 Long-term constraints:
 
@@ -14,6 +14,8 @@ Long-term constraints:
 6. Prefer composition, explicit ownership, small interfaces, and useful diagnostics.
 7. Keep dependencies modular; validate boundaries before optimizing draw calls.
 8. Path-finder edits Tessera documents and uses the same runtime for preview.
+9. DevTools, tests, and external agents share inspection and ordinary action boundaries; no agent SDK or AI model is required by core.
+10. Native and Web hosts share the runtime model; browser services belong to optional host adapters.
 
 ## Ecosystem ownership
 
@@ -47,6 +49,10 @@ Authoring frontend -> UiDocument / retained nodes
 
 Frontends and host adapters depend on the common runtime representation. Backend implementations consume resolved draw data; they do not reach back into layout, event dispatch, or component state. Text and asset interfaces inject external services without importing their implementation types into UI contracts.
 
+C++ construction, future DSLs, and visual authoring lower to the same [UI model](ui-model.md#common-representation). Proposed component descriptions extend that representation; they must not establish a second runtime. Fine-grained reactive updates and retained GPU data are optimization directions after full-tree parity, not prerequisites for defining the IR.
+
+[Inspection](inspection.md) joins semantic, layout, property, and source observations for DevTools, testing, and agent adapters. It observes settled generations and invokes declared operations without exposing mutable internals. [Web hosting](web-host.md) projects the same semantics to DOM and renders resolved draw data to a WebGPU canvas, with platform editing handled at the host boundary.
+
 The retained model may provide `Canvas` / custom paint callbacks for graphs, profilers, and debug drawing. These callbacks emit the same bounded paint vocabulary described in [rendering](rendering.md). They do not create a second widget framework.
 
 ## Frame scheduling
@@ -76,7 +82,7 @@ The existing immutable tree and per-call contracts do not constitute a scheduler
 
 ## Determinism
 
-For identical document/state, normalized input, time, viewport/scale, styles, and resource readiness, require reproducible style results, layout geometry, semantic output, action order, and paint commands. Use declared numeric tolerances where exact geometry is inappropriate. GPU images have separate backend/device tolerances. [Replay](replay.md) owns recording these inputs and observing outputs.
+For identical document/state, normalized input, time, viewport/scale, styles, locale, font/asset configuration, random seed when used, and resource readiness, require reproducible style results, layout geometry, semantic output, action order, and paint commands. Use declared numeric tolerances where exact geometry is inappropriate. GPU images have separate backend/device tolerances. [Replay](replay.md) owns recording these inputs and observing outputs; [inspection](inspection.md#proposed-runner-and-snapshot-bundle) owns coherent observation bundles.
 
 ## Module organization
 

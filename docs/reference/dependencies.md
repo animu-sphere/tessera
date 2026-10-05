@@ -29,6 +29,8 @@ The backend option defaults OFF and performs no Vulkan/Slang discovery then. Wit
 | Shader build | Adopted Slang compiler above | Build tool below the rendering boundary; not an authoring/runtime language requirement |
 | Vulkan backend | Adopted Vulkan SDK/toolchain above | SDK types remain within the concrete backend and host integration |
 | WebGPU backend | Implementation/toolchain to evaluate | Later module; no current WGSL, browser, or WASM claim |
+| Web host / WASM bridge | Compiler/packager and browser facilities to evaluate under [Web host](../design/web-host.md) | DOM, browser editing, JS bindings and worker APIs stay in optional host adapters |
+| Inspection/testing/agent tooling | Image encoder, CLI and optional RPC/MCP implementation to evaluate under [inspection](../design/inspection.md) | No agent SDK, transport server or image encoder required by core; production can exclude development facilities |
 | Example host | Win32 [Vulkan menu host](../design/rendering.md#implemented-win32-vulkan-example-host) | Window ownership remains outside the UI core and the backend library |
 | Additional authoring frontends | Compiler/parser to evaluate after IR stabilization | Runtime IR remains independent of source syntax; JSON v1 uses the adopted in-repository parser |
 
