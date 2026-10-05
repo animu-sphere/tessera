@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a capability, workflow improvement, or documentation change.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [current work](https://github.com/animu-sphere/tessera/blob/main/docs/roadmap/current.md) and the [backlog](https://github.com/animu-sphere/tessera/blob/main/docs/roadmap/backlog.md) first. Tessera grows from consumer needs, not a general widget catalog; for a contract change, name the owning boundary from the [architecture](https://github.com/animu-sphere/tessera/blob/main/docs/design/architecture.md).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - UI model / JSON v1
+        - Layout
+        - Style
+        - Input / focus
+        - Text
+        - Paint / draw list
+        - Vulkan backend
+        - Example hosts
+        - Semantics / inspection / replay
+        - Build / release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Explain which consumer needs this and what cannot be done today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the observable result, not only a particular implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance and evidence
+      description: Describe how correctness, determinism, or compatibility can be verified.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and constraints
+      description: Note existing workarounds, dependencies, or relevant design documents.
+    validations:
+      required: false

@@ -24,13 +24,14 @@ Work:
 - TextInput contract and VirtualList prototype based on stable item keys.
 - A small inspection/render CLI consumer and versioned snapshot bundle prototype; semantic/layout/counter comparisons and selective visual regression artifacts across declared viewport fixtures.
 - Reload-to-snapshot linkage and source-edit-to-verification instrumentation shared with Path-finder.
+- Source consumption by a downstream CMake project through `add_subdirectory`/`FetchContent` with the `tessera::core` and optional `tessera::vulkan` targets, checked by a minimal consumer, as Path-finder's integration path. Installed/exported packages remain v0.5.0 scope.
 
 Exit criteria:
 
 - An inventory/tool panel updates without corrupting identity, focus, bindings, or cleanup.
 - Missing/replaced assets and theme variables follow declared fallback/diagnostic rules.
 - Invalid edits keep the last valid UI; compatible edits preserve declared state and retire old resources.
-- Runtime and Path-finder round-trip the same document, including editor metadata.
+- Runtime and Path-finder round-trip the same document, including editor metadata; a minimal downstream project builds and links Tessera from source.
 - Inspector properties derive from runtime metadata; portal focus/ownership and list item identity remain coherent.
 - Tooling uses host-declared state slots, captures one generation, and emits machine-readable observations/differences; invalid bundle versions or incompatible comparison conditions are diagnosed.
 

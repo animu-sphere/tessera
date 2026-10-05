@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
-project(Tessera VERSION 0.0.0 LANGUAGES CXX)
+# VERSION is the single release version source; cmake/release.cmake checks tags against it.
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/VERSION TESSERA_VERSION LIMIT_COUNT 1)
+if(NOT TESSERA_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain one MAJOR.MINOR.PATCH value, found '${TESSERA_VERSION}'")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/VERSION)
+project(Tessera VERSION ${TESSERA_VERSION} LANGUAGES CXX)
 
 add_library(tessera_core
     src/ui/document.cpp

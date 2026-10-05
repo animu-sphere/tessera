@@ -15,3 +15,11 @@ The host owns application state, windows, devices, and frame scheduling. Tessera
 - [Delivery history](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 
 The roadmap's version labels are planning candidates. Consult the support matrix for actual capabilities and configurations.
+
+## Community
+
+Follow the [code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately as described in the [security policy](SECURITY.md).
+
+## License
+
+Tessera is licensed under the [Apache License 2.0](LICENSE). Third-party tools and SDKs used by optional modules are listed in [third-party notices](THIRD_PARTY_NOTICES.md).
