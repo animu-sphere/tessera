@@ -58,7 +58,7 @@ The prototype contract above defines orders 1–3 and the clipping half of order
 
 ## Scrolling and overlay geometry
 
-Proposed ScrollView output must make viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing. Define nested scrolling and coordinate conversion before adding virtualization. VirtualList follows ordinary scrolling and stable keyed reconciliation; realization/estimated-size changes must preserve a declared scroll anchor and expose enough geometry for navigation.
+Proposed ScrollView output must make viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing. Define nested scrolling and coordinate conversion before adding virtualization. VirtualList follows ordinary scrolling and stable keyed reconciliation; realization/estimated-size changes must preserve a declared scroll anchor and expose enough geometry for navigation. A proposed anchor is an item key plus a local offset within that item, so prepending items or correcting estimated heights does not move visible content. A follow-end policy keeps the trailing edge visible as content grows, ends when the user scrolls away, and resumes only on request. Conversation, log, and terminal views motivate these rules under [conversational workspaces](conversational-ui.md#proposed-list-virtualization-requirements).
 
 Overlay placement resolves an anchor in logical coordinates against a declared viewport, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](ui-model.md#proposed-overlays-and-portals). Layout supplies shared geometry; input and paint must not independently recompute popup positions.
 

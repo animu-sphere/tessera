@@ -22,4 +22,4 @@ Follow the [code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities private
 
 ## License
 
-Tessera is licensed under the [Apache License 2.0](LICENSE). Third-party tools and SDKs used by optional modules are listed in [third-party notices](THIRD_PARTY_NOTICES.md).
+Tessera is licensed under the [Apache License 2.0](LICENSE). Third-party tools and SDKs used by optional modules are listed in [third-party notices](THIRD_PARTY_NOTICES.md). Tessera grants no rights to third-party fonts that applications load; see [font licensing](docs/reference/dependencies.md#font-licensing).

@@ -45,10 +45,25 @@ Prefer independently selectable modules. A core-only build must configure, build
 
 Fonts, icons, and example images also need provenance and redistributable license records. Add third-party notices when actual assets or libraries are introduced; candidate names here do not imply redistribution.
 
+## Font licensing
+
+Tessera provides the mechanism for using fonts, not rights to them. The font engine and font licenses stay separate:
+
+- Tessera guarantees only technical handling of supported formats: loading, shaping, layout, rasterization, glyph caching, and GPU drawing.
+- Tessera grants no right to redistribute, embed in applications or games, serve as webfonts, use on servers or cloud rendering, convert, or subset a third-party font. Licenses often treat these as separate rights; Tessera does not infer them.
+- The repository and any Tessera distribution contain only fonts whose licenses permit redistribution with Tessera, such as OFL, with provenance recorded in [third-party notices](../../THIRD_PARTY_NOTICES.md). These serve examples, CI, and snapshot fixtures.
+- Commercial fonts and fonts with unclear terms are never bundled. They enter only as [application or user fonts](../design/text.md#proposed-font-sources-and-selection); the application developer or user verifies the applicable license.
+
+User-facing documentation for font loading should carry a notice equivalent to:
+
+> Tessera can load supported third-party font files, including commercial fonts. Tessera does not grant any rights to redistribute, embed, serve, convert, subset, or otherwise distribute those fonts. Developers are responsible for complying with the applicable font license.
+
+A later packaging step may record font asset metadata (source, family, license identifier, attribution, redistribution status) and warn when a font marked non-redistributable is packaged. Such metadata assists developers; it does not certify license compliance.
+
 ## Decisions still required
 
 - Additional compiler/toolchain validation and optional-module dependency acquisition.
-- Text library/font fixtures and default fallback strategy.
+- Text implementation: FreeType and HarfBuzz are the intended baseline under [text](../design/text.md#candidate-implementation). Their versions, acquisition without automatic fetches, and license records, plus pinned redistributable Latin/Japanese/emoji fixture fonts and the bundled default fallback chain, remain to be recorded.
 - Deployment/redistribution policy for packaged native hosts and future SDK/compiler upgrades.
 - Explicit JSON version migrations and expanded property schemas, when a consumer requires them.
 

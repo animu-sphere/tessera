@@ -8,7 +8,7 @@ Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Exi
 
 ## Remaining required work
 
-- Real font abstraction, shaping, glyph cache, fallback, wrapping, and fixed Latin/Japanese fixtures.
+- Real font abstraction (faces, families, fallback stacks), shaping, dynamic bitmap glyph cache, fallback, wrapping, and a [deterministic font profile](../design/text.md#proposed-deterministic-font-profile) with fixed redistributable Latin/Japanese fixtures.
 - Focus recovery hardening as menus require it; an operator session with a physical controller for the Win32 host's [gamepad translation](../design/input.md#host-boundary).
 - ScrollView with matching paint/hit-test clipping.
 - SemanticTree v1 and Replay v1.
@@ -30,6 +30,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [layout](../desi
 
 ## Immediately next
 
-Real text requires an adoption decision for the font/shaping implementation under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Work needing no new dependency can proceed meanwhile, such as ScrollView with matching paint/hit-test clipping or SemanticTree v1 focus state consistent with the [styled](../design/styling.md#implemented-prototype-style-resolution) focus/disabled state. A physical-controller session can confirm the gamepad path whenever a controller is available.
+Real text requires recording the intended FreeType/HarfBuzz adoption (versions, acquisition, licenses) and fixture fonts under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Work needing no new dependency can proceed meanwhile, such as ScrollView with matching paint/hit-test clipping or SemanticTree v1 focus state consistent with the [styled](../design/styling.md#implemented-prototype-style-resolution) focus/disabled state. A physical-controller session can confirm the gamepad path whenever a controller is available.
 
 Later candidate scopes are in [backlog](backlog.md).
