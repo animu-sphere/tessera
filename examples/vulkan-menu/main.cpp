@@ -1,7 +1,7 @@
 // Win32 + Vulkan native menu host. The host owns the window, OS input normalization, DPI, the
 // Vulkan instance/device/queue/surface/swapchain, synchronization, presentation and retirement.
 // Tessera receives logical pointer events and focus commands, resolved styles and a recording
-// command buffer only.
+// command buffer only. Gamepad polling and its dead-zone/repeat policy also stay in the host.
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -11,11 +11,13 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <windowsx.h>
+#include <Xinput.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <tessera/vulkan/renderer.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/serialization.hpp>
+#include "gamepad.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -95,6 +97,15 @@ tessera::Point logical_point(int x, int y, float scale) {
 }
 tessera::Point logical_point(LPARAM lparam, float scale) {
     return logical_point(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam), scale);
+}
+gamepad::Sample sample(const XINPUT_GAMEPAD& pad) {
+    constexpr std::pair<WORD, gamepad::Button> mapping[]{
+        {XINPUT_GAMEPAD_DPAD_UP, gamepad::dpad_up}, {XINPUT_GAMEPAD_DPAD_DOWN, gamepad::dpad_down},
+        {XINPUT_GAMEPAD_DPAD_LEFT, gamepad::dpad_left}, {XINPUT_GAMEPAD_DPAD_RIGHT, gamepad::dpad_right},
+        {XINPUT_GAMEPAD_A, gamepad::accept}, {XINPUT_GAMEPAD_B, gamepad::back}};
+    std::uint16_t held = 0;
+    for (const auto& [xinput, button] : mapping) if (pad.wButtons & xinput) held |= button;
+    return {held, pad.sThumbLX, pad.sThumbLY};
 }
 tessera::Modifiers modifiers(WPARAM wparam) {
     return {(wparam & MK_SHIFT) != 0, (wparam & MK_CONTROL) != 0, GetKeyState(VK_MENU) < 0,
@@ -207,6 +218,10 @@ struct App {
     std::vector<tessera::PointerState> pointers;
     std::optional<tessera::NodeHandle> focused;
     std::vector<std::string> actions;
+    gamepad::Navigator navigator;
+    std::optional<DWORD> pad_slot;
+    std::chrono::microseconds next_pad_scan{0};
+    std::optional<gamepad::Sample> scripted_pad; // Smoke-only replacement for the controller.
     unsigned buttons = 0;
     bool releasing_capture = false, tracking_leave = false;
     std::string failure;
@@ -704,6 +719,26 @@ struct App {
         default: return false;
         }
     }
+    // Gamepad: the first connected XInput slot, read only while this window is in the foreground.
+    // Polling empty slots is costly, so they are rescanned at most once per second. The smoke
+    // supplies scripted samples instead, so a physical controller cannot perturb it.
+    std::optional<gamepad::Sample> read_gamepad(std::chrono::microseconds time) {
+        if (smoke) return scripted_pad;
+        if (GetForegroundWindow() != window) return std::nullopt;
+        XINPUT_STATE state{};
+        if (!pad_slot && time >= next_pad_scan) {
+            next_pad_scan = time + std::chrono::seconds(1);
+            for (DWORD slot = 0; slot < XUSER_MAX_COUNT && !pad_slot; ++slot)
+                if (XInputGetState(slot, &state) == ERROR_SUCCESS) pad_slot = slot;
+        }
+        if (!pad_slot) return std::nullopt;
+        if (XInputGetState(*pad_slot, &state) != ERROR_SUCCESS) { pad_slot.reset(); return std::nullopt; }
+        return sample(state.Gamepad);
+    }
+    void poll_gamepad() {
+        const auto time = now();
+        for (const auto& event : navigator.update(read_gamepad(time), time)) command(event);
+    }
     bool pressed() const {
         return std::any_of(pointers.begin(), pointers.end(), [](const auto& p) { return p.pressed.has_value(); });
     }
@@ -778,7 +813,42 @@ struct App {
         return DefWindowProcW(window, msg, wparam, lparam);
     }
 
-    // ---- Smoke sequence: OS mouse/cancel/DPI messages through the same window procedure ----
+    // ---- Smoke sequence: OS mouse/cancel/DPI/key messages and scripted gamepad samples -------
+    // Gamepad policy alone, with synthetic times: dead zone, hysteresis, axis and D-pad precedence,
+    // repeat timing, press edges, and input held at (re)connection.
+    void check_gamepad_mapping() {
+        using tessera::Direction;
+        using Data = decltype(tessera::InputEvent::data);
+        const auto nav = [](Direction direction, bool repeat) -> Data { return tessera::Navigate{direction, repeat}; };
+        struct Case { std::optional<gamepad::Sample> sample; int ms; std::vector<Data> expected; const char* what; };
+        const Case cases[]{
+            {gamepad::Sample{gamepad::accept | gamepad::dpad_down}, 0, {}, "input held at connection"},
+            {gamepad::Sample{}, 10, {}, "release after connection"},
+            {gamepad::Sample{0, 0, 12000}, 20, {}, "stick inside the engage threshold"},
+            {gamepad::Sample{0, 0, 20000}, 30, {nav(Direction::up, false)}, "stick engaging up"},
+            {gamepad::Sample{0, 0, 9000}, 420, {}, "held stick before the repeat delay"},
+            {gamepad::Sample{0, 0, 9000}, 430, {nav(Direction::up, true)}, "first repeat"},
+            {gamepad::Sample{0, 0, 9000}, 540, {}, "held stick before the repeat interval"},
+            {gamepad::Sample{0, 0, 9000}, 550, {nav(Direction::up, true)}, "second repeat"},
+            {gamepad::Sample{0, 0, 7000}, 560, {}, "stick inside the release dead zone"},
+            {gamepad::Sample{0, 23000, -22000}, 570, {nav(Direction::right, false)}, "dominant horizontal axis"},
+            {gamepad::Sample{gamepad::dpad_left, 23000, -22000}, 580, {nav(Direction::left, false)}, "D-pad over stick"},
+            {gamepad::Sample{gamepad::dpad_left | gamepad::accept | gamepad::back}, 590, {tessera::Activate{}, tessera::Cancel{}}, "press edges"},
+            {gamepad::Sample{gamepad::dpad_left | gamepad::accept | gamepad::back}, 600, {}, "held buttons"},
+            {std::nullopt, 610, {}, "disconnection"},
+            {gamepad::Sample{gamepad::dpad_up}, 620, {}, "direction held at reconnection"},
+            {gamepad::Sample{gamepad::dpad_up}, 1100, {}, "repeat of a direction held at reconnection"},
+            {gamepad::Sample{gamepad::dpad_down}, 1110, {nav(Direction::down, false)}, "direction change after reconnection"},
+        };
+        gamepad::Navigator policy;
+        for (const auto& c : cases) {
+            const std::chrono::microseconds time = std::chrono::milliseconds(c.ms);
+            std::vector<tessera::InputEvent> expected;
+            for (const auto& data : c.expected) expected.push_back({time, data});
+            if (policy.update(c.sample, time) != expected) return fail(std::string("Gamepad mapping mismatch: ") + c.what);
+        }
+        std::cout << "Gamepad mapping checked with " << std::size(cases) << " scripted samples.\n";
+    }
     POINT center(const char* id) const {
         const auto r = menu.box(id).border_box;
         return {LONG((r.origin.x + r.size.width / 2) * scale), LONG((r.origin.y + r.size.height / 2) * scale)};
@@ -841,7 +911,24 @@ struct App {
         case 12: expect(focused == menu.tree->find("quit"), "Tab did not focus Quit");
                  expect(actions.size() == 4, "Repeated Enter or unbound Escape requested an action");
                  expect(captures == 4 && menu.style("quit").border_color == Menu::focus_ring, "Focus ring was not presented");
-                 post_key(VK_RETURN); break;
+                 scripted_pad = gamepad::Sample{gamepad::accept}; break; // Connects with A held.
+        case 13: expect(actions.size() == 4 && focused == menu.tree->find("quit"), "Gamepad button held at connection acted");
+                 scripted_pad = gamepad::Sample{0, 0, 12000}; break;
+        case 14: expect(focused == menu.tree->find("quit"), "Stick inside the engage threshold navigated");
+                 scripted_pad = gamepad::Sample{0, 0, 32767}; break;
+        case 15: expect(focused == menu.tree->find("start"), "Stick up did not focus Start");
+                 scripted_pad = gamepad::Sample{gamepad::dpad_down}; break;
+        case 16: expect(focused == menu.tree->find("quit"), "D-pad down did not focus Quit");
+                 scripted_pad = gamepad::Sample{}; break;
+        case 17: scripted_pad = gamepad::Sample{gamepad::dpad_down}; break;
+        case 18: expect(focused == menu.tree->find("credits"), "Second D-pad down did not focus Credits");
+                 scripted_pad = gamepad::Sample{gamepad::accept}; break;
+        case 19: expect(actions.size() == 5 && actions.back() == "show-credits", "A did not request show-credits");
+                 scripted_pad = gamepad::Sample{gamepad::back}; break;
+        case 20: expect(actions.size() == 5, "B with no cancel binding requested an action");
+                 scripted_pad = gamepad::Sample{gamepad::dpad_up}; break;
+        case 21: expect(focused == menu.tree->find("quit"), "D-pad up did not focus Quit");
+                 scripted_pad = gamepad::Sample{gamepad::accept}; break;
         default: return;
         }
         ++step;
@@ -883,7 +970,7 @@ int main(int argc, char** argv) {
         SetWindowPos(app.window, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
         app.initialize_vulkan();
         ShowWindow(app.window, SW_SHOWNORMAL);
-        if (app.smoke) { app.capture_next = true; SetTimer(app.window, 1, 30'000, nullptr); }
+        if (app.smoke) { app.check_gamepad_mapping(); app.capture_next = true; SetTimer(app.window, 1, 30'000, nullptr); }
         while (!app.quit) {
             MSG msg;
             while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -892,6 +979,7 @@ int main(int argc, char** argv) {
             }
             if (app.quit) break;
             if (app.minimized) { WaitMessage(); continue; }
+            app.poll_gamepad();
             app.render();
             app.smoke_step();
         }
@@ -902,13 +990,13 @@ int main(int argc, char** argv) {
     app.shutdown_vulkan();
     if (app.window) DestroyWindow(app.window);
     if (app.smoke) {
-        if (app.failure.empty() && app.step != 13) app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
-        if (app.actions != std::vector<std::string>{"start-game", "start-game", "show-credits", "start-game", "quit-game"}) app.fail("Unexpected host action sequence");
+        if (app.failure.empty() && app.step != 22) app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
+        if (app.actions != std::vector<std::string>{"start-game", "start-game", "show-credits", "start-game", "show-credits", "quit-game"}) app.fail("Unexpected host action sequence");
     }
     if (validation_errors) app.fail(std::to_string(validation_errors) + " Vulkan validation errors");
     if (app.submit_errors || app.input_errors) app.fail("Rejected renderer submissions or input events");
     if (!app.failure.empty()) { std::cerr << app.failure << '\n'; return 1; }
     std::cout << "Presented " << app.presented << " swapchain frames (" << frames << " renderer frames retired)";
-    if (app.smoke) std::cout << "; native mouse/cancel/clip/keyboard smoke passed at scales 1, 1.5 and 1.25 with " << app.captures << " verified captures";
+    if (app.smoke) std::cout << "; native mouse/cancel/clip/keyboard/gamepad smoke passed at scales 1, 1.5 and 1.25 with " << app.captures << " verified captures";
     std::cout << ".\n";
 }
