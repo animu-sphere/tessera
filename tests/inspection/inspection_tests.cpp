@@ -46,6 +46,9 @@ struct Fixture {
         tree = std::move(*created.value);
         styles.resize(tree->size());
         styles[10].display = tessera::Display::none;
+        compute();
+    }
+    void compute() {
         auto result = tessera::compute_layout({tree.get(), styles, {200, 200}, &shaper});
         check(static_cast<bool>(result), "Fixture layout rejected");
         layout = std::move(*result.value);
@@ -204,6 +207,19 @@ void targets_resolve_exactly_one_element() {
 
     check(!tessera::resolve_target(tessera::InspectionSnapshot{}, tessera::PathTarget{}),
           "An empty snapshot resolves nothing");
+
+    // The menu clips its children to the top 50 units; its border area remains below.
+    Fixture clipped;
+    clipped.styles[0].border = {0, 0, 150, 0};
+    clipped.styles[0].overflow = tessera::Overflow::clip;
+    clipped.compute();
+    const auto clipped_snapshot = clipped.capture();
+    const auto& quit = *clipped_snapshot.elements[7].geometry;
+    check(!clipped_snapshot.elements[0].geometry->clip && quit.clip == tessera::Rect{{0, 0}, {200, 50}} &&
+              quit.border_box.origin.y >= 50, "Geometry must record ancestor clips");
+    const tessera::Point hidden{quit.border_box.origin.x + 1, quit.border_box.origin.y + 1};
+    const auto beneath = tessera::resolve_target(clipped_snapshot, tessera::PointTarget{hidden});
+    check(beneath && *beneath.value == clipped.node(0), "Points must not select clipped-out elements");
 }
 
 void actions_use_ordinary_eligibility_and_reject_stale_generations() {

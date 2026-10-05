@@ -139,6 +139,11 @@ void comparison_locates_differences() {
           "Exact comparison must locate a geometry difference");
     check(tessera::compare_replay(expected, actual, 0.25f).empty(), "Declared tolerance must accept the difference");
     check(!tessera::compare_replay(expected, actual, 0.125f).empty(), "Smaller tolerance must reject the difference");
+    expected = actual;
+    expected.generations[0].boxes[1].clip = tessera::Rect{};
+    diagnostics = tessera::compare_replay(expected, actual, 1);
+    check(diagnostics.size() == 1 && has(diagnostics, "replay_mismatch", "/generations/0/boxes/1/clip"),
+          "Clip presence must be compared");
 
     expected = actual;
     expected.generations[0].boxes[4].visible = false;

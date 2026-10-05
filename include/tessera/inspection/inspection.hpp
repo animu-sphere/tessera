@@ -31,6 +31,7 @@ struct GeometryObservation {
     Rect padding_box;
     Rect content_box;
     bool visible = true;
+    std::optional<Rect> clip; // Recorded ancestor clip; absent when unclipped.
     bool operator==(const GeometryObservation&) const = default;
 };
 

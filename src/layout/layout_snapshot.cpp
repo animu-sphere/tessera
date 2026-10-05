@@ -37,6 +37,7 @@ std::vector<Diagnostic> validate_layout_snapshot(const UiTree* tree, std::span<c
         check.edges(box.border, path + "/border");
         check.edges(box.padding, path + "/padding");
         check.rect(box.content_box(), path + "/content_box");
+        if (box.clip) check.rect(*box.clip, path + "/clip");
         if (i >= expected.size()) continue;
         if (box.node != expected[i].node)
             check.error("layout_node", path + "/node", "Recompute layout for this tree in displayed tree preorder.");
@@ -46,6 +47,11 @@ std::vector<Diagnostic> validate_layout_snapshot(const UiTree* tree, std::span<c
         if (box.border != style.border || box.padding != style.padding ||
             box.visible != (style.visibility == Visibility::visible))
             check.error("layout_style", path, "Recompute layout after changing border, padding, or visibility.");
+        const auto parent = expected[i].parent;
+        const auto clip = parent == no_layout_parent ? std::nullopt :
+            descendant_clip(boxes[parent], styles[expected[parent].node.index].overflow);
+        if (box.clip != clip)
+            check.error("layout_clip", path + "/clip", "Recompute layout after changing overflow or ancestor geometry.");
     }
     return errors;
 }

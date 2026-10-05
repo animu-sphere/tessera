@@ -6,6 +6,7 @@
 #include <cstring>
 #include <limits>
 #include <map>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -40,6 +41,15 @@ bool compatible(const Packet& a, const Packet& b) {
     return a.image == b.image && a.scissor.offset.x == b.scissor.offset.x &&
         a.scissor.offset.y == b.scissor.offset.y && a.scissor.extent.width == b.scissor.extent.width &&
         a.scissor.extent.height == b.scissor.extent.height;
+}
+// A pixel is inside the clip when its center is: edges [low, high) cover pixels ceil(low - 0.5) up
+// to ceil(high - 0.5), the same sample rule as primitive rasterization and pixel-center pointer mapping.
+std::optional<VkRect2D> scissor(const State& state, VkExtent2D extent) {
+    const auto edge = [](double value, std::uint32_t limit) { return std::clamp(std::ceil(value - 0.5), 0.0, double(limit)); };
+    const auto left = edge(state.left, extent.width), right = edge(state.right, extent.width);
+    const auto top = edge(state.top, extent.height), bottom = edge(state.bottom, extent.height);
+    if (right <= left || bottom <= top) return std::nullopt;
+    return VkRect2D{{std::int32_t(left), std::int32_t(top)}, {std::uint32_t(right - left), std::uint32_t(bottom - top)}};
 }
 bool representable(double value) {
     return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
@@ -398,13 +408,10 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                     }
                     // Validate even whitespace and fully clipped glyphs before skipping them.
                     if (glyph.id == ' ' || state.right <= state.left || state.bottom <= state.top) continue;
+                    const auto clip = scissor(state, extent);
+                    if (!clip || rect.size.width == 0 || rect.size.height == 0) continue;
                     Packet packet;
-                    const auto left = std::floor(std::clamp(state.left, 0.0, double(extent.width)));
-                    const auto top = std::floor(std::clamp(state.top, 0.0, double(extent.height)));
-                    const auto right = std::ceil(std::clamp(state.right, 0.0, double(extent.width)));
-                    const auto bottom = std::ceil(std::clamp(state.bottom, 0.0, double(extent.height)));
-                    if (right <= left || bottom <= top || rect.size.width == 0 || rect.size.height == 0) continue;
-                    packet.scissor = {{std::int32_t(left),std::int32_t(top)}, {std::uint32_t(right-left),std::uint32_t(bottom-top)}};
+                    packet.scissor = *clip;
                     auto& data = packet.primitive;
                     const auto& t = state.transform;
                     data.transform0 = {t.a,t.c,t.tx,frame.device_scale}; data.transform1 = {t.b,t.d,t.ty,0};
@@ -442,12 +449,9 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                 }
                 if (command.rect.size.width == 0 || command.rect.size.height == 0 ||
                     state.right <= state.left || state.bottom <= state.top) return;
-                const auto left = std::floor(std::clamp(state.left, 0.0, double(extent.width)));
-                const auto top = std::floor(std::clamp(state.top, 0.0, double(extent.height)));
-                const auto right = std::ceil(std::clamp(state.right, 0.0, double(extent.width)));
-                const auto bottom = std::ceil(std::clamp(state.bottom, 0.0, double(extent.height)));
-                if (right <= left || bottom <= top) return;
-                packet.scissor = {{std::int32_t(left), std::int32_t(top)}, {std::uint32_t(right-left), std::uint32_t(bottom-top)}};
+                const auto clip = scissor(state, extent);
+                if (!clip) return;
+                packet.scissor = *clip;
                 auto& data = packet.primitive;
                 const auto& t = state.transform;
                 data.transform0 = {t.a, t.c, t.tx, frame.device_scale}; data.transform1 = {t.b, t.d, t.ty, 0};

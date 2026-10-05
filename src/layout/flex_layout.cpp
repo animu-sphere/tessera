@@ -1,5 +1,6 @@
 #include <tessera/layout/layout_box.hpp>
 #include <tessera/ui/property_metadata.hpp>
+#include "../detail/layout_snapshot.hpp"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -51,10 +52,12 @@ public:
         }
         place(0, no_layout_parent, box);
         if (!errors_.empty()) return {std::nullopt, std::move(errors_)};
+        const auto finite = [](const Rect& r) {
+            return std::isfinite(r.origin.x) && std::isfinite(r.origin.y) &&
+                   std::isfinite(r.size.width) && std::isfinite(r.size.height);
+        };
         for (const auto& placed : result_.boxes) {
-            const auto& r = placed.border_box;
-            if (!std::isfinite(r.origin.x) || !std::isfinite(r.origin.y) ||
-                !std::isfinite(r.size.width) || !std::isfinite(r.size.height)) {
+            if (!finite(placed.border_box) || (placed.clip && !finite(*placed.clip))) {
                 errors_.push_back({"non_finite_geometry", Severity::error, node_path(placed.node.index),
                                    "Layout overflowed float range; reduce sizes, margins, or gaps.", {}});
             }
@@ -123,8 +126,10 @@ private:
     void place(std::uint32_t index, std::uint32_t parent, const Rect& border_box) {
         const auto& style = styles_[index];
         const auto at = static_cast<std::uint32_t>(result_.boxes.size());
+        auto clip = parent == no_layout_parent ? std::nullopt :
+            detail::descendant_clip(result_.boxes[parent], styles_[result_.boxes[parent].node.index].overflow);
         result_.boxes.push_back({handle(index), parent, border_box, style.border, style.padding,
-                                 style.visibility == Visibility::visible});
+                                 style.visibility == Visibility::visible, std::move(clip)});
         const auto content = result_.boxes[at].content_box();
         const auto children = displayed_children(index);
         if (children.empty()) return;

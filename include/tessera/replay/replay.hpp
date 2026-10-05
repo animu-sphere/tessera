@@ -48,6 +48,7 @@ struct ReplayBox {
     Edges border;
     Edges padding;
     bool visible = true;
+    std::optional<Rect> clip;
     bool operator==(const ReplayBox&) const = default;
 };
 // Full-tree layout and paint for one snapshot: the initial one and one per resize/reload step.

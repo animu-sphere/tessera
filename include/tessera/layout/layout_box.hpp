@@ -6,6 +6,7 @@
 #include <tessera/ui/tree.hpp>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -21,6 +22,9 @@ struct LayoutBox {
     Edges border;
     Edges padding;
     bool visible = true; // Hidden boxes keep geometry but neither paint nor receive input.
+    // Intersection of every clipping ancestor's padding box; absent when no ancestor clips.
+    // Paint and hit testing restrict this box to it; the box's own overflow affects only descendants.
+    std::optional<Rect> clip;
 
     Rect padding_box() const noexcept { return inset(border_box, border); }
     Rect content_box() const noexcept { return inset(padding_box(), padding); }

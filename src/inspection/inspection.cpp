@@ -17,10 +17,11 @@ bool same_properties(const UiNode& node, const NodeSource& source) {
     return true;
 }
 
-// Half-open, matching hit testing.
+// Half-open with double subtraction, matching hit testing.
 bool inside(const Rect& rect, Point point) noexcept {
-    return point.x >= rect.origin.x && point.x < rect.origin.x + rect.size.width &&
-           point.y >= rect.origin.y && point.y < rect.origin.y + rect.size.height;
+    const double x = static_cast<double>(point.x) - rect.origin.x;
+    const double y = static_cast<double>(point.y) - rect.origin.y;
+    return x >= 0 && x < rect.size.width && y >= 0 && y < rect.size.height;
 }
 
 // Semantic warnings are located at "/nodes/<preorder index>".
@@ -97,7 +98,8 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
         if (input.sources) element.source = input.sources->nodes[i];
     }
     for (const auto& box : input.layout->boxes)
-        snapshot.elements[box.node.index].geometry = {box.border_box, box.padding_box(), box.content_box(), box.visible};
+        snapshot.elements[box.node.index].geometry = {box.border_box, box.padding_box(), box.content_box(), box.visible,
+                                                     box.clip};
     const auto& entries = semantics.value->nodes;
     for (std::uint32_t i = 0; i < entries.size(); ++i) snapshot.elements[entries[i].node.index].semantic = i;
     snapshot.semantics = std::move(*semantics.value);
@@ -144,7 +146,8 @@ Result<NodeHandle> resolve_target(const InspectionSnapshot& snapshot, const Insp
         if (!errors.empty()) return {std::nullopt, std::move(errors)};
         for (auto i = elements.size(); i-- > 0;) {
             const auto& geometry = elements[i].geometry;
-            if (geometry && geometry->visible && inside(geometry->border_box, position)) {
+            if (geometry && geometry->visible && inside(geometry->border_box, position) &&
+                (!geometry->clip || inside(*geometry->clip, position))) {
                 matches.push_back(static_cast<std::uint32_t>(i));
                 break;
             }

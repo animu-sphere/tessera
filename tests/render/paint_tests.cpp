@@ -127,6 +127,45 @@ void visibility_display_and_empty() {
     check(defaults.paint().commands.empty(), "Zero-width border must emit nothing even when opaque");
 }
 
+void clip_runs() {
+    // Preorder: 0 root (clips), 1 first, 2 nested (clips), 3 inner, 4 last.
+    Fixture f(box({box(), box({box()}), box()}));
+    f.styles[0].padding = {4, 4, 4, 4};
+    f.styles[0].overflow = tessera::Overflow::clip;
+    f.styles[2].height = Dimension::points(20);
+    f.styles[2].overflow = tessera::Overflow::clip;
+    f.styles[3].height = Dimension::points(30);
+    for (auto& style : f.styles) style.background = {1, 1, 1, 1};
+    f.styles[1].background = {};
+    f.compute({100, 30});
+    const auto& boxes = f.layout.boxes;
+    const auto list = f.paint();
+    const tessera::UiDrawList expected{{
+        tessera::DrawRect{boxes[0].border_box, {1, 1, 1, 1}},
+        tessera::PushClip{*boxes[2].clip},
+        tessera::DrawRect{boxes[2].border_box, {1, 1, 1, 1}}, tessera::PopClip{},
+        tessera::PushClip{*boxes[3].clip},
+        tessera::DrawRect{boxes[3].border_box, {1, 1, 1, 1}}, tessera::PopClip{},
+        tessera::PushClip{*boxes[4].clip},
+        tessera::DrawRect{boxes[4].border_box, {1, 1, 1, 1}}, tessera::PopClip{},
+    }};
+    check(list == expected, "Each emitting box must paint inside its own recorded clip");
+    check(*boxes[3].clip == tessera::intersect(*boxes[2].clip, boxes[2].padding_box()), "Nested clip differs");
+
+    f.styles[3].background = {};
+    f.styles[4].background = {};
+    f.styles[1].background = {1, 1, 1, 1};
+    check(f.paint().commands.size() == 5, "Adjacent boxes under one clip must share a push/pop pair");
+
+    f.styles[2].overflow = tessera::Overflow::visible;
+    check(has(tessera::validate(f.input()), "layout_clip", "/layout/boxes/3/clip"), "Stale clip accepted");
+    f.compute({100, 30});
+    f.layout.boxes[1].clip->size.width = std::numeric_limits<float>::infinity();
+    const auto invalid = tessera::validate(f.input());
+    check(has(invalid, "invalid_number", "/layout/boxes/1/clip/size/width") &&
+              has(invalid, "layout_clip", "/layout/boxes/1/clip"), "Non-finite clip accepted");
+}
+
 void invalid_input_and_topology() {
     const auto missing = tessera::build_paint_list({});
     check(!missing && missing.diagnostics.size() == 3 && has(missing.diagnostics, "missing_input", "/layout"),
@@ -231,6 +270,7 @@ int main() {
     try {
         order_geometry_opacity_and_ownership();
         visibility_display_and_empty();
+        clip_runs();
         invalid_input_and_topology();
         shaping_failures_and_warnings();
         std::cout << "Paint order/geometry/opacity, ownership, topology, and shaping checks passed.\n";
