@@ -53,14 +53,14 @@ cmake --build build-vulkan --config Debug
 ctest --test-dir build-vulkan -C Debug --output-on-failure
 ```
 
-Use the actual installed paths; explicit overrides avoid mixing an older `VULKAN_SDK` environment value with another compiler on PATH. CMake rejects compiler versions outside the adoption record. `tessera_vulkan_shaders` generates `build-vulkan/backends/vulkan/shaders/primitive.{vertex,fragment,image}.spv`; the backend target depends on these artifacts. Shaders are build artifacts and are not loaded from implicit filesystem paths by the renderer: the host passes their words at construction.
+Use the actual installed paths; explicit overrides avoid mixing an older `VULKAN_SDK` environment value with another compiler on PATH. CMake rejects compiler versions outside the adoption record. `tessera_vulkan_shaders` generates `build-vulkan/backends/vulkan/shaders/primitive.{vertex,batch,fragment,image}.spv`; the backend target depends on these artifacts. Shaders are build artifacts and are not loaded from implicit filesystem paths by the renderer: the host passes their words at construction.
 
 The offscreen fixture requires an eligible Vulkan 1.1 graphics device, RGBA8 sRGB attachment/blending/sampling/transfer capabilities, coherent readback memory, and the installed Khronos validation layer. It enables synchronization validation and fails on validation errors. PPM images appear under `build-vulkan/backends/vulkan/artifacts`, including `glyph-scale-{1,2,3,4}.ppm`, `glyph-transforms.ppm`, `glyph-rejected.ppm`, `glyph-blank.ppm`, and `placeholder-menu.ppm`; logs are under `build-vulkan/Testing/Temporary`. Placeholder marks need no installed fonts. This procedure does not open a window or run a native menu.
 
 For standalone SPIR-V environment checks with the selected SDK:
 
 ```powershell
-foreach ($stage in 'vertex', 'fragment', 'image') {
+foreach ($stage in 'vertex', 'batch', 'fragment', 'image') {
     & C:/VulkanSDK/1.4.350.0/Bin/spirv-val.exe --target-env vulkan1.1 `
         "build-vulkan/backends/vulkan/shaders/primitive.$stage.spv"
     if ($LASTEXITCODE -ne 0) { throw "SPIR-V validation failed: $stage" }
@@ -76,6 +76,14 @@ cmake --build build-vulkan-core --config Debug
 ```
 
 That configuration performs no Vulkan/Slang dependency discovery or shader compilation. Actual results/configurations belong in [support](../reference/support-matrix.md#vulkan-primitive-evidence--2026-10-05).
+
+The same CTest workflow exercises reference and adjacent-batch paths and writes `batch-{reference,adjacent}-{1,3,5,7}.ppm` plus `batch-empty.ppm` beside the primitive artifacts. A separate fresh directory reproduces the batch slice's core independence check:
+
+```powershell
+cmake -S . -B build-batch-core -G "Visual Studio 18 2026" -A x64 `
+    -DBUILD_TESTING=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_VULKAN=OFF
+cmake --build build-batch-core --config Debug
+```
 
 ### Win32 Vulkan menu host
 

@@ -9,9 +9,8 @@ Depends on document, resolved-style, layout, paint, and pointer contracts. Exist
 ## Remaining required work
 
 - Record an interactive session of the [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) with physical mouse input and a real monitor DPI change; its automated smoke posts window messages. Mapping rules are in [input](../design/input.md#host-boundary).
-- Exercise conservative adjacent batching preserving visible order where the native host justifies it; use the existing ordered primitive path as the reference under [rendering](../design/rendering.md#batching).
 - Validate clip/transform agreement between native pointer mapping and rendering once menu paint or hit testing uses clips/transforms; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
-- Preserve deterministic geometry/paint, offscreen primitive/placeholder Text GPU fixtures, and the native menu smoke through the [testing strategy](../guides/testing.md).
+- Preserve deterministic geometry/paint, offscreen primitive/placeholder Text GPU fixtures, adjacent-batch/reference agreement, and the native menu smoke through the [testing strategy](../guides/testing.md).
 
 ## Optional early prototypes
 
@@ -31,6 +30,6 @@ These prototypes are recommended foundations, not additional release gates. They
 
 ## Immediately next
 
-Record the interactive [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) session with physical mouse input and a real monitor DPI change; this needs an operator. Code work can proceed with conservative adjacent batching in that host, using the ordered primitive path as the reference under [rendering](../design/rendering.md#batching).
+Record the interactive [Win32 example host](../design/rendering.md#implemented-win32-vulkan-example-host) session with physical mouse input and a real monitor DPI change; this needs an operator. The remaining code validation concerns clip/transform agreement when native menu paint and hit testing begin to use those states; follow the coordinate contracts above.
 
 Later candidate scopes are in [backlog](backlog.md).

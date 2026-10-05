@@ -14,18 +14,43 @@ struct Primitive {
 struct VertexOutput {
     float4 position : SV_Position;
     float2 local : TEXCOORD0;
+    nointerpolation float4 rect : TEXCOORD1;
+    nointerpolation float4 color : TEXCOORD2;
+    nointerpolation float4 widths : TEXCOORD3;
+    nointerpolation float4 source : TEXCOORD4;
+    nointerpolation float4 params : TEXCOORD5;
 };
-[shader("vertex")]
-VertexOutput vertexMain(uint id : SV_VulkanVertexID) {
+VertexOutput makeVertex(uint id, Primitive data) {
     const float2 corners[6] = {float2(0,0), float2(1,0), float2(0,1),
                                float2(0,1), float2(1,0), float2(1,1)};
     VertexOutput output;
-    output.local = corners[id] * primitive.rect.zw;
-    float2 p = output.local + primitive.rect.xy;
-    float2 logical = float2(dot(primitive.transform0.xy, p) + primitive.transform0.z,
-                            dot(primitive.transform1.xy, p) + primitive.transform1.z);
-    output.position = float4(logical * primitive.transform0.w / primitive.params.zw * 2 - 1, 0, 1);
+    output.local = corners[id] * data.rect.zw;
+    float2 p = output.local + data.rect.xy;
+    float2 logical = float2(dot(data.transform0.xy, p) + data.transform0.z,
+                            dot(data.transform1.xy, p) + data.transform1.z);
+    output.position = float4(logical * data.transform0.w / data.params.zw * 2 - 1, 0, 1);
+    output.rect = data.rect; output.color = data.color; output.widths = data.widths;
+    output.source = data.source; output.params = data.params;
     return output;
+}
+[shader("vertex")]
+VertexOutput vertexMain(uint id : SV_VulkanVertexID) { return makeVertex(id, primitive); }
+struct InstanceInput {
+    [[vk::location(0)]] float4 transform0 : TEXCOORD0;
+    [[vk::location(1)]] float4 transform1 : TEXCOORD1;
+    [[vk::location(2)]] float4 rect : TEXCOORD2;
+    [[vk::location(3)]] float4 color : TEXCOORD3;
+    [[vk::location(4)]] float4 widths : TEXCOORD4;
+    [[vk::location(5)]] float4 source : TEXCOORD5;
+    [[vk::location(6)]] float4 params : TEXCOORD6;
+};
+[shader("vertex")]
+VertexOutput batchMain(uint id : SV_VulkanVertexID, InstanceInput input) {
+    Primitive data;
+    data.transform0 = input.transform0; data.transform1 = input.transform1;
+    data.rect = input.rect; data.color = input.color; data.widths = input.widths;
+    data.source = input.source; data.params = input.params;
+    return makeVertex(id, data);
 }
 bool roundedContains(float2 p, float2 size, float radius) {
     float r = min(radius, min(size.x, size.y) * 0.5);
@@ -37,25 +62,25 @@ bool roundedContains(float2 p, float2 size, float radius) {
 }
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
-    if (primitive.params.y == 3) {
-        uint2 cell = min(uint2(input.local / primitive.rect.zw * float2(5,7)), uint2(4,6));
-        uint row = cell.y < 4 ? uint(primitive.widths[cell.y]) : uint(primitive.source[cell.y - 4]);
+    if (input.params.y == 3) {
+        uint2 cell = min(uint2(input.local / input.rect.zw * float2(5,7)), uint2(4,6));
+        uint row = cell.y < 4 ? uint(input.widths[cell.y]) : uint(input.source[cell.y - 4]);
         if ((row & (1u << (4u - cell.x))) == 0) discard;
-        return primitive.color;
+        return input.color;
     }
-    if (!roundedContains(input.local, primitive.rect.zw, primitive.params.x)) discard;
-    if (primitive.params.y == 1) {
-        float2 offset = primitive.widths.wx;
-        float2 inner = primitive.rect.zw - offset - primitive.widths.yz;
-        float radius = max(0, primitive.params.x - max(max(primitive.widths.x, primitive.widths.y),
-                                                       max(primitive.widths.z, primitive.widths.w)));
+    if (!roundedContains(input.local, input.rect.zw, input.params.x)) discard;
+    if (input.params.y == 1) {
+        float2 offset = input.widths.wx;
+        float2 inner = input.rect.zw - offset - input.widths.yz;
+        float radius = max(0, input.params.x - max(max(input.widths.x, input.widths.y),
+                                                       max(input.widths.z, input.widths.w)));
         float2 p = input.local - offset;
         if (all(inner > 0) && all(p >= 0) && all(p < inner) && roundedContains(p, inner, radius)) discard;
     }
-    return primitive.color;
+    return input.color;
 }
 [shader("fragment")]
 float4 imageMain(VertexOutput input) : SV_Target {
-    float2 uv = primitive.source.xy + input.local / primitive.rect.zw * primitive.source.zw;
-    return primitive.color * image.Sample(imageSampler, uv);
+    float2 uv = input.source.xy + input.local / input.rect.zw * input.source.zw;
+    return input.color * image.Sample(imageSampler, uv);
 }
