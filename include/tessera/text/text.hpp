@@ -35,11 +35,12 @@ struct Glyph {
     std::uint32_t id = 0;      // Font-specific glyph index.
     std::uint32_t cluster = 0; // UTF-8 byte offset of the source cluster.
     Point position;            // Baseline pen position relative to the text box top left.
+    FontId font;               // Font whose face `id` indexes; differs from the run's font only by fallback.
     bool operator==(const Glyph&) const = default;
 };
 
 struct GlyphRun {
-    FontId font;
+    FontId font; // Requested font (TextStyle::font).
     float size = 0;
     std::vector<Glyph> glyphs;
     TextMetrics metrics; // Equal to measure() for the same text and style.

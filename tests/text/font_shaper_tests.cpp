@@ -140,7 +140,8 @@ void missing_glyphs() {
     const auto run = shaper.shape("AVメ", style);
     check(run && run.value->glyphs.size() == 3, "Missing glyphs must still shape");
     const auto& missing = run.value->glyphs[2];
-    check(missing.id == 0 && missing.cluster == 2 && near(missing.position.x, 23.98f), "Missing glyph differs");
+    check(missing.id == 0 && missing.cluster == 2 && missing.font == latin && near(missing.position.x, 23.98f),
+          "Missing glyph differs");
     check(near(run.value->metrics.size.width, 35.98f), "Missing glyph width differs");
     check(run.diagnostics.size() == 1 && run.diagnostics[0].code == "missing_glyph" &&
           run.diagnostics[0].severity == tessera::Severity::warning && run.diagnostics[0].path == "/text" &&
@@ -148,6 +149,67 @@ void missing_glyphs() {
           "Missing glyph warning differs");
     const auto measured = shaper.measure("AVメ", style);
     check(measured && measured.diagnostics == run.diagnostics, "Measurement must report missing glyphs");
+}
+
+bool fonts_are(const tessera::GlyphRun& run, std::size_t count, tessera::FontId first, tessera::FontId rest) {
+    for (std::size_t i = 0; i < run.glyphs.size(); ++i)
+        if (run.glyphs[i].font != (i < count ? first : rest)) return false;
+    return true;
+}
+
+void fallback_stacks() {
+    auto shaper = fixture_shaper();
+    tessera::TextStyle style; // Noto Sans line metrics, with Noto Sans JP for clusters it cannot map.
+    style.size = 20;
+    check(shaper.set_fallback(latin, {japanese}).empty(), "Fallback stack rejected");
+    const auto mixed = shaped(shaper, "Start スタート", style);
+    check(mixed.font == latin && near(mixed.metrics, {{130.1f, 27.24f}, 21.38f, 27.24f, 1}), "Fallback metrics differ");
+    check_glyphs(mixed, {{54, 0, 0}, {87, 1, 10.98f}, {68, 2, 18.2f}, {85, 3, 29.42f}, {87, 4, 37.68f}, {3, 5, 44.9f},
+                         {1322, 6, 50.1f}, {1328, 9, 70.1f}, {1389, 12, 90.1f}, {1337, 15, 110.1f}},
+                 21.38f, "Start スタート with fallback");
+    check(fonts_are(mixed, 6, latin, japanese), "Glyphs must name the face that supplied them");
+
+    const auto lines = shaped(shaper, "Quit\nメニュー", style);
+    check(near(lines.metrics, {{80, 54.48f}, 21.38f, 27.24f, 2}), "Fallback multiline metrics differ");
+    check(lines.glyphs.size() == 8 && fonts_are(lines, 4, latin, japanese) && lines.glyphs[4].id == 1362 &&
+          lines.glyphs[4].cluster == 5 && near(lines.glyphs[4].position, {0, 48.62f}) &&
+          near(lines.glyphs[7].position, {60, 48.62f}), "Fallback second line differs");
+
+    // A face that maps nothing in a range passes it on; a cluster no face maps keeps the last
+    // face's glyph 0 and advance, and is reported once.
+    const std::string_view unmapped = "A\xe3\x83\xa1\xee\x80\x80"; // A, U+30E1, private-use U+E000.
+    check(shaper.set_face({2}, read_font("NotoSans-Regular.ttf")).empty(), "Second Latin face rejected");
+    check(shaper.set_fallback(latin, {{2}, japanese}).empty(), "Three-face stack rejected");
+    const auto chain = shaped(shaper, unmapped, style, 1);
+    check_glyphs(chain, {{36, 0, 0}, {1362, 1, 12.78f}, {0, 4, 32.78f}}, 21.38f, "Three-face chain");
+    check(fonts_are(chain, 1, latin, japanese) && near(chain.metrics.size.width, 52.78f), "Chain faces differ");
+    const auto warning = shaper.shape(unmapped, style).diagnostics;
+    check(warning.size() == 1 && warning[0].code == "missing_glyph" && warning[0].path == "/text" &&
+          warning[0].message.find("1 glyph") != std::string::npos &&
+          warning[0].message.find("byte 4") != std::string::npos &&
+          warning[0].message.find("fallback") != std::string::npos, "Fallback missing-glyph warning differs");
+
+    // Stacks are not transitive: FontId 2's own stack is not consulted for FontId 0.
+    check(shaper.set_fallback(latin, {{2}}).empty() && shaper.set_fallback({2}, {japanese}).empty(),
+          "Non-transitive stacks rejected");
+    const auto direct = shaper.shape("メ", style);
+    check(direct && direct.value->glyphs.size() == 1 && direct.value->glyphs[0].id == 0 &&
+          direct.value->glyphs[0].font == tessera::FontId{2}, "Fallback stacks must not chain");
+
+    // Rejected stacks leave the previous one in place; an empty stack clears it.
+    check(has(shaper.set_fallback({7}, {japanese}), "unknown_font", "/font"), "Unknown primary accepted");
+    check(has(shaper.set_fallback(latin, {{9}}), "unknown_font", "/fallback/0"), "Unknown fallback accepted");
+    check(has(shaper.set_fallback(latin, {latin}), "duplicate_font", "/fallback/0"), "Self fallback accepted");
+    check(has(shaper.set_fallback(latin, {japanese, japanese}), "duplicate_font", "/fallback/1"),
+          "Duplicate fallback accepted");
+    check(shaper.shape("メ", style).value->glyphs[0].font == tessera::FontId{2}, "Rejected stack replaced the previous one");
+    check(shaper.set_fallback(latin, {}).empty(), "Clearing rejected");
+    check(shaper.shape("メ", style).value->glyphs[0].font == latin, "Cleared stack still used");
+
+    // Replacing a fallback face changes later results.
+    check(shaper.set_fallback(latin, {japanese}).empty() &&
+          shaper.set_face(japanese, read_font("NotoSans-Regular.ttf")).empty(), "Fallback replacement rejected");
+    check(shaper.shape("メ", style).value->glyphs[0].id == 0, "Replaced fallback face not used");
 }
 
 void faces_and_failures() {
@@ -188,16 +250,14 @@ tessera::UiNode text(std::string content) {
 
 void layout_and_paint_agree() {
     auto shaper = fixture_shaper();
+    check(shaper.set_fallback(latin, {japanese}).empty(), "Fallback stack rejected");
     tessera::UiDocument document;
-    document.root.children = {text("Start スタート"), text("メニュー\nQuit")};
+    document.root.children = {text("Start スタート"), text("Quit\nメニュー")};
     auto created = tessera::UiTree::create(document);
     check(static_cast<bool>(created), "Fixture tree rejected");
     const auto tree = std::move(*created.value);
     std::vector<tessera::ResolvedStyle> styles(tree->size());
-    for (auto& style : styles) {
-        style.text.font = japanese;
-        style.text.size = 20;
-    }
+    for (auto& style : styles) style.text.size = 20; // Default FontId 0 with Japanese fallback.
     styles[0].align = tessera::Align::start; // Text boxes keep their measured width.
     const auto layout = tessera::compute_layout({tree.get(), styles, {400, 300}, &shaper});
     check(static_cast<bool>(layout), "Layout rejected");
@@ -210,6 +270,8 @@ void layout_and_paint_agree() {
         const auto& content = std::get<std::string>(node.properties.at("text"));
         const auto run = shaper.shape(content, styles[box.node.index].text);
         check(box.content_box().size == run.value->metrics.size, "Layout did not use the measured size");
+        check(run.value->glyphs.front().font == latin && run.value->glyphs.back().font == japanese,
+              "Fixture text must mix faces");
         bool painted = false;
         for (const auto& command : paint.value->commands) {
             const auto* glyphs = std::get_if<tessera::DrawGlyphRun>(&command);
@@ -228,9 +290,10 @@ int main() {
         latin_shaping();
         japanese_shaping();
         missing_glyphs();
+        fallback_stacks();
         faces_and_failures();
         layout_and_paint_agree();
-        std::cout << "Font shaping, metrics, missing-glyph, failure, and layout/paint agreement checks passed.\n";
+        std::cout << "Font shaping, metrics, missing-glyph, fallback, failure, and layout/paint agreement checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
