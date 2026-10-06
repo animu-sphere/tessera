@@ -293,6 +293,248 @@ void logical_commands_match_clicks_and_semantics() {
     }
 }
 
+// Preorder: menu 0, start 1, options 3, quit 5, in a root scroll box that shows only part of the list.
+tessera::ReplayRecording scrolled_menu() {
+    auto result = recording();
+    result.document = menu({focusable(button("start", "Start", "start-game")),
+                            focusable(button("options", "Options", "start-game")),
+                            focusable(button("quit", "Quit", "quit-game"))});
+    result.styles = menu_styles(3);
+    result.styles[0].overflow = tessera::Overflow::scroll;
+    result.viewport = {200, 60};
+    return result;
+}
+
+float offset(const tessera::ReplayGeneration& generation) { return generation.boxes[0].scroll->offset.y; }
+
+// Focus moved by a command or focus step is revealed under the host reveal policy, and a focus step's
+// fixture-identity target is resolved in the current generation.
+void reveal_policy_scrolls_focus_into_view() {
+    auto keyboard = scrolled_menu();
+    keyboard.policy.reveal_focus = true;
+    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},          // 0: quit, revealed
+                      tessera::ReplayFocus{tessera::AuthorIdTarget{"start"}},       // 1: start, revealed
+                      tessera::ReplayFocus{tessera::AuthorIdTarget{"start"}},       // 2: unchanged
+                      tessera::InputEvent{2us, tessera::Navigate{tessera::Direction::up}}}; // 3: stays
+    const auto output = play(keyboard);
+    check(output.generations.size() == 3 && output.generations[1].step == 0u && output.generations[2].step == 1u,
+          "Each reveal that changes an offset must settle a generation for its step");
+    const auto& revealed = output.generations[1];
+    const auto viewport = revealed.boxes[0].border_box;
+    const auto quit = revealed.boxes.at(5).border_box;
+    check(offset(output.generations[0]) == 0 && offset(revealed) > 0 &&
+              quit.origin.y + quit.size.height <= viewport.size.height + 0.001f,
+          "FocusPrevious must scroll the last button into view");
+    const auto start = output.generations[2].boxes.at(1).border_box;
+    check(offset(output.generations[2]) < offset(revealed) && start.origin.y >= -0.001f && start.origin.y <= 0.001f,
+          "Focusing Start by author ID must scroll back just far enough to show it");
+
+    const std::vector<std::optional<std::size_t>> observed{std::nullopt, 0u, 1u, 2u, 3u};
+    const std::vector<std::size_t> generation{0, 1, 2, 2, 2};
+    const std::vector<std::optional<std::uint32_t>> focus{std::nullopt, 5u, 1u, 1u, 1u};
+    check(output.semantics.size() == observed.size(), "Reveals must not observe the pre-reveal generation");
+    for (std::size_t i = 0; i < observed.size(); ++i) {
+        check(output.semantics[i].step == observed[i] && output.semantics[i].generation == generation[i] &&
+                  output.semantics[i].focused == focus[i],
+              "Focus and command steps must be observed in the generation that reveals them");
+    }
+    check(output == play(keyboard), "Repeated reveal playback must be identical");
+
+    keyboard.policy.reveal_focus = false;
+    const auto unrevealed = play(keyboard);
+    check(unrevealed.generations.size() == 1 && unrevealed.semantics.size() == 5 &&
+              unrevealed.semantics[1].focused == 5u && unrevealed.semantics[2].focused == 1u,
+          "Without the policy, focus moves without scrolling");
+
+    auto bad = scrolled_menu();
+    bad.steps = {tessera::ReplayFocus{tessera::AuthorIdTarget{"missing"}}};
+    check(has(play_invalid(bad).diagnostics, "target_not_found", "/steps/0/target"), "Missing targets must fail");
+    bad.steps = {tessera::ReplayFocus{tessera::AuthorIdTarget{"start-label"}}};
+    check(has(play_invalid(bad).diagnostics, "not_focusable", "/steps/0/target"),
+          "A focus step must apply programmatic focus eligibility");
+    bad.document.root.children[2].properties["disabled"] = true;
+    bad.steps = {tessera::ReplayFocus{tessera::SemanticTarget{tessera::SemanticRole::button, "Quit"}}};
+    check(has(play_invalid(bad).diagnostics, "disabled_target", "/steps/0/target"),
+          "A disabled focus target must fail");
+    bad = scrolled_menu();
+    bad.steps = {tessera::ReplayFocus{tessera::PathTarget{{7}}}};
+    check(has(play_invalid(bad).diagnostics, "target_not_found", "/steps/0/target/children/0"),
+          "Path diagnostics must be located under the step");
+}
+
+// A semantic action step requests what a click requests, even for a button scrolled out of view, and
+// ambiguous or unexposed targets fail.
+void semantic_action_steps_match_clicks() {
+    auto automation = scrolled_menu();
+    automation.steps = {tessera::ReplaySemanticAction{tessera::SemanticTarget{tessera::SemanticRole::button, "Quit"}},
+                        tessera::InputEvent{1us, tessera::Scroll{{100, 30}, {0, 1000}}},
+                        tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"start"}}};
+    const auto output = play(automation);
+    const std::vector<tessera::ReplayAction> expected{
+        {0, 0, "activate", "quit-game", 5, "quit"},
+        {2, 1, "activate", "start-game", 1, "start"},
+    };
+    check(output.actions == expected, "Semantic action steps must request the button's activation");
+    check(output.semantics.size() == 2, "Semantic action steps must not move focus or add observations");
+
+    auto clicks = scrolled_menu();
+    const auto quit = center(play(clicks).generations[0].boxes.at(5));
+    clicks.steps = {tessera::InputEvent{1us, tessera::Scroll{{100, 30}, {0, 1000}}}};
+    const auto scrolled_quit = center(play(clicks).generations[1].boxes.at(5));
+    check(quit.y > 60, "Quit must start outside the viewport");
+    clicks.steps.push_back(tessera::InputEvent{2us, tessera::PointerDown{{1}, scrolled_quit}});
+    clicks.steps.push_back(tessera::InputEvent{3us, tessera::PointerUp{{1}, scrolled_quit}});
+    const auto click = play(clicks).actions.at(0);
+    check(click.binding == expected[0].binding && click.action == expected[0].action &&
+              click.node == expected[0].node && click.id == expected[0].id,
+          "A semantic action must equal a click on the same button");
+
+    auto bad = scrolled_menu();
+    bad.steps = {tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"menu"}}};
+    check(has(play_invalid(bad).diagnostics, "unsupported_action", "/steps/0/binding"),
+          "A target without the binding must fail");
+    bad.steps = {tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"quit"}, "cancel"}};
+    check(has(play_invalid(bad).diagnostics, "unsupported_action", "/steps/0/binding"),
+          "An unexposed binding must fail");
+    bad.document.root.children[1].children[0].properties["text"] = std::string("Start");
+    bad.steps = {tessera::ReplaySemanticAction{tessera::SemanticTarget{tessera::SemanticRole::button, "Start"}}};
+    check(has(play_invalid(bad).diagnostics, "ambiguous_target", "/steps/0/target"),
+          "Ambiguous role/name targets must fail");
+}
+
+// A primary press focuses a focusable press owner under the host press policy, without revealing it.
+void press_policy_focuses_without_reveal() {
+    auto pointer = scrolled_menu();
+    pointer.document.root.children[0].properties["focusable"] = false;
+    pointer.policy = {true, true};
+    const auto initial = play(pointer).generations[0].boxes;
+    const auto& options = initial.at(3).border_box;
+    check(options.origin.y < 60 && options.origin.y + options.size.height > 60, "Options must be partly visible");
+    const tessera::Point partly{100, (options.origin.y + 60) / 2};
+    const auto start = center(initial.at(1));
+    std::chrono::microseconds time{0};
+    const auto at = [&](auto data) { return tessera::InputEvent{time += 1us, std::move(data)}; };
+    pointer.steps = {at(tessera::PointerDown{{1}, partly}),                            // 0: focus options
+                     at(tessera::PointerUp{{1}, partly}),                              // 1: start-game
+                     at(tessera::PointerDown{{1}, partly, tessera::PointerButton::secondary}), // 2: no focus
+                     at(tessera::PointerDown{{1}, start}),                             // 3: not focusable
+                     at(tessera::PointerUp{{1}, start}),                               // 4: start-game
+                     at(tessera::FocusNext{})};                                        // 5: quit, revealed
+    const auto output = play(pointer);
+    check(output.generations.size() == 2 && output.generations[1].step == 5u,
+          "Presses must not reveal; the following command must");
+    check(output.semantics.size() == 3 && output.semantics[1].step == 0u && output.semantics[1].focused == 3u &&
+              output.semantics[2].step == 5u && output.semantics[2].generation == 1 &&
+              output.semantics[2].focused == 5u,
+          "Only a press that moves focus must be observed");
+    check(output.actions.size() == 2 && output.actions[0].id == "options" && output.actions[1].id == "start",
+          "Press focus must not change activation");
+
+    pointer.policy.press_focus = false;
+    check(play(pointer).semantics[1].step == 5u, "Without the policy, presses must not focus");
+}
+
+tessera::ReplaySession open(tessera::ReplayRecording recording) {
+    static tessera::PlaceholderTextShaper text;
+    auto result = tessera::ReplaySession::open(std::move(recording), text);
+    check(result && result.diagnostics.empty(), "Valid session rejected");
+    return std::move(*result.value);
+}
+
+tessera::NodeHandle resolve(const tessera::ReplaySession& session, const tessera::InspectionTarget& target) {
+    const auto captured = session.capture();
+    check(captured.value.has_value(), "Capture of the current generation failed");
+    const auto resolved = tessera::resolve_target(*captured.value, target);
+    check(resolved.value.has_value(), "Target did not resolve in the captured generation");
+    return *resolved.value;
+}
+
+// Applying steps one at a time reproduces whole-recording playback, and the session's recording replays.
+void session_steps_match_playback() {
+    const auto whole = interaction();
+    auto session = open(recording());
+    for (const auto& step : whole.steps) {
+        const auto applied = session.apply(step);
+        check(applied && *applied.value + 1 == session.recording().steps.size(), "Session step rejected");
+    }
+    check(session.output() == play(whole), "Incremental steps must match whole-recording playback");
+    check(play(session.recording()) == session.output(), "The session recording must replay its output");
+
+    auto bad = recording();
+    bad.version = 1;
+    tessera::PlaceholderTextShaper text;
+    const auto rejected = tessera::ReplaySession::open(bad, text);
+    check(!rejected && has(rejected.diagnostics, "unsupported_version", "/version"), "Session version must be checked");
+}
+
+// An in-process consumer captures the current generation, acts through resolved handles that are recorded as
+// fixture identities, and has stale and invalid steps rejected without changing the session.
+void session_consumer_rejects_stale_targets() {
+    auto keyboard = recording();
+    keyboard.document = menu({focusable(button("start", "Start", "start-game")),
+                              focusable(button("quit", "Quit", "quit-game"))});
+    auto session = open(keyboard);
+    const auto quit = resolve(session, tessera::SemanticTarget{tessera::SemanticRole::button, "Quit"});
+    check(session.invoke(quit).value == 0u && session.focus(quit).value == 1u, "Handle steps must be accepted");
+    const auto& steps = session.recording().steps;
+    const auto* focused = std::get_if<tessera::ReplayFocus>(&steps[1]);
+    check(focused && std::get<tessera::AuthorIdTarget>(focused->target).id == "quit",
+          "A handle must be recorded by author ID");
+    const auto captured = session.capture();
+    check(captured && captured.value->semantics.nodes[2].focused && captured.value->generation == quit.tree,
+          "A capture must observe the current focus in the current tree");
+
+    auto unnamed = focusable(button("anonymous", "Resume", "start-game"));
+    unnamed.id.reset();
+    check(session.apply(tessera::ReplayReload{menu({std::move(unnamed), focusable(button("quit", "Quit", "quit-game"))}),
+                                              menu_styles(2)})
+              .value == 2u,
+          "Reload rejected");
+    const auto unchanged = [&](std::size_t count, const tessera::ReplayOutput& before, const char* message) {
+        check(!session.closed() && session.recording().steps.size() == count && session.output() == before, message);
+    };
+    auto before = session.output();
+    auto stale = session.invoke(quit);
+    check(!stale && has(stale.diagnostics, "stale_target", "/steps/3/target"), "A pre-reload handle must be stale");
+    unchanged(3, before, "A stale handle must leave the session unchanged");
+    stale = session.focus(quit);
+    check(!stale && has(stale.diagnostics, "stale_target", "/steps/3/target"), "A stale focus handle must fail");
+
+    const auto resume = resolve(session, tessera::PathTarget{{0}});
+    check(session.focus(resume).value == 3u, "A current handle must be accepted after the reload");
+    const auto* path = std::get_if<tessera::ReplayFocus>(&session.recording().steps[3]);
+    check(path && std::get<tessera::PathTarget>(path->target).children == std::vector<std::uint32_t>{0},
+          "A handle without an author ID must be recorded by path");
+
+    before = session.output();
+    auto rejected = session.apply(tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"missing"}});
+    check(!rejected && has(rejected.diagnostics, "target_not_found", "/steps/4/target"), "Missing target accepted");
+    unchanged(4, before, "A missing target must leave the session unchanged");
+    check(session.apply(tessera::InputEvent{5us, tessera::PointerMove{{1}, {1, 1}}}).value.has_value(), "Pointer step rejected");
+    before = session.output();
+    rejected = session.apply(tessera::InputEvent{4us, tessera::Activate{}});
+    check(!rejected && has(rejected.diagnostics, "event_order", "/steps/5/timestamp"), "Backward time accepted");
+    unchanged(5, before, "Backward time must leave the session unchanged");
+    rejected = session.apply(tessera::ReplayResize{{-1, 100}});
+    check(!rejected && has(rejected.diagnostics, "out_of_range", "/steps/5/viewport/width"), "Bad viewport accepted");
+    unchanged(5, before, "A rejected resize must leave the session unchanged");
+    rejected = session.apply(tessera::ReplayReload{recording().document, menu_styles(1)});
+    check(!rejected && has(rejected.diagnostics, "style_count", "/steps/5/styles"), "Bad reload accepted");
+    unchanged(5, before, "A rejected reload must leave the session unchanged");
+
+    // The previous tree, viewport, and clock remain current after the rejections.
+    check(session.invoke(resume).value == 5u && session.apply(tessera::InputEvent{5us, tessera::Scroll{{1, 1}, {0, 1}}}),
+          "The session must stay usable after rejections");
+    check(session.output().generations.back().boxes[0].border_box.size.width == 200,
+          "A rejected resize must not change the viewport");
+    const std::vector<tessera::ReplayAction> expected{
+        {0, 0, "activate", "quit-game", 3, "quit"},
+        {5, 1, "activate", "start-game", 1, std::nullopt},
+    };
+    check(session.output().actions == expected, "Handle invocations must request their buttons' actions");
+    check(play(session.recording()) == session.output(), "The consumer's recording must replay its output");
+}
+
 void comparison_locates_differences() {
     const auto actual = play(interaction());
     auto expected = actual;
@@ -411,9 +653,14 @@ int main() {
         playback_observes_geometry_paint_and_actions();
         scroll_steps_relayout_before_clicks();
         logical_commands_match_clicks_and_semantics();
+        reveal_policy_scrolls_focus_into_view();
+        semantic_action_steps_match_clicks();
+        press_policy_focuses_without_reveal();
+        session_steps_match_playback();
+        session_consumer_rejects_stale_targets();
         comparison_locates_differences();
         invalid_recordings_are_located_without_output();
-        std::cout << "Replay playback, command, semantic, comparison, and rejection checks passed.\n";
+        std::cout << "Replay playback, command, focus policy, target, session, semantic, comparison, and rejection checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

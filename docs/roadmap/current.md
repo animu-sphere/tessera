@@ -29,6 +29,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [layout](../desi
 
 ## Immediately next
 
-Real text requires recording the intended FreeType/HarfBuzz adoption (versions, acquisition, licenses) and fixture fonts under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Work needing no new dependency can proceed meanwhile, such as focus recovery hardening for scrolled menus, or a versioned Replay v1 recording with fixture-identity targets now that [prototype replay](../design/replay.md#implemented-prototype-playback) plays logical commands and records semantics. A physical-controller session can confirm the gamepad path whenever a controller is available.
+Real text requires recording the intended FreeType/HarfBuzz adoption (versions, acquisition, licenses) and fixture fonts under [dependencies](../reference/dependencies.md#decisions-still-required) before code lands. Work needing no new dependency can proceed meanwhile, such as focus recovery hardening for scrolled menus, or a versioned, serialized Replay v1 recording now that [prototype replay](../design/replay.md#implemented-prototype-playback) resolves fixture-identity focus and semantic action targets and applies the host focus policies. A physical-controller session can confirm the gamepad path whenever a controller is available.
 
 Later candidate scopes are in [backlog](backlog.md).
