@@ -59,7 +59,8 @@ Result<GlyphRun> PlaceholderTextShaper::shape(std::string_view utf8, const TextS
             continue;
         }
         run.glyphs.push_back({scalar, start, {static_cast<float>(column) * advance,
-                                              run.metrics.baseline + static_cast<float>(lines - 1) * line}});
+                                              run.metrics.baseline + static_cast<float>(lines - 1) * line},
+                              style.font});
         ++column;
     }
     widest = std::max(widest, column);
