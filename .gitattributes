@@ -6,3 +6,7 @@ CMakeLists.txt text eol=lf
 VERSION text eol=lf
 *.cmake text eol=lf
 *.yml text eol=lf
+# Font fixtures and their license texts are third-party files kept byte-identical to upstream.
+*.ttf binary
+*.otf binary
+tests/fixtures/fonts/*.txt -text

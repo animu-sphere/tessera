@@ -29,13 +29,17 @@ std::vector<Diagnostic> validate(const TextStyle& style, std::string_view base) 
     return errors;
 }
 
-Result<GlyphRun> PlaceholderTextShaper::shape(std::string_view utf8, const TextStyle& style) {
+std::vector<Diagnostic> validate_text_input(std::string_view utf8, const TextStyle& style) {
     auto errors = validate(style, "/style");
     if (utf8.size() > std::numeric_limits<std::uint32_t>::max())
         errors.push_back({"text_too_long", Severity::error, "/text", "Text exceeds 4 GiB of UTF-8.", {}});
     else if (!detail::valid_utf8(utf8))
         errors.push_back({"invalid_utf8", Severity::error, "/text", "Text must be valid UTF-8.", {}});
-    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    return errors;
+}
+
+Result<GlyphRun> PlaceholderTextShaper::shape(std::string_view utf8, const TextStyle& style) {
+    if (auto errors = validate_text_input(utf8, style); !errors.empty()) return {std::nullopt, std::move(errors)};
 
     GlyphRun run{style.font, style.size, {}, {}};
     const float line = style.line_height.value_or(style.size * line_height_em);

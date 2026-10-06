@@ -8,7 +8,7 @@
 - Acquisition: no automatic network fetches or vendored libraries. Core-only builds are offline once the host C++ toolchain/CMake are installed, without graphics SDKs or external fonts. CMake/CTest and compiler tools are build/development requirements, not runtime dependencies.
 - Release automation: GitHub-hosted runners with `actions/checkout` and `actions/upload-artifact` pinned to full commit SHAs in the [release workflow](../../.github/workflows/release.yml); the GitHub CLI preinstalled on hosted runners publishes releases. These are repository infrastructure, not build or runtime dependencies. The runner's toolchain is whatever its image provides; it is not a validated configuration until its results are recorded in support.
 
-Optional Vulkan tools/libraries are adopted below. [Third-party notices](../../THIRD_PARTY_NOTICES.md) records their upstream licenses; no SDK binaries, headers, compiler, fonts, or external image assets are vendored or redistributed.
+Optional Vulkan and text tools/libraries are adopted below. [Third-party notices](../../THIRD_PARTY_NOTICES.md) records their upstream licenses. No SDK or library binaries, headers, compiler, or external image assets are vendored or redistributed; the [text fixture fonts](#adopted-text-choices) are the only third-party files in the repository.
 
 ## Adopted Vulkan choices
 
@@ -21,12 +21,23 @@ Optional Vulkan tools/libraries are adopted below. [Third-party notices](../../T
 
 The backend option defaults OFF and performs no Vulkan/Slang discovery then. With it ON, installed tools are used without downloads. This optional module requires CMake >= 3.23 for [SDK version discovery](https://cmake.org/cmake/help/v3.23/module/FindVulkan.html); the core retains its declared 3.20 floor. [Rendering](../design/rendering.md#implemented-vulkan-primitive-boundary) owns target, color, image, synchronization and lifetime rules; [development](../guides/development.md#optional-vulkan-workflow) owns shader output paths and commands. Actual SDK/compiler/GPU/layer combinations are recorded only in [support](support-matrix.md#vulkan-primitive-evidence--2026-10-05). Win32 is an example-host choice, not a core platform requirement or a native-host support claim.
 
+## Adopted text choices
+
+| Dependency | Owner and purpose | Constraint and acquisition | License and runtime use |
+| --- | --- | --- | --- |
+| HarfBuzz | Optional `tessera::fonts`, [font shaper](../design/text.md#implemented-font-shaper) shaping and face parsing | Exactly 10.2.0: configure reads `hb-version.h` and rejects another version, because shaping fixtures are exact. Found with `find_package(harfbuzz CONFIG)` from an existing installation; the build fetches nothing. Recorded acquisition: vcpkg classic mode, `harfbuzz[core]` port `10.2.0#3`, consumed through the vcpkg toolchain file | MIT ("Old MIT"); runtime library of the optional module (a DLL with dynamic vcpkg triplets) |
+| FreeType | Glyph rasterization for the planned glyph cache; not yet called by Tessera | 2.13.3, `freetype[core]` (no brotli/bzip2/png/zlib) by the same procedure. The vcpkg HarfBuzz build links it, so it is already a runtime dependency of that HarfBuzz library | FreeType License, selected from `FTL OR GPL-2.0-or-later`; distributed binaries must credit the FreeType Project in their documentation |
+| Noto Sans 2.015 | Latin [fixture font](../../tests/fixtures/fonts) (TrueType outlines) | Unmodified `NotoSans/unhinted/ttf/NotoSans-Regular.ttf` from release `NotoSans-v2.015` of `notofonts/latin-greek-cyrillic`, SHA-256 `f3961a9cde016d41a4879aecda1474d3a36d6bf54fa0e4643de029cc2248b0e8` | OFL-1.1 with no Reserved Font Name; license text beside the font; test data, not a bundled default |
+| Noto Sans JP 2.004 | Japanese fixture font (CFF outlines, Japanese subset) | Unmodified `Sans/SubsetOTF/JP/NotoSansJP-Regular.otf` at tag `Sans2.004` of `notofonts/noto-cjk`, SHA-256 `dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d6d2d085ac5073` | OFL-1.1 with no Reserved Font Name; license text beside the font; test data, not a bundled default |
+
+The `TESSERA_BUILD_FONTS` option defaults OFF and performs no HarfBuzz discovery then. Classic-mode vcpkg installs nothing during configure while the repository has no vcpkg manifest; adding one would make configuration fetch dependencies and requires a new decision. Other acquisitions are acceptable when they provide the pinned version and a `harfbuzz::harfbuzz` CMake package; their runtime libraries must be locatable by the tests. Fixture fonts are committed byte-identical to upstream and marked binary in `.gitattributes`. Changing HarfBuzz or a fixture font requires re-deriving the [font shaper checks](../../tests/text/font_shaper_tests.cpp) and a new record here. [Development](../guides/development.md#optional-fonts-workflow) owns the commands; validated combinations are recorded only in [support](support-matrix.md#font-shaper-evidence--2026-10-06).
+
 ## Module boundaries
 
 | Module | Candidate requirements | Boundary |
 | --- | --- | --- |
 | Core UI/style/layout/input and common contracts | C++ standard library; optional fmt if justified | No GPU SDK, browser, engine/editor SDK, or font implementation dependency |
-| Text implementation | FreeType, HarfBuzz; ICU/equivalent only if needed | Public text/layout contracts hide implementation types |
+| Text implementation | Adopted HarfBuzz/FreeType above; ICU/equivalent only if needed | Public text/layout contracts hide implementation types |
 | Shader build | Adopted Slang compiler above | Build tool below the rendering boundary; not an authoring/runtime language requirement |
 | Vulkan backend | Adopted Vulkan SDK/toolchain above | SDK types remain within the concrete backend and host integration |
 | WebGPU backend | Implementation/toolchain to evaluate | Later module; no current WGSL, browser, or WASM claim |
@@ -63,7 +74,7 @@ A later packaging step may record font asset metadata (source, family, license i
 ## Decisions still required
 
 - Additional compiler/toolchain validation and optional-module dependency acquisition.
-- Text implementation: FreeType and HarfBuzz are the intended baseline under [text](../design/text.md#candidate-implementation). Their versions, acquisition without automatic fetches, and license records, plus pinned redistributable Latin/Japanese/emoji fixture fonts and the bundled default fallback chain, remain to be recorded.
+- Text: an emoji fixture font, further fixture faces needed by fallback/weight tests, and the bundled default fallback chain under [font licensing](#font-licensing). HarfBuzz/FreeType for other platforms or triplets need their own records.
 - Deployment/redistribution policy for packaged native hosts and future SDK/compiler upgrades.
 - Explicit JSON version migrations and expanded property schemas, when a consumer requires them.
 

@@ -61,6 +61,9 @@ protected:
 };
 
 std::vector<Diagnostic> validate(const TextStyle&, std::string_view path = "");
+// Input checks shared by every shaper: style errors under /style, then text_too_long
+// (above 4 GiB) or invalid_utf8 at /text.
+std::vector<Diagnostic> validate_text_input(std::string_view utf8, const TextStyle&);
 
 // Deterministic metrics without font data, for geometry tests and placeholder Text.
 // Every Unicode scalar advances 0.5 em; LF starts a new line; there is no wrapping.
