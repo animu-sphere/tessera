@@ -1,10 +1,12 @@
 #pragma once
 
 #include <tessera/input/focus.hpp>
+#include <tessera/inspection/inspection.hpp>
 #include <tessera/render/draw_list.hpp>
 #include <tessera/semantics/semantics.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
@@ -29,14 +31,33 @@ struct ReplayReload {
     std::vector<ResolvedStyle> styles;
     bool operator==(const ReplayReload&) const = default;
 };
+// Host programmatic focus. The target is resolved by resolve_target in the current generation and focused
+// through FocusDispatcher::focus.
+struct ReplayFocus {
+    InspectionTarget target;
+};
+// Semantic action invocation, e.g. from an accessibility or automation client. The target is resolved by
+// resolve_target in the current generation and invoked through request_semantic_action.
+struct ReplaySemanticAction {
+    InspectionTarget target;
+    std::string binding = "activate";
+};
 // Input steps must be pointer, scroll, or logical focus commands (FocusNext/FocusPrevious/Navigate/Activate/
 // Cancel); they share one non-decreasing timestamp stream. A scroll step is routed by route_scroll and
 // applied at an update point; a command goes through FocusDispatcher. Keys are host-translated, not replayed.
-using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload>;
+// Focus and semantic action steps are untimed.
+using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload, ReplayFocus, ReplaySemanticAction>;
+
+// Host focus policies that playback applies on the host's behalf; both are off by default.
+struct ReplayFocusPolicy {
+    bool press_focus = false;  // A primary press that records a focusable press owner also focuses it.
+    bool reveal_focus = false; // Focus moved to another node by a command or focus step is scrolled into view.
+};
 
 struct ReplayRecording {
     std::uint32_t version = replay_prototype_version;
     ValidationContext context; // Host action names declared for every document.
+    ReplayFocusPolicy policy;
     Size viewport;
     UiDocument document;
     std::vector<ResolvedStyle> styles; // One per node in tree preorder; no stylesheet resolution.
@@ -55,7 +76,8 @@ struct ReplayBox {
     std::optional<ScrollGeometry> scroll;
     bool operator==(const ReplayBox&) const = default;
 };
-// Full-tree layout and paint for one snapshot: the initial one and one per resize/reload/scroll step.
+// Full-tree layout and paint for one snapshot: the initial one, one per resize/reload/scroll step, and one per
+// focus reveal that changes an offset.
 struct ReplayGeneration {
     std::optional<std::size_t> step; // Producing step; absent for the initial snapshot.
     std::vector<ReplayBox> boxes;
@@ -78,7 +100,7 @@ struct ReplaySemanticNode {
     bool operator==(const ReplaySemanticNode&) const = default;
 };
 // Semantic projection of one generation with the focus held at an observation point: after each generation
-// settles and after each logical command step.
+// settles, after each command or focus step, and after a pointer step that moves focus.
 struct ReplaySemantics {
     std::optional<std::size_t> step; // Observing step; absent for the initial snapshot.
     std::size_t generation = 0;
@@ -87,7 +109,7 @@ struct ReplaySemantics {
     bool operator==(const ReplaySemantics&) const = default;
 };
 struct ReplayAction {
-    std::size_t step = 0;       // Input step whose dispatch requested it.
+    std::size_t step = 0;       // Input or semantic action step whose dispatch requested it.
     std::size_t generation = 0; // Snapshot the request's target belongs to.
     std::string binding;
     std::string action;
@@ -103,10 +125,49 @@ struct ReplayOutput {
 };
 
 // Plays the steps through UiTree::create, compute_layout, build_paint_list, PointerDispatcher,
-// FocusDispatcher, and build_semantic_tree, with the host-injected shaper. Failures are located under the
+// FocusDispatcher, scroll routing, build_semantic_tree, and inspection target resolution, with the
+// host-injected shaper. Failures are located under the
 // recording ("" for the initial snapshot, /steps/<index> for a step) and return no partial output; semantic
 // warnings are located the same way and returned with the output. Renderer-free.
 Result<ReplayOutput> play_replay(const ReplayRecording&, TextShaper&);
+
+namespace detail {
+class ReplayPlayer;
+}
+
+// Incremental playback for in-process consumers and controlled host fixtures, without a window or renderer.
+// It plays a recording as play_replay does and then accepts further steps one at a time; recording() holds
+// the accepted steps, so replaying it reproduces output(). A step rejected by validation, ordering, target
+// resolution, or eligibility leaves the session unchanged and unrecorded; a failure after a step has changed
+// the session closes it, and later calls fail as closed_session.
+class ReplaySession final {
+public:
+    // Fails, with no session, as play_replay fails; warnings accompany the session.
+    static Result<ReplaySession> open(ReplayRecording, TextShaper&);
+    ReplaySession(ReplaySession&&) noexcept;
+    ReplaySession& operator=(ReplaySession&&) noexcept;
+    ~ReplaySession();
+
+    // Applies the step as /steps/<n>, n being the number of accepted steps, and returns n with the step's
+    // semantic warnings. Diagnostics are located as for play_replay.
+    Result<std::size_t> apply(ReplayStep);
+    // Focus or invoke a node by a handle from the current tree, e.g. one resolved in capture(). The step is
+    // recorded with the node's author ID, else its child-index path. A handle from another tree is
+    // stale_target at /steps/<n>/target.
+    Result<std::size_t> focus(NodeHandle target);
+    Result<std::size_t> invoke(NodeHandle target, std::string binding = "activate");
+    // Coherent inspection of the current generation with the current focus; its handles stay valid until a
+    // reload replaces the tree. `sources` must describe the current document.
+    Result<InspectionSnapshot> capture(const DocumentSourceMap* sources = nullptr) const;
+
+    bool closed() const noexcept;
+    const ReplayRecording& recording() const noexcept;
+    const ReplayOutput& output() const noexcept;
+
+private:
+    explicit ReplaySession(std::unique_ptr<detail::ReplayPlayer>);
+    std::unique_ptr<detail::ReplayPlayer> player_;
+};
 
 // One replay_mismatch diagnostic per difference, located in the expected output. Box rectangles,
 // edges, and scroll geometry match within geometry_tolerance logical units; all other values, including

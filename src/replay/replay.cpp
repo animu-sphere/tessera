@@ -25,41 +25,133 @@ bool is_command(const InputEvent& event) {
            std::holds_alternative<Cancel>(event.data);
 }
 
-// The current coherent tree/styles/layout. Only values are copied into observations.
-struct Snapshot {
-    std::unique_ptr<UiTree> tree;
-    std::vector<ResolvedStyle> styles;
-    LayoutResult layout;
-    HitTestInput input() const { return {tree.get(), styles, &layout}; }
-};
+// Child-index path from the root to a node of the tree.
+std::vector<std::uint32_t> path_to(const UiTree& tree, NodeHandle target) {
+    std::vector<std::uint32_t> path;
+    auto current = tree.root();
+    while (current != target) {
+        const auto children = tree.children(current);
+        // Preorder indices: the target lies under the last child that starts at or before it.
+        std::uint32_t child = 0;
+        while (child + 1 < children.size() && children[child + 1].index <= target.index) ++child;
+        path.push_back(child);
+        current = children[child];
+    }
+    return path;
+}
 
-class Player {
+} // namespace
+
+namespace detail {
+
+// Plays steps against one current coherent snapshot. A step rejected before its commit point leaves every
+// member as it was; a failure after it closes the player.
+class ReplayPlayer {
 public:
-    Player(const ReplayRecording& recording, TextShaper& text) : recording_(recording), text_(text) {}
+    ReplayPlayer(ReplayRecording recording, TextShaper& text)
+        : recording_(std::move(recording)), text_(text), viewport_(recording_.viewport) {}
 
-    Result<ReplayOutput> run() {
-        if (!load(recording_.document, recording_.styles, "") || !settle({}, "")) return fail();
-        for (std::size_t i = 0; i < recording_.steps.size(); ++i) {
-            const auto at = "/steps/" + std::to_string(i);
-            const auto& step = recording_.steps[i];
-            bool ok = true;
-            if (const auto* event = std::get_if<InputEvent>(&step)) {
-                if (std::holds_alternative<Scroll>(event->data)) ok = scroll(*event, i, at);
-                else if (is_command(*event)) ok = command(*event, i, at);
-                else ok = dispatch(*event, i, at);
-            } else if (const auto* resize = std::get_if<ReplayResize>(&step)) {
-                viewport_ = resize->viewport;
-                ok = settle(i, at);
-            } else if (const auto* reload = std::get_if<ReplayReload>(&step)) {
-                ok = load(reload->document, reload->styles, at) && settle(i, at);
-            }
-            if (!ok) return fail();
+    // Settles the initial snapshot and then applies every recorded step.
+    bool run() {
+        auto steps = std::move(recording_.steps);
+        recording_.steps.clear();
+        if (!load(recording_.document, recording_.styles, "") || !settle({}, "")) return false;
+        for (auto& step : steps) {
+            if (!apply(std::move(step))) return false;
         }
-        return {std::move(output_), std::move(warnings_)};
+        return true;
     }
 
+    // Applies one step as /steps/<n>, where n counts the steps accepted so far.
+    bool apply(ReplayStep next) {
+        errors_.clear();
+        const auto i = recording_.steps.size();
+        const auto at = "/steps/" + std::to_string(i);
+        if (!open(at)) return false;
+        if (i >= max_replay_steps) {
+            errors_.push_back({"out_of_range", Severity::error, "/steps",
+                               "Use at most " + std::to_string(max_replay_steps) + " replay steps.", {}});
+            return false;
+        }
+        recording_.steps.push_back(std::move(next));
+        const auto& step = recording_.steps.back();
+        const auto clock = clock_;
+        const auto viewport = viewport_;
+        const auto offsets = offsets_;
+        committed_ = false;
+        bool ok = true;
+        if (const auto* event = std::get_if<InputEvent>(&step)) {
+            if (std::holds_alternative<Scroll>(event->data)) ok = scroll(*event, i, at);
+            else if (is_command(*event)) ok = command(*event, i, at);
+            else ok = dispatch(*event, i, at);
+        } else if (const auto* resize = std::get_if<ReplayResize>(&step)) {
+            viewport_ = resize->viewport;
+            ok = settle(i, at);
+        } else if (const auto* reload = std::get_if<ReplayReload>(&step)) {
+            ok = replace(*reload, i, at);
+        } else if (const auto* focus = std::get_if<ReplayFocus>(&step)) {
+            ok = focus_on(*focus, i, at);
+        } else {
+            ok = invoke(std::get<ReplaySemanticAction>(step), i, at);
+        }
+        if (ok) return true;
+        recording_.steps.pop_back();
+        if (committed_) {
+            closed_ = true;
+        } else {
+            clock_ = clock;
+            viewport_ = viewport;
+            offsets_ = offsets;
+        }
+        return false;
+    }
+
+    // Records a handle from the current tree as an author-ID target, else as a child-index path.
+    std::optional<InspectionTarget> target(NodeHandle handle) {
+        errors_.clear();
+        const auto at = "/steps/" + std::to_string(recording_.steps.size());
+        if (!open(at)) return std::nullopt;
+        const auto* node = current_.tree->get(handle);
+        if (!node) {
+            errors_.push_back({"stale_target", Severity::error, at + "/target",
+                               "Capture the current generation and resolve the target again; this handle belongs to "
+                               "another tree.", {}});
+            return std::nullopt;
+        }
+        if (node->id) return AuthorIdTarget{*node->id};
+        return PathTarget{path_to(*current_.tree, handle)};
+    }
+
+    Result<InspectionSnapshot> capture(const DocumentSourceMap* sources) {
+        errors_.clear();
+        if (!open("")) return {std::nullopt, std::move(errors_)};
+        return capture_inspection({current_.tree.get(), current_.styles, &current_.layout, sources, focused_});
+    }
+
+    bool closed() const noexcept { return closed_; }
+    const ReplayRecording& recording() const noexcept { return recording_; }
+    const ReplayOutput& output() const noexcept { return output_; }
+    ReplayOutput take_output() { return std::move(output_); }
+    std::vector<Diagnostic> take_errors() { return std::move(errors_); }
+    const std::vector<Diagnostic>& warnings() const noexcept { return warnings_; }
+    std::vector<Diagnostic> take_warnings() { return std::move(warnings_); }
+
 private:
-    Result<ReplayOutput> fail() { return {std::nullopt, std::move(errors_)}; }
+    // The current coherent tree/styles/layout. Only values are copied into observations.
+    struct Snapshot {
+        std::unique_ptr<UiTree> tree;
+        std::vector<ResolvedStyle> styles;
+        LayoutResult layout;
+        HitTestInput input() const { return {tree.get(), styles, &layout}; }
+    };
+
+    bool open(const std::string& at) {
+        if (!closed_) return true;
+        errors_.push_back({"closed_session", Severity::error, at,
+                           "An earlier step failed after changing the session; open a new session from recording().",
+                           {}});
+        return false;
+    }
 
     bool load(const UiDocument& document, const std::vector<ResolvedStyle>& styles, const std::string& at) {
         auto created = UiTree::create(document, recording_.context);
@@ -73,19 +165,29 @@ private:
         return true;
     }
 
+    // Loads a replacement document and settles it; the previous snapshot returns if neither commits.
+    bool replace(const ReplayReload& reload, std::size_t step, const std::string& at) {
+        auto previous = std::move(current_);
+        if (load(reload.document, reload.styles, at) && settle(step, at)) return true;
+        if (!committed_) current_ = std::move(previous);
+        return false;
+    }
+
     // Full-tree layout and paint at an update point, then re-target stationary pointers and recover focus.
+    // The new layout is the commit point.
     bool settle(std::optional<std::size_t> step, const std::string& at) {
         auto layout = compute_layout({current_.tree.get(), current_.styles, viewport_, &text_, offsets_});
         if (!layout) {
             relocate(errors_, std::move(layout.diagnostics), at);
             return false;
         }
-        current_.layout = std::move(*layout.value);
-        auto paint = build_paint_list({current_.tree.get(), current_.styles, &current_.layout, &text_});
+        auto paint = build_paint_list({current_.tree.get(), current_.styles, &*layout.value, &text_});
         if (!paint) {
             relocate(errors_, std::move(paint.diagnostics), at);
             return false;
         }
+        committed_ = true;
+        current_.layout = std::move(*layout.value);
         auto refreshed = input_.refresh(current_.input());
         if (!refreshed) {
             relocate(errors_, std::move(refreshed.diagnostics), at);
@@ -129,11 +231,8 @@ private:
     }
 
     // Rejects time running backwards across pointer, scroll, and command steps, which share one stream.
-    bool ordered(const InputEvent& event, const std::string& at) {
-        if (!clock_ || event.timestamp >= *clock_) {
-            clock_ = event.timestamp;
-            return true;
-        }
+    bool in_order(const InputEvent& event, const std::string& at) {
+        if (!clock_ || event.timestamp >= *clock_) return true;
         errors_.push_back({"event_order", Severity::error, at + "/timestamp",
                            "Send non-decreasing timestamps across pointer, scroll, and command steps.", {}});
         return false;
@@ -146,39 +245,119 @@ private:
             relocate(errors_, std::move(invalid), at);
             return false;
         }
-        if (!ordered(event, at)) return false;
+        if (!in_order(event, at)) return false;
         auto routed = route_scroll(current_.input(), std::get<Scroll>(event.data));
         if (!routed) {
             relocate(errors_, std::move(routed.diagnostics), at);
             return false;
         }
+        clock_ = event.timestamp;
         for (const auto& update : routed.value->updates) offsets_[update.container.index] = update.offset;
         return settle(step, at);
     }
 
     bool dispatch(const InputEvent& event, std::size_t step, const std::string& at) {
+        if (!in_order(event, at)) return false;
         auto result = input_.dispatch(current_.input(), event);
         if (!result) {
             relocate(errors_, std::move(result.diagnostics), at);
             return false;
         }
-        // The dispatcher checks time only within pointer steps; other steps may have advanced the clock.
-        if (!ordered(event, at)) return false;
+        committed_ = true;
+        clock_ = event.timestamp;
         record(step, result.value->actions);
+        // Host press policy: a primary press also focuses its press owner when that owner is focusable.
+        // Pointer dispatch itself never moves focus, and a press never reveals.
+        const auto* down = std::get_if<PointerDown>(&event.data);
+        if (!recording_.policy.press_focus || !down || down->button != PointerButton::primary) return true;
+        for (const auto& state : result.value->pointers) {
+            if (state.pointer != down->pointer || !state.pressed || state.pressed == focused_) continue;
+            auto moved = focus_.focus(current_.input(), *state.pressed);
+            if (!moved) {
+                if (moved.diagnostics.size() == 1 && moved.diagnostics[0].code == "not_focusable") return true;
+                relocate(errors_, std::move(moved.diagnostics), at);
+                return false;
+            }
+            focused_ = moved.value->focused;
+            return observe(step, at);
+        }
         return true;
     }
 
     // Moves focus or requests an action through focus dispatch, then observes semantics with the new focus.
     bool command(const InputEvent& event, std::size_t step, const std::string& at) {
+        if (!in_order(event, at)) return false;
         auto result = focus_.dispatch(current_.input(), event);
         if (!result) {
             relocate(errors_, std::move(result.diagnostics), at);
             return false;
         }
-        if (!ordered(event, at)) return false;
+        committed_ = true;
+        clock_ = event.timestamp;
+        const auto previous = focused_;
         focused_ = result.value->focused;
         record(step, result.value->actions);
-        return observe(step, at);
+        return reveal(previous, step, at);
+    }
+
+    // Resolves a fixture-identity target in the current generation; failures are located under the step.
+    std::optional<NodeHandle> resolve(const InspectionTarget& target, const std::string& at) {
+        auto captured = capture_inspection({current_.tree.get(), current_.styles, &current_.layout, nullptr, focused_});
+        if (!captured) {
+            relocate(errors_, std::move(captured.diagnostics), at);
+            return std::nullopt;
+        }
+        auto resolved = resolve_target(*captured.value, target);
+        if (!resolved) {
+            relocate(errors_, std::move(resolved.diagnostics), at);
+            return std::nullopt;
+        }
+        return *resolved.value;
+    }
+
+    // Host programmatic focus on a resolved target, observed (and revealed) like a command.
+    bool focus_on(const ReplayFocus& step_focus, std::size_t step, const std::string& at) {
+        const auto target = resolve(step_focus.target, at);
+        if (!target) return false;
+        auto result = focus_.focus(current_.input(), *target);
+        if (!result) {
+            relocate(errors_, std::move(result.diagnostics), at);
+            return false;
+        }
+        committed_ = true;
+        const auto previous = focused_;
+        focused_ = result.value->focused;
+        return reveal(previous, step, at);
+    }
+
+    // Semantic invocation on a resolved target; it requests what a pointer activation requests.
+    bool invoke(const ReplaySemanticAction& action, std::size_t step, const std::string& at) {
+        const auto target = resolve(action.target, at);
+        if (!target) return false;
+        auto request = request_semantic_action({current_.tree.get(), current_.styles, &current_.layout, focused_},
+                                               *target, action.binding);
+        if (!request) {
+            relocate(errors_, std::move(request.diagnostics), at);
+            return false;
+        }
+        committed_ = true;
+        std::vector<ActionRequest> requests{std::move(*request.value)};
+        record(step, requests);
+        return true;
+    }
+
+    // Host reveal policy: focus moved to another node scrolls it into view. Changed offsets settle a new
+    // generation, which observes semantics; otherwise the current generation is observed.
+    bool reveal(std::optional<NodeHandle> previous, std::size_t step, const std::string& at) {
+        if (!recording_.policy.reveal_focus || !focused_ || focused_ == previous) return observe(step, at);
+        auto revealed = scroll_into_view(current_.input(), *focused_);
+        if (!revealed) {
+            relocate(errors_, std::move(revealed.diagnostics), at);
+            return false;
+        }
+        if (revealed.value->empty()) return observe(step, at);
+        for (const auto& update : *revealed.value) offsets_[update.container.index] = update.offset;
+        return settle(step, at);
     }
 
     void record(std::size_t step, std::vector<ActionRequest>& requests) {
@@ -189,9 +368,9 @@ private:
         }
     }
 
-    const ReplayRecording& recording_;
+    ReplayRecording recording_; // Accepted steps only.
     TextShaper& text_;
-    Size viewport_ = recording_.viewport;
+    Size viewport_;
     Snapshot current_;
     std::vector<Point> offsets_; // Requested scroll offsets by node index; reset by reload.
     std::optional<std::chrono::microseconds> clock_;
@@ -199,9 +378,15 @@ private:
     FocusDispatcher focus_;
     std::optional<NodeHandle> focused_; // Current focus in the current tree.
     ReplayOutput output_;
-    std::vector<Diagnostic> errors_;
-    std::vector<Diagnostic> warnings_;
+    std::vector<Diagnostic> errors_;   // From the latest call.
+    std::vector<Diagnostic> warnings_; // From every accepted step.
+    bool committed_ = false;           // The current step has changed the session.
+    bool closed_ = false;
 };
+
+} // namespace detail
+
+namespace {
 
 std::string format(float value) {
     std::ostringstream out;
@@ -331,16 +516,69 @@ private:
 
 } // namespace
 
-Result<ReplayOutput> play_replay(const ReplayRecording& recording, TextShaper& text) {
+namespace {
+
+std::vector<Diagnostic> check_recording(const ReplayRecording& recording) {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     if (recording.version != replay_prototype_version)
         check.error("unsupported_version", "/version", "Only replay prototype version 0 is supported; re-record explicitly.");
     if (recording.steps.size() > max_replay_steps)
         check.error("out_of_range", "/steps", "Use at most " + std::to_string(max_replay_steps) + " replay steps.");
-    if (!errors.empty()) return {std::nullopt, std::move(errors)};
-    return Player(recording, text).run();
+    return errors;
 }
+
+} // namespace
+
+Result<ReplayOutput> play_replay(const ReplayRecording& recording, TextShaper& text) {
+    auto errors = check_recording(recording);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    detail::ReplayPlayer player(recording, text);
+    if (!player.run()) return {std::nullopt, player.take_errors()};
+    return {player.take_output(), player.take_warnings()};
+}
+
+Result<ReplaySession> ReplaySession::open(ReplayRecording recording, TextShaper& text) {
+    auto errors = check_recording(recording);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    auto player = std::make_unique<detail::ReplayPlayer>(std::move(recording), text);
+    if (!player->run()) return {std::nullopt, player->take_errors()};
+    auto warnings = player->warnings();
+    return {ReplaySession(std::move(player)), std::move(warnings)};
+}
+
+ReplaySession::ReplaySession(std::unique_ptr<detail::ReplayPlayer> player) : player_(std::move(player)) {}
+ReplaySession::ReplaySession(ReplaySession&&) noexcept = default;
+ReplaySession& ReplaySession::operator=(ReplaySession&&) noexcept = default;
+ReplaySession::~ReplaySession() = default;
+
+Result<std::size_t> ReplaySession::apply(ReplayStep step) {
+    const auto warnings = player_->warnings().size();
+    if (!player_->apply(std::move(step))) return {std::nullopt, player_->take_errors()};
+    const auto& all = player_->warnings();
+    return {player_->recording().steps.size() - 1,
+            std::vector<Diagnostic>(all.begin() + static_cast<std::ptrdiff_t>(warnings), all.end())};
+}
+
+Result<std::size_t> ReplaySession::focus(NodeHandle target) {
+    auto resolved = player_->target(target);
+    if (!resolved) return {std::nullopt, player_->take_errors()};
+    return apply(ReplayFocus{std::move(*resolved)});
+}
+
+Result<std::size_t> ReplaySession::invoke(NodeHandle target, std::string binding) {
+    auto resolved = player_->target(target);
+    if (!resolved) return {std::nullopt, player_->take_errors()};
+    return apply(ReplaySemanticAction{std::move(*resolved), std::move(binding)});
+}
+
+Result<InspectionSnapshot> ReplaySession::capture(const DocumentSourceMap* sources) const {
+    return player_->capture(sources);
+}
+
+bool ReplaySession::closed() const noexcept { return player_->closed(); }
+const ReplayRecording& ReplaySession::recording() const noexcept { return player_->recording(); }
+const ReplayOutput& ReplaySession::output() const noexcept { return player_->output(); }
 
 std::vector<Diagnostic> compare_replay(const ReplayOutput& expected, const ReplayOutput& actual,
                                        float geometry_tolerance) {
