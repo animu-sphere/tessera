@@ -40,6 +40,7 @@ The `TESSERA_BUILD_FONTS` option defaults OFF and performs no HarfBuzz discovery
 | Text implementation | Adopted HarfBuzz/FreeType above; ICU/equivalent only if needed | Public text/layout contracts hide implementation types |
 | Shader build | Adopted Slang compiler above | Build tool below the rendering boundary; not an authoring/runtime language requirement |
 | Vulkan backend | Adopted Vulkan SDK/toolchain above | SDK types remain within the concrete backend and host integration |
+| CPU reference backend | C++ standard library; ISA-specific SIMD paths optional beside the scalar reference | No GPU SDK, window, or image encoder; presentation and encoding stay in hosts and tooling |
 | WebGPU backend | Implementation/toolchain to evaluate | Later module; no current WGSL, browser, or WASM claim |
 | Web host / WASM bridge | Compiler/packager and browser facilities to evaluate under [Web host](../design/web-host.md) | DOM, browser editing, JS bindings and worker APIs stay in optional host adapters |
 | Inspection/testing/agent tooling | Image encoder, CLI and optional RPC/MCP implementation to evaluate under [inspection](../design/inspection.md) | No agent SDK, transport server or image encoder required by core; production can exclude development facilities |
@@ -74,7 +75,7 @@ A later packaging step may record font asset metadata (source, family, license i
 ## Decisions still required
 
 - Additional compiler/toolchain validation and optional-module dependency acquisition.
-- Text: an emoji fixture font, further fixture faces needed by fallback/weight tests, and the bundled default fallback chain under [font licensing](#font-licensing). HarfBuzz/FreeType for other platforms or triplets need their own records.
+- Text: an emoji fixture font, further fixture faces needed by fallback/weight tests, the bundled default fallback chain under [font licensing](#font-licensing), and an MSDF generation implementation (library or in-repository) when MSDF glyphs are scheduled. HarfBuzz/FreeType for other platforms or triplets need their own records.
 - Deployment/redistribution policy for packaged native hosts and future SDK/compiler upgrades.
 - Explicit JSON version migrations and expanded property schemas, when a consumer requires them.
 

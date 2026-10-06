@@ -46,7 +46,7 @@ Component/item keys and component scopes, a general selector grammar, raw-input 
 
 ## Proposed runner and snapshot bundle
 
-Separate interactive application execution from deterministic one-shot observation. An offscreen runner owns host adapters for viewport/scale, time/frame count, normalized input, fixture resources, and declared application state. It must not require an OS window. GPU rendering still requires a declared device/driver; a software/reference renderer is a separate future choice, not an automatic fallback.
+Separate interactive application execution from deterministic one-shot observation. An offscreen runner owns host adapters for viewport/scale, time/frame count, normalized input, fixture resources, and declared application state. It must not require an OS window. Screenshots come from an explicitly declared backend: the proposed [CPU reference backend](rendering.md#proposed-cpu-reference-backend) is the default for deterministic visual fixtures, and GPU capture requires a declared device/driver. Neither substitutes automatically for the other.
 
 [Replay](replay.md) owns reproducible inputs and action order. A snapshot is an observation of one settled generation, while a replay describes progression between generations. Snapshot bundle versioning is independent of UI-document, semantic, and replay versions. Proposed bundle contents:
 
@@ -73,7 +73,7 @@ Performance comparisons identify workload, changed-node count, build/backend/dev
 
 ## Proposed tooling and production boundary
 
-Prove the in-process inspection/action API first, then a small CLI with machine-readable results, then bounded stdin/stdout JSON-RPC. Add local RPC, subscriptions, and optional MCP adapters only for a consumer. CLI command names, option names, transport schema, and build switches remain undecided. A thin versioned JSON/YAML scenario layer may compose the same operations; it must not introduce another UI language or runtime.
+Prove the in-process inspection/action API first, then a small CLI with machine-readable results, then bounded stdin/stdout JSON-RPC. Add local RPC, subscriptions, and optional MCP adapters only for a consumer. The intended agent loop is short: edit, reload, capture a screenshot with layout/semantic dumps, compare, and edit again. CLI command names, option names, transport schema, and build switches remain undecided. A thin versioned JSON/YAML scenario layer may compose the same operations; it must not introduce another UI language or runtime.
 
 State injection, source paths, detailed diagnostics, and mutation transports are explicitly enabled development/test facilities that can be excluded from production builds. Do not start a listener or expose private state by default. A local server needs an explicit access policy, request bounds, and lifetime/cancellation rules. Human Inspector and agent tooling share observations, while each adapter controls which operations it exposes.
 

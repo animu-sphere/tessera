@@ -41,7 +41,7 @@ Keep three layers distinct beneath ordinary components such as labels, text inpu
 
 - Font selection: faces, families, stacks, logical aliases, fallback, and variation instances.
 - Text layout: Unicode/script runs, shaping, line breaking, and caret/selection geometry.
-- Glyph resources: cache, atlas pages, and raster or distance-field pipelines below the [rendering](rendering.md) boundary.
+- Glyph resources: raster cache and atlas allocation, independent of any backend; backends own only page uploads and sampling under the [rendering](rendering.md) resource lifetime. See the [glyph raster strategy](#proposed-glyph-raster-strategy).
 
 Components never call font or shaping libraries directly.
 
@@ -90,7 +90,24 @@ Snapshot and agent-driven tests declare a font profile: fixed redistributable fo
 
 Measurement and paint must use compatible shaping and line-break results. Cache keys include the text, font identity/version, relevant style, shaping options, and width constraints. Asset replacement and font fallback changes invalidate both geometry and glyph resources as appropriate.
 
-Glyphs are rasterized on demand into a dynamic cache of atlas pages with reuse/eviction; pre-rasterizing whole character sets, such as all CJK glyphs, is excluded. Grayscale bitmap glyphs come first for ordinary UI sizes. SDF/MSDF glyphs follow for zoomable canvases, large type, and transformed text, chosen per use rather than as one global mode. Page allocation, eviction policy, mode-selection criteria, texture arrays or bindless resources, and scale policy remain open. Glyph resources follow the backend submission/completion lifetime in [rendering](rendering.md). Reusing a live atlas region while an earlier frame references it must be prevented.
+## Proposed glyph raster strategy
+
+Glyph rendering is hybrid, chosen per use rather than as one global mode:
+
+| Use | Raster mode |
+| --- | --- |
+| Small text | Grayscale coverage bitmaps, hinted where the face supports it |
+| Ordinary and scalable UI text, icons, symbols | MSDF (later MTSDF), preferred over single-channel SDF because it keeps sharp corners |
+| Very large or strongly transformed text | MSDF, with an optional vector/path fallback |
+| Emoji and color fonts | Color glyphs (bitmap or vector), staged as under [font sources](#proposed-font-sources-and-selection) |
+
+The size threshold between grayscale and MSDF is a tunable policy over device scale, size, face, and hinting quality, not a fixed constant. Grayscale bitmap glyphs come first for ordinary UI sizes; MSDF follows for zoomable canvases, large type, and transformed text.
+
+A text-side glyph manager owns face, metrics, and raster caches and allocates atlas pages per raster mode (grayscale, MSDF, color), allowing several pages per mode. The cache key includes face, glyph ID, raster mode, size or scale class, and variation coordinates. This layer has no Vulkan, WebGPU, or CPU-backend dependency; the renderer receives positioned glyphs with their paint and never interprets Unicode or shaping. GPU backends upload pages and sample them, and the [CPU reference backend](rendering.md#proposed-cpu-reference-backend) samples the same rasters, so both draw the same glyph data.
+
+Glyphs are rasterized on demand; pre-rasterizing whole character sets, such as all CJK glyphs, is excluded. Overflow eviction is LRU- or generation-based. Atlas placement must not affect final pixels: padding and sampling must make a glyph render identically wherever it is placed, so image fixtures do not depend on insertion order. Page allocation, the exact eviction policy, texture arrays or bindless resources, and the interface by which a backend obtains rasters remain open. Glyph resources follow the backend submission/completion lifetime in [rendering](rendering.md); reusing a live atlas region while an earlier frame references it must be prevented.
+
+Text antialiasing is grayscale: coverage on CPUs, distance threshold with derivative width and MSDF median reconstruction on GPUs. Subpixel LCD rendering is not a portable default; see [primitive semantics](rendering.md#proposed-primitive-semantics).
 
 ## Incremental delivery
 

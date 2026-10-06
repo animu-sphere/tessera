@@ -35,6 +35,7 @@ Each milestone should retain the artifacts relevant to its capability: unit/boun
 - Vulkan prototype: shaders compile and actual pixels demonstrate order/clipping/transforms; compilation alone is insufficient.
 - Input menu: synthetic dispatch checks plus a native host smoke.
 - Text/menu styling: fixed fonts and representative Latin/Japanese fixtures with measurement and image agreement.
+- Reference rendering: CPU reference images for the existing primitive/glyph set, identical across runs and thread counts in deterministic mode, with GPU agreement within declared tolerances.
 - Components/reload: identity, cleanup, resource retirement, and repeated reload behavior.
 
 Candidate versions and ordering are owned by the [roadmap](../roadmap/README.md).
@@ -45,13 +46,13 @@ As the [inspection proposal](../design/inspection.md) is implemented, use in-pro
 
 Capture tree, geometry, diagnostics, render counters, and optional image from one generation. Test malformed/oversized bundles, unsupported versions, missing artifacts, and incompatible comparison environments. Match stable identities and assert semantic/layout changes directly. Reuse a small visual fixture set; multiple selected viewports should reveal layout/clip/focus issues without creating a widget screenshot catalog.
 
-Check a core-only observation path with no renderer, and a window-free GPU capture path with explicit device/completion requirements. Never silently substitute a software renderer for a failing GPU configuration. Future CI artifacts may include actual/expected/diff images, a snapshot bundle, and a machine-readable report. Reports must distinguish unavailable observations from successful zero-valued metrics.
+Check a core-only observation path with no renderer, a window-free CPU reference capture path, and a window-free GPU capture path with explicit device/completion requirements. Never silently substitute the CPU backend for a failing GPU configuration. Future CI artifacts may include actual/expected/diff images, a snapshot bundle, and a machine-readable report. Reports must distinguish unavailable observations from successful zero-valued metrics.
 
 Development transports require bounded input, ordinary action eligibility, allowed-state enforcement, cancellation/disposal, and production exclusion fixtures. Browser adapters require their own focus/IME/accessibility and lifecycle checks under [Web host](../design/web-host.md#verification); native evidence does not establish browser behavior.
 
 ## Image regression and performance
 
-Keep a small reference set for overlapping rectangles, clips, transforms, borders, alpha, images, and glyphs as each capability arrives. Declare target size/scale, color format, font versions, pixel tolerances, and GPU configuration. Do not use images to prove behavior better established by geometry or event assertions.
+Keep a small reference set for overlapping rectangles, clips, transforms, borders, alpha, images, and glyphs as each capability arrives. Declare target size/scale, color format, font versions, pixel tolerances, and backend/GPU configuration. Once the [CPU reference backend](../design/rendering.md#proposed-cpu-reference-backend) exists, its deterministic output is the baseline: GPU candidates are compared with it under declared tolerances, and optimized CPU paths with its scalar result. Do not use images to prove behavior better established by geometry or event assertions.
 
 Performance checks follow a correct baseline. Record UI size, changed-node count, layout/paint CPU cost, uploads, batches/submissions, and GPU cost when useful. Hardware timing is an observation with conditions, not a universal pass threshold. Avoid premature optimization gates.
 
