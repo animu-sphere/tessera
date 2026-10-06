@@ -22,7 +22,8 @@ Work:
 - Full property reflection/introspection v1 and a schema-driven Inspector.
 - OverlayRoot/Portal and bounded Tooltip/Dropdown/Modal primitives.
 - TextInput contract and VirtualList prototype based on stable item keys.
-- A small inspection/render CLI consumer and versioned snapshot bundle prototype; semantic/layout/counter comparisons and selective visual regression artifacts across declared viewport fixtures.
+- Scalar [CPU reference backend](../design/rendering.md#proposed-cpu-reference-backend) for the existing draw-list vocabulary and grayscale glyphs, with deterministic window- and GPU-free capture; Vulkan fixtures compared with it under declared tolerances.
+- A small inspection/render CLI consumer and versioned snapshot bundle prototype; semantic/layout/counter comparisons and selective visual regression artifacts across declared viewport fixtures, captured with the CPU reference backend by default.
 - Reload-to-snapshot linkage and source-edit-to-verification instrumentation shared with Path-finder.
 - Source consumption by a downstream CMake project through `add_subdirectory`/`FetchContent` with the `tessera::core` and optional `tessera::vulkan` targets, checked by a minimal consumer, as Path-finder's integration path. Installed/exported packages remain v0.5.0 scope.
 
@@ -34,6 +35,7 @@ Exit criteria:
 - Runtime and Path-finder round-trip the same document, including editor metadata; a minimal downstream project builds and links Tessera from source.
 - Inspector properties derive from runtime metadata; portal focus/ownership and list item identity remain coherent.
 - Tooling uses host-declared state slots, captures one generation, and emits machine-readable observations/differences; invalid bundle versions or incompatible comparison conditions are diagnosed.
+- The CPU reference backend renders the primitive/glyph fixtures identically across runs without a window or GPU, and both Vulkan paths agree with it within declared tolerances.
 
 Owners: [UI model](../design/ui-model.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [input](../design/input.md), [layout](../design/layout.md), [Path-finder](../design/path-finder-integration.md), [inspection](../design/inspection.md).
 
@@ -98,13 +100,27 @@ Prerequisites: v0.2.0 real text (faces, shaping, bitmap glyph cache, fallback, w
 Candidates, in dependency order:
 
 - Logical font aliases and application/user font registration; caret and selection geometry for text inputs.
-- Read-only rich text spans, SDF/MSDF glyphs for zoomable canvases, and variable font instances.
+- Read-only rich text spans, MSDF glyphs with size/scale-dependent [raster mode selection](../design/text.md#proposed-glyph-raster-strategy) sampled by GPU and CPU backends, and variable font instances.
 - Unicode line breaking, script segmentation, advanced bidirectional layout, color emoji, and advanced OpenType features.
 - Font asset metadata, license metadata hooks, and packaging warnings under [font licensing](../reference/dependencies.md#font-licensing).
 
 Exit criteria to refine per item: measurement/paint agreement holds across fallback and variation changes, zoomed text meets declared image tolerances, and each script or emoji format claim has dedicated fixtures.
 
 Owners: [text](../design/text.md), [rendering](../design/rendering.md), [dependencies](../reference/dependencies.md).
+
+## Later — Analytic primitives and CPU compatibility performance
+
+Prerequisites: the v0.3.0 CPU reference backend, and v0.4.0 dirty tracking for damage-based repaint.
+
+Candidates:
+
+- Analytic coverage antialiasing applied to every backend together, then circles/ellipses/capsules, focus rings, and simple shadows under shared [primitive semantics](../design/rendering.md#proposed-primitive-semantics).
+- CPU tile binning, damaged-tile repaint, worker threads with deterministic and performance modes, and SIMD paths beside the scalar reference.
+- Host backend selection with an automatic GPU-to-CPU compatibility fallback and a host that presents the CPU framebuffer.
+
+Exit criteria to refine per item: GPU and CPU agree on each primitive within declared tolerances, optimized and multithreaded CPU paths match the scalar reference, damage-based repaint matches full repaint, and compatibility-mode responsiveness is measured on a representative tool workload rather than promised.
+
+Owners: [rendering](../design/rendering.md), [text](../design/text.md), [inspection](../design/inspection.md).
 
 ## Later — Graph canvas and node editor
 
@@ -150,7 +166,7 @@ Owners: [conversational UI](../design/conversational-ui.md), [layout](../design/
 - TypeScript-inspired DSL, then optional JSX/TSX compilation after the IR stabilizes; no JavaScript VM requirement.
 - Broader editor bridge transport/process choices driven by actual consumers.
 - Responsive viewport/container rules and general constraint/flow layout after the existing [layout extension order](../design/layout.md#extension-order), when a tool consumer requires them.
-- Gradients, shadows, paths, richer composition, and retained/partial GPU updates after bounded paint/resource contracts and measured workloads; blur/complex filters stay outside early/mid scope.
+- Gradients, paths (through a path rasterizer), richer composition, and retained/partial GPU updates after bounded paint/resource contracts and measured workloads; blur/complex filters stay outside early/mid scope. Simple shadows are in the analytic primitives candidate above.
 
 ## Explicitly deferred
 

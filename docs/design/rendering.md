@@ -67,7 +67,9 @@ CPU data and resource lifetimes follow the frame contract above: GPU-visible res
 
 ## Backends and shaders
 
-The optional Vulkan module is defined below. WebGPU is the intended rendering boundary for the [Web host](web-host.md), with native WebGPU evaluated separately. Metal and Direct3D 12 require a concrete consumer. Scheduling remains in backlog and configuration evidence in support.
+The optional Vulkan module is defined below. WebGPU is the intended rendering boundary for the [Web host](web-host.md), with native WebGPU evaluated separately. A [CPU reference backend](#proposed-cpu-reference-backend) is a first-class backend direction rather than a hidden fallback. Metal and Direct3D 12 require a concrete consumer. Scheduling remains in backlog and configuration evidence in support.
+
+`UiDrawList` is the backend-neutral render IR: every backend consumes the same commands, and layout, style, shaping, glyph selection, clips, and transforms are settled before submission. Only rasterization differs per backend. A separate display list or render IR is introduced only with a defined consumer, as stated under [batching](#batching).
 
 Slang compiles the Vulkan [primitive shader](../../backends/vulkan/shaders/primitive.slang) below `UiDrawList`; ordinary components do not refer to shader entry points or pipeline objects. It is a build tool for this module, not a core requirement. The [module build](../../backends/vulkan/CMakeLists.txt) emits separate SPIR-V 1.3 reference vertex, batch vertex, solid fragment, and image fragment artifacts, preserving entry-point names. `SV_VulkanVertexID` avoids requiring the optional draw-parameters feature; see the [Slang SPIR-V mapping](https://docs.shader-slang.org/en/latest/external/slang/docs/user-guide/a2-01-spirv-target-specific.html).
 
@@ -123,11 +125,44 @@ Keep the reference path for image comparison whenever grouping or packet encodin
 
 Retained packets, atlas use, packed instance data, and partial uploads are future optimization choices driven by representative tool workloads. Preserve ordering, blend/clip/transform batch boundaries, and completion-safe ownership. A separate Paint Tree or Render Tree is not required merely to mirror an architecture diagram; introduce a representation only with a defined consumer and lifetime.
 
+## Proposed primitive semantics
+
+Tessera is a hybrid renderer, not an SDF renderer. Each class of content uses a technique suited to it:
+
+| Content | Technique |
+| --- | --- |
+| Rectangles, rounded rectangles, borders; later circles, ellipses, capsules, focus rings, simple shadows | Analytic distance/coverage functions over one quad per primitive |
+| Text | [Glyph raster strategies](text.md#proposed-glyph-raster-strategy): grayscale, MSDF, color glyphs |
+| Vector paths | A path rasterizer; complex paths are not converted to distance-field textures |
+| Images | Texture/bitmap sampling |
+
+Each primitive has one mathematical definition shared by every backend: shader code, a scalar CPU implementation, and any SIMD CPU variant implement the same formula, such as the rounded-rectangle distance and the unequal-border inner-radius rule above. The goal is semantic identity, not bit identity; agreement is checked by tests with declared tolerances. Generating shader and CPU code from one shared description is a later option, not a prerequisite.
+
+The current pixel-center rule (hard edges, no antialiasing) is authoritative until replaced. Analytic coverage antialiasing (distance threshold with derivative width on GPUs, area coverage on CPUs) is one explicit contract change applied to all backends together, with reference images re-derived. Clip edges keep the pixel-center scissor rule so paint and [hit testing](input.md#implemented-rectangular-hit-testing) agree. New primitive commands, shadows, and paths extend the draw-list vocabulary only with evidence and a consumer. Subpixel LCD rendering depends on OS, display orientation, and compositor, so it is never the portable default; it may be added later as a platform-specific option.
+
+## Proposed CPU reference backend
+
+A CPU backend implements `UiRenderer` with the same frame contract, draw-list validation, and image handle/retirement rules as GPU backends. It needs no GPU SDK, window, or platform API. It serves three roles:
+
+- **Reference.** A scalar implementation is the correctness reference for GPU backends and for later optimized CPU paths. Optimized paths must match it.
+- **Capture.** Window- and GPU-free deterministic screenshots for the [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle), CI, and agent edit/render/compare loops.
+- **Compatibility.** Displaying UI where no usable GPU API or driver exists, through a host that presents the CPU framebuffer.
+
+The initial scope is the existing vocabulary: filled and rounded rectangles, inside borders, images, glyph runs, rectangular clips, affine transforms, and straight-alpha source-over blending in linear light. It follows the coordinate, clip, color, and coverage conventions already specified for the Vulkan backend, so the two are comparable. The host owns the target memory and presentation; image pixels arrive through the host resource system as with GPU images. Glyphs come from the [backend-neutral glyph cache](text.md#proposed-glyph-raster-strategy).
+
+Later performance work keeps the scalar result as reference: tile binning, worker threads over tiles, SIMD (SSE/AVX2/NEON class) for coverage, blending, sampling, and distance evaluation, and repainting only damaged tiles once dirty tracking is proven equivalent to full repaint. A deterministic mode with fixed tile ordering and order-independent results is the default for tests; a performance mode may schedule dynamically but must not change pixels beyond declared tolerances.
+
+Pixel-free checks need no renderer: layout, hit testing, focus, semantics, inspection, and replay already consume tree, layout, and paint outputs directly. A no-op `UiRenderer` is introduced only when a host loop needs submission and retirement exercised without pixels.
+
+## Proposed backend selection
+
+The host constructs and selects the backend; core never chooses one. An application host may offer an automatic policy that tries its preferred GPU backend and falls back to the CPU backend, and it records which backend was selected so diagnostics and snapshot manifests can report it. Tests, CI, and capture runs declare the backend explicitly; an unavailable backend fails rather than falling back. Command-line switches and environment variables for selection are host or tooling choices, not core contracts.
+
 ## Proposed capture boundary
 
 An offscreen host owns targets, submission, completion, and readback. A reusable capture service associates an image with the submitted frame/update generation, physical extent, scale, format/color convention, and backend/device metadata. CPU inspection and GPU completion must agree under the [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle) contract. Readback does not weaken retirement requirements or add window/platform types to core.
 
-Image encoding/export belongs to optional tooling, with explicit dependency/licensing choices. Existing fixture readback and PPM artifacts are examples of backend evidence, not a general PNG-capture API, runner, or CLI. A future software/reference backend is evaluated separately; headless means no window, not no GPU.
+Image encoding/export belongs to optional tooling, with explicit dependency/licensing choices. Existing fixture readback and PPM artifacts are examples of backend evidence, not a general PNG-capture API, runner, or CLI. Headless means no window: GPU capture still needs a declared device, while the proposed [CPU reference backend](#proposed-cpu-reference-backend) captures without one. Which backend produced an image is always declared.
 
 ## Proposed overlay paint
 
@@ -142,5 +177,7 @@ The strategy's illustrative `loadUiAsset(id)` is a starting point. Finalize hand
 ## Verification
 
 Validate draw-list order, balanced stacks, invalid handles, and completion-safe resource lifetime independently of screenshots. Use a few image cases for overlapping rectangles, clipping, transforms, alpha, borders, and later images/glyphs. Record viewport scale, target format, backend, device, and tolerances with results. A shader compile check alone is not runtime rendering evidence.
+
+Once the CPU reference backend exists, it renders the same draw lists as GPU candidates, and comparison is tolerance-aware because floating-point rounding, texture filtering, shader derivatives, and color conversion can differ by small amounts. Optimized CPU paths are compared with the scalar result, and deterministic mode with repeated runs and different thread counts.
 
 [Vulkan fixtures](../../tests/render/vulkan_tests.cpp) provide a host-owned offscreen target, procedural 2x2 image, queue/fence/readback, required validation layer with synchronization validation, numeric pixel assertions, and PPM artifacts. They exercise source-over order, rounded/inside borders, nested/empty/mirrored clips with pixel-center fractional edges, composed/rotated/skewed transforms, image sampling/crop/tint, scale/resize, rejected calls, capacity and retirement. Placeholder fixtures additionally check bitmap/baseline/multiline/space/missing marks at four scales, glyph clip/transform/alpha, atomic rejection, and a JSON -> tree -> layout -> paint -> GPU Text menu. Both paths run these fixtures; batch checks also compare complete mixed-scene images against the reference at four scales and check draw counts, multiple retained uploads, rejection, and partial/future retirement. They fail when required device/layer capabilities are absent; they do not silently substitute CPU rendering. The [development guide](../guides/development.md#optional-vulkan-workflow) owns execution commands.

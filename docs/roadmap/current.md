@@ -8,7 +8,7 @@ Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Exi
 
 ## Remaining required work
 
-- Real text beyond the single-face [font shaper](../design/text.md#implemented-font-shaper): font abstraction (families, fallback stacks), per-run fallback, wrapping, FreeType rasterization into a dynamic bitmap glyph cache drawn by the Vulkan backend, and a [deterministic font profile](../design/text.md#proposed-deterministic-font-profile) over the adopted Latin/Japanese fixtures.
+- Real text beyond the single-face [font shaper](../design/text.md#implemented-font-shaper): font abstraction (families, fallback stacks), per-run fallback, wrapping, FreeType rasterization into a dynamic, [backend-independent](../design/text.md#proposed-glyph-raster-strategy) grayscale glyph cache drawn by the Vulkan backend, and a [deterministic font profile](../design/text.md#proposed-deterministic-font-profile) over the adopted Latin/Japanese fixtures.
 - Focus recovery hardening as menus require it; an operator session with a physical controller for the Win32 host's [gamepad translation](../design/input.md#host-boundary).
 - SemanticTree v1 and Replay v1.
 - IME/clipboard boundary contracts; DPI and pixel-snapping validation.
