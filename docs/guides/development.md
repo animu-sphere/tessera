@@ -112,6 +112,27 @@ cmake -S . -B build-glyph-core -G "Visual Studio 18 2026" -A x64 `
 cmake --build build-glyph-core --config Debug
 ```
 
+## Optional fonts workflow
+
+Install the [adopted text libraries](../reference/dependencies.md#adopted-text-choices) once, before configuring. With a local vcpkg checkout whose ports provide the pinned versions, in classic mode:
+
+```powershell
+& <vcpkg-root>\vcpkg.exe install "freetype[core]:x64-windows" "harfbuzz[core]:x64-windows"
+```
+
+Then configure a separate build directory through the vcpkg toolchain file. The option defaults OFF:
+
+```powershell
+cmake -S . -B build-fonts -G "Visual Studio 18 2026" -A x64 `
+    -DTESSERA_BUILD_FONTS=ON `
+    -DCMAKE_TOOLCHAIN_FILE=<vcpkg-root>/scripts/buildsystems/vcpkg.cmake `
+    -DVCPKG_TARGET_TRIPLET=x64-windows
+cmake --build build-fonts --config Debug
+ctest --test-dir build-fonts -C Debug --output-on-failure
+```
+
+CMake rejects a HarfBuzz version other than the pinned one. The toolchain copies the HarfBuzz and FreeType DLLs beside `build-fonts/modules/fonts/<config>/tessera_font_shaper_tests.exe`; with another acquisition, put the runtime libraries on `PATH`. The `font_shaper` test reads the committed fixtures from `tests/fixtures/fonts` and needs no installed or system fonts. A fresh configure with the option OFF and no toolchain file, as in the library-only workflow, confirms that the core discovers no font library.
+
 ## Release workflow
 
 [VERSION](../../VERSION) holds the single `MAJOR.MINOR.PATCH` value; CMake reads it as the project version. A release is cut only after the active milestone's exit criteria are accepted against [support](../reference/support-matrix.md); 0.x versions carry no API/ABI compatibility guarantee. Patch releases fix defects in released scope; otherwise development continues on `main` without maintenance branches.

@@ -7,13 +7,26 @@
 - `TextStyle`: host-assigned `FontId` (0 selects the host default font), finite positive size in logical units per em, optional positive line height (absent selects the shaper default), weight 1-1000.
 - `TextMetrics`: widest line advance by `lines * line_height`, first baseline below the top of the text box, line height, and line count. Empty text is one empty line.
 - `Glyph`: font-specific glyph ID, cluster as a UTF-8 byte offset into the source, and baseline pen position relative to the text box top left.
-- Failures return no value and diagnostics: `invalid_utf8` at `/text`, `text_too_long` above 4 GiB, and style errors (`invalid_number`/`out_of_range`) under `/style`.
+- Failures return no value and diagnostics: `invalid_utf8` at `/text`, `text_too_long` above 4 GiB, and style errors (`invalid_number`/`out_of_range`) under `/style`. `validate_text_input` performs these shared checks for every shaper; an implementation may add its own failures.
 
 `PlaceholderTextShaper` uses no font data. Each Unicode scalar advances 0.5 em, LF starts a new line and emits no glyph, there is no wrapping, the default line height is 1.25 em, and a 0.8 em ascent is centered in each line. Glyph IDs are Unicode scalar values. It derives `measure` from `shape`, so the two cannot disagree. Its widths are not representative of any real font, including for Japanese text.
 
 Width constraints and wrapping are not part of the interface yet; they arrive with real line breaking.
 
 The optional Vulkan backend can explicitly enable [placeholder Text rasterization](rendering.md#implemented-vulkan-placeholder-text) for default-font runs. That contract owns its bitmap shapes, placement, missing marks, and submission rules. It does not change shaping metrics or establish real font/script coverage.
+
+## Implemented font shaper
+
+[font_shaper.hpp](../../modules/fonts/include/tessera/fonts/font_shaper.hpp) defines `FontShaper`, a `TextShaper` in the optional `tessera::fonts` module that shapes with HarfBuzz under the [adoption record](../reference/dependencies.md#adopted-text-choices). HarfBuzz types stay inside the module, and a core-only build does not discover HarfBuzz.
+
+- Faces: `set_face(font, bytes, face_index)` registers or replaces the one face used for a `FontId`, including the default `FontId` 0, from TTF/OTF bytes or one face of a TTC/OTC collection. The host supplies and loads the bytes through its [asset boundary](rendering.md#assets); the shaper owns its copy and does no filesystem access. Empty data, data that is not a font, an out-of-range face index, a face without `head` or glyphs, and a face whose ascender-to-descender extent is not positive fail as `invalid_font` at `/font` and leave the previous face in place. Replacing a face changes later results; the host lays out and paints again. Shaping a `FontId` with no face fails as `unknown_font` at `/style/font`.
+- Shaping: each LF-separated line is one HarfBuzz segment with default features (kerning, ligatures, and mark positioning when the font provides them), direction and script guessed from the line, and the fixed language `und`, so the process locale does not affect results. LF emits no glyph. Bidirectional reordering, script itemization, and a declared locale are not implemented.
+- Glyphs: glyph IDs are the face's glyph indices. Clusters are UTF-8 byte offsets into the whole text, at HarfBuzz's default grapheme-monotone level, so a ligature or a mark shares the cluster of the first byte of its source. Pen positions accumulate in font units and are scaled by `size / units-per-em` per glyph, so measurement involves no accumulated rounding; glyph offsets are added to the pen, with HarfBuzz's upward Y offset converted to the downward box axis.
+- Metrics: HarfBuzz's horizontal font extents (OS/2 typographic values when the font sets `USE_TYPO_METRICS`, otherwise `hhea`). The default line height is ascender minus descender plus line gap; the ascender-to-descender extent is centered in each line (half-leading) for both default and explicit line heights. Width is the widest line's advance, as in the boundary above.
+- Missing glyphs: a cluster the face cannot map shapes as glyph 0 (`.notdef`) with that glyph's advance. The result keeps its value and adds one `missing_glyph` warning at `/text` with the count and the first missing byte offset in the message; `byte_offset` stays empty because it refers to document sources. Paint relocates the warning under the Text node; layout uses the metrics.
+- Limits: one face per `FontId` with no fallback; `weight` is validated but selects no face; variable fonts use their default instance; no wrapping. A line longer than HarfBuzz's buffer accepts fails as `text_too_long`. Measurement is derived from shaping, so the two cannot disagree; no result cache exists, so there is nothing to invalidate.
+
+No glyph rasterization exists for these runs: the [Vulkan placeholder](rendering.md#implemented-vulkan-placeholder-text) contract accepts only placeholder-shaper runs, so a host must not enable it for `FontShaper` output.
 
 ## Boundary and ownership
 
@@ -43,7 +56,7 @@ Index units are explicit: clusters are UTF-8 byte offsets. Unicode code points, 
 
 ## Candidate implementation
 
-The intended baseline is FreeType for face loading/rasterization and HarfBuzz for shaping and OpenType features, accepting TTF, OTF, and TTC collections. Adoption still requires the version, acquisition, and license records in [dependencies](../reference/dependencies.md#decisions-still-required). ICU or an equivalent dependency should be adopted only for a demonstrated Unicode requirement. Font discovery/loading goes through the host asset boundary defined in [rendering](rendering.md#assets).
+The baseline is HarfBuzz for shaping and OpenType features and FreeType for rasterization, accepting TTF, OTF, and TTC collections. Both are [adopted](../reference/dependencies.md#adopted-text-choices); the implemented shaper above uses HarfBuzz, and FreeType rasterization arrives with the glyph cache. ICU or an equivalent dependency should be adopted only for a demonstrated Unicode requirement. Font discovery/loading goes through the host asset boundary defined in [rendering](rendering.md#assets).
 
 Web hosts are intended to run the same shaping and layout code in WASM instead of measuring DOM text, so native and Web geometry come from one implementation. Browser font serving remains a host concern.
 
@@ -87,4 +100,4 @@ Placeholders must be described as placeholders in examples and the [support matr
 
 ## Verification
 
-Test measurement/paint agreement, empty strings, invalid encoding, missing glyphs, fallback boundaries, wrapping, and cache invalidation. Use pinned redistributable test fonts with license records under the [deterministic font profile](#proposed-deterministic-font-profile) when dependencies are adopted. Add a small glyph image regression set; document font versions because changing a font can change layout.
+Test measurement/paint agreement, empty strings, invalid encoding, missing glyphs, fallback boundaries, wrapping, and cache invalidation. Use the pinned redistributable [fixture fonts](../reference/dependencies.md#adopted-text-choices) toward the [deterministic font profile](#proposed-deterministic-font-profile). [Font shaper checks](../../tests/text/font_shaper_tests.cpp) take expected glyph IDs, clusters, and advances from the fixture fonts independently of the shaper. Add a small glyph image regression set; document font versions because changing a font can change layout.
