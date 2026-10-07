@@ -29,8 +29,11 @@ std::vector<Diagnostic> validate(const TextStyle& style, std::string_view base) 
     return errors;
 }
 
-std::vector<Diagnostic> validate_text_input(std::string_view utf8, const TextStyle& style) {
+std::vector<Diagnostic> validate_text_input(std::string_view utf8, const TextStyle& style,
+                                            const TextConstraints& constraints) {
     auto errors = validate(style, "/style");
+    detail::Checker check(errors);
+    if (constraints.max_width) check.non_negative(*constraints.max_width, "/constraints/max_width");
     if (utf8.size() > std::numeric_limits<std::uint32_t>::max())
         errors.push_back({"text_too_long", Severity::error, "/text", "Text exceeds 4 GiB of UTF-8.", {}});
     else if (!detail::valid_utf8(utf8))
@@ -38,8 +41,10 @@ std::vector<Diagnostic> validate_text_input(std::string_view utf8, const TextSty
     return errors;
 }
 
-Result<GlyphRun> PlaceholderTextShaper::shape(std::string_view utf8, const TextStyle& style) {
-    if (auto errors = validate_text_input(utf8, style); !errors.empty()) return {std::nullopt, std::move(errors)};
+Result<GlyphRun> PlaceholderTextShaper::shape(std::string_view utf8, const TextStyle& style,
+                                              const TextConstraints& constraints) {
+    if (auto errors = validate_text_input(utf8, style, constraints); !errors.empty())
+        return {std::nullopt, std::move(errors)};
 
     GlyphRun run{style.font, style.size, {}, {}};
     const float line = style.line_height.value_or(style.size * line_height_em);
@@ -58,6 +63,12 @@ Result<GlyphRun> PlaceholderTextShaper::shape(std::string_view utf8, const TextS
             ++lines;
             continue;
         }
+        if (constraints.max_width && column > 0 &&
+            static_cast<float>(column + 1) * advance > *constraints.max_width) {
+            widest = std::max(widest, column);
+            column = 0;
+            ++lines;
+        }
         run.glyphs.push_back({scalar, start, {static_cast<float>(column) * advance,
                                               run.metrics.baseline + static_cast<float>(lines - 1) * line},
                               style.font});
@@ -69,9 +80,10 @@ Result<GlyphRun> PlaceholderTextShaper::shape(std::string_view utf8, const TextS
     return {std::move(run), {}};
 }
 
-Result<TextMetrics> PlaceholderTextShaper::measure(std::string_view utf8, const TextStyle& style) {
+Result<TextMetrics> PlaceholderTextShaper::measure(std::string_view utf8, const TextStyle& style,
+                                                   const TextConstraints& constraints) {
     // Measurement is derived from shaping so the two can never disagree.
-    auto shaped = shape(utf8, style);
+    auto shaped = shape(utf8, style, constraints);
     if (!shaped) return {std::nullopt, std::move(shaped.diagnostics)};
     return {shaped.value->metrics, {}};
 }

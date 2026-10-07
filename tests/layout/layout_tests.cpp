@@ -317,10 +317,12 @@ void display_and_visibility() {
 
 class FailingShaper final : public tessera::TextShaper {
 public:
-    tessera::Result<tessera::TextMetrics> measure(std::string_view, const tessera::TextStyle&) override {
+    tessera::Result<tessera::TextMetrics> measure(std::string_view, const tessera::TextStyle&,
+                                                  const tessera::TextConstraints&) override {
         return {std::nullopt, {{"font_missing", tessera::Severity::error, "/style/font", "Missing font.", {}}}};
     }
-    tessera::Result<tessera::GlyphRun> shape(std::string_view, const tessera::TextStyle&) override { return {}; }
+    tessera::Result<tessera::GlyphRun> shape(std::string_view, const tessera::TextStyle&,
+                                            const tessera::TextConstraints&) override { return {}; }
 };
 
 void failures() {
@@ -353,6 +355,42 @@ void failures() {
           "A non-finite scroll extent must be diagnosed");
 }
 
+void text_wrapping() {
+    Fixture column(box({box({text("ABCDEF")}), box()}));
+    column.styles[2].text.size = 20;
+    column.styles[1].padding = {2, 5, 3, 5};
+    column.styles[3].height = Dimension::points(10);
+    column.styles[0].gap = 4;
+    const auto narrow = column.layout({30, 200});
+    check(at(narrow, 1).size == tessera::Size{30, 80} && at(narrow, 2).size == tessera::Size{20, 75} &&
+          at(narrow, 3).origin.y == 84, "Nested column must include wrapped descendant height and padding");
+    const auto wide = column.layout({70, 200});
+    check(at(wide, 1).size.height == 30 && at(wide, 3).origin.y == 34,
+          "A new viewport must reflow text and sibling placement");
+    column.styles[0].overflow = tessera::Overflow::scroll;
+    const auto scrolled = column.layout({30, 60});
+    check(scrolled.boxes[0].scroll_limit().y == 34, "Scroll extent must include wrapped child heights");
+
+    Fixture row(box({box({text("ABCDEF")}), box({text("ABCDEF")})}));
+    row.styles[0].direction = tessera::FlexDirection::row;
+    row.styles[0].align = tessera::Align::start;
+    row.styles[1].shrink = row.styles[3].shrink = 1;
+    row.styles[2].text.size = row.styles[4].text.size = 20;
+    const auto shrunk = row.layout({40, 200});
+    check(at(shrunk, 1).size == tessera::Size{20, 75} && at(shrunk, 3).size == tessera::Size{20, 75},
+          "Row cross height must use the final flex width");
+    check(at(shrunk, 2).size == tessera::Size{20, 75}, "Nested text must use its parent's flex width");
+
+    Fixture limited(box({text("ABCDE")}));
+    limited.styles[0].align = tessera::Align::start;
+    limited.styles[1].max_width = 20;
+    limited.styles[1].text.size = 20;
+    const auto bounded = limited.layout({100, 200});
+    check(at(bounded, 1).size == tessera::Size{20, 75}, "max_width must constrain intrinsic text height");
+    limited.styles[1].height = Dimension::points(10);
+    check(at(limited.layout({100, 200}), 1).size.height == 10, "Fixed heights must retain their basis");
+}
+
 } // namespace
 
 int main() {
@@ -368,6 +406,7 @@ int main() {
         fractional_sizes();
         display_and_visibility();
         failures();
+        text_wrapping();
         std::cout << "Fixed, stack, flex, constraint, overflow, visibility, and failure layout checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

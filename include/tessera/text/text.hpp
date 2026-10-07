@@ -31,6 +31,13 @@ struct TextMetrics {
     bool operator==(const TextMetrics&) const = default;
 };
 
+struct TextConstraints {
+    // Absent preserves LF-only lines. Finite, non-negative logical width enables wrapping.
+    // An indivisible cluster may overflow, including at width zero.
+    std::optional<float> max_width;
+    bool operator==(const TextConstraints&) const = default;
+};
+
 struct Glyph {
     std::uint32_t id = 0;      // Font-specific glyph index.
     std::uint32_t cluster = 0; // UTF-8 byte offset of the source cluster.
@@ -43,7 +50,7 @@ struct GlyphRun {
     FontId font; // Requested font (TextStyle::font).
     float size = 0;
     std::vector<Glyph> glyphs;
-    TextMetrics metrics; // Equal to measure() for the same text and style.
+    TextMetrics metrics; // Equal to measure() for the same text, style, and constraints.
     bool operator==(const GlyphRun&) const = default;
 };
 
@@ -52,8 +59,8 @@ struct GlyphRun {
 class TextShaper {
 public:
     virtual ~TextShaper() = default;
-    virtual Result<TextMetrics> measure(std::string_view utf8, const TextStyle&) = 0;
-    virtual Result<GlyphRun> shape(std::string_view utf8, const TextStyle&) = 0;
+    virtual Result<TextMetrics> measure(std::string_view utf8, const TextStyle&, const TextConstraints& = {}) = 0;
+    virtual Result<GlyphRun> shape(std::string_view utf8, const TextStyle&, const TextConstraints& = {}) = 0;
 
 protected:
     TextShaper() = default;
@@ -62,12 +69,12 @@ protected:
 };
 
 std::vector<Diagnostic> validate(const TextStyle&, std::string_view path = "");
-// Input checks shared by every shaper: style errors under /style, then text_too_long
-// (above 4 GiB) or invalid_utf8 at /text.
-std::vector<Diagnostic> validate_text_input(std::string_view utf8, const TextStyle&);
+// Input checks shared by every shaper: style errors under /style, width errors under
+// /constraints, then text_too_long (above 4 GiB) or invalid_utf8 at /text.
+std::vector<Diagnostic> validate_text_input(std::string_view utf8, const TextStyle&, const TextConstraints& = {});
 
 // Deterministic metrics without font data, for geometry tests and placeholder Text.
-// Every Unicode scalar advances 0.5 em; LF starts a new line; there is no wrapping.
+// Every Unicode scalar advances 0.5 em; LF starts a new line; constrained lines wrap by scalar.
 // The default line height is 1.25 em, with a 0.8 em ascent centered in each line.
 // Glyph IDs are Unicode scalar values.
 class PlaceholderTextShaper final : public TextShaper {
@@ -75,8 +82,8 @@ public:
     static constexpr float advance_em = 0.5f;
     static constexpr float line_height_em = 1.25f;
     static constexpr float ascent_em = 0.8f;
-    Result<TextMetrics> measure(std::string_view utf8, const TextStyle&) override;
-    Result<GlyphRun> shape(std::string_view utf8, const TextStyle&) override;
+    Result<TextMetrics> measure(std::string_view utf8, const TextStyle&, const TextConstraints& = {}) override;
+    Result<GlyphRun> shape(std::string_view utf8, const TextStyle&, const TextConstraints& = {}) override;
 };
 
 } // namespace tessera

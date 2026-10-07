@@ -84,9 +84,9 @@ private:
     }
 
     // Unclamped border-box size before flexing: a fixed dimension, else content plus border and padding.
-    // Content size does not depend on available space because placeholder text never wraps.
-    const Size& basis(std::uint32_t index) {
-        if (basis_[index]) return *basis_[index];
+    // Unconstrained bases are cached. Assigned widths remeasure text and descendant heights.
+    Size basis(std::uint32_t index, std::optional<float> border_width = std::nullopt) {
+        if (!border_width && basis_[index]) return *basis_[index];
         const auto& style = styles_[index];
         const UiNode& node = *tree_.get(handle(index));
         Size content;
@@ -110,17 +110,45 @@ private:
                 ? fixed.value
                 : along(content, horizontal) + total(style.border, horizontal) + total(style.padding, horizontal);
         }
-        return *(basis_[index] = size);
+        const float width = limits(style, true).clamp(border_width.value_or(size.width));
+        const float content_width = inset(inset({{}, {width, 0}}, style.border), style.padding).size.width;
+        if (style.height.kind == Dimension::Kind::automatic) {
+            float height = 0;
+            if (node.kind == NodeKind::text) {
+                height = measure(index, node, content_width).height;
+            } else {
+                const auto children = displayed_children(index);
+                const bool row = style.direction == FlexDirection::row;
+                const auto widths = row ? flex(style, children, content_width, content_width) : std::vector<float>{};
+                for (std::size_t i = 0; i < children.size(); ++i) {
+                    const auto child = children[i];
+                    const float child_width = row ? widths[i] : column_width(style, child, content_width);
+                    const float extent = limits(styles_[child], false).clamp(basis(child, child_width).height) +
+                                         total(styles_[child].margin, false);
+                    height = row ? std::max(height, extent) : height + extent;
+                }
+                if (!row && !children.empty()) height += style.gap * static_cast<float>(children.size() - 1);
+            }
+            size.height = height + total(style.border, false) + total(style.padding, false);
+        }
+        if (!border_width) basis_[index] = size;
+        return size;
     }
 
     float preferred(std::uint32_t index, bool horizontal) {
         return limits(styles_[index], horizontal).clamp(along(basis(index), horizontal));
     }
 
-    Size measure(std::uint32_t index, const UiNode& node) {
+    float column_width(const ResolvedStyle& parent, std::uint32_t child, float available) {
+        const auto& style = styles_[child];
+        return parent.align == Align::stretch && style.width.kind == Dimension::Kind::automatic
+            ? limits(style, true).clamp(available - total(style.margin, true)) : preferred(child, true);
+    }
+
+    Size measure(std::uint32_t index, const UiNode& node, std::optional<float> width = std::nullopt) {
         const auto found = node.properties.find(property_names::text);
         const auto* text = found == node.properties.end() ? nullptr : std::get_if<std::string>(&found->second);
-        auto metrics = text_.measure(text ? *text : std::string(), styles_[index].text);
+        auto metrics = text_.measure(text ? *text : std::string(), styles_[index].text, {width});
         if (metrics) return metrics.value->size;
         for (auto& diagnostic : metrics.diagnostics) {
             diagnostic.path = node_path(index) + diagnostic.path;
@@ -138,6 +166,8 @@ private:
                                  style.visibility == Visibility::visible, std::move(clip), std::nullopt});
         if (style.overflow == Overflow::scroll) result_.boxes[at].scroll = ScrollGeometry{};
         const auto content = result_.boxes[at].content_box();
+        if (tree_.get(handle(index))->kind == NodeKind::text)
+            measure(index, *tree_.get(handle(index)), content.size.width);
         const auto children = displayed_children(index);
         if (children.empty()) {
             if (style.overflow == Overflow::scroll) scroll(at, {}, {});
@@ -145,7 +175,7 @@ private:
         }
 
         const bool row = style.direction == FlexDirection::row;
-        const auto sizes = flex(style, children, along(content.size, row));
+        const auto sizes = flex(style, children, along(content.size, row), content.size.width);
         // Space left after items, margins, and gaps; overflow is never redistributed backwards.
         float leftover = along(content.size, row) - style.gap * static_cast<float>(children.size() - 1);
         for (std::size_t i = 0; i < children.size(); ++i)
@@ -169,7 +199,9 @@ private:
 
             const float room = cross_space - total(child.margin, !row);
             const bool stretch = style.align == Align::stretch && dimension(child, !row).kind == Dimension::Kind::automatic;
-            const float cross = stretch ? limits(child, !row).clamp(room) : preferred(children[i], !row);
+            const float natural_cross = row
+                ? limits(child, false).clamp(basis(children[i], sizes[i]).height) : preferred(children[i], true);
+            const float cross = stretch ? limits(child, !row).clamp(room) : natural_cross;
             const float free = std::max(0.0f, room - cross);
             float offset = 0;
             if (style.align == Align::center) offset = free / 2;
@@ -212,7 +244,8 @@ private:
     // Resolves main-axis border-box sizes for one single-line container: grow distributes positive free
     // space by grow factor, shrink removes overflow by shrink factor times basis, and limit violations
     // freeze items and redistribute until every item satisfies its limits.
-    std::vector<float> flex(const ResolvedStyle& style, const std::vector<std::uint32_t>& children, float available) {
+    std::vector<float> flex(const ResolvedStyle& style, const std::vector<std::uint32_t>& children,
+                            float available, float content_width) {
         const bool row = style.direction == FlexDirection::row;
         struct Item {
             float basis, target, unclamped, factor;
@@ -225,7 +258,8 @@ private:
         for (const auto child : children) {
             const auto& child_style = styles_[child];
             const auto bounds = limits(child_style, row);
-            const float base = along(basis(child), row);
+            const float base = along(basis(child, row ? std::nullopt :
+                std::optional<float>{column_width(style, child, content_width)}), row);
             items.push_back({base, bounds.clamp(base), base, 0, bounds, false});
             space -= total(child_style.margin, row);
             hypothetical += items.back().target;

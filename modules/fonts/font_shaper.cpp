@@ -71,6 +71,19 @@ std::vector<std::pair<std::uint32_t, std::uint32_t>> missing_ranges(const std::v
     return ranges;
 }
 
+double advance_width(const std::vector<Shaped>& glyphs, double size) {
+    std::vector<std::pair<const Face*, std::int64_t>> advances;
+    for (const auto& glyph : glyphs) {
+        auto at = std::find_if(advances.begin(), advances.end(),
+                               [&](const auto& entry) { return entry.first == glyph.face; });
+        if (at == advances.end()) at = advances.insert(advances.end(), {glyph.face, 0});
+        at->second += glyph.advance;
+    }
+    double width = 0;
+    for (const auto& [face, units] : advances) width += units * (size / face->upem);
+    return width;
+}
+
 } // namespace
 
 struct FontShaper::Impl {
@@ -99,6 +112,32 @@ struct FontShaper::Impl {
         for (unsigned i = 0; i < count; ++i)
             out.push_back({&face, font.value, infos[i].codepoint, infos[i].cluster, positions[i].x_advance,
                            positions[i].x_offset, positions[i].y_offset});
+        return true;
+    }
+
+    bool shape_line(const Face& face, FontId font, const std::vector<FontId>& stack, std::string_view text,
+                    std::vector<Shaped>& glyphs, hb_direction_t& direction) {
+        glyphs.clear();
+        direction = HB_DIRECTION_LTR;
+        const auto length = static_cast<std::uint32_t>(text.size());
+        if (length == 0) return true;
+        if (!shape_segment(face, font, text, 0, length, HB_DIRECTION_INVALID, glyphs)) return false;
+        direction = hb_buffer_get_direction(buffer.get());
+        for (const auto fallback : stack) {
+            const auto ranges = missing_ranges(glyphs, length);
+            if (ranges.empty()) break;
+            const Face& next = faces.at(fallback.value);
+            for (const auto& [begin, finish] : ranges) {
+                std::vector<Shaped> replacement;
+                if (!shape_segment(next, fallback, text, begin, finish, direction, replacement)) return false;
+                const auto inside = [begin, finish](const Shaped& glyph) {
+                    return glyph.cluster >= begin && glyph.cluster < finish;
+                };
+                const auto first = std::find_if(glyphs.begin(), glyphs.end(), inside);
+                const auto at = glyphs.erase(first, std::find_if_not(first, glyphs.end(), inside));
+                glyphs.insert(at, replacement.begin(), replacement.end());
+            }
+        }
         return true;
     }
 };
@@ -164,8 +203,8 @@ std::vector<Diagnostic> FontShaper::set_fallback(FontId font, std::vector<FontId
     return {};
 }
 
-Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style) {
-    auto errors = validate_text_input(utf8, style);
+Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style, const TextConstraints& constraints) {
+    auto errors = validate_text_input(utf8, style, constraints);
     const auto found = impl_->faces.find(style.font.value);
     if (found == impl_->faces.end())
         errors.push_back({"unknown_font", Severity::error, "/style/font",
@@ -203,54 +242,63 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
     for (std::size_t start = 0;;) {
         const auto end = utf8.find('\n', start);
         const auto text = utf8.substr(start, (end == std::string_view::npos ? utf8.size() : end) - start);
-        const float pen_y = baseline + static_cast<float>(lines) * line;
         if (text.size() > INT_MAX) return too_long();
         const auto length = static_cast<std::uint32_t>(text.size());
-        glyphs.clear();
-        if (length > 0) {
-            if (!impl_->shape_segment(face, style.font, text, 0, length, HB_DIRECTION_INVALID, glyphs))
-                return too_long();
-            const auto direction = hb_buffer_get_direction(impl_->buffer.get());
-            // Each fallback face reshapes the clusters still missing, in the line's direction.
-            for (const auto fallback : fallbacks) {
-                const auto ranges = missing_ranges(glyphs, length);
-                if (ranges.empty()) break;
-                const Face& next = impl_->faces.at(fallback.value);
-                for (const auto& [begin, finish] : ranges) {
-                    std::vector<Shaped> replacement;
-                    if (!impl_->shape_segment(next, fallback, text, begin, finish, direction, replacement))
-                        return too_long();
-                    const auto inside = [begin, finish](const Shaped& glyph) {
-                        return glyph.cluster >= begin && glyph.cluster < finish;
-                    };
-                    const auto first = std::find_if(glyphs.begin(), glyphs.end(), inside);
-                    const auto at = glyphs.erase(first, std::find_if_not(first, glyphs.end(), inside));
-                    glyphs.insert(at, replacement.begin(), replacement.end());
+        std::uint32_t consumed = 0;
+        do {
+            const auto remaining = text.substr(consumed);
+            hb_direction_t direction;
+            if (!impl_->shape_line(face, style.font, fallbacks, remaining, glyphs, direction)) return too_long();
+            if (constraints.max_width && direction != HB_DIRECTION_LTR)
+                return {std::nullopt, {{"unsupported_wrapping_direction", Severity::error, "/text",
+                                        "Width-constrained wrapping currently requires left-to-right text.", {}}}};
+            auto taken = static_cast<std::uint32_t>(remaining.size());
+            if (constraints.max_width && static_cast<float>(advance_width(glyphs, size)) > *constraints.max_width) {
+                // Only shaped cluster boundaries can split a line. Shape each candidate as its
+                // own line so kerning/ligatures never include text beyond a selected break.
+                std::vector<std::uint32_t> boundaries;
+                for (const auto& glyph : glyphs)
+                    if (glyph.cluster > 0 && (boundaries.empty() || boundaries.back() != glyph.cluster))
+                        boundaries.push_back(glyph.cluster);
+                boundaries.push_back(taken);
+                std::vector<Shaped> accepted;
+                for (const auto boundary : boundaries) {
+                    std::vector<Shaped> candidate;
+                    if (!impl_->shape_line(face, style.font, fallbacks, remaining.substr(0, boundary),
+                                           candidate, direction)) return too_long();
+                    const bool overflow = static_cast<float>(advance_width(candidate, size)) > *constraints.max_width;
+                    if (overflow && !accepted.empty()) break;
+                    taken = boundary;
+                    accepted = std::move(candidate);
+                    if (overflow) break; // One oversized cluster still makes progress.
                 }
+                glyphs = std::move(accepted);
             }
-        }
-        // Pens accumulate per face in font units and are scaled per glyph, so measurement
-        // involves no accumulated rounding even when a line mixes faces.
-        pens.clear();
-        const auto pen_x = [&pens, size](const Face* current, std::int64_t offset) {
-            double x = 0;
-            for (const auto& [owner, units] : pens)
-                x += static_cast<double>(units + (owner == current ? offset : 0)) * (size / owner->upem);
-            return x;
-        };
-        for (const auto& glyph : glyphs) {
-            auto pen = std::find_if(pens.begin(), pens.end(), [&](const auto& entry) { return entry.first == glyph.face; });
-            if (pen == pens.end()) pen = pens.insert(pens.end(), {glyph.face, 0});
-            const auto cluster = static_cast<std::uint32_t>(start + glyph.cluster);
-            if (glyph.id == 0 && missing++ == 0) first_missing = cluster;
-            run.glyphs.push_back({glyph.id, cluster,
-                                  {static_cast<float>(pen_x(glyph.face, glyph.x_offset)),
-                                   pen_y - static_cast<float>(glyph.y_offset * (size / glyph.face->upem))},
-                                  FontId{glyph.font}});
-            pen->second += glyph.advance;
-        }
-        widest = std::max(widest, pen_x(nullptr, 0));
-        ++lines;
+            const float pen_y = baseline + static_cast<float>(lines) * line;
+            // Pens accumulate per face in font units and are scaled per glyph, so measurement
+            // involves no accumulated rounding even when a line mixes faces.
+            pens.clear();
+            const auto pen_x = [&pens, size](const Face* current, std::int64_t offset) {
+                double x = 0;
+                for (const auto& [owner, units] : pens)
+                    x += static_cast<double>(units + (owner == current ? offset : 0)) * (size / owner->upem);
+                return x;
+            };
+            for (const auto& glyph : glyphs) {
+                auto pen = std::find_if(pens.begin(), pens.end(), [&](const auto& entry) { return entry.first == glyph.face; });
+                if (pen == pens.end()) pen = pens.insert(pens.end(), {glyph.face, 0});
+                const auto cluster = static_cast<std::uint32_t>(start + consumed + glyph.cluster);
+                if (glyph.id == 0 && missing++ == 0) first_missing = cluster;
+                run.glyphs.push_back({glyph.id, cluster,
+                                      {static_cast<float>(pen_x(glyph.face, glyph.x_offset)),
+                                       pen_y - static_cast<float>(glyph.y_offset * (size / glyph.face->upem))},
+                                      FontId{glyph.font}});
+                pen->second += glyph.advance;
+            }
+            widest = std::max(widest, pen_x(nullptr, 0));
+            ++lines;
+            consumed += taken;
+        } while (consumed < length);
         if (end == std::string_view::npos) break;
         start = end + 1;
     }
@@ -267,9 +315,9 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
     return {std::move(run), std::move(warnings)};
 }
 
-Result<TextMetrics> FontShaper::measure(std::string_view utf8, const TextStyle& style) {
+Result<TextMetrics> FontShaper::measure(std::string_view utf8, const TextStyle& style, const TextConstraints& constraints) {
     // Measurement is derived from shaping so the two can never disagree.
-    auto shaped = shape(utf8, style);
+    auto shaped = shape(utf8, style, constraints);
     if (!shaped) return {std::nullopt, std::move(shaped.diagnostics)};
     return {shaped.value->metrics, std::move(shaped.diagnostics)};
 }

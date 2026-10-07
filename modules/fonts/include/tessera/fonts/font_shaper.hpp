@@ -11,7 +11,8 @@ namespace tessera {
 // optional module; the host owns font discovery and asset loading.
 //
 // One face per FontId: weight is validated but selects no face, variable fonts use their
-// default instance, and there is no wrapping. A FontId may name an ordered fallback stack of
+// default instance. Constrained LTR lines wrap at shaped cluster boundaries (no word/kinsoku
+// rules); an oversized cluster stays intact. A FontId may name an ordered fallback stack of
 // other FontIds; clusters its face cannot map are shaped again with the next face. Each
 // LF-separated line is shaped as one segment with guessed direction/script and the fixed
 // language "und"; bidirectional reordering and script itemization are not performed.
@@ -32,8 +33,8 @@ public:
     // `font` itself. Stacks are not transitive. Rejected stacks leave the previous one in place.
     std::vector<Diagnostic> set_fallback(FontId font, std::vector<FontId> fallbacks);
 
-    Result<TextMetrics> measure(std::string_view utf8, const TextStyle&) override;
-    Result<GlyphRun> shape(std::string_view utf8, const TextStyle&) override;
+    Result<TextMetrics> measure(std::string_view utf8, const TextStyle&, const TextConstraints& = {}) override;
+    Result<GlyphRun> shape(std::string_view utf8, const TextStyle&, const TextConstraints& = {}) override;
 
 private:
     struct Impl;

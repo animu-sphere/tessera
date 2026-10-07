@@ -241,6 +241,54 @@ void faces_and_failures() {
           has(errors.diagnostics, "out_of_range", "/style/weight"), "Invalid text style accepted");
 }
 
+void wrapping() {
+    auto shaper = fixture_shaper();
+    check(shaper.set_fallback(latin, {japanese}).empty(), "Fallback stack rejected");
+    tessera::TextStyle style;
+    style.size = 20;
+    const std::string mixed = "Start スタート";
+    const auto run = shaper.shape(mixed, style, {70.1f});
+    check(run && run.diagnostics.empty() &&
+          near(run.value->metrics, {{70.1f, 54.48f}, 21.38f, 27.24f, 2}), "Mixed wrapped metrics differ");
+    check(run.value->glyphs.size() == 10 && fonts_are(*run.value, 6, latin, japanese) &&
+          run.value->glyphs[6].cluster == 6 && near(run.value->glyphs[6].position, {50.1f, 21.38f}) &&
+          run.value->glyphs[7].cluster == 9 && near(run.value->glyphs[7].position, {0, 48.62f}) &&
+          near(run.value->glyphs[9].position, {40, 48.62f}), "Wrapped glyph offsets/faces differ");
+    check(shaper.measure(mixed, style, {70.1f}).value == run.value->metrics &&
+          shaper.shape(mixed, style, {70.1f}).value == run.value, "Constrained shaping must be repeatable");
+    check(shaper.shape(mixed, style, {130.1f}).value == shaper.shape(mixed, style).value,
+          "Exact natural float width must preserve the line");
+
+    const auto kern = shaper.shape("AVA", style, {14.0f});
+    check(kern && kern.value->metrics.lines == 3 && near(kern.value->metrics.size.width, 12.78f) &&
+          near(kern.value->glyphs[1].position, {0, 48.62f}), "Kerning must stop at a wrap boundary");
+    const auto ligature = shaper.shape("ffiA", style, {0.0f});
+    check(ligature && ligature.value->glyphs.size() == 2 && ligature.value->glyphs[0].id == 1656 &&
+          ligature.value->glyphs[1].cluster == 3 && ligature.value->metrics.lines == 2 &&
+          near(ligature.value->metrics.size.width, 18.92f), "Oversized ligature must stay intact");
+    const auto mark = shaper.shape("Q\xcc\x81" "A", style, {1.0f});
+    check(mark && mark.value->glyphs.size() == 3 && mark.value->glyphs[1].cluster == 0 &&
+          near(mark.value->glyphs[1].position, {13.26f, 17.82f}) &&
+          mark.value->glyphs[2].cluster == 3 && near(mark.value->glyphs[2].position, {0, 48.62f}),
+          "Wrap must keep a combining mark with its base");
+
+    style.line_height = 40.0f;
+    const auto explicit_lines = shaper.shape("メニュー\n\nA\n", style, {40.0f});
+    check(explicit_lines && explicit_lines.value->metrics.lines == 5 &&
+          near(explicit_lines.value->metrics.size.width, 40) && near(explicit_lines.value->metrics.size.height, 200),
+          "Wrapped LF/empty-line accounting differs");
+    const auto missing = shaper.shape("Aメ\xee\x80\x80", style, {20.0f});
+    check(missing && missing.value->metrics.lines == 3 && missing.diagnostics.size() == 1 &&
+          missing.diagnostics[0].message.find("byte 4") != std::string::npos &&
+          shaper.measure("Aメ\xee\x80\x80", style, {20.0f}).diagnostics == missing.diagnostics,
+          "Provisional line candidates must not duplicate missing-glyph warnings");
+    check(shaper.measure("", style, {0.0f}).value->lines == 1, "Empty constrained text differs");
+    check(has(shaper.shape("x", style, {-1.0f}).diagnostics, "out_of_range", "/constraints/max_width"),
+          "Negative font width accepted");
+    check(has(shaper.shape("אב", style, {100.0f}).diagnostics, "unsupported_wrapping_direction", "/text"),
+          "Constrained RTL must be explicitly rejected");
+}
+
 tessera::UiNode text(std::string content) {
     tessera::UiNode result;
     result.kind = tessera::NodeKind::text;
@@ -281,6 +329,31 @@ void layout_and_paint_agree() {
         ++runs;
     }
     check(runs == 2, "Expected two Text boxes");
+
+    // A column's assigned width must affect height before the next sibling is positioned.
+    styles[0].align = tessera::Align::stretch;
+    styles[1].padding = {2, 3, 4, 5};
+    styles[1].border = {1, 1, 1, 1};
+    const auto wrapped = tessera::compute_layout({tree.get(), styles, {80.1f, 300}, &shaper});
+    check(wrapped && near(wrapped.value->boxes[1].content_box().size.width, 70.1f) &&
+          near(wrapped.value->boxes[1].content_box().size.height, 54.48f) &&
+          near(wrapped.value->boxes[2].border_box.origin.y, 62.48f), "Wrapped height did not move the sibling");
+    const auto painted = tessera::build_paint_list({tree.get(), styles, &*wrapped.value, &shaper});
+    check(static_cast<bool>(painted), "Wrapped paint rejected");
+    for (const auto& box : wrapped.value->boxes) {
+        const auto& node = *tree->get(box.node);
+        if (node.kind != tessera::NodeKind::text) continue;
+        const auto expected = shaper.shape(std::get<std::string>(node.properties.at("text")),
+                                            styles[box.node.index].text, {box.content_box().size.width});
+        check(expected && near(box.content_box().size.height, expected.value->metrics.size.height),
+              "Wrapped measurement height disagrees");
+        bool found = false;
+        for (const auto& command : painted.value->commands) {
+            const auto* draw = std::get_if<tessera::DrawGlyphRun>(&command);
+            found = found || (draw && draw->origin == box.content_box().origin && draw->run == *expected.value);
+        }
+        check(found, "Wrapped paint must use the assigned content width and measured baselines");
+    }
 }
 
 } // namespace
@@ -292,6 +365,7 @@ int main() {
         missing_glyphs();
         fallback_stacks();
         faces_and_failures();
+        wrapping();
         layout_and_paint_agree();
         std::cout << "Font shaping, metrics, missing-glyph, fallback, failure, and layout/paint agreement checks passed.\n";
     } catch (const std::exception& error) {
