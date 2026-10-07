@@ -8,7 +8,7 @@ Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Exi
 
 ## Remaining required work
 
-- Real text beyond the [font shaper](../design/text.md#implemented-font-shaper) and its `FontId` fallback stacks: families and logical aliases, wrapping, FreeType rasterization into a dynamic, [backend-independent](../design/text.md#proposed-glyph-raster-strategy) grayscale glyph cache drawn by the Vulkan backend, and a [deterministic font profile](../design/text.md#proposed-deterministic-font-profile) over the adopted Latin/Japanese fixtures.
+- Real text beyond the [font shaper](../design/text.md#implemented-font-shaper), its `FontId` fallback stacks, and width-constrained cluster wrapping: families and logical aliases, word/Unicode line-break and Japanese kinsoku rules, FreeType rasterization into a dynamic, [backend-independent](../design/text.md#proposed-glyph-raster-strategy) grayscale glyph cache drawn by the Vulkan backend, and a [deterministic font profile](../design/text.md#proposed-deterministic-font-profile) over the adopted Latin/Japanese fixtures.
 - Focus recovery hardening as menus require it; an operator session with a physical controller for the Win32 host's [gamepad translation](../design/input.md#host-boundary).
 - SemanticTree v1 and Replay v1.
 - IME/clipboard boundary contracts; DPI and pixel-snapping validation.
@@ -29,6 +29,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [layout](../desi
 
 ## Immediately next
 
-Real text continues with width-constrained wrapping over the fallback stack from the Latin to the Japanese fixture, reaching the mixed Latin/Japanese measurement fixtures before FreeType rasterization and the glyph cache make real glyphs visible. Other work can proceed meanwhile, such as focus recovery hardening for scrolled menus, or a versioned, serialized Replay v1 recording now that [prototype replay](../design/replay.md#implemented-prototype-playback) resolves fixture-identity focus and semantic action targets and applies the host focus policies. A physical-controller session can confirm the gamepad path whenever a controller is available.
+Real text continues with FreeType rasterization and a backend-independent grayscale glyph cache, then Vulkan drawing of the positioned Latin/Japanese glyphs under the [text contract](../design/text.md#proposed-glyph-raster-strategy). Add real glyph image evidence against the constrained measurement/paint fixtures and declare the deterministic font profile. Refine cluster wrapping with word/Unicode line-break and Japanese kinsoku rules as menu fixtures require them. Other work can proceed meanwhile, such as focus recovery hardening for scrolled menus, or a versioned, serialized Replay v1 recording now that [prototype replay](../design/replay.md#implemented-prototype-playback) resolves fixture-identity focus and semantic action targets and applies the host focus policies. A physical-controller session can confirm the gamepad path whenever a controller is available.
 
 Later candidate scopes are in [backlog](backlog.md).

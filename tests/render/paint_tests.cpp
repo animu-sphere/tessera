@@ -219,15 +219,17 @@ public:
     enum class Mode { failure, silent_failure, malformed, warning, error_with_value } mode = Mode::failure;
     int calls = 0;
     tessera::PlaceholderTextShaper placeholder;
-    tessera::Result<tessera::TextMetrics> measure(std::string_view text, const tessera::TextStyle& style) override {
-        return placeholder.measure(text, style);
+    tessera::Result<tessera::TextMetrics> measure(std::string_view text, const tessera::TextStyle& style,
+                                                  const tessera::TextConstraints& constraints) override {
+        return placeholder.measure(text, style, constraints);
     }
-    tessera::Result<tessera::GlyphRun> shape(std::string_view text, const tessera::TextStyle& style) override {
+    tessera::Result<tessera::GlyphRun> shape(std::string_view text, const tessera::TextStyle& style,
+                                            const tessera::TextConstraints& constraints) override {
         ++calls;
         if (mode == Mode::failure)
             return {std::nullopt, {{"font_missing", tessera::Severity::error, "/style/font", "Font unavailable.", {}}}};
         if (mode == Mode::silent_failure) return {};
-        auto result = placeholder.shape(text, style);
+        auto result = placeholder.shape(text, style, constraints);
         if (mode == Mode::malformed) result.value->glyphs[0].position.x = std::numeric_limits<float>::quiet_NaN();
         if (mode == Mode::warning || mode == Mode::error_with_value)
             result.diagnostics.push_back({"font_fallback", mode == Mode::warning ? tessera::Severity::warning :

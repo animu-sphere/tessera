@@ -1,6 +1,7 @@
 #include <tessera/text/text.hpp>
 #include "../check.hpp"
 #include <iostream>
+#include <limits>
 #include <string>
 
 using tessera::test::check;
@@ -43,12 +44,40 @@ void failures() {
           has(errors.diagnostics, "out_of_range", "/style/line_height"), "Invalid text style accepted");
 }
 
+void wrapping() {
+    tessera::PlaceholderTextShaper shaper;
+    tessera::TextStyle style;
+    style.size = 20;
+    const auto run = shaper.shape("Aメニュー\n\nB\n", style, {20.0f});
+    check(run && run.value->metrics == tessera::TextMetrics{{20, 150}, 18.5f, 25, 6},
+          "Wrapping and explicit empty lines differ");
+    check(run.value->glyphs[2].cluster == 4 && run.value->glyphs[2].position == tessera::Point{0, 43.5f},
+          "Wrapped scalar lost its source offset or baseline");
+    check(shaper.measure("Aメニュー\n\nB\n", style, {20.0f}).value == run.value->metrics,
+          "Constrained measure/shape disagree");
+    const auto zero = shaper.shape("AB", style, {0.0f});
+    check(zero && zero.value->metrics.lines == 2 && zero.value->metrics.size.width == 10,
+          "Zero width must allow one overflowing scalar per line");
+    check(shaper.measure("", style, {0.0f}).value->lines == 1, "Empty constrained text must keep one line");
+    check(has(shaper.shape("x", style, {-1.0f}).diagnostics, "out_of_range", "/constraints/max_width"),
+          "Negative width accepted");
+    check(has(shaper.shape("x", style, {std::numeric_limits<float>::infinity()}).diagnostics,
+              "invalid_number", "/constraints/max_width"), "Infinite width accepted");
+    check(has(shaper.measure("x", style, {std::numeric_limits<float>::quiet_NaN()}).diagnostics,
+              "invalid_number", "/constraints/max_width"), "NaN width accepted");
+    style.size = 13.1f;
+    const auto natural = shaper.shape("ABCDE", style);
+    check(natural && shaper.shape("ABCDE", style, {natural.value->metrics.size.width}).value == natural.value,
+          "Exact natural float width must not introduce a placeholder wrap");
+}
+
 } // namespace
 
 int main() {
     try {
         placeholder_metrics();
         failures();
+        wrapping();
         std::cout << "Placeholder text measurement/shaping agreement and failure checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
