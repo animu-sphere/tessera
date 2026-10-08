@@ -18,6 +18,7 @@ add_library(tessera_core
     src/layout/layout_snapshot.cpp
     src/layout/flex_layout.cpp
     src/text/placeholder_text.cpp
+    src/text/glyph_cache.cpp
     src/input/event.cpp
     src/input/pointer.cpp
     src/input/focus.cpp
@@ -53,7 +54,7 @@ option(TESSERA_BUILD_VULKAN "Build the optional Vulkan renderer and GPU fixtures
 if(TESSERA_BUILD_VULKAN)
     add_subdirectory(backends/vulkan)
 endif()
-option(TESSERA_BUILD_FONTS "Build the optional HarfBuzz real-font shaper and font fixtures" OFF)
+option(TESSERA_BUILD_FONTS "Build the optional HarfBuzz/FreeType text services and font fixtures" OFF)
 if(TESSERA_BUILD_FONTS)
     add_subdirectory(modules/fonts)
 endif()
@@ -63,7 +64,7 @@ if(BUILD_TESTING)
     target_compile_definitions(tessera_document_tests PRIVATE
         TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")
     add_test(NAME document COMMAND tessera_document_tests)
-    foreach(contract IN ITEMS ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text input/event input/pointer input/focus input/scroll render/draw_list render/paint replay/replay semantics/semantics inspection/inspection)
+    foreach(contract IN ITEMS ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll render/draw_list render/paint replay/replay semantics/semantics inspection/inspection)
         get_filename_component(name ${contract} NAME)
         add_executable(tessera_${name}_tests tests/${contract}_tests.cpp)
         target_link_libraries(tessera_${name}_tests PRIVATE tessera::core)

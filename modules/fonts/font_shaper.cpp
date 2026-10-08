@@ -1,9 +1,16 @@
 #include <tessera/fonts/font_shaper.hpp>
 #include <hb-ot.h>
 #include <hb.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_OUTLINE_H
+#include FT_PARAMETER_TAGS_H
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -20,6 +27,11 @@ using HbFace = std::unique_ptr<hb_face_t, HbRelease<hb_face_t, hb_face_destroy>>
 using HbFont = std::unique_ptr<hb_font_t, HbRelease<hb_font_t, hb_font_destroy>>;
 using HbBuffer = std::unique_ptr<hb_buffer_t, HbRelease<hb_buffer_t, hb_buffer_destroy>>;
 
+struct FtLibraryRelease { void operator()(FT_Library object) const { FT_Done_FreeType(object); } };
+struct FtFaceRelease { void operator()(FT_Face object) const { FT_Done_Face(object); } };
+using FtLibrary = std::unique_ptr<FT_LibraryRec_, FtLibraryRelease>;
+using FtFace = std::unique_ptr<FT_FaceRec_, FtFaceRelease>;
+
 // Positions stay in font units (font scale = units per em) until converted per glyph,
 // so pen advances accumulate exactly.
 struct Face {
@@ -27,6 +39,10 @@ struct Face {
     HbFont font;
     unsigned upem = 0;
     hb_font_extents_t extents{};
+    // FreeType borrows the bytes owned by the HarfBuzz blob retained by face/font.
+    // Declared last so this face is released before that blob's final reference.
+    FtFace raster_face;
+    std::uint64_t revision = 0;
 };
 
 // One shaped glyph in the font units of its face, with a cluster relative to its line.
@@ -87,11 +103,24 @@ double advance_width(const std::vector<Shaped>& glyphs, double size) {
 } // namespace
 
 struct FontShaper::Impl {
+    FtLibrary library; // Outlives every raster face (reverse member destruction order).
     std::unordered_map<std::uint32_t, Face> faces;
     std::unordered_map<std::uint32_t, std::vector<FontId>> fallbacks;
     HbBuffer buffer{hb_buffer_create()};
     // A fixed language keeps shaping independent of the process locale.
     hb_language_t language = hb_language_from_string("und", -1);
+    std::uint64_t next_revision = 1;
+
+    Impl() {
+        FT_Library initialized = nullptr;
+        const auto error = FT_Init_FreeType(&initialized);
+        if (error) throw std::runtime_error("FT_Init_FreeType failed: " + std::to_string(error));
+        library.reset(initialized);
+        FT_Int major = 0, minor = 0, patch = 0;
+        FT_Library_Version(library.get(), &major, &minor, &patch);
+        if (major != 2 || minor != 13 || patch != 3)
+            throw std::runtime_error("FontShaper requires FreeType runtime 2.13.3 for its raster profile.");
+    }
 
     // Shapes line[begin, end) with the rest of the line as context and appends its glyphs; an
     // invalid direction is guessed from the text. Returns false when the buffer cannot hold it.
@@ -150,6 +179,7 @@ FontShaper& FontShaper::operator=(FontShaper&&) noexcept = default;
 std::vector<Diagnostic> FontShaper::set_face(FontId id, std::vector<std::byte> data, std::uint32_t face_index) {
     if (data.empty()) return invalid_font("Font data is empty.");
     if (data.size() > UINT_MAX) return invalid_font("Font data exceeds 4 GiB.");
+    if (data.size() > LONG_MAX) return invalid_font("Font data exceeds FreeType's memory-face size limit.");
     // The blob owns the bytes; HarfBuzz releases them with the last face reference.
     auto* bytes = new std::vector<std::byte>(std::move(data));
     HbBlob blob(hb_blob_create(reinterpret_cast<const char*>(bytes->data()), static_cast<unsigned>(bytes->size()),
@@ -161,7 +191,7 @@ std::vector<Diagnostic> FontShaper::set_face(FontId id, std::vector<std::byte> d
         return invalid_font("Face index " + std::to_string(face_index) + " is out of range; the data has " +
                             std::to_string(count) + " face(s).");
 
-    Face face{HbFace(hb_face_create(blob.get(), face_index)), {}, 0, {}};
+    Face face{HbFace(hb_face_create(blob.get(), face_index)), {}, 0, {}, {}, 0};
     if (!has_table(face.face.get(), HB_TAG('h', 'e', 'a', 'd')) || hb_face_get_glyph_count(face.face.get()) == 0)
         return invalid_font("The face has no head table or no glyphs.");
     face.upem = hb_face_get_upem(face.face.get());
@@ -171,13 +201,87 @@ std::vector<Diagnostic> FontShaper::set_face(FontId id, std::vector<std::byte> d
     hb_font_get_h_extents(face.font.get(), &face.extents);
     if (face.extents.ascender - face.extents.descender <= 0)
         return invalid_font("The face has no positive ascender-to-descender extent.");
+    FT_Face raster_face = nullptr;
+    const auto error = FT_New_Memory_Face(impl_->library.get(), reinterpret_cast<const FT_Byte*>(bytes->data()),
+                                        static_cast<FT_Long>(bytes->size()), static_cast<FT_Long>(face_index), &raster_face);
+    if (error) return invalid_font("FreeType rejected this face (error " + std::to_string(error) + ").");
+    face.raster_face.reset(raster_face);
+    if (!FT_IS_SCALABLE(raster_face) || raster_face->units_per_EM != face.upem ||
+        raster_face->num_glyphs != static_cast<FT_Long>(hb_face_get_glyph_count(face.face.get())))
+        return invalid_font("A scalable outline face with matching shaping/raster glyph indices and units per em is required.");
+    // Per-face policy overrides FREETYPE_PROPERTIES without changing process state.
+    // CFF stem darkening can otherwise change grayscale pixels even with hinting off.
+    FT_Bool stem_darkening = false;
+    FT_Parameter parameter{FT_PARAM_TAG_STEM_DARKENING, &stem_darkening};
+    if (FT_Face_Properties(raster_face, 1, &parameter))
+        return invalid_font("FreeType could not disable stem darkening for this face.");
+    if (impl_->next_revision == std::numeric_limits<std::uint64_t>::max())
+        return invalid_font("Font face revision space is exhausted; create a new text service.");
+    face.revision = impl_->next_revision++;
     hb_face_make_immutable(face.face.get());
     hb_font_make_immutable(face.font.get());
-    impl_->faces.insert_or_assign(id.value, std::move(face));
+    const auto [at, inserted] = impl_->faces.try_emplace(id.value, std::move(face));
+    // Retain the old blob until its FreeType face is destroyed. Memberwise assignment
+    // would release the old HarfBuzz references before releasing the borrowing FT face.
+    if (!inserted) std::swap(at->second, face);
     return {};
 }
 
 bool FontShaper::has_face(FontId id) const { return impl_->faces.contains(id.value); }
+
+std::uint64_t FontShaper::face_revision(FontId id) const {
+    const auto at = impl_->faces.find(id.value);
+    return at == impl_->faces.end() ? 0 : at->second.revision;
+}
+
+Result<GlyphBitmap> FontShaper::rasterize(const GlyphRasterRequest& request) {
+    auto errors = validate(request);
+    const auto at = impl_->faces.find(request.font.value);
+    if (at == impl_->faces.end())
+        errors.push_back({"unknown_font", Severity::error, "/font", "Register this FontId with set_face before rasterizing.", {}});
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    const auto face = at->second.raster_face.get();
+    if (request.glyph >= static_cast<std::uint32_t>(face->num_glyphs))
+        return {std::nullopt, {{"invalid_glyph", Severity::error, "/glyph", "Glyph index is outside the registered face.", {}}}};
+    const auto failed = [](std::string message, std::string path = "/glyph") -> Result<GlyphBitmap> {
+        return {std::nullopt, {{"glyph_raster_failed", Severity::error, std::move(path), std::move(message), {}}}};
+    };
+    // 72 dpi makes the 26.6 point size equal the requested 26.6 physical pixel size.
+    auto error = FT_Set_Char_Size(face, 0, static_cast<FT_F26Dot6>(request.pixel_size_64), 72, 72);
+    if (error) return failed("FT_Set_Char_Size failed: " + std::to_string(error), "/pixel_size_64");
+    error = FT_Load_Glyph(face, request.glyph, FT_LOAD_NO_HINTING | FT_LOAD_NO_AUTOHINT | FT_LOAD_NO_BITMAP);
+    if (error) return failed("FT_Load_Glyph failed: " + std::to_string(error));
+    const auto slot = face->glyph;
+    if (slot->format != FT_GLYPH_FORMAT_OUTLINE) return failed("Only scalable outline glyphs are supported.");
+    // Bound the prospective bitmap before FreeType allocates it. A control box encloses
+    // the outline, so the actual raster cannot exceed this area.
+    FT_BBox box{};
+    FT_Outline_Get_CBox(&slot->outline, &box);
+    const auto width = std::ceil(box.xMax / 64.0) - std::floor(box.xMin / 64.0);
+    const auto height = std::ceil(box.yMax / 64.0) - std::floor(box.yMin / 64.0);
+    if (width < 0 || height < 0 || width > 1024 * 1024 || height > 1024 * 1024 || width * height > 1024 * 1024)
+        return failed("Glyph outline exceeds the 1 MiB raster bound.");
+    error = FT_Render_Glyph(slot, FT_RENDER_MODE_NORMAL);
+    if (error) return failed("FT_Render_Glyph failed: " + std::to_string(error));
+    const auto& source = slot->bitmap;
+    GlyphBitmap bitmap;
+    bitmap.left = slot->bitmap_left;
+    bitmap.top = slot->bitmap_top;
+    if (source.width == 0 || source.rows == 0) return {std::move(bitmap), {}};
+    if (source.pixel_mode != FT_PIXEL_MODE_GRAY || source.num_grays != 256 || !source.buffer ||
+        std::abs(static_cast<std::int64_t>(source.pitch)) < source.width ||
+        static_cast<std::uint64_t>(source.width) * source.rows > 1024 * 1024)
+        return failed("FreeType did not produce bounded 8-bit grayscale coverage.");
+    bitmap.width = source.width;
+    bitmap.height = source.rows;
+    bitmap.coverage.resize(static_cast<std::size_t>(bitmap.width) * bitmap.height);
+    for (std::uint32_t row = 0; row < bitmap.height; ++row) {
+        // Pitch is the signed offset to the next lower scanline; copy without padding.
+        const auto* pixels = source.buffer + static_cast<std::ptrdiff_t>(row) * source.pitch;
+        std::copy_n(pixels, bitmap.width, bitmap.coverage.data() + static_cast<std::size_t>(row) * bitmap.width);
+    }
+    return {std::move(bitmap), {}};
+}
 
 std::vector<Diagnostic> FontShaper::set_fallback(FontId font, std::vector<FontId> fallbacks) {
     const auto unknown = [](FontId id, std::string path) {

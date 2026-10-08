@@ -131,7 +131,7 @@ cmake --build build-fonts --config Debug
 ctest --test-dir build-fonts -C Debug --output-on-failure
 ```
 
-CMake rejects a HarfBuzz version other than the pinned one. The toolchain copies the HarfBuzz and FreeType DLLs beside `build-fonts/modules/fonts/<config>/tessera_font_shaper_tests.exe`; with another acquisition, put the runtime libraries on `PATH`. The `font_shaper` test reads the committed fixtures from `tests/fixtures/fonts` and needs no installed or system fonts. A fresh configure with the option OFF and no toolchain file, as in the library-only workflow, confirms that the core discovers no font library.
+CMake requires the pinned HarfBuzz and FreeType versions; the text service also checks the FreeType runtime version. The toolchain copies their DLLs beside both `build-fonts/modules/fonts/<config>/tessera_font_shaper_tests.exe` and `tessera_glyph_raster_tests.exe`; with another acquisition, put the runtime libraries on `PATH`. The `font_shaper` and `glyph_raster` tests read the committed fonts from `tests/fixtures/fonts`, with no installed or system fonts. Raster checks compare the independent PGM references in `tests/fixtures/glyphs`, then write actual images and a wrapped mixed-script contact image to `build-fonts/modules/fonts/artifacts`; the test sets a conflicting CFF stem-darkening environment default to check the fixed per-face policy. The core `glyph_cache` test uses an injected rasterizer without FreeType. A fresh configure with the option OFF and no toolchain file, as in the library-only workflow, confirms that the core discovers no font library.
 
 ## Release workflow
 

@@ -9,4 +9,5 @@ VERSION text eol=lf
 # Font fixtures and their license texts are third-party files kept byte-identical to upstream.
 *.ttf binary
 *.otf binary
+*.pgm binary
 tests/fixtures/fonts/*.txt -text

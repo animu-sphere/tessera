@@ -1,6 +1,7 @@
 # No font library discovery occurs in a core-only configuration. Installed packages are
 # used as found; nothing is downloaded.
 find_package(harfbuzz CONFIG REQUIRED)
+find_package(Freetype 2.13.3 EXACT REQUIRED)
 get_target_property(harfbuzz_include_dirs harfbuzz::harfbuzz INTERFACE_INCLUDE_DIRECTORIES)
 find_file(TESSERA_HB_VERSION_HEADER hb-version.h PATHS ${harfbuzz_include_dirs} NO_DEFAULT_PATH)
 if(NOT TESSERA_HB_VERSION_HEADER)
@@ -16,7 +17,7 @@ endif()
 add_library(tessera_fonts font_shaper.cpp)
 add_library(tessera::fonts ALIAS tessera_fonts)
 target_include_directories(tessera_fonts PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(tessera_fonts PUBLIC tessera::core PRIVATE harfbuzz::harfbuzz)
+target_link_libraries(tessera_fonts PUBLIC tessera::core PRIVATE harfbuzz::harfbuzz Freetype::Freetype)
 if(MSVC)
     target_compile_options(tessera_fonts PRIVATE /W4 /permissive-)
 else()
@@ -31,4 +32,16 @@ if(BUILD_TESTING)
         target_compile_options(tessera_font_shaper_tests PRIVATE /W4 /permissive-)
     endif()
     add_test(NAME font_shaper COMMAND tessera_font_shaper_tests)
+    add_executable(tessera_glyph_raster_tests ../../tests/text/glyph_raster_tests.cpp)
+    target_link_libraries(tessera_glyph_raster_tests PRIVATE tessera::fonts)
+    target_compile_definitions(tessera_glyph_raster_tests PRIVATE
+        TESSERA_FONT_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/fonts"
+        TESSERA_GLYPH_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/glyphs"
+        TESSERA_GLYPH_ARTIFACT_DIR="${CMAKE_CURRENT_BINARY_DIR}/artifacts")
+    if(MSVC)
+        target_compile_options(tessera_glyph_raster_tests PRIVATE /W4 /permissive-)
+    endif()
+    add_test(NAME glyph_raster COMMAND tessera_glyph_raster_tests)
+    # The fixed per-face raster policy must override this process default.
+    set_tests_properties(glyph_raster PROPERTIES ENVIRONMENT "FREETYPE_PROPERTIES=cff:no-stem-darkening=0")
 endif()
