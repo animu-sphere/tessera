@@ -61,6 +61,16 @@ std::vector<Diagnostic> invalid_font(std::string message) {
     return {{"invalid_font", Severity::error, "/font", std::move(message), {}}};
 }
 
+std::vector<Diagnostic> validate_font_name(std::string_view name, std::string path) {
+    if (name.empty() || name.size() > 256)
+        return {{"invalid_font_name", Severity::error, std::move(path), "Expected a font name of 1..256 UTF-8 bytes.", {}}};
+    auto errors = validate_text_input(name, {});
+    for (auto& error : errors) error.path = path;
+    if (std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
+        errors.push_back({"invalid_font_name", Severity::error, std::move(path), "Font names cannot contain ASCII controls.", {}});
+    return errors;
+}
+
 bool has_table(hb_face_t* face, hb_tag_t tag) {
     HbBlob table(hb_face_reference_table(face, tag));
     return hb_blob_get_length(table.get()) > 0;
@@ -162,6 +172,9 @@ struct FontShaper::Impl {
     FtLibrary library; // Outlives every raster face (reverse member destruction order).
     std::unordered_map<std::uint32_t, Face> faces;
     std::unordered_map<std::uint32_t, std::vector<FontId>> fallbacks;
+    std::unordered_map<std::string, std::vector<FontFamilyFace>> families;
+    struct Alias { std::string name; std::vector<std::string> families; };
+    std::unordered_map<std::uint32_t, Alias> aliases;
     HbBuffer buffer{hb_buffer_create()};
     // A fixed language keeps shaping independent of the process locale.
     hb_language_t language = hb_language_from_string("und", -1);
@@ -233,6 +246,8 @@ FontShaper::FontShaper(FontShaper&&) noexcept = default;
 FontShaper& FontShaper::operator=(FontShaper&&) noexcept = default;
 
 std::vector<Diagnostic> FontShaper::set_face(FontId id, std::vector<std::byte> data, std::uint32_t face_index) {
+    if (impl_->aliases.contains(id.value))
+        return {{"font_id_conflict", Severity::error, "/font", "This FontId names a logical alias; use a distinct concrete face FontId.", {}}};
     if (data.empty()) return invalid_font("Font data is empty.");
     if (data.size() > UINT_MAX) return invalid_font("Font data exceeds 4 GiB.");
     if (data.size() > LONG_MAX) return invalid_font("Font data exceeds FreeType's memory-face size limit.");
@@ -363,18 +378,92 @@ std::vector<Diagnostic> FontShaper::set_fallback(FontId font, std::vector<FontId
     return {};
 }
 
+std::vector<Diagnostic> FontShaper::set_family(std::string name, std::vector<FontFamilyFace> faces) {
+    auto errors = validate_font_name(name, "/name");
+    if (faces.empty() || faces.size() > 64) {
+        errors.push_back({"out_of_range", Severity::error, "/faces", "Expected 1..64 weighted concrete faces.", {}});
+        return errors;
+    }
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        const auto path = "/faces/" + std::to_string(i);
+        if (!has_face(faces[i].font))
+            errors.push_back({"unknown_font", Severity::error, path + "/font", "Register this concrete face with set_face first.", {}});
+        if (faces[i].weight < 1 || faces[i].weight > 1000)
+            errors.push_back({"out_of_range", Severity::error, path + "/weight", "Expected a declared weight in [1, 1000].", {}});
+        const auto earlier = faces.begin() + static_cast<std::ptrdiff_t>(i);
+        if (std::any_of(faces.begin(), earlier, [&](const auto& entry) { return entry.weight == faces[i].weight; }))
+            errors.push_back({"duplicate_font_weight", Severity::error, path + "/weight", "Each family weight must appear once.", {}});
+    }
+    if (!errors.empty()) return errors;
+    impl_->families.insert_or_assign(std::move(name), std::move(faces));
+    return {};
+}
+
+std::vector<Diagnostic> FontShaper::set_alias(FontId font, std::string name, std::vector<std::string> families) {
+    auto errors = validate_font_name(name, "/name");
+    if (has_face(font))
+        errors.push_back({"font_id_conflict", Severity::error, "/font", "This FontId names a concrete face; use a distinct alias FontId.", {}});
+    const auto previous = impl_->aliases.find(font.value);
+    if (previous != impl_->aliases.end() && previous->second.name != name)
+        errors.push_back({"font_alias_conflict", Severity::error, "/name", "A logical FontId keeps its original alias name.", {}});
+    const auto named = find_alias(name);
+    if (named && *named != font)
+        errors.push_back({"font_alias_conflict", Severity::error, "/name", "This alias name already belongs to another FontId.", {}});
+    if (families.empty() || families.size() > 64) {
+        errors.push_back({"out_of_range", Severity::error, "/families", "Expected 1..64 distinct registered families.", {}});
+        return errors;
+    }
+    for (std::size_t i = 0; i < families.size(); ++i) {
+        auto path = "/families/" + std::to_string(i);
+        auto invalid = validate_font_name(families[i], path);
+        errors.insert(errors.end(), std::make_move_iterator(invalid.begin()), std::make_move_iterator(invalid.end()));
+        const auto earlier = families.begin() + static_cast<std::ptrdiff_t>(i);
+        if (std::find(families.begin(), earlier, families[i]) != earlier)
+            errors.push_back({"duplicate_font_family", Severity::error, std::move(path), "Each family must appear once in an alias stack.", {}});
+        else if (!impl_->families.contains(families[i]))
+            errors.push_back({"unknown_font_family", Severity::error, std::move(path), "Register this family with set_family first.", {}});
+    }
+    if (!errors.empty()) return errors;
+    impl_->aliases.insert_or_assign(font.value, Impl::Alias{std::move(name), std::move(families)});
+    return {};
+}
+
+std::optional<FontId> FontShaper::find_alias(std::string_view name) const {
+    for (const auto& [id, alias] : impl_->aliases)
+        if (alias.name == name) return FontId{id};
+    return std::nullopt;
+}
+
 Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style, const TextConstraints& constraints) {
     auto errors = validate_text_input(utf8, style, constraints);
-    const auto found = impl_->faces.find(style.font.value);
+    FontId primary = style.font;
+    std::vector<FontId> fallbacks;
+    const auto alias = impl_->aliases.find(style.font.value);
+    if (alias != impl_->aliases.end()) {
+        std::vector<FontId> selected;
+        for (const auto& name : alias->second.families) {
+            const auto& family = impl_->families.at(name);
+            const auto best = std::min_element(family.begin(), family.end(), [&](const auto& a, const auto& b) {
+                const auto da = std::abs(static_cast<int>(a.weight) - style.weight);
+                const auto db = std::abs(static_cast<int>(b.weight) - style.weight);
+                return da < db || (da == db && a.weight < b.weight);
+            });
+            if (std::find(selected.begin(), selected.end(), best->font) == selected.end()) selected.push_back(best->font);
+        }
+        primary = selected.front();
+        fallbacks.assign(std::next(selected.begin()), selected.end());
+    } else {
+        const auto stack = impl_->fallbacks.find(primary.value);
+        if (stack != impl_->fallbacks.end()) fallbacks = stack->second;
+    }
+    const auto found = impl_->faces.find(primary.value);
     if (found == impl_->faces.end())
         errors.push_back({"unknown_font", Severity::error, "/style/font",
-                          "No face is registered for FontId " + std::to_string(style.font.value) + "; call set_face.", {}});
+                          "No face or alias is registered for FontId " + std::to_string(style.font.value) + "; call set_face or set_alias.", {}});
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
 
-    // Faces cannot be removed, so every FontId in a stack still has one.
-    const auto stack = impl_->fallbacks.find(style.font.value);
-    const std::vector<FontId> no_fallback;
-    const auto& fallbacks = stack == impl_->fallbacks.end() ? no_fallback : stack->second;
+    // Faces/families cannot be removed. Alias selection changes neither face revisions
+    // nor raster identities; every glyph records the concrete face that supplied it.
     // The primary face alone sets line metrics, so they do not depend on which faces a line uses.
     const Face& face = found->second;
     const double size = style.size;
@@ -408,7 +497,7 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
         do {
             const auto remaining = text.substr(consumed);
             hb_direction_t direction;
-            if (!impl_->shape_line(face, style.font, fallbacks, remaining, glyphs, direction)) return too_long();
+            if (!impl_->shape_line(face, primary, fallbacks, remaining, glyphs, direction)) return too_long();
             if (constraints.max_width && direction != HB_DIRECTION_LTR)
                 return {std::nullopt, {{"unsupported_wrapping_direction", Severity::error, "/text",
                                         "Width-constrained wrapping currently requires left-to-right text.", {}}}};
@@ -429,7 +518,7 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
                     const auto opportunity = line_break(characters, boundary);
                     if (opportunity == Break::prohibited) continue;
                     std::vector<Shaped> candidate;
-                    if (!impl_->shape_line(face, style.font, fallbacks, remaining.substr(0, boundary),
+                    if (!impl_->shape_line(face, primary, fallbacks, remaining.substr(0, boundary),
                                            candidate, direction)) return too_long();
                     const bool overflow = static_cast<float>(advance_width(candidate, size)) > *constraints.max_width;
                     if (overflow && !accepted.empty()) break;

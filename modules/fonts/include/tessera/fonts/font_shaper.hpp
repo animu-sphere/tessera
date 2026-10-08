@@ -4,16 +4,26 @@
 #include <tessera/text/glyph_cache.hpp>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace tessera {
+
+// Host-declared weight of a registered face; no metadata inference or synthetic weight.
+struct FontFamilyFace {
+    FontId font;
+    std::uint16_t weight = 400;
+    bool operator==(const FontFamilyFace&) const = default;
+};
 
 // Real-font shaping and grayscale rasterization over shared host-supplied font bytes.
 // Font library types stay inside this optional module; the host owns font discovery and
 // asset loading. Single-threaded, non-reentrant; mutate fonts only at update points.
 //
-// One face per FontId: weight is validated but selects no face, variable fonts use their
-// default instance. Constrained LTR lines prefer spaces, hyphens and Japanese cluster
+// A FontId names either a concrete face or a logical alias to an ordered family stack.
+// Aliases select the nearest declared weight in each family (lower weight wins ties).
+// Concrete faces ignore weight; variable fonts use their default instance.
+// Constrained LTR lines prefer spaces, hyphens and Japanese cluster
 // boundaries under the bounded menu profile in docs/design/text.md. Punctuation/glue
 // groups stay intact even when oversized; long words may split at clusters. A FontId may
 // name an ordered fallback stack of other FontIds; clusters its face cannot map are shaped again with the next face. Each
@@ -41,6 +51,18 @@ public:
     // clears the stack. Every FontId needs a registered face and may appear once, excluding
     // `font` itself. Stacks are not transitive. Rejected stacks leave the previous one in place.
     std::vector<Diagnostic> set_fallback(FontId font, std::vector<FontId> fallbacks);
+
+    // Registers/replaces a named family of 1..64 concrete faces, with distinct weights
+    // in 1..1000. Names are case-sensitive UTF-8, 1..256 bytes, without ASCII controls.
+    // Rejected updates preserve the previous family. Faces cannot be removed.
+    std::vector<Diagnostic> set_family(std::string name, std::vector<FontFamilyFace> faces);
+    // Registers/rebinds a stable logical FontId/name to 1..64 distinct registered families.
+    // An alias cannot collide with a face, change its name, or share another alias's name.
+    // Aliases use only their explicit family stack, not concrete-face fallback stacks;
+    // repeated selected faces are tried once. Rejected updates preserve the old binding.
+    std::vector<Diagnostic> set_alias(FontId font, std::string name, std::vector<std::string> families);
+    // Resolves a logical name for host-built styles. No implicit defaults or filesystem access.
+    std::optional<FontId> find_alias(std::string_view name) const;
 
     Result<TextMetrics> measure(std::string_view utf8, const TextStyle&, const TextConstraints& = {}) override;
     Result<GlyphRun> shape(std::string_view utf8, const TextStyle&, const TextConstraints& = {}) override;

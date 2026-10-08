@@ -72,6 +72,120 @@ void check_glyphs(const tessera::GlyphRun& run, std::initializer_list<Expected> 
     }
 }
 
+bool fonts_are(const tessera::GlyphRun&, std::size_t, tessera::FontId, tessera::FontId);
+
+void family_alias_selection() {
+    auto shaper = fixture_shaper();
+    constexpr tessera::FontId ui{20}, heading{21}, extra{3};
+    check(shaper.set_face(extra, read_font("NotoSansJP-Regular.otf")).empty(), "Extra face rejected");
+    // Deliberately assign different fixture faces to weights to make selection observable;
+    // these host declarations do not claim that the Japanese fixture is a bold Latin face.
+    check(shaper.set_family("Latin", {{japanese, 700}, {latin, 400}}).empty(), "Weighted family rejected");
+    check(shaper.set_family("日本語", {{extra, 700}, {japanese, 400}}).empty(), "CJK family rejected");
+    check(shaper.set_alias(ui, "ui-sans", {"Latin", "日本語"}).empty(), "Alias rejected");
+    check(shaper.find_alias("ui-sans") == ui && !shaper.find_alias("UI-SANS") && !shaper.find_alias("absent"),
+          "Logical names must resolve exactly without implicit defaults");
+    check(!shaper.has_face(ui) && shaper.face_revision(ui) == 0, "Alias must not masquerade as a raster face");
+    tessera::TextStyle style;
+    style.font = ui; style.size = 20;
+    auto expected_style = style; expected_style.font = latin;
+    check(shaper.set_fallback(latin, {japanese}).empty(), "Reference fallback rejected");
+    const auto expected = shaped(shaper, "Start スタート", expected_style);
+    const auto regular = shaped(shaper, "Start スタート", style);
+    auto compared = regular; compared.font = latin;
+    check(compared == expected && regular.font == ui && fonts_are(regular, 6, latin, japanese),
+          "Alias must preserve concrete-face glyphs, primary metrics and fallback geometry");
+    const auto wrapped = shaper.shape("Start スタート", style, {70.1f});
+    const auto measured = shaper.measure("Start スタート", style, {70.1f});
+    check(wrapped && measured && *measured.value == wrapped.value->metrics && wrapped.value->metrics.lines == 2 &&
+          fonts_are(*wrapped.value, 6, latin, japanese), "Alias wrapping must preserve measurement and fallback faces");
+
+    for (const auto weight : {1, 400, 549, 550, 551, 700, 1000}) {
+        style.weight = static_cast<std::uint16_t>(weight);
+        const auto chosen = weight <= 550 ? latin : japanese;
+        expected_style = style; expected_style.font = chosen;
+        auto actual = shaped(shaper, "Hello", style); actual.font = chosen;
+        check(actual == shaped(shaper, "Hello", expected_style), "Nearest declared weight or lower-weight tie differs");
+    }
+    style.weight = 700;
+    const auto missing_weighted = shaper.shape("\xf4\x8f\xbf\xbf", style); // U+10FFFF is absent from both fixtures.
+    check(missing_weighted && missing_weighted.value->glyphs.size() == 1 &&
+          missing_weighted.value->glyphs.front().font == extra && missing_weighted.value->glyphs.front().id == 0 &&
+          missing_weighted.diagnostics.size() == 1 && missing_weighted.diagnostics.front().severity == tessera::Severity::warning,
+          "Fallback families must select the requested weight and retain one missing-glyph warning");
+    style.weight = 400;
+    const auto revision = shaper.face_revision(latin);
+    const auto preserved = [&] { check(shaped(shaper, "Start スタート", style) == regular, "Rejected update changed selection"); };
+    check(has(shaper.set_family("Latin", {}), "out_of_range", "/faces"), "Empty family accepted");
+    check(has(shaper.set_family("Latin", {{latin, 400}, {japanese, 400}}), "duplicate_font_weight", "/faces/1/weight"),
+          "Duplicate family weights accepted");
+    check(has(shaper.set_family("Latin", {{{999}, 400}}), "unknown_font", "/faces/0/font"), "Unknown family face accepted");
+    check(has(shaper.set_family("Latin", {{ui, 400}}), "unknown_font", "/faces/0/font"), "Recursive alias face accepted");
+    check(has(shaper.set_family("Latin", {{latin, 0}}), "out_of_range", "/faces/0/weight") &&
+          has(shaper.set_family("Latin", {{latin, 1001}}), "out_of_range", "/faces/0/weight"), "Invalid weights accepted");
+    check(has(shaper.set_family("", {{latin, 400}}), "invalid_font_name", "/name") &&
+          has(shaper.set_family(std::string(257, 'x'), {{latin, 400}}), "invalid_font_name", "/name") &&
+          has(shaper.set_family(std::string("a\0b", 3), {{latin, 400}}), "invalid_font_name", "/name") &&
+          has(shaper.set_family("\xff", {{latin, 400}}), "invalid_utf8", "/name"), "Invalid family names accepted");
+    check(has(shaper.set_family("Latin", std::vector<tessera::FontFamilyFace>(65, {latin, 400})), "out_of_range", "/faces"),
+          "Oversized family accepted");
+    check(has(shaper.set_alias(ui, "ui-sans", {}), "out_of_range", "/families") &&
+          has(shaper.set_alias(ui, "ui-sans", std::vector<std::string>(65, "Latin")), "out_of_range", "/families"),
+          "Alias stack bounds ignored");
+    check(has(shaper.set_alias(ui, "ui-sans", {"Latin", "missing"}), "unknown_font_family", "/families/1") &&
+          has(shaper.set_alias(ui, "ui-sans", {"Latin", "Latin"}), "duplicate_font_family", "/families/1"),
+          "Invalid family stack accepted");
+    check(has(shaper.set_alias(ui, "ui-sans", {"\xff"}), "invalid_utf8", "/families/0") &&
+          has(shaper.set_alias(heading, "bad\nname", {"Latin"}), "invalid_font_name", "/name"), "Invalid alias names accepted");
+    check(has(shaper.set_alias(latin, "body", {"Latin"}), "font_id_conflict", "/font") &&
+          has(shaper.set_alias(heading, "ui-sans", {"Latin"}), "font_alias_conflict", "/name") &&
+          has(shaper.set_alias(ui, "body", {"Latin"}), "font_alias_conflict", "/name") &&
+          has(shaper.set_face(ui, read_font("NotoSans-Regular.ttf")), "font_id_conflict", "/font"), "Identity conflict accepted");
+    preserved();
+    check(shaper.face_revision(latin) == revision && shaper.find_alias("ui-sans") == ui && !shaper.find_alias("body"),
+          "Selection registration must preserve face revisions and stable logical names");
+
+    tessera::GlyphCache cache(shaper);
+    const auto glyph = regular.glyphs.front();
+    const auto bitmap = cache.get({glyph.font, glyph.id, 20 * 64});
+    check(static_cast<bool>(bitmap), "Selected concrete face cannot rasterize");
+    check(has(shaper.rasterize({ui, glyph.id, 20 * 64}).diagnostics, "unknown_font", "/font"), "Logical alias rasterized directly");
+    // Explicit alias stacks do not borrow the fallback policy of a shared primary face.
+    check(shaper.set_alias(heading, "heading", {"Latin"}).empty(), "Second alias rejected");
+    auto heading_style = style; heading_style.font = heading;
+    check(shaped(shaper, "メ", heading_style, 1).glyphs.front().id == 0, "Alias inherited a concrete fallback stack");
+    check(shaper.set_family("Shared", {{latin, 400}}).empty() &&
+          shaper.set_alias(heading, "heading", {"Latin", "Shared"}).empty(), "Shared face stack rejected");
+    const auto missing = shaper.shape("メ", heading_style);
+    check(missing && missing.value->glyphs.front().font == latin && near(missing.value->metrics.size.width, 12) &&
+          missing.diagnostics.size() == 1, "Selected duplicate faces must be tried once");
+    check(shaper.set_alias(ui, "ui-sans", {"日本語", "Latin"}).empty(), "Alias rebind rejected");
+    expected_style = style; expected_style.font = japanese;
+    auto rebound = shaped(shaper, "Hello", style); rebound.font = japanese;
+    check(rebound == shaped(shaper, "Hello", expected_style) && shaper.find_alias("ui-sans") == ui,
+          "Rebinding must change primary metrics while preserving logical identity");
+    check(shaper.face_revision(latin) == revision && cache.get({glyph.font, glyph.id, 20 * 64}).value == bitmap.value,
+          "Alias rebind invalidated an unchanged raster face");
+    check(shaper.set_family("日本語", {{latin, 400}}).empty(), "Family replacement rejected");
+    auto updated = shaped(shaper, "Hello", style); updated.font = latin;
+    expected_style.font = latin;
+    check(updated == shaped(shaper, "Hello", expected_style), "Family replacement not visible to existing alias");
+    check(shaper.set_face(latin, read_font("NotoSansJP-Regular.otf")).empty(), "Selected face replacement rejected");
+    const auto replaced = shaped(shaper, "メ", style);
+    check(replaced.glyphs.front().font == latin && replaced.glyphs.front().id == 1362 &&
+          shaper.face_revision(latin) != revision, "Existing family must use replaced face and new revision");
+    auto moved = std::move(shaper);
+    check(moved.find_alias("ui-sans") == ui && shaped(moved, "メ", style) == replaced, "Move lost family/alias bindings");
+    tessera::FontShaper default_alias;
+    check(default_alias.set_face(extra, read_font("NotoSans-Regular.ttf")).empty() &&
+          default_alias.set_family("default", {{extra, 400}}).empty() &&
+          default_alias.set_alias({0}, "body", {"default"}).empty(), "Default FontId alias rejected");
+    style.font = {};
+    const auto default_run = shaped(default_alias, "Hello", style);
+    check(default_run.font == tessera::FontId{} && default_run.glyphs.front().font == extra,
+          "Default logical font must select its concrete face");
+}
+
 void latin_shaping() {
     auto shaper = fixture_shaper();
     tessera::TextStyle style; // Default FontId 0: Noto Sans, upem 1000, ascender 1069, descender -293.
@@ -361,16 +475,23 @@ tessera::UiNode text(std::string content) {
     return result;
 }
 
-void layout_and_paint_agree() {
+void layout_and_paint_agree(bool use_alias = false) {
     auto shaper = fixture_shaper();
     check(shaper.set_fallback(latin, {japanese}).empty(), "Fallback stack rejected");
+    tessera::FontId font = latin;
+    if (use_alias) {
+        check(shaper.set_family("Latin", {{latin, 400}}).empty() &&
+              shaper.set_family("CJK", {{japanese, 400}}).empty() &&
+              shaper.set_alias({20}, "ui-sans", {"Latin", "CJK"}).empty(), "Layout alias rejected");
+        font = *shaper.find_alias("ui-sans");
+    }
     tessera::UiDocument document;
     document.root.children = {text("Start スタート"), text("Quit\nメニュー")};
     auto created = tessera::UiTree::create(document);
     check(static_cast<bool>(created), "Fixture tree rejected");
     const auto tree = std::move(*created.value);
     std::vector<tessera::ResolvedStyle> styles(tree->size());
-    for (auto& style : styles) style.text.size = 20; // Default FontId 0 with Japanese fallback.
+    for (auto& style : styles) { style.text.size = 20; style.text.font = font; }
     styles[0].align = tessera::Align::start; // Text boxes keep their measured width.
     const auto layout = tessera::compute_layout({tree.get(), styles, {400, 300}, &shaper});
     check(static_cast<bool>(layout), "Layout rejected");
@@ -426,7 +547,7 @@ void layout_and_paint_agree() {
     const auto grouped_tree = tessera::UiTree::create(document);
     check(static_cast<bool>(grouped_tree), "Grouped fixture tree rejected");
     std::vector<tessera::ResolvedStyle> grouped_styles((*grouped_tree.value)->size());
-    for (auto& s : grouped_styles) s.text.size = 20;
+    for (auto& s : grouped_styles) { s.text.size = 20; s.text.font = font; }
     const auto grouped_layout = tessera::compute_layout({grouped_tree.value->get(), grouped_styles, {40, 300}, &shaper});
     check(grouped_layout && near(grouped_layout.value->boxes[1].content_box().size.height, 81.72f) &&
           near(grouped_layout.value->boxes[2].border_box.origin.y, 81.72f),
@@ -453,10 +574,12 @@ int main() {
         japanese_shaping();
         missing_glyphs();
         fallback_stacks();
+        family_alias_selection();
         faces_and_failures();
         wrapping();
         menu_line_breaks();
         layout_and_paint_agree();
+        layout_and_paint_agree(true);
         std::cout << "Font shaping, metrics, missing-glyph, fallback, failure, and layout/paint agreement checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
