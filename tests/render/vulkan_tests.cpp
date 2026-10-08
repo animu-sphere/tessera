@@ -1,6 +1,10 @@
 #include <tessera/vulkan/renderer.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/serialization.hpp>
+#ifdef TESSERA_REAL_GLYPH_FIXTURES
+#include <tessera/fonts/font_shaper.hpp>
+#include <tessera/render/glyph_atlas.hpp>
+#endif
 #include "../check.hpp"
 #include <array>
 #include <atomic>
@@ -60,10 +64,13 @@ struct Host {
     VkSampler sampler = VK_NULL_HANDLE;
     Image target, texture;
     Buffer readback, staging;
+    std::vector<Image> atlas_images;
+    std::vector<Buffer> atlas_staging;
     VkExtent2D extent{};
     ~Host() {
         if (device) {
             vkDeviceWaitIdle(device);
+            clear_atlas();
             if (sampler) vkDestroySampler(device, sampler, nullptr);
             destroy(texture); destroy_target(); destroy(staging);
             if (fence) vkDestroyFence(device, fence, nullptr);
@@ -88,6 +95,47 @@ struct Host {
         if (buffer.memory) vkFreeMemory(device, buffer.memory, nullptr);
         buffer = {};
     }
+    void clear_atlas() {
+        for (auto& image : atlas_images) destroy(image);
+        for (auto& buffer : atlas_staging) destroy(buffer);
+        atlas_images.clear(); atlas_staging.clear();
+    }
+#ifdef TESSERA_REAL_GLYPH_FIXTURES
+    void upload_atlas(const tessera::GlyphAtlasFrame& frame) {
+        check(atlas_images.empty(), "Retire/unbind old atlas before upload");
+        atlas_images.resize(frame.pages.size()); atlas_staging.resize(frame.pages.size());
+        begin_commands();
+        for (std::size_t i = 0; i < frame.pages.size(); ++i) {
+            const auto& page = frame.pages[i];
+            auto& image = atlas_images[i]; auto& buffer = atlas_staging[i];
+            make_buffer(buffer, page.coverage.size()*4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+            void* mapped;
+            require(vkMapMemory(device, buffer.memory, 0, VK_WHOLE_SIZE, 0, &mapped), "map atlas staging");
+            auto* destination = static_cast<std::uint8_t*>(mapped);
+            for (std::size_t j = 0; j < page.coverage.size(); ++j) {
+                destination[j*4] = destination[j*4+1] = destination[j*4+2] = 255;
+                destination[j*4+3] = page.coverage[j];
+            }
+            vkUnmapMemory(device, buffer.memory);
+            make_image(image, {page.size,page.size}, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+            VkImageMemoryBarrier barrier{}; barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.image = image.image; barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+            barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            vkCmdPipelineBarrier(commands,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+            VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
+            copy.imageExtent = {page.size,page.size,1};
+            vkCmdCopyBufferToImage(commands,buffer.buffer,image.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
+            barrier.oldLayout = barrier.newLayout; barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(commands,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+        }
+        execute(); // Host completion; staging may now be freed. No backend queue ownership.
+        for (auto& buffer : atlas_staging) destroy(buffer);
+        atlas_staging.clear();
+    }
+#endif
     void destroy_target() {
         if (framebuffer) vkDestroyFramebuffer(device, framebuffer, nullptr);
         framebuffer = VK_NULL_HANDLE;
@@ -528,6 +576,152 @@ void glyph_fixtures(Host& host, bool batched = false) {
     const auto blank = host.finish("glyph-blank.ppm"); renderer.retire(frame);
     for (unsigned y=0;y<64;++y) for (unsigned x=0;x<96;++x) pixel(blank,96,x,y,{0,0,0,255},"Blank runs drew pixels");
 }
+#ifdef TESSERA_REAL_GLYPH_FIXTURES
+std::vector<std::byte> font_bytes(const char* name) {
+    std::ifstream file(std::filesystem::path(TESSERA_FONT_DIR)/name, std::ios::binary | std::ios::ate);
+    check(bool(file), "Cannot read fixture font");
+    std::vector<std::byte> bytes(static_cast<std::size_t>(file.tellg()));
+    file.seekg(0); file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    check(bool(file), "Cannot read fixture font bytes"); return bytes;
+}
+// Small independent image oracle: sample original rasters at unsnapped baselines,
+// never read atlas coordinates or lowered DrawImages. Only fixture translations/clips.
+std::vector<std::uint8_t> glyph_reference(const tessera::UiDrawList& list, tessera::GlyphCache& cache,
+    float scale, VkExtent2D extent, std::uint32_t subpixel_bits) {
+    struct State { double tx=0,ty=0,left=0,top=0,right=0,bottom=0; };
+    State state{0,0,0,0,double(extent.width),double(extent.height)};
+    std::vector<State> stack;
+    std::vector<std::array<double,3>> colors(std::size_t(extent.width)*extent.height, {0,0,0});
+    const auto linear = [](double c) { return c <= 0.04045 ? c/12.92 : std::pow((c+0.055)/1.055,2.4); };
+    const double precision=std::ldexp(1.0,int(subpixel_bits));
+    for (const auto& command : list.commands) {
+        if (const auto* transform = std::get_if<tessera::PushTransform>(&command)) {
+            check(transform->transform.a==1 && transform->transform.d==1 && transform->transform.b==0 && transform->transform.c==0,
+                "Reference fixture only supports translations");
+            stack.push_back(state); state.tx += transform->transform.tx; state.ty += transform->transform.ty;
+        } else if (const auto* clip = std::get_if<tessera::PushClip>(&command)) {
+            stack.push_back(state);
+            state.left = std::max(state.left, (clip->rect.origin.x+state.tx)*scale);
+            state.top = std::max(state.top, (clip->rect.origin.y+state.ty)*scale);
+            state.right = std::min(state.right, (double(clip->rect.origin.x)+clip->rect.size.width+state.tx)*scale);
+            state.bottom = std::min(state.bottom, (double(clip->rect.origin.y)+clip->rect.size.height+state.ty)*scale);
+        } else if (std::holds_alternative<tessera::PopClip>(command) || std::holds_alternative<tessera::PopTransform>(command)) {
+            state=stack.back(); stack.pop_back();
+        } else if (const auto* run = std::get_if<tessera::DrawGlyphRun>(&command)) {
+            for (const auto& glyph : run->run.glyphs) {
+                const auto raster = cache.get({glyph.font,glyph.id,std::uint32_t(std::round(double(run->run.size)*scale*64))});
+                check(bool(raster), "Reference glyph raster failed"); const auto& bitmap = **raster.value;
+                if (!bitmap.width) continue;
+                const double left=(double(run->origin.x)+glyph.position.x+state.tx)*scale+bitmap.left;
+                const double top=(double(run->origin.y)+glyph.position.y+state.ty)*scale-bitmap.top;
+                const auto coverage = [&](int x,int y) {
+                    return x<0 || y<0 || x>=int(bitmap.width) || y>=int(bitmap.height) ? 0.0 : double(bitmap.coverage[std::size_t(y)*bitmap.width+x])/255;
+                };
+                for(unsigned y=0;y<extent.height;++y) for(unsigned x=0;x<extent.width;++x) {
+                    const double px=x+0.5,py=y+0.5;
+                    // Quad coverage uses the declared device rasterizer precision;
+                    // texture interpolation retains the continuous baseline phase.
+                    const auto edge=[&](double v) { return std::round(v*precision)/precision; };
+                    if(px<state.left || px>=state.right || py<state.top || py>=state.bottom ||
+                        px<edge(left) || px>=edge(left+bitmap.width) || py<edge(top) || py>=edge(top+bitmap.height)) continue;
+                    const double sx=px-left-0.5,sy=py-top-0.5;
+                    const int ix=int(std::floor(sx)),iy=int(std::floor(sy));
+                    const double fx=sx-ix,fy=sy-iy;
+                    const double alpha=((1-fy)*((1-fx)*coverage(ix,iy)+fx*coverage(ix+1,iy))+
+                        fy*((1-fx)*coverage(ix,iy+1)+fx*coverage(ix+1,iy+1)))*run->color.a;
+                    auto& destination=colors[std::size_t(y)*extent.width+x];
+                    const std::array<double,3> tint{linear(run->color.r),linear(run->color.g),linear(run->color.b)};
+                    for(unsigned c=0;c<3;++c) destination[c]=tint[c]*alpha+destination[c]*(1-alpha);
+                }
+            }
+        } else check(false, "Unexpected command in glyph reference fixture");
+    }
+    std::vector<std::uint8_t> pixels(colors.size()*4,255);
+    for(std::size_t i=0;i<colors.size();++i) for(unsigned c=0;c<3;++c) {
+        const auto v=colors[i][c];
+        pixels[i*4+c]=std::uint8_t(std::round(255*(v<=0.0031308 ? 12.92*v : 1.055*std::pow(v,1/2.4)-0.055)));
+    }
+    return pixels;
+}
+void real_glyph_fixtures(Host& host) {
+    tessera::FontShaper shaper;
+    const auto latin=font_bytes("NotoSans-Regular.ttf");
+    check(shaper.set_face({0},latin).empty() && shaper.set_face({1},font_bytes("NotoSansJP-Regular.otf")).empty(), "Fixture fonts rejected");
+    check(shaper.set_fallback({0},{{1}}).empty(), "Fixture fallback rejected");
+    tessera::GlyphCache cache(shaper);
+    tessera::UiDocument document; document.root.kind=tessera::NodeKind::text;
+    document.root.properties.emplace("text",std::string("Start スタート"));
+    const auto tree=tessera::UiTree::create(document); check(bool(tree), "Real Text tree failed");
+    tessera::ResolvedStyle style; style.text.size=20; style.padding={4,4,4,4}; style.color={0.6f,0.85f,1,0.75f};
+    const std::vector<tessera::ResolvedStyle> styles{style};
+    const auto layout=tessera::compute_layout({tree.value->get(),styles,{78.1f,100},&shaper});
+    check(bool(layout), "Real Text layout failed");
+    const auto paint=tessera::build_paint_list({tree.value->get(),styles,&*layout.value,&shaper});
+    check(bool(paint), "Real Text paint failed");
+    const auto mixed=shaper.shape("Start スタート",style.text,{70.1f});
+    check(mixed && mixed.value->metrics.lines==2 && mixed.value->glyphs[6].font.value==1, "Mixed wrapped face/metrics differ");
+    const auto marks=shaper.shape("j ffi a\xcc\x81",style.text);
+    check(bool(marks), "Ligature/mark shaping failed");
+    tessera::UiDrawList source{{tessera::PushTransform{{1,0,0,1,0.2f,0.3f}}, tessera::PushClip{{{7.3f,6.1f},{61.2f,82.2f}}}}};
+    source.commands.insert(source.commands.end(),paint.value->commands.begin(),paint.value->commands.end());
+    source.commands.push_back(tessera::DrawGlyphRun{{5,64},*marks.value,{1,0.7f,0.3f,0.65f}});
+    source.commands.push_back(tessera::PopClip{}); source.commands.push_back(tessera::PopTransform{});
+    check(tessera::validate(source).empty(), "Real glyph source invalid");
+    const auto vertex=shader("primitive.vertex.spv"),fragment=shader("primitive.fragment.spv"),image=shader("primitive.image.spv"),batch=shader("primitive.batch.spv");
+    // Dedicated linear sampler: coverage lives in alpha, never in encoded RGB.
+    VkSamplerCreateInfo info{}; info.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter=info.minFilter=VK_FILTER_LINEAR; info.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    info.addressModeU=info.addressModeV=info.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler sampler; require(vkCreateSampler(host.device,&info,nullptr,&sampler), "create glyph sampler");
+    struct SamplerOwner { VkDevice device; VkSampler sampler; ~SamplerOwner(){vkDestroySampler(device,sampler,nullptr);} } sampler_owner{host.device,sampler};
+    VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(host.physical,&properties);
+    std::cout << "Glyph rasterizer subpixel bits=" << properties.limits.subPixelPrecisionBits << '\n';
+    for(float scale : {1.0f,1.25f,1.5f,2.0f}) {
+        host.resize({unsigned(100*scale),unsigned(100*scale)});
+        const auto expected=glyph_reference(source,cache,scale,host.extent,properties.limits.subPixelPrecisionBits);
+        std::vector<std::uint8_t> reference;
+        for(bool batched : {false,true}) {
+            tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,16};
+            if(batched) context.batch_vertex_spirv=batch;
+            tessera::VulkanRenderer renderer(context);
+            auto prepared=tessera::prepare_glyph_atlas(source,cache,scale,{100},{batched ? 128u : 64u,16,4096});
+            check(prepared && prepared.diagnostics.empty(), "Real atlas preparation failed");
+            host.upload_atlas(*prepared.value);
+            std::vector<tessera::ImageHandle> handles;
+            for(std::size_t i=0;i<prepared.value->pages.size();++i) {
+                handles.push_back(prepared.value->pages[i].image);
+                check(renderer.bind_image(handles.back(),host.atlas_images[i].view,sampler).empty(), "Atlas bind failed");
+            }
+            // GPU copies survive CPU page/cache destruction and face replacement.
+            prepared.value->pages.clear(); cache.clear();
+            check(shaper.set_face({0},latin).empty(), "Face replacement failed");
+            host.begin(renderer);
+            check(renderer.submit({1,{100,100},scale},prepared.value->draw_list).empty(), "Real glyph image submission failed");
+            for(const auto handle : handles) {
+                check(has(renderer.unbind_image(handle),"resource_in_use","/image"), "Live atlas unbound");
+                check(has(renderer.bind_image(handle,host.texture.view,host.sampler),"resource_in_use","/image"), "Live atlas replaced");
+            }
+            renderer.retire(0);
+            const auto actual=host.finish(("real-glyph-"+std::string(batched ? "batch-" : "reference-")+std::to_string(int(scale*4))+".ppm").c_str());
+            double max_linear_error=0;
+            unsigned max_encoded_error=0;
+            const auto decode=[](std::uint8_t v) { const double c=double(v)/255; return c<=0.04045 ? c/12.92 : std::pow((c+0.055)/1.055,2.4); };
+            for(std::size_t i=0;i<actual.size();++i) {
+                max_encoded_error=std::max(max_encoded_error,unsigned(std::abs(int(actual[i])-int(expected[i]))));
+                max_linear_error=std::max(max_linear_error,std::abs(decode(actual[i])-decode(expected[i])));
+                if(batched) check(std::abs(int(actual[i])-int(reference[i]))<=2,"Atlas placement/batch altered glyph pixels");
+            }
+            std::cout << "Real glyph scale=" << scale << " batch=" << batched << " max linear error=" << max_linear_error << " max encoded error=" << max_encoded_error << '\n';
+            check(max_linear_error<=2.0/255,"Real glyph image differs from independent bilinear raster sampling (linear tolerance 2/255)");
+            if(!batched) reference=actual;
+            renderer.retire(1);
+            check(renderer.pending_uploads()==0, "Glyph batch upload retained after completion");
+            for(const auto handle : handles) check(renderer.unbind_image(handle).empty(), "Atlas retirement failed");
+            host.clear_atlas();
+        }
+    }
+}
+#endif
 void batch_fixtures(Host& host) {
     const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
     const auto batch = shader("primitive.batch.spv");
@@ -607,7 +801,11 @@ void batch_fixtures(Host& host) {
 int main() {
     try {
         { Host host; host.initialize(); host.make_texture();
-          fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host); }
+          fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host);
+#ifdef TESSERA_REAL_GLYPH_FIXTURES
+          real_glyph_fixtures(host);
+#endif
+        }
         check(validation_errors == 0,"Vulkan validation errors occurred");
         std::cout << "Vulkan GPU primitive, image, placeholder Text/menu, scale, rejection and retirement fixtures passed (RGBA8 sRGB, tolerance 2/255).\n";
     } catch (const std::exception& error) {

@@ -133,6 +133,30 @@ ctest --test-dir build-fonts -C Debug --output-on-failure
 
 CMake requires the pinned HarfBuzz and FreeType versions; the text service also checks the FreeType runtime version. The toolchain copies their DLLs beside both `build-fonts/modules/fonts/<config>/tessera_font_shaper_tests.exe` and `tessera_glyph_raster_tests.exe`; with another acquisition, put the runtime libraries on `PATH`. The `font_shaper` and `glyph_raster` tests read the committed fonts from `tests/fixtures/fonts`, with no installed or system fonts. Raster checks compare the independent PGM references in `tests/fixtures/glyphs`, then write actual images and a wrapped mixed-script contact image to `build-fonts/modules/fonts/artifacts`; the test sets a conflicting CFF stem-darkening environment default to check the fixed per-face policy. The core `glyph_cache` test uses an injected rasterizer without FreeType. A fresh configure with the option OFF and no toolchain file, as in the library-only workflow, confirms that the core discovers no font library.
 
+### Combined font and Vulkan glyph workflow
+
+Enable both modules to include the real atlas image fixtures in `vulkan`. Use the same installed font dependencies and Vulkan/Slang prerequisites as above:
+
+```powershell
+cmake -S . -B build-atlas-vulkan -G "Visual Studio 18 2026" -A x64 `
+    -DTESSERA_BUILD_FONTS=ON -DTESSERA_BUILD_VULKAN=ON `
+    -DCMAKE_TOOLCHAIN_FILE=<vcpkg-root>/scripts/buildsystems/vcpkg.cmake `
+    -DVCPKG_TARGET_TRIPLET=x64-windows
+cmake --build build-atlas-vulkan --config Debug --parallel 4
+ctest --test-dir build-atlas-vulkan -C Debug --output-on-failure
+cmake --build build-atlas-vulkan --config Release --parallel 4
+ctest --test-dir build-atlas-vulkan -C Release --output-on-failure
+```
+
+The vcpkg toolchain places font DLLs beside the Vulkan test executable. The fixture host uploads prepared pages as white RGBA with coverage in alpha and a linear sampler, reads completed frames back, and writes `real-glyph-{reference,batch}-{4,5,6,8}.ppm` under `build-atlas-vulkan/backends/vulkan/artifacts`. The two paths use different page sizes to challenge placement independence. Tests preserve the primitive/placeholder and native smoke fixtures; the native menu still uses placeholder text. The `glyph_atlas` core test requires neither optional module. A fresh library-only independence check uses:
+
+```powershell
+cmake -S . -B build-atlas-core -G "Visual Studio 18 2026" -A x64 `
+    -DBUILD_TESTING=OFF -DTESSERA_BUILD_EXAMPLES=OFF `
+    -DTESSERA_BUILD_FONTS=OFF -DTESSERA_BUILD_VULKAN=OFF
+cmake --build build-atlas-core --config Debug --parallel 4
+```
+
 ## Release workflow
 
 [VERSION](../../VERSION) holds the single `MAJOR.MINOR.PATCH` value; CMake reads it as the project version. A release is cut only after the active milestone's exit criteria are accepted against [support](../reference/support-matrix.md); 0.x versions carry no API/ABI compatibility guarantee. Patch releases fix defects in released scope; otherwise development continues on `main` without maintenance branches.
