@@ -17,6 +17,10 @@
 #include <tessera/input/focus.hpp>
 #include <tessera/input/scroll.hpp>
 #include <tessera/render/paint.hpp>
+#include <tessera/render/glyph_atlas.hpp>
+#ifdef TESSERA_MENU_FONTS
+#include <tessera/fonts/font_shaper.hpp>
+#endif
 #include <tessera/style/style_sheet.hpp>
 #include <tessera/ui/serialization.hpp>
 #include "gamepad.hpp"
@@ -26,6 +30,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -38,6 +43,7 @@
 namespace {
 
 constexpr std::uint32_t frames_in_flight = 2;
+constexpr std::uint32_t atlas_pages_per_slot = 16;
 constexpr tessera::PointerId mouse{1};
 constexpr float base_dpi = 96;
 constexpr float wheel_step = 40; // Logical units per WHEEL_DELTA; partial deltas scroll proportionally.
@@ -61,6 +67,12 @@ template<class T> T take(tessera::Result<T> result, const char* operation) {
     return std::move(*result.value);
 }
 constexpr tessera::Color rgb(int r, int g, int b) { return {r/255.0f, g/255.0f, b/255.0f, 1}; }
+#ifdef TESSERA_MENU_FONTS
+std::string path_text(const std::filesystem::path& path) {
+    const auto utf8 = path.u8string();
+    return {utf8.begin(), utf8.end()};
+}
+#endif
 std::vector<std::uint32_t> shader(const char* name) {
     std::ifstream file(std::filesystem::path(TESSERA_SHADER_DIR) / name, std::ios::binary | std::ios::ate);
     if (!file) throw std::runtime_error(std::string("Cannot open compiled shader ") + name);
@@ -124,15 +136,50 @@ struct Menu {
     std::vector<std::uint32_t> parents;
     tessera::StyleSheet sheet;
     std::vector<tessera::ResolvedStyle> styles;
-    tessera::PlaceholderTextShaper text;
+    std::unique_ptr<tessera::TextShaper> text;
+    // The borrowed rasterizer in the cache is the real shaper; destroy the cache first.
+    std::unique_ptr<tessera::GlyphCache> glyph_cache;
     tessera::LayoutResult layout;
     tessera::UiDrawList paint;
     tessera::Size viewport;
     std::vector<tessera::Point> offsets; // Host-owned requested scroll offsets by node index.
 
-    Menu() {
+    Menu(const std::vector<std::filesystem::path>& fonts = {}) {
+        text = std::make_unique<tessera::PlaceholderTextShaper>();
+        if (!fonts.empty()) {
+#ifdef TESSERA_MENU_FONTS
+            const auto bytes = [](const std::filesystem::path& path) {
+                std::ifstream file(path, std::ios::binary | std::ios::ate);
+                if (!file) throw std::runtime_error("Cannot open font asset: " + path_text(path));
+                const auto size = file.tellg();
+                if (size <= 0 || size > 64 * 1024 * 1024) throw std::runtime_error("Font asset must be nonempty and at most 64 MiB: " + path_text(path));
+                std::vector<std::byte> data(static_cast<std::size_t>(size));
+                file.seekg(0); file.read(reinterpret_cast<char*>(data.data()), size);
+                if (!file) throw std::runtime_error("Cannot read font asset: " + path_text(path));
+                return data;
+            };
+            auto real = std::make_unique<tessera::FontShaper>();
+            for (std::uint32_t i = 0; i < 2; ++i) {
+                const auto diagnostics = real->set_face({i}, bytes(fonts.at(i)));
+                if (!diagnostics.empty()) { print(diagnostics); throw std::runtime_error("Font asset rejected: " + path_text(fonts[i])); }
+            }
+            const auto diagnostics = real->set_fallback({0}, {{1}});
+            if (!diagnostics.empty()) { print(diagnostics); throw std::runtime_error("Menu fallback rejected"); }
+            glyph_cache = std::make_unique<tessera::GlyphCache>(*real);
+            text = std::move(real);
+#else
+            throw std::runtime_error("--fonts requires a build with TESSERA_BUILD_FONTS=ON");
+#endif
+        }
         const tessera::ValidationContext actions{{"start-game", "quit-game", "show-credits"}};
-        tree = take(tessera::UiTree::create(take(tessera::load_document(menu_json, actions), "Menu JSON rejected"), actions), "Menu tree rejected");
+        auto document = take(tessera::load_document(menu_json, actions), "Menu JSON rejected");
+        if (glyph_cache) {
+            auto& items = document.root.children[0].children[1].children;
+            items[0].children[0].properties["text"] = std::string("Start スタート");
+            items[1].children[0].properties["text"] = std::string("Quit 終了");
+            items[2].children[0].properties["text"] = std::string("Credits クレジット");
+        }
+        tree = take(tessera::UiTree::create(std::move(document), actions), "Menu tree rejected");
         parents.assign(tree->size(), 0);
         offsets.assign(tree->size(), {});
         std::vector<tessera::NodeHandle> pending{tree->root()};
@@ -161,6 +208,11 @@ struct Menu {
         rule(S::of_class("button", {.hover = true}), [](auto& s) { s.background = hover; });
         rule(S::of_class("button", {.active = true}), [](auto& s) { s.background = pressed; });
         rule(S::of_class("button", {.focus = true}), [](auto& s) { s.border_color = focus_ring; });
+        if (glyph_cache) {
+            // Two lines in the declared mixed-script fixture; retain a partly clipped third button.
+            rule(S::of_id("start-label"), [](auto& s) { s.width = tessera::Dimension::points(70.1f); });
+            rule(S::of_id("list"), [](auto& s) { s.height = tessera::Dimension::points(171.3f); });
+        }
         styles = take(tessera::resolve_styles({tree.get(), &sheet, {}, {}}), "Menu styles rejected");
     }
     const tessera::ResolvedStyle& style(const char* id) const { return styles[tree->find(id)->index]; }
@@ -172,7 +224,7 @@ struct Menu {
     tessera::HitTestInput snapshot() const { return {tree.get(), styles, &layout}; }
     void resize(tessera::Size size) {
         viewport = size;
-        layout = take(tessera::compute_layout({tree.get(), styles, viewport, &text, offsets}), "Menu layout rejected");
+        layout = take(tessera::compute_layout({tree.get(), styles, viewport, text.get(), offsets}), "Menu layout rejected");
         repaint();
     }
     // Update point for new scroll offsets: layout clamps them, and paint and hit testing share the result.
@@ -180,7 +232,7 @@ struct Menu {
         for (const auto& update : updates) offsets[update.container.index] = update.offset;
         resize(viewport);
     }
-    void repaint() { paint = take(tessera::build_paint_list({tree.get(), styles, &layout, &text}), "Menu paint rejected"); }
+    void repaint() { paint = take(tessera::build_paint_list({tree.get(), styles, &layout, text.get()}), "Menu paint rejected"); }
     // Full-tree restyle for the current interaction state; changed styles re-run layout and paint.
     void show(tessera::InteractionState state) {
         auto resolved = take(tessera::resolve_styles({tree.get(), &sheet, std::move(state), {}}), "Menu styles rejected");
@@ -211,6 +263,16 @@ struct FrameSlot {
     VkSemaphore acquired = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
     std::uint64_t frame = 0; // Last successful renderer frame covered by this slot's fence.
+    struct AtlasImage {
+        tessera::ImageHandle handle;
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VkDeviceMemory staging_memory = VK_NULL_HANDLE;
+        bool bound = false;
+    };
+    std::vector<AtlasImage> atlas; // Images and upload buffers live through this slot's fence.
 };
 
 struct App {
@@ -251,6 +313,7 @@ struct App {
     std::vector<SwapchainImage> images;
     std::unique_ptr<tessera::VulkanRenderer> renderer;
     std::uint64_t last_frame = 0, presented = 0;
+    VkSampler glyph_sampler = VK_NULL_HANDLE;
 
     // Smoke-only presentation readback.
     VkBuffer readback = VK_NULL_HANDLE;
@@ -403,9 +466,105 @@ struct App {
         }
         const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
         const auto batch = shader("primitive.batch.spv");
-        // Explicit placeholder opt-in: every glyph run comes from PlaceholderTextShaper with FontId 0.
+        // Real runs are explicitly lowered to images; direct glyph submission stays disabled.
         renderer = std::make_unique<tessera::VulkanRenderer>(tessera::VulkanContext{
-            physical, device, present_pass, format.format, vertex, fragment, image, 1, true, batch});
+            physical, device, present_pass, format.format, vertex, fragment, image,
+            atlas_pages_per_slot * frames_in_flight, !menu.glyph_cache, batch});
+        if (menu.glyph_cache) {
+            VkFormatProperties properties;
+            vkGetPhysicalDeviceFormatProperties(physical, VK_FORMAT_R8G8B8A8_UNORM, &properties);
+            constexpr auto features = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+                VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+            if ((properties.optimalTilingFeatures & features) != features)
+                throw std::runtime_error("Menu glyph pages require linearly sampled RGBA8 UNORM transfer destinations");
+            VkSamplerCreateInfo sampler{}; sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            sampler.magFilter = sampler.minFilter = VK_FILTER_LINEAR;
+            sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            require(vkCreateSampler(device, &sampler, nullptr, &glyph_sampler), "create glyph sampler");
+        }
+    }
+    std::uint32_t memory_type(std::uint32_t bits, VkMemoryPropertyFlags flags) const {
+        VkPhysicalDeviceMemoryProperties properties;
+        vkGetPhysicalDeviceMemoryProperties(physical, &properties);
+        for (std::uint32_t i = 0; i < properties.memoryTypeCount; ++i)
+            if ((bits & (1u << i)) && (properties.memoryTypes[i].propertyFlags & flags) == flags) return i;
+        throw std::runtime_error("No memory type for menu glyph upload");
+    }
+    void clear_atlas(FrameSlot& slot, bool unbind = true) {
+        for (auto& page : slot.atlas) {
+            if (unbind && page.bound) {
+                const auto diagnostics = renderer->unbind_image(page.handle);
+                if (!diagnostics.empty()) { print(diagnostics); throw std::runtime_error("Menu glyph image retirement rejected"); }
+            }
+            if (page.view) vkDestroyImageView(device, page.view, nullptr);
+            if (page.image) vkDestroyImage(device, page.image, nullptr);
+            if (page.memory) vkFreeMemory(device, page.memory, nullptr);
+            if (page.staging) vkDestroyBuffer(device, page.staging, nullptr);
+            if (page.staging_memory) vkFreeMemory(device, page.staging_memory, nullptr);
+            page = {}; // Partial cleanup remains safe if a later binding rejects retirement.
+        }
+        slot.atlas.clear();
+    }
+    // Record host transfers before the render pass on the same queue. No queue idle/upload
+    // helper submission: retain staging and sampled images with the frame that consumes them.
+    void upload_atlas(FrameSlot& slot, const tessera::GlyphAtlasFrame& atlas) {
+        if (!slot.atlas.empty()) throw std::logic_error("Old menu atlas was not retired");
+        slot.atlas.resize(atlas.pages.size());
+        for (std::size_t i = 0; i < atlas.pages.size(); ++i) {
+            const auto& source = atlas.pages[i];
+            auto& page = slot.atlas[i]; page.handle = source.image;
+            VkBufferCreateInfo buffer{}; buffer.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            buffer.size = VkDeviceSize(source.coverage.size()) * 4; buffer.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            require(vkCreateBuffer(device, &buffer, nullptr, &page.staging), "create glyph staging");
+            VkMemoryRequirements requirements; vkGetBufferMemoryRequirements(device, page.staging, &requirements);
+            VkMemoryAllocateInfo allocation{}; allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocation.allocationSize = requirements.size;
+            allocation.memoryTypeIndex = memory_type(requirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            require(vkAllocateMemory(device, &allocation, nullptr, &page.staging_memory), "allocate glyph staging");
+            require(vkBindBufferMemory(device, page.staging, page.staging_memory, 0), "bind glyph staging");
+            void* mapped;
+            require(vkMapMemory(device, page.staging_memory, 0, buffer.size, 0, &mapped), "map glyph staging");
+            auto* pixels = static_cast<std::uint8_t*>(mapped);
+            for (std::size_t j = 0; j < source.coverage.size(); ++j) {
+                pixels[j * 4] = pixels[j * 4 + 1] = pixels[j * 4 + 2] = 255;
+                pixels[j * 4 + 3] = source.coverage[j];
+            }
+            vkUnmapMemory(device, page.staging_memory);
+            VkImageCreateInfo image{}; image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            image.imageType = VK_IMAGE_TYPE_2D; image.format = VK_FORMAT_R8G8B8A8_UNORM;
+            image.extent = {source.size, source.size, 1}; image.mipLevels = image.arrayLayers = 1;
+            image.samples = VK_SAMPLE_COUNT_1_BIT; image.tiling = VK_IMAGE_TILING_OPTIMAL;
+            image.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            require(vkCreateImage(device, &image, nullptr, &page.image), "create glyph image");
+            vkGetImageMemoryRequirements(device, page.image, &requirements);
+            allocation.allocationSize = requirements.size;
+            allocation.memoryTypeIndex = memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            require(vkAllocateMemory(device, &allocation, nullptr, &page.memory), "allocate glyph image");
+            require(vkBindImageMemory(device, page.image, page.memory, 0), "bind glyph image memory");
+            VkImageViewCreateInfo view{}; view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            view.image = page.image; view.viewType = VK_IMAGE_VIEW_TYPE_2D; view.format = image.format;
+            view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            require(vkCreateImageView(device, &view, nullptr, &page.view), "create glyph view");
+            VkImageMemoryBarrier barrier{}; barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.image = page.image; barrier.subresourceRange = view.subresourceRange;
+            barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            vkCmdPipelineBarrier(slot.commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &barrier);
+            VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.imageExtent = image.extent;
+            vkCmdCopyBufferToImage(slot.commands, page.staging, page.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            barrier.oldLayout = barrier.newLayout; barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(slot.commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0, 0, nullptr, 0, nullptr, 1, &barrier);
+            const auto diagnostics = renderer->bind_image(page.handle, page.view, glyph_sampler);
+            if (!diagnostics.empty()) { print(diagnostics); throw std::runtime_error("Menu glyph image binding rejected"); }
+            page.bound = true;
+        }
     }
     void destroy_images() {
         for (auto& image : images) {
@@ -419,6 +578,7 @@ struct App {
     void recreate_swapchain() {
         require(vkDeviceWaitIdle(device), "wait idle before swapchain recreation");
         renderer->retire(last_frame);
+        for (auto& slot : slots) clear_atlas(slot);
         VkSurfaceCapabilitiesKHR capabilities;
         require(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &capabilities), "query surface capabilities");
         VkExtent2D size = capabilities.currentExtent;
@@ -474,6 +634,8 @@ struct App {
         if (device) {
             vkDeviceWaitIdle(device);
             if (renderer) { renderer->retire(last_frame); renderer.reset(); }
+            for (auto& slot : slots) clear_atlas(slot, false);
+            if (glyph_sampler) vkDestroySampler(device, glyph_sampler, nullptr);
             destroy_images();
             if (swapchain) vkDestroySwapchainKHR(device, swapchain, nullptr);
             if (readback) vkDestroyBuffer(device, readback, nullptr);
@@ -504,6 +666,7 @@ struct App {
         require(vkWaitForFences(device, 1, &slot.fence, VK_TRUE, UINT64_MAX), "wait frame fence");
         // A fence signal covers earlier submissions on this queue, so every frame <= slot.frame completed.
         renderer->retire(slot.frame);
+        clear_atlas(slot);
         std::uint32_t index = 0;
         const auto acquired = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, slot.acquired, VK_NULL_HANDLE, &index);
         if (acquired == VK_ERROR_OUT_OF_DATE_KHR) { swapchain_dirty = true; return; }
@@ -520,6 +683,13 @@ struct App {
         VkCommandBufferBeginInfo begin{}; begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         require(vkBeginCommandBuffer(slot.commands, &begin), "begin commands");
+        std::optional<tessera::GlyphAtlasFrame> atlas;
+        if (menu.glyph_cache) {
+            atlas = take(tessera::prepare_glyph_atlas(menu.paint, *menu.glyph_cache, scale,
+                {1 + slot_index * atlas_pages_per_slot}, {256, atlas_pages_per_slot, 4096}), "Menu glyph preparation rejected");
+            upload_atlas(slot, *atlas);
+            atlas->pages.clear(); // GPU copies own coverage now; CPU page lifetime cannot affect presentation.
+        }
         VkClearValue clear{}; clear.color.float32[3] = 1;
         VkRenderPassBeginInfo pass{}; pass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         pass.renderPass = capture ? capture_pass : present_pass; pass.framebuffer = target.framebuffer;
@@ -527,13 +697,21 @@ struct App {
         vkCmdBeginRenderPass(slot.commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
         renderer->set_target({slot.commands, extent});
         const tessera::FrameInfo frame{last_frame + 1, menu.viewport, scale};
-        const auto diagnostics = renderer->submit(frame, menu.paint);
+        const auto diagnostics = renderer->submit(frame, atlas ? atlas->draw_list : menu.paint);
         if (smoke && diagnostics.empty()) {
             const auto stats = renderer->submission_stats();
-            // One batch for the unclipped screen/panel/title and one for the clipped list.
-            if (stats.draw_calls != 2 || stats.primitives <= stats.draw_calls ||
+            // Placeholder: two solid batches. Real glyphs alternate solid/image batches.
+            if ((!atlas && stats.draw_calls != 2) || stats.primitives <= stats.draw_calls ||
                 stats.upload_bytes != stats.primitives * 112 || renderer->pending_uploads() > frames_in_flight)
                 fail("Menu adjacent batching or upload retirement counters disagree");
+            for (const auto& page : slot.atlas) {
+                const auto unbound = renderer->unbind_image(page.handle);
+                const auto rebound = renderer->bind_image(page.handle, page.view, glyph_sampler);
+                const auto live = [](const auto& errors) {
+                    return errors.size() == 1 && errors[0].code == "resource_in_use";
+                };
+                if (!live(unbound) || !live(rebound)) fail("Live menu glyph image was not protected through completion");
+            }
             if (last_frame == 0) std::cout << "Menu batching: " << stats.primitives << " primitives, "
                 << stats.draw_calls << " draw, " << stats.upload_bytes << " upload bytes per frame.\n";
         }
@@ -598,6 +776,81 @@ struct App {
         vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                              0, 0, nullptr, 1, &to_host, 1, &to_present);
     }
+    // Small native glyph oracle: sample the original rasters at continuous baselines over
+    // each label's flat button background. It reads no atlas coordinates or DrawImages and
+    // handles only the menu's untransformed label interiors, not general primitive rendering.
+    void verify_real_labels(const std::vector<std::uint8_t>& pixels, const std::string& name) {
+        VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(physical, &properties);
+        const double precision = std::ldexp(1.0, int(properties.limits.subPixelPrecisionBits));
+        const auto linear = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+        const auto inside = [&](const tessera::Rect& rect, unsigned x, unsigned y) {
+            return x + 0.5 >= double(rect.origin.x) * scale && y + 0.5 >= double(rect.origin.y) * scale &&
+                x + 0.5 < (double(rect.origin.x) + rect.size.width) * scale &&
+                y + 0.5 < (double(rect.origin.y) + rect.size.height) * scale;
+        };
+        double maximum_error = 0;
+        std::array<std::size_t, 2> ink{};
+        for (const char* id : ::buttons) {
+            const auto label_id = std::string(id) + "-label";
+            const auto& box = menu.box(label_id.c_str());
+            const auto content = box.content_box();
+            const tessera::DrawGlyphRun* run = nullptr;
+            for (const auto& command : menu.paint.commands)
+                if (const auto* candidate = std::get_if<tessera::DrawGlyphRun>(&command); candidate && candidate->origin == content.origin) run = candidate;
+            if (!run) return fail("Real label paint missing in " + name);
+            const auto& node = *menu.tree->get(*menu.tree->find(label_id));
+            const auto measured = take(menu.text->measure(std::get<std::string>(node.properties.at("text")),
+                menu.style(label_id.c_str()).text, {content.size.width}), "Native label measurement failed");
+            if (measured != run->run.metrics || std::abs(measured.size.height - content.size.height) > 0.001f ||
+                (label_id == "start-label" && measured.lines != 2)) return fail("Native label layout/paint metrics differ in " + name);
+            struct Raster { const tessera::Glyph* glyph; std::shared_ptr<const tessera::GlyphBitmap> bitmap; };
+            std::vector<Raster> rasters;
+            std::array<bool, 2> faces{};
+            for (const auto& glyph : run->run.glyphs) {
+                if (!glyph.id || glyph.font.value > 1) return fail("Missing or unexpected native glyph face in " + name);
+                faces[glyph.font.value] = true;
+                rasters.push_back({&glyph, take(menu.glyph_cache->get({glyph.font, glyph.id,
+                    std::uint32_t(std::round(double(run->run.size) * scale * 64))}), "Native reference raster failed")});
+            }
+            if (!faces[0] || !faces[1]) return fail("Native mixed-script fallback missing in " + name);
+            const auto background = menu.style(id).background;
+            for (unsigned y = 0; y < extent.height; ++y) for (unsigned x = 0; x < extent.width; ++x) {
+                if (!inside(content, x, y) || (box.clip && !inside(*box.clip, x, y))) continue;
+                std::array<double, 3> expected{linear(background.r), linear(background.g), linear(background.b)};
+                for (const auto& raster : rasters) {
+                    const auto& bitmap = *raster.bitmap;
+                    if (!bitmap.width) continue;
+                    const double left = (double(run->origin.x) + raster.glyph->position.x) * scale + bitmap.left;
+                    const double top = (double(run->origin.y) + raster.glyph->position.y) * scale - bitmap.top;
+                    const auto edge = [&](double v) { return std::round(v * precision) / precision; };
+                    const double px = x + 0.5, py = y + 0.5;
+                    if (px < edge(left) || px >= edge(left + bitmap.width) || py < edge(top) || py >= edge(top + bitmap.height)) continue;
+                    const auto coverage = [&](int cx, int cy) {
+                        return cx < 0 || cy < 0 || cx >= int(bitmap.width) || cy >= int(bitmap.height) ? 0.0 :
+                            double(bitmap.coverage[std::size_t(cy) * bitmap.width + cx]) / 255;
+                    };
+                    const double sx = px - left - 0.5, sy = py - top - 0.5;
+                    const int ix = int(std::floor(sx)), iy = int(std::floor(sy));
+                    const double fx = sx - ix, fy = sy - iy;
+                    const double alpha = ((1 - fy) * ((1 - fx) * coverage(ix, iy) + fx * coverage(ix + 1, iy)) +
+                        fy * ((1 - fx) * coverage(ix, iy + 1) + fx * coverage(ix + 1, iy + 1))) * run->color.a;
+                    if (alpha > 0.1) ++ink[raster.glyph->font.value];
+                    const std::array<double, 3> tint{linear(run->color.r), linear(run->color.g), linear(run->color.b)};
+                    for (unsigned c = 0; c < 3; ++c) expected[c] = tint[c] * alpha + expected[c] * (1 - alpha);
+                }
+                const auto at = (std::size_t(y) * extent.width + x) * 4;
+                for (unsigned c = 0; c < 3; ++c) {
+                    const double error = std::abs(linear(double(pixels[at + c]) / 255) - expected[c]);
+                    maximum_error = std::max(maximum_error, error);
+                    if (error > 2.0 / 255) return fail("Native glyph sampling mismatch in " + name + " at " +
+                        std::to_string(x) + ',' + std::to_string(y));
+                }
+            }
+        }
+        if (!ink[0] || !ink[1]) return fail("Native capture has no visible Latin/Japanese ink in " + name);
+        std::cout << "Native glyph scale=" << scale << " max linear error=" << maximum_error
+            << "; Latin/Japanese ink samples=" << ink[0] << '/' << ink[1] << '\n';
+    }
     // Checks presented pixels against the styles that produced this frame's paint.
     void verify_capture() {
         capture_next = false;
@@ -607,7 +860,7 @@ struct App {
         std::memcpy(pixels.data(), mapped, pixels.size()); vkUnmapMemory(device, readback_memory);
         if (format.format == VK_FORMAT_B8G8R8A8_SRGB)
             for (std::size_t i = 0; i < pixels.size(); i += 4) std::swap(pixels[i], pixels[i + 2]);
-        const auto name = "vulkan-menu-" + std::to_string(++captures) + ".ppm";
+        const auto name = std::string(menu.glyph_cache ? "vulkan-menu-real-" : "vulkan-menu-") + std::to_string(++captures) + ".ppm";
         std::filesystem::create_directories(TESSERA_GPU_ARTIFACT_DIR);
         std::ofstream file(std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR) / name, std::ios::binary);
         file << "P6\n" << extent.width << ' ' << extent.height << "\n255\n";
@@ -634,6 +887,7 @@ struct App {
             const auto border_x = unsigned(std::ceil(double(button.origin.x) * scale - 0.5));
             if (!matches(border_x, pixel(button.origin.y + button.size.height / 2), menu.style(id).border_color))
                 fail(std::string("Button border pixel mismatch for ") + id + " in " + name);
+            if (menu.glyph_cache) continue;
             const auto label = menu.box((std::string(id) + "-label").c_str()).content_box();
             bool glyph = false;
             for (auto y = pixel(label.origin.y); y < pixel(label.origin.y + label.size.height) && !glyph; ++y)
@@ -641,6 +895,7 @@ struct App {
                     glyph = matches(x, y, Menu::label);
             if (!glyph) fail(std::string("No placeholder label pixels for ") + id + " in " + name);
         }
+        if (menu.glyph_cache) verify_real_labels(pixels, name);
         // Clip agreement: near a list clip edge, a pixel shows the straddling button exactly when its
         // pixel-center pointer position targets that button.
         const auto agree = [&](const char* id, float logical_edge) {
@@ -652,7 +907,10 @@ struct App {
             for (auto y = edge - 3; y <= edge + 3; ++y) {
                 for (auto x = pixel(straddling.border_box.origin.x) - 2;
                      x < pixel(straddling.border_box.origin.x + straddling.border_box.size.width) + 2; ++x) {
-                    const bool paints = std::any_of(std::begin(shown), std::end(shown), [&](tessera::Color c) { return matches(x, y, c); });
+                    // Real glyph coverage blends continuously with the button. In this
+                    // fixture the unclipped backdrop is flat panel color at both list edges.
+                    const bool paints = menu.glyph_cache ? !matches(x, y, Menu::panel) :
+                        std::any_of(std::begin(shown), std::end(shown), [&](tessera::Color c) { return matches(x, y, c); });
                     const auto hit = tessera::hit_test(menu.snapshot(), logical_point(int(x), int(y), scale));
                     if (!hit) { fail("Hit test rejected during clip agreement"); return false; }
                     const bool targets = menu.button_of(hit.value->target) == node;
@@ -1022,10 +1280,18 @@ LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam
 
 } // namespace
 
-int main(int argc, char** argv) {
+int wmain(int argc, wchar_t** argv) {
     App app;
-    app.smoke = argc > 1 && std::strcmp(argv[1], "--smoke") == 0;
     try {
+        std::vector<std::filesystem::path> fonts;
+        for (int i = 1; i < argc; ++i) {
+            if (std::wcscmp(argv[i], L"--smoke") == 0) app.smoke = true;
+            else if (std::wcscmp(argv[i], L"--fonts") == 0 && fonts.empty() && i + 2 < argc) {
+                fonts.emplace_back(argv[++i]); fonts.emplace_back(argv[++i]);
+            } else throw std::runtime_error("Usage: tessera_vulkan_menu [--smoke] [--fonts <Latin.ttf/otf> <Japanese.ttf/otf>]");
+        }
+        if (!fonts.empty()) app.menu = Menu(fonts);
+        std::cout << (app.menu.glyph_cache ? "Real text with explicit Latin/Japanese assets.\n" : "Placeholder text; pass --fonts in a fonts-enabled build for real glyphs.\n");
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         WNDCLASSEXW type{sizeof(type)};
         type.lpfnWndProc = window_proc; type.hInstance = GetModuleHandleW(nullptr);
