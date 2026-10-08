@@ -24,6 +24,12 @@ else()
     target_compile_options(tessera_fonts PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 if(BUILD_TESTING)
+    if(TARGET tessera_vulkan_tests)
+        target_link_libraries(tessera_vulkan_tests PRIVATE tessera::fonts)
+        target_compile_definitions(tessera_vulkan_tests PRIVATE
+            TESSERA_REAL_GLYPH_FIXTURES=1
+            TESSERA_FONT_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures/fonts")
+    endif()
     add_executable(tessera_font_shaper_tests ../../tests/text/font_shaper_tests.cpp)
     target_link_libraries(tessera_font_shaper_tests PRIVATE tessera::fonts)
     target_compile_definitions(tessera_font_shaper_tests PRIVATE
