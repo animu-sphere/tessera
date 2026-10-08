@@ -1,0 +1,72 @@
+[
+  {
+    "name": "latin-A-20",
+    "font": "NotoSans-Regular.ttf",
+    "glyph": 36,
+    "pixel_size_64": 1280,
+    "width": 13,
+    "height": 15,
+    "left": 0,
+    "top": 15
+  },
+  {
+    "name": "latin-j-20",
+    "font": "NotoSans-Regular.ttf",
+    "glyph": 77,
+    "pixel_size_64": 1280,
+    "width": 6,
+    "height": 20,
+    "left": -2,
+    "top": 15
+  },
+  {
+    "name": "latin-ffi-20",
+    "font": "NotoSans-Regular.ttf",
+    "glyph": 1656,
+    "pixel_size_64": 1280,
+    "width": 18,
+    "height": 16,
+    "left": 0,
+    "top": 16
+  },
+  {
+    "name": "latin-mark-20",
+    "font": "NotoSans-Regular.ttf",
+    "glyph": 2665,
+    "pixel_size_64": 1280,
+    "width": 5,
+    "height": 4,
+    "left": -7,
+    "top": 16
+  },
+  {
+    "name": "latin-A-20.25",
+    "font": "NotoSans-Regular.ttf",
+    "glyph": 36,
+    "pixel_size_64": 1296,
+    "width": 13,
+    "height": 15,
+    "left": 0,
+    "top": 15
+  },
+  {
+    "name": "japanese-me-25",
+    "font": "NotoSansJP-Regular.otf",
+    "glyph": 1362,
+    "pixel_size_64": 1600,
+    "width": 20,
+    "height": 20,
+    "left": 2,
+    "top": 19
+  },
+  {
+    "name": "latin-notdef-20",
+    "font": "NotoSans-Regular.ttf",
+    "glyph": 0,
+    "pixel_size_64": 1280,
+    "width": 10,
+    "height": 15,
+    "left": 1,
+    "top": 15
+  }
+]
