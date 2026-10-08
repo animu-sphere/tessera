@@ -9,6 +9,7 @@
 #include <climits>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -98,6 +99,61 @@ double advance_width(const std::vector<Shaped>& glyphs, double size) {
     double width = 0;
     for (const auto& [face, units] : advances) width += units * (size / face->upem);
     return width;
+}
+
+// A bounded menu wrapping profile, not a Unicode line-break implementation. These
+// rules are applied only at shaped cluster boundaries. UTF-8 was validated earlier.
+struct Scalar {
+    std::uint32_t offset;
+    char32_t value;
+};
+
+std::vector<Scalar> scalars(std::string_view text) {
+    std::vector<Scalar> result;
+    for (std::size_t i = 0; i < text.size();) {
+        const auto start = i;
+        const auto lead = static_cast<unsigned char>(text[i++]);
+        const unsigned count = lead < 0x80 ? 0 : lead < 0xe0 ? 1 : lead < 0xf0 ? 2 : 3;
+        char32_t value = count == 0 ? lead : lead & (0x3f >> count);
+        for (unsigned j = 0; j < count; ++j)
+            value = (value << 6) | (static_cast<unsigned char>(text[i++]) & 0x3f);
+        result.push_back({static_cast<std::uint32_t>(start), value});
+    }
+    return result;
+}
+
+bool contains(std::u32string_view set, char32_t value) { return set.find(value) != std::u32string_view::npos; }
+bool break_space(char32_t value) { return value == U' ' || value == U'\u3000'; }
+bool glue(char32_t value) { return contains(U"\u00a0\u202f\u2060\ufeff", value); }
+bool opening(char32_t value) { return contains(U"([{‘“〈《「『【〔〖〘〚（［｛｟｢", value); }
+bool nonstarter(char32_t value) {
+    return contains(U")]}’”〉》」』】〕〗〙〛）］｝｠｣、。，．！？：；・…‥々〻ゝゞヽヾー"
+                    U"ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶｧｨｩｪｫｯｬｭｮｰ!?.,:;", value) ||
+           (value >= 0x31f0 && value <= 0x31ff);
+}
+bool japanese_character(char32_t value) {
+    return (value >= 0x3040 && value <= 0x30ff) || (value >= 0x31f0 && value <= 0x31ff) ||
+           (value >= 0x3400 && value <= 0x4dbf) || (value >= 0x4e00 && value <= 0x9fff) ||
+           (value >= 0xf900 && value <= 0xfaff) || (value >= 0xff66 && value <= 0xff9f);
+}
+
+enum class Break { prohibited, emergency, preferred };
+
+Break line_break(const std::vector<Scalar>& text, std::uint32_t offset) {
+    const auto right = std::lower_bound(text.begin(), text.end(), offset,
+                                        [](const Scalar& scalar, std::uint32_t at) { return scalar.offset < at; });
+    if (right == text.end()) return Break::preferred; // End of the LF segment always terminates it.
+    if (right == text.begin() || right->offset != offset) return Break::prohibited;
+    const auto left = std::prev(right);
+    // No emergency split overrides punctuation or explicit no-break characters.
+    if (glue(left->value) || glue(right->value) || break_space(right->value) || nonstarter(right->value))
+        return Break::prohibited;
+    auto before_spaces = left;
+    while (break_space(before_spaces->value) && before_spaces != text.begin()) --before_spaces;
+    if (opening(before_spaces->value)) return Break::prohibited;
+    if (break_space(left->value) || left->value == U'-' || left->value == U'\u2010' ||
+        japanese_character(left->value) || japanese_character(right->value)) return Break::preferred;
+    return Break::emergency;
 }
 
 } // namespace
@@ -365,8 +421,13 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
                     if (glyph.cluster > 0 && (boundaries.empty() || boundaries.back() != glyph.cluster))
                         boundaries.push_back(glyph.cluster);
                 boundaries.push_back(taken);
+                const auto characters = scalars(remaining);
                 std::vector<Shaped> accepted;
+                std::vector<Shaped> preferred;
+                std::uint32_t preferred_end = 0;
                 for (const auto boundary : boundaries) {
+                    const auto opportunity = line_break(characters, boundary);
+                    if (opportunity == Break::prohibited) continue;
                     std::vector<Shaped> candidate;
                     if (!impl_->shape_line(face, style.font, fallbacks, remaining.substr(0, boundary),
                                            candidate, direction)) return too_long();
@@ -374,9 +435,18 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
                     if (overflow && !accepted.empty()) break;
                     taken = boundary;
                     accepted = std::move(candidate);
-                    if (overflow) break; // One oversized cluster still makes progress.
+                    if (overflow) break; // One indivisible group still makes progress.
+                    if (opportunity == Break::preferred) {
+                        preferred_end = boundary;
+                        preferred = accepted;
+                    }
                 }
-                glyphs = std::move(accepted);
+                if (preferred_end != 0) {
+                    taken = preferred_end;
+                    glyphs = std::move(preferred);
+                } else {
+                    glyphs = std::move(accepted);
+                }
             }
             const float pen_y = baseline + static_cast<float>(lines) * line;
             // Pens accumulate per face in font units and are scaled per glyph, so measurement

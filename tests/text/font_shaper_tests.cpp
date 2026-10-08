@@ -1,6 +1,7 @@
 #include <tessera/fonts/font_shaper.hpp>
 #include <tessera/render/paint.hpp>
 #include "../check.hpp"
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -275,7 +276,7 @@ void wrapping() {
     style.line_height = 40.0f;
     const auto explicit_lines = shaper.shape("メニュー\n\nA\n", style, {40.0f});
     check(explicit_lines && explicit_lines.value->metrics.lines == 5 &&
-          near(explicit_lines.value->metrics.size.width, 40) && near(explicit_lines.value->metrics.size.height, 200),
+          near(explicit_lines.value->metrics.size.width, 60) && near(explicit_lines.value->metrics.size.height, 200),
           "Wrapped LF/empty-line accounting differs");
     const auto missing = shaper.shape("Aメ\xee\x80\x80", style, {20.0f});
     check(missing && missing.value->metrics.lines == 3 && missing.diagnostics.size() == 1 &&
@@ -287,6 +288,70 @@ void wrapping() {
           "Negative font width accepted");
     check(has(shaper.shape("אב", style, {100.0f}).diagnostics, "unsupported_wrapping_direction", "/text"),
           "Constrained RTL must be explicitly rejected");
+}
+
+void menu_line_breaks() {
+    auto shaper = fixture_shaper();
+    check(shaper.set_fallback(latin, {japanese}).empty(), "Fallback stack rejected");
+    tessera::TextStyle style;
+    style.size = 20;
+    // Each expected line is shaped independently: compare IDs, faces, source byte
+    // clusters and positions as well as metrics. No predicate from the implementation
+    // is used to decide the expected breaks.
+    const auto expect = [&](std::string_view source, float width,
+                            std::initializer_list<std::string_view> lines) {
+        tessera::GlyphRun expected{style.font, style.size, {}, {}};
+        std::uint32_t offset = 0;
+        std::uint32_t row = 0;
+        for (const auto line : lines) {
+            const auto unwrapped = shaper.shape(line, style);
+            check(unwrapped && unwrapped.diagnostics.empty(), "Expected line failed to shape");
+            if (row == 0) expected.metrics = unwrapped.value->metrics;
+            expected.metrics.size.width = std::max(expected.metrics.size.width, unwrapped.value->metrics.size.width);
+            for (auto glyph : unwrapped.value->glyphs) {
+                glyph.cluster += offset;
+                glyph.position.y += row * expected.metrics.line_height;
+                expected.glyphs.push_back(glyph);
+            }
+            offset += static_cast<std::uint32_t>(line.size());
+            ++row;
+        }
+        expected.metrics.lines = row;
+        expected.metrics.size.height = row * expected.metrics.line_height;
+        check(offset == source.size(), "Expected lines must retain every source byte");
+        const auto actual = shaper.shape(source, style, {width});
+        check(actual && actual.diagnostics.empty() && near(actual.value->metrics, expected.metrics) &&
+              actual.value->glyphs.size() == expected.glyphs.size(), "Menu wrap metrics differ: " + std::string(source));
+        for (std::size_t i = 0; i < expected.glyphs.size(); ++i) {
+            const auto& a = actual.value->glyphs[i];
+            const auto& e = expected.glyphs[i];
+            check(a.id == e.id && a.font == e.font && a.cluster == e.cluster && near(a.position, e.position),
+                  "Menu wrap glyph differs: " + std::string(source));
+        }
+        check(shaper.measure(source, style, {width}).value == actual.value->metrics &&
+              shaper.shape(source, style, {width}).value == actual.value, "Menu wrap is not repeatable");
+    };
+    expect("Hello world", 80, {"Hello ", "world"});
+    expect("a bcd", 35, {"a ", "bcd"});
+    expect("ab-cd", 35, {"ab-", "cd"});
+    expect("A   B", 30, {"A   ", "B"});
+    expect("A　B", 40, {"A　", "B"});
+    expect("あいうえ", 40, {"あい", "うえ"});
+    expect("あい、う", 40, {"あ", "い、", "う"});
+    expect("あ「いう", 40, {"あ", "「い", "う"});
+    expect("あ（い）う", 40, {"あ", "（い）", "う"}); // Oversized punctuation group.
+    expect("あきゃく", 40, {"あ", "きゃ", "く"});
+    expect("あカーい", 40, {"あ", "カー", "い"});
+    expect("「  あい", 40, {"「  あ", "い"}); // Opening prohibition spans spaces.
+    expect("A\xc2\xa0" "B", 0, {"A\xc2\xa0" "B"});
+    expect("A\xe2\x80\xaf" "B", 0, {"A\xe2\x80\xaf" "B"});
+    expect("A\xe2\x81\xa0" "B", 0, {"A\xe2\x81\xa0" "B"});
+    expect("A\xef\xbb\xbf" "B", 0, {"A\xef\xbb\xbf" "B"});
+    expect("あ、", 0, {"あ、"});
+    expect("（あ", 0, {"（あ"});
+    expect("Hello!A", 0, {"H", "e", "l", "l", "o!", "A"});
+    expect("Q\xcc\x81" "AB", 20, {"Q\xcc\x81", "A", "B"});
+    expect("ffiABC", 20, {"ffi", "A", "B", "C"});
 }
 
 tessera::UiNode text(std::string content) {
@@ -354,6 +419,30 @@ void layout_and_paint_agree() {
         }
         check(found, "Wrapped paint must use the assigned content width and measured baselines");
     }
+
+    // A kinsoku group can be wider than its assigned box. Its three visual lines
+    // must still determine the next sibling's position and the emitted paint run.
+    document.root.children = {text("あ（い）う"), text("Next")};
+    const auto grouped_tree = tessera::UiTree::create(document);
+    check(static_cast<bool>(grouped_tree), "Grouped fixture tree rejected");
+    std::vector<tessera::ResolvedStyle> grouped_styles((*grouped_tree.value)->size());
+    for (auto& s : grouped_styles) s.text.size = 20;
+    const auto grouped_layout = tessera::compute_layout({grouped_tree.value->get(), grouped_styles, {40, 300}, &shaper});
+    check(grouped_layout && near(grouped_layout.value->boxes[1].content_box().size.height, 81.72f) &&
+          near(grouped_layout.value->boxes[2].border_box.origin.y, 81.72f),
+          "Oversized kinsoku group height must place the sibling");
+    const auto grouped_run = shaper.shape("あ（い）う", grouped_styles[1].text, {40.0f});
+    check(grouped_run && near(grouped_run.value->metrics.size.width, 60), "Kinsoku group must overflow intact");
+    const auto grouped_paint = tessera::build_paint_list({grouped_tree.value->get(), grouped_styles,
+                                                        &*grouped_layout.value, &shaper});
+    check(static_cast<bool>(grouped_paint), "Grouped paint rejected");
+    bool found_group = false;
+    for (const auto& command : grouped_paint.value->commands) {
+        const auto* draw = std::get_if<tessera::DrawGlyphRun>(&command);
+        found_group = found_group || (draw && draw->run == *grouped_run.value &&
+                                     draw->origin == grouped_layout.value->boxes[1].content_box().origin);
+    }
+    check(found_group, "Paint must preserve the overflowing measured kinsoku group");
 }
 
 } // namespace
@@ -366,6 +455,7 @@ int main() {
         fallback_stacks();
         faces_and_failures();
         wrapping();
+        menu_line_breaks();
         layout_and_paint_agree();
         std::cout << "Font shaping, metrics, missing-glyph, fallback, failure, and layout/paint agreement checks passed.\n";
     } catch (const std::exception& error) {

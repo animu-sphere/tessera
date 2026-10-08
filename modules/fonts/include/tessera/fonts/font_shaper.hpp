@@ -13,9 +13,10 @@ namespace tessera {
 // asset loading. Single-threaded, non-reentrant; mutate fonts only at update points.
 //
 // One face per FontId: weight is validated but selects no face, variable fonts use their
-// default instance. Constrained LTR lines wrap at shaped cluster boundaries (no word/kinsoku
-// rules); an oversized cluster stays intact. A FontId may name an ordered fallback stack of
-// other FontIds; clusters its face cannot map are shaped again with the next face. Each
+// default instance. Constrained LTR lines prefer spaces, hyphens and Japanese cluster
+// boundaries under the bounded menu profile in docs/design/text.md. Punctuation/glue
+// groups stay intact even when oversized; long words may split at clusters. A FontId may
+// name an ordered fallback stack of other FontIds; clusters its face cannot map are shaped again with the next face. Each
 // LF-separated line is shaped as one segment with guessed direction/script and the fixed
 // language "und"; bidirectional reordering and script itemization are not performed.
 class FontShaper final : public TextShaper, public GlyphRasterizer {
