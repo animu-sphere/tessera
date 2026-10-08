@@ -148,7 +148,18 @@ cmake --build build-atlas-vulkan --config Release --parallel 4
 ctest --test-dir build-atlas-vulkan -C Release --output-on-failure
 ```
 
-The vcpkg toolchain places font DLLs beside the Vulkan test executable. The fixture host uploads prepared pages as white RGBA with coverage in alpha and a linear sampler, reads completed frames back, and writes `real-glyph-{reference,batch}-{4,5,6,8}.ppm` under `build-atlas-vulkan/backends/vulkan/artifacts`. The two paths use different page sizes to challenge placement independence. Tests preserve the primitive/placeholder and native smoke fixtures; the native menu still uses placeholder text. The `glyph_atlas` core test requires neither optional module. A fresh library-only independence check uses:
+The vcpkg toolchain places font DLLs beside the Vulkan test and menu executables. The offscreen fixture host uploads prepared pages as white RGBA with coverage in alpha and a linear sampler, reads completed frames back, and writes `real-glyph-{reference,batch}-{4,5,6,8}.ppm` under `build-atlas-vulkan/backends/vulkan/artifacts`. The two paths use different page sizes to challenge placement independence. Tests preserve the primitive/placeholder and original native smoke fixtures. The `glyph_atlas` core test requires neither optional module.
+
+On Windows with examples enabled, the combined configuration also registers `vulkan_menu_fonts_smoke`, passing the committed Noto assets explicitly. It requires the same desktop/validation/presentation capabilities as the original smoke, plus linearly sampled RGBA8 UNORM transfer destinations and coherent upload memory. It writes `vulkan-menu-real-{1,2,3,4,5}.ppm` beside the original `vulkan-menu-{1,2,3,4,5}.ppm` captures. Both native smokes share a CTest resource lock to avoid overlapping foreground focus and mouse capture. Run the real menu directly from the repository root:
+
+```powershell
+& .\build-atlas-vulkan\backends\vulkan\Debug\tessera_vulkan_menu.exe --fonts `
+    tests/fixtures/fonts/NotoSans-Regular.ttf tests/fixtures/fonts/NotoSansJP-Regular.otf
+& .\build-atlas-vulkan\backends\vulkan\Debug\tessera_vulkan_menu.exe --smoke --fonts `
+    tests/fixtures/fonts/NotoSans-Regular.ttf tests/fixtures/fonts/NotoSansJP-Regular.otf
+```
+
+Paths may include Unicode characters and spaces (quote them as usual). Omitting `--fonts` selects the placeholder menu even in a combined build. The smoke's mixed-script wrapping/image expectations require the [declared fixture profile](../design/text.md#declared-grayscale-fixture-profile); interactive use can provide other scalable faces subject to the shaper's limitations. Unavailable or rejected explicit assets fail with a diagnostic. A fresh library-only independence check uses:
 
 ```powershell
 cmake -S . -B build-atlas-core -G "Visual Studio 18 2026" -A x64 `
