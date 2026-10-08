@@ -145,6 +145,7 @@ struct Menu {
     std::vector<tessera::Point> offsets; // Host-owned requested scroll offsets by node index.
 
     Menu(const std::vector<std::filesystem::path>& fonts = {}) {
+        tessera::FontId menu_font;
         text = std::make_unique<tessera::PlaceholderTextShaper>();
         if (!fonts.empty()) {
 #ifdef TESSERA_MENU_FONTS
@@ -163,8 +164,13 @@ struct Menu {
                 const auto diagnostics = real->set_face({i}, bytes(fonts.at(i)));
                 if (!diagnostics.empty()) { print(diagnostics); throw std::runtime_error("Font asset rejected: " + path_text(fonts[i])); }
             }
-            const auto diagnostics = real->set_fallback({0}, {{1}});
-            if (!diagnostics.empty()) { print(diagnostics); throw std::runtime_error("Menu fallback rejected"); }
+            for (const auto& diagnostics : {real->set_family("menu-latin", {{{0}, 400}}),
+                                            real->set_family("menu-cjk", {{{1}, 400}})}) {
+                if (!diagnostics.empty()) { print(diagnostics); throw std::runtime_error("Menu family rejected"); }
+            }
+            const auto diagnostics = real->set_alias({2}, "ui-sans", {"menu-latin", "menu-cjk"});
+            if (!diagnostics.empty()) { print(diagnostics); throw std::runtime_error("Menu font alias rejected"); }
+            menu_font = *real->find_alias("ui-sans");
             glyph_cache = std::make_unique<tessera::GlyphCache>(*real);
             text = std::move(real);
 #else
@@ -193,7 +199,7 @@ struct Menu {
         const auto rule = [&](S selector, auto declare) {
             tessera::StyleDeclarations values; declare(values); sheet.rules.push_back({std::move(selector), values});
         };
-        rule(S::of_id("screen"), [](auto& s) { s.justify = tessera::Justify::center; s.align = tessera::Align::center; s.background = screen; });
+        rule(S::of_id("screen"), [menu_font](auto& s) { s.justify = tessera::Justify::center; s.align = tessera::Align::center; s.background = screen; s.text.font = menu_font; });
         rule(S::of_id("panel"), [](auto& s) {
             s.width = tessera::Dimension::points(240); s.padding = tessera::Edges{20,20,20,20}; s.gap = 12.0f;
             s.border = tessera::Edges{1,1,1,1}; s.border_color = rgb(70,82,105); s.corner_radius = 10.0f; s.background = panel;

@@ -8,7 +8,7 @@ Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Exi
 
 ## Remaining required work
 
-- Real text beyond the [font shaper](../design/text.md#implemented-font-shaper), its `FontId` fallback stacks, [bounded menu wrapping profile](../design/text.md#implemented-menu-wrapping-profile), and [native menu font path](../design/rendering.md#implemented-win32-vulkan-example-host): families and logical aliases, broader Unicode line-break/Japanese tailoring as fixtures require it, and broader backend image evidence under the [deterministic font profile](../design/text.md#proposed-deterministic-font-profile).
+- Real text beyond the [font shaper](../design/text.md#implemented-font-shaper), [family/logical-alias selection](../design/text.md#implemented-family-and-logical-alias-selection), [bounded menu wrapping profile](../design/text.md#implemented-menu-wrapping-profile), and [native menu font path](../design/rendering.md#implemented-win32-vulkan-example-host): broader Unicode line-break/Japanese tailoring as fixtures require it, and broader backend image evidence under the [deterministic font profile](../design/text.md#proposed-deterministic-font-profile).
 - Focus recovery hardening as menus require it; an operator session with a physical controller for the Win32 host's [gamepad translation](../design/input.md#host-boundary).
 - SemanticTree v1 and Replay v1.
 - IME/clipboard boundary contracts; DPI and pixel-snapping validation.
@@ -29,6 +29,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [layout](../desi
 
 ## Immediately next
 
-Define family/logical-alias selection without leaking filesystem paths into documents. Extend the [bounded menu wrapping profile](../design/text.md#implemented-menu-wrapping-profile) only for demonstrated Unicode/Japanese fixture requirements, preserving the offscreen and native glyph checks under the [declared grayscale fixture profile](../design/text.md#declared-grayscale-fixture-profile). Other work can proceed meanwhile, such as focus recovery hardening for scrolled menus, or a versioned, serialized Replay v1 recording now that [prototype replay](../design/replay.md#implemented-prototype-playback) resolves fixture-identity focus and semantic action targets and applies the host focus policies. A physical-controller session can confirm the gamepad path whenever a controller is available.
+Define controlled font inputs for replay/capture under the [deterministic font profile](../design/text.md#proposed-deterministic-font-profile), including declared family/alias mappings and face assets. Preserve the offscreen and native glyph checks under the [declared grayscale fixture profile](../design/text.md#declared-grayscale-fixture-profile), and extend the [bounded menu wrapping profile](../design/text.md#implemented-menu-wrapping-profile) only for demonstrated Unicode/Japanese fixture requirements. Other work can proceed meanwhile, such as focus recovery hardening for scrolled menus, or a versioned, serialized Replay v1 recording now that [prototype replay](../design/replay.md#implemented-prototype-playback) resolves fixture-identity focus and semantic action targets and applies the host focus policies. A physical-controller session can confirm the gamepad path whenever a controller is available.
 
 Later candidate scopes are in [backlog](backlog.md).

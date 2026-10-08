@@ -42,7 +42,7 @@ struct Glyph {
     std::uint32_t id = 0;      // Font-specific glyph index.
     std::uint32_t cluster = 0; // UTF-8 byte offset of the source cluster.
     Point position;            // Baseline pen position relative to the text box top left.
-    FontId font;               // Font whose face `id` indexes; differs from the run's font only by fallback.
+    FontId font;               // Concrete face whose `id` indexes; selection/fallback may differ from run.font.
     bool operator==(const Glyph&) const = default;
 };
 
