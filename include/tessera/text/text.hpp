@@ -33,7 +33,7 @@ struct TextMetrics {
 
 struct TextConstraints {
     // Absent preserves LF-only lines. Finite, non-negative logical width enables wrapping.
-    // An indivisible cluster may overflow, including at width zero.
+    // An indivisible unit under the shaper's wrapping policy may overflow, including at width zero.
     std::optional<float> max_width;
     bool operator==(const TextConstraints&) const = default;
 };
