@@ -1,4 +1,5 @@
 #include <tessera/fonts/font_profile.hpp>
+#include <tessera/fonts/font_profile_serialization.hpp>
 #include <tessera/replay/replay.hpp>
 #include <tessera/render/glyph_atlas.hpp>
 #include "../check.hpp"
@@ -121,7 +122,11 @@ ReplayRecording menu() {
 
 void replay_and_capture() {
     auto first = service();
-    auto second = service(first.profile());
+    const auto saved = save_font_profile(first.profile());
+    check(saved && saved.diagnostics.empty(), "Replay font profile serialization failed");
+    const auto loaded = load_font_profile(*saved.value);
+    check(loaded && loaded.diagnostics.empty() && *loaded.value == first.profile(), "Replay font profile round trip differs");
+    auto second = service(*loaded.value);
     auto ref = reference();
     const auto recording = menu();
     const auto expected = play_replay(recording, ref);
@@ -147,8 +152,94 @@ template<class Edit>
 void reject(Edit edit, std::string_view code, std::string_view path) {
     auto profile = fixture();
     edit(profile);
+    const auto saved = save_font_profile(profile);
+    check(!saved && has(saved.diagnostics, code, path), "Save accepted an invalid profile or lost its diagnostic");
     const auto result = ProfileFontShaper::create(std::move(profile));
     check(!result && has(result.diagnostics, code, path), std::string("Missing located rejection: ") + std::string(path));
+}
+
+void serialized_profiles() {
+    auto profile = fixture();
+    // Unreferenced bytes are authoritative, even if they are not a parseable font.
+    profile.assets.push_back({"予備/asset~", "v\"1\\test", {std::byte{0}, std::byte{0xff}, std::byte{0x5a}, std::byte{0x80}}});
+    profile.families[1].faces.push_back({{1}, 700});
+    profile.aliases.push_back({{4294967295u}, "日本語", {"cjk", "latin"}});
+    const auto saved = save_font_profile(profile);
+    check(saved && saved.diagnostics.empty(), "Serialization rejected valid Unicode/escaped identities");
+    check(saved.value->back() == '\n' && saved.value->find("\"bytes\":\"00ff5a80\"") != std::string::npos &&
+          saved.value->find("\"faces\":[{\"asset\":\"noto-jp\",\"face_index\":0,\"font\":1},") != std::string::npos &&
+          saved.value->find("\"font\":4.294967295e+09") != std::string::npos,
+          "Canonical byte encoding, object keys, declaration order or ID precision differs");
+    auto loaded = load_font_profile(*saved.value);
+    check(loaded && *loaded.value == profile, "Serialization lost owned bytes, weight, ordering or names");
+    const auto saved_again = save_font_profile(*loaded.value);
+    check(saved_again && saved_again.value == saved.value, "Canonical serialization must be stable");
+    auto uppercase = *saved.value;
+    uppercase.replace(uppercase.find("00ff5a80"), 8, "00FF5A80");
+    loaded = load_font_profile(uppercase);
+    check(loaded && *loaded.value == profile, "Uppercase hex must preserve bytes");
+
+    // A small independently written malformed profile avoids tying schema checks to the encoder.
+    const std::string base = R"({"version":1,"assets":[{"id":"a","version":"v","bytes":"00"}],"faces":[{"font":0,"asset":"a","face_index":0}],"fallbacks":[],"families":[],"aliases":[]})";
+    const auto rejection = [](const std::string& source, std::string_view code, std::string_view path) {
+        const auto result = load_font_profile(source);
+        check(!result && has(result.diagnostics, code, path), "Serialized rejection code/path differs: " + std::string(path));
+        check(!result.diagnostics.empty() && result.diagnostics.front().byte_offset.has_value() &&
+              *result.diagnostics.front().byte_offset <= source.size(), "Load must report an in-source byte offset");
+        return result.diagnostics.front();
+    };
+    const auto changed = [&](std::string_view from, std::string_view to) {
+        auto source = base;
+        const auto at = source.find(from);
+        check(at != std::string::npos, "Schema fixture edit missing");
+        source.replace(at, from.size(), to);
+        return source;
+    };
+    rejection(base, "invalid_font", "/faces/0");
+    rejection(changed("\"version\":1", "\"version\":2"), "unsupported_version", "/version");
+    rejection(changed("\"version\":1", "\"version\":1.5"), "schema_type", "/version");
+    rejection(changed("\"version\":1", "\"version\":\"1\""), "schema_type", "/version");
+    rejection(changed("\"version\":1,", ""), "missing_field", "/version");
+    rejection(changed("\"version\":1", "\"version\":1,\"x/~\":0"), "unknown_field", "/x~1~0");
+    rejection(changed("\"version\":1", "\"version\":1,\"version\":1"), "duplicate_member", "/version");
+    rejection(changed("\"bytes\":\"00\"", "\"bytes\":\"0\""), "invalid_font_bytes", "/assets/0/bytes");
+    const auto bad_hex = changed("\"bytes\":\"00\"", "\"bytes\":\"gz\"");
+    check(rejection(bad_hex, "invalid_font_bytes", "/assets/0/bytes").byte_offset == bad_hex.find("\"gz\""),
+          "Byte diagnostic must point to the encoded value");
+    rejection(changed("\"bytes\":\"00\"", "\"bytes\":\"\""), "invalid_font", "/assets/0/bytes");
+    rejection(changed("\"bytes\":\"00\"", "\"bytes\":[]"), "schema_type", "/assets/0/bytes");
+    rejection(changed("\"font\":0", "\"font\":-1"), "schema_type", "/faces/0/font");
+    rejection(changed("\"font\":0", "\"font\":4294967296"), "schema_type", "/faces/0/font");
+    rejection(changed("\"face_index\":0", "\"face_index\":0.5"), "schema_type", "/faces/0/face_index");
+    rejection(changed("\"asset\":\"a\"", "\"asset\":\"missing\""), "unknown_font_asset", "/faces/0/asset");
+    rejection(changed("\"faces\":[{\"font\":0,\"asset\":\"a\",\"face_index\":0}]", "\"faces\":[]"), "out_of_range", "/faces");
+    rejection(changed("\"families\":[]", "\"families\":[{\"name\":\"a\",\"faces\":[{\"font\":0,\"weight\":65537}]}]"),
+              "out_of_range", "/families/0/faces/0/weight");
+    rejection(changed("\"aliases\":[]", "\"aliases\":[{\"font\":1,\"name\":\"a\",\"families\":[0]}]"),
+              "schema_type", "/aliases/0/families/0");
+    rejection(changed("\"fallbacks\":[]", "\"fallbacks\":[{\"font\":0,\"faces\":[false]}]"),
+              "schema_type", "/fallbacks/0/faces/0");
+    std::string many = "[";
+    for (int i = 0; i < 65; ++i) many += (i ? ",0" : "0");
+    many += "]";
+    rejection(changed("\"aliases\":[]", "\"aliases\":" + many), "out_of_range", "/aliases");
+    rejection(changed("\"fallbacks\":[]", "\"fallbacks\":[{\"font\":0,\"faces\":" + many + "}]"), "out_of_range", "/fallbacks/0/faces");
+    rejection(base + " null", "json_syntax", "");
+    rejection("\xef\xbb\xbf" + base, "json_syntax", "");
+    rejection(std::string(1, '\xff'), "invalid_utf8", "");
+    std::string deep_path;
+    for (int i = 0; i < 257; ++i) deep_path += "/0";
+    rejection(std::string(257, '[') + "0" + std::string(257, ']'), "depth_limit", deep_path);
+    std::string values = "[";
+    for (std::size_t i = 0; i < max_font_profile_json_values; ++i) values += (i ? ",0" : "0");
+    values += "]";
+    rejection(values, "json_value_limit", "/32767");
+
+    // Registration errors retain source locations after decoding valid bytes.
+    auto missing = *saved.value;
+    const std::string stack = "\"families\":[\"latin\",\"cjk\"]";
+    missing.replace(missing.find(stack), stack.size(), "\"families\":[\"absent\"]");
+    rejection(missing, "unknown_font_family", "/aliases/0/families/0");
 }
 
 void invalid_profiles() {
@@ -198,6 +289,7 @@ int main() {
         owned_selection_and_rasters();
         replay_and_capture();
         invalid_profiles();
+        serialized_profiles();
         std::cout << "Owned font profile, sealed services, replay/capture, raster and rejection checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

@@ -47,7 +47,8 @@ struct Failure { Diagnostic diagnostic; };
 
 class Parser {
 public:
-    explicit Parser(std::string_view source) : source_(source) {}
+    explicit Parser(std::string_view source, std::size_t value_limit = std::numeric_limits<std::size_t>::max())
+        : source_(source), value_limit_(value_limit) {}
     JsonValue parse() {
         auto result = value("", 0);
         whitespace();
@@ -59,6 +60,8 @@ public:
 private:
     std::string_view source_;
     std::size_t position_ = 0;
+    std::size_t value_limit_;
+    std::size_t values_ = 0;
     [[noreturn]] void fail(std::string code, std::string path, std::string message) const {
         throw Failure{{std::move(code), Severity::error, std::move(path), std::move(message), position_}};
     }
@@ -171,6 +174,8 @@ private:
         return result;
     }
     JsonValue value_at(const std::string& path, std::size_t depth) {
+        if (values_ == value_limit_) fail("json_value_limit", path, "JSON exceeds this format's value limit.");
+        ++values_;
         if (depth > max_json_depth) fail("depth_limit", path, "JSON exceeds the nesting limit (256).");
         whitespace();
         offsets[path] = position_;
@@ -418,6 +423,39 @@ Result<UiDocument> load(std::string_view source, const ValidationContext& contex
 }
 
 } // namespace
+
+namespace detail {
+Result<ParsedJson> parse_json(std::string_view source, std::size_t byte_limit, std::size_t value_limit) {
+    if (source.size() > byte_limit)
+        return {std::nullopt, {{"size_limit", Severity::error, "", "JSON input exceeds this format's byte limit.", 0}}};
+    if (!valid_utf8(source))
+        return {std::nullopt, {{"invalid_utf8", Severity::error, "", "JSON input must be valid UTF-8 without a BOM.", 0}}};
+    Parser parser(source, value_limit);
+    try {
+        auto root = parser.parse();
+        return {ParsedJson{std::move(root), std::move(parser.offsets)}, {}};
+    } catch (Failure& failure) {
+        return {std::nullopt, {std::move(failure.diagnostic)}};
+    }
+}
+void annotate_json(std::vector<Diagnostic>& diagnostics, const ParsedJson& json) {
+    for (auto& diagnostic : diagnostics) {
+        if (diagnostic.byte_offset) continue;
+        auto location = diagnostic.path;
+        for (;;) {
+            const auto found = json.offsets.find(location);
+            if (found != json.offsets.end()) { diagnostic.byte_offset = found->second; break; }
+            if (location.empty()) break;
+            location.resize(location.rfind('/'));
+        }
+    }
+}
+std::string write_json_value(const JsonValue& value) {
+    std::string result;
+    write_json(result, value);
+    return result;
+}
+} // namespace detail
 
 Result<UiDocument> load_document(std::string_view source, const ValidationContext& context) {
     Parser parser(source);
