@@ -1,4 +1,5 @@
 #include <tessera/fonts/font_profile.hpp>
+#include "font_profile_detail.hpp"
 #include <algorithm>
 #include <map>
 #include <set>
@@ -101,7 +102,7 @@ std::vector<Diagnostic> validate_profile(const FontProfile& profile) {
 ProfileFontShaper::ProfileFontShaper(FontProfile profile, FontShaper shaper)
     : profile_(std::move(profile)), shaper_(std::move(shaper)) {}
 
-Result<ProfileFontShaper> ProfileFontShaper::create(FontProfile profile) {
+Result<FontShaper> detail::build_profile_shaper(const FontProfile& profile) {
     auto errors = validate_profile(profile);
     if (!errors.empty()) return {{}, std::move(errors)};
     FontShaper shaper;
@@ -134,7 +135,13 @@ Result<ProfileFontShaper> ProfileFontShaper::create(FontProfile profile) {
         errors = located(shaper.set_alias(alias.font, alias.name, alias.families), "/aliases/" + std::to_string(i));
         if (!errors.empty()) return {{}, std::move(errors)};
     }
-    return {ProfileFontShaper(std::move(profile), std::move(shaper)), {}};
+    return {std::move(shaper), {}};
+}
+
+Result<ProfileFontShaper> ProfileFontShaper::create(FontProfile profile) {
+    auto shaper = detail::build_profile_shaper(profile);
+    if (!shaper) return {{}, std::move(shaper.diagnostics)};
+    return {ProfileFontShaper(std::move(profile), std::move(*shaper.value)), {}};
 }
 
 std::optional<FontId> ProfileFontShaper::find_alias(std::string_view name) const { return shaper_.find_alias(name); }
