@@ -14,9 +14,9 @@
 
 namespace tessera {
 
-// Prototype in-process recording; not a serialized format or stable API. The replay version is
-// distinct from document and semantic versions, and only the prototype version is accepted.
-inline constexpr std::uint32_t replay_prototype_version = 0;
+// In-process Replay v1 recording; replay_serialization.hpp encodes it as Replay JSON v1. Not a stable API.
+// The replay version is distinct from document, semantic, and font-profile versions; only version 1 is accepted.
+inline constexpr std::uint32_t replay_version = 1;
 inline constexpr std::size_t max_replay_steps = 10000;
 
 // New logical viewport applied at an update point.
@@ -35,12 +35,14 @@ struct ReplayReload {
 // through FocusDispatcher::focus.
 struct ReplayFocus {
     InspectionTarget target;
+    bool operator==(const ReplayFocus&) const = default;
 };
 // Semantic action invocation, e.g. from an accessibility or automation client. The target is resolved by
 // resolve_target in the current generation and invoked through request_semantic_action.
 struct ReplaySemanticAction {
     InspectionTarget target;
     std::string binding = "activate";
+    bool operator==(const ReplaySemanticAction&) const = default;
 };
 // Input steps must be pointer, scroll, or logical focus commands (FocusNext/FocusPrevious/Navigate/Activate/
 // Cancel); they share one non-decreasing timestamp stream. A scroll step is routed by route_scroll and
@@ -52,16 +54,37 @@ using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload, ReplayFo
 struct ReplayFocusPolicy {
     bool press_focus = false;  // A primary press that records a focusable press owner also focuses it.
     bool reveal_focus = false; // Focus moved to another node by a command or focus step is scrolled into view.
+    bool operator==(const ReplayFocusPolicy&) const = default;
+};
+
+// The text service the host must inject. Playback uses the injected shaper and does not inspect it.
+struct ReplayText {
+    enum class Kind : std::uint8_t { placeholder, font_profile };
+    Kind kind = Kind::placeholder; // placeholder: PlaceholderTextShaper; id and sha256 stay empty.
+    std::string id;     // font_profile: host fixture identity of the profile, not a path or provider lookup.
+    std::string sha256; // font_profile: lowercase hex SHA-256 of the profile's canonical font profile JSON v1.
+    bool operator==(const ReplayText&) const = default;
+};
+// Declared host configuration. Playback is logical and does not interpret scale or locale. Version 1 has no
+// animation clock or readiness transitions: input timestamps are the only time, and every declared resource is
+// ready before the initial snapshot.
+struct ReplayEnvironment {
+    float scale = 1;            // Device pixels per logical unit; finite and positive.
+    std::string locale = "und"; // BCP 47 tag syntax, compared exactly.
+    ReplayText text;
+    bool operator==(const ReplayEnvironment&) const = default;
 };
 
 struct ReplayRecording {
-    std::uint32_t version = replay_prototype_version;
+    std::uint32_t version = replay_version;
     ValidationContext context; // Host action names declared for every document.
     ReplayFocusPolicy policy;
+    ReplayEnvironment environment;
     Size viewport;
     UiDocument document;
     std::vector<ResolvedStyle> styles; // One per node in tree preorder; no stylesheet resolution.
     std::vector<ReplayStep> steps;
+    bool operator==(const ReplayRecording&) const = default;
 };
 
 // Observations own values and fixture identities only; no NodeHandle or tree identity escapes.

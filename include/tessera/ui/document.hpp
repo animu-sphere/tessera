@@ -64,6 +64,7 @@ struct UiDocument {
 // The caller supplies action names. No callbacks or registries live in a document.
 struct ValidationContext {
     std::set<std::string, std::less<>> actions;
+    bool operator==(const ValidationContext&) const = default;
 };
 
 inline constexpr std::size_t max_document_depth = 64;

@@ -320,6 +320,28 @@ JsonValue node_json(const UiNode& node) {
     return JsonValue{std::move(result)};
 }
 
+UiDocument read_document(const JsonValue& json, const std::string& path) {
+    const auto& object = as<JsonValue::Object>(json, path, "a document object");
+    fields(object, {"version", "root", "extensions"}, path);
+    const auto version = as<double>(required(object, "version", path), path + "/version", "a version integer");
+    if (version < 0 || version > std::numeric_limits<std::uint32_t>::max() || std::floor(version) != version)
+        schema_error("schema_type", path + "/version", "Version must be an unsigned 32-bit integer.");
+    if (version != 1)
+        schema_error("unsupported_version", path + "/version", "Only document version 1 is supported; migrate explicitly.");
+    UiDocument document;
+    std::size_t count = 0;
+    document.root = read_node(required(object, "root", path), path + "/root", 1, count);
+    if (const auto found = object.find("extensions"); found != object.end())
+        document.extensions = as<JsonValue::Object>(found->second, path + "/extensions", "an extension object");
+    return document;
+}
+
+JsonValue document_json(const UiDocument& document) {
+    JsonValue::Object object{{"root", node_json(document.root)}, {"version", JsonValue{static_cast<double>(document.version)}}};
+    if (!document.extensions.empty()) object["extensions"] = JsonValue{document.extensions};
+    return JsonValue{std::move(object)};
+}
+
 void write_string(std::string& output, std::string_view value) {
     constexpr char hex[] = "0123456789abcdef";
     output += '"';
@@ -399,18 +421,7 @@ Result<UiDocument> load(std::string_view source, const ValidationContext& contex
     if (!detail::valid_utf8(source))
         return {std::nullopt, {{"invalid_utf8", Severity::error, "", "JSON input must be valid UTF-8 without a BOM.", 0}}};
     try {
-        const auto json = parser.parse();
-        const auto& object = as<JsonValue::Object>(json, "", "a document object");
-        fields(object, {"version", "root", "extensions"}, "");
-        const auto version = as<double>(required(object, "version", ""), "/version", "a version integer");
-        if (version < 0 || version > std::numeric_limits<std::uint32_t>::max() || std::floor(version) != version)
-            schema_error("schema_type", "/version", "Version must be an unsigned 32-bit integer.");
-        if (version != 1) schema_error("unsupported_version", "/version", "Only document version 1 is supported; migrate explicitly.");
-        UiDocument document;
-        std::size_t count = 0;
-        document.root = read_node(required(object, "root", ""), "/root", 1, count);
-        if (const auto found = object.find("extensions"); found != object.end())
-            document.extensions = as<JsonValue::Object>(found->second, "/extensions", "an extension object");
+        auto document = read_document(parser.parse(), "");
         auto diagnostics = validate(document, context);
         annotate(diagnostics, parser);
         if (!diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
@@ -455,6 +466,18 @@ std::string write_json_value(const JsonValue& value) {
     write_json(result, value);
     return result;
 }
+Result<UiDocument> read_document_json(const JsonValue& json, const std::string& path, const ValidationContext& context) {
+    try {
+        auto document = read_document(json, path);
+        auto diagnostics = validate(document, context);
+        if (diagnostics.empty()) return {std::move(document), {}};
+        for (auto& diagnostic : diagnostics) diagnostic.path = path + diagnostic.path;
+        return {std::nullopt, std::move(diagnostics)};
+    } catch (Failure& failure) {
+        return {std::nullopt, {std::move(failure.diagnostic)}};
+    }
+}
+JsonValue write_document_json(const UiDocument& document) { return document_json(document); }
 } // namespace detail
 
 Result<UiDocument> load_document(std::string_view source, const ValidationContext& context) {
@@ -475,10 +498,8 @@ Result<SourcedDocument> load_document_with_sources(std::string_view source, std:
 Result<std::string> save_document(const UiDocument& document, const ValidationContext& context) {
     auto diagnostics = validate(document, context);
     if (!diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
-    JsonValue::Object object{{"root", node_json(document.root)}, {"version", JsonValue{static_cast<double>(document.version)}}};
-    if (!document.extensions.empty()) object["extensions"] = JsonValue{document.extensions};
     std::string output;
-    write_json(output, JsonValue{std::move(object)});
+    write_json(output, document_json(document));
     output += '\n';
     if (output.size() > max_serialized_bytes)
         return {std::nullopt, {{"size_limit", Severity::error, "", "Canonical document exceeds the byte limit (4 MiB).", {}}}};
