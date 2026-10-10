@@ -6,41 +6,9 @@ Inspection foundations enter early so DevTools, accessibility, testing, and agen
 
 Priority across candidates: the contracts that later work depends on (commands, transactions, async state, UI invariants, component identity and reconciliation), then error boundaries, the command palette, the agent capability manifest, generalized virtualization, typed drag and drop, data grids, and context, and only then generation history, timeline/plotting primitives, collaboration, Web/WASM, and world-space UI. Items within a candidate are listed in dependency order.
 
-## v0.3.0 candidate — Dynamic UI and editor prototype
+## v0.3.0 — Active milestone
 
-Objective: support application-driven composition and Path-finder iteration using the same document/schema, and make dynamic UI safe to observe and verify, not only able to change.
-
-Depends on menu/text/style foundations and explicit document identity/versioning.
-
-Work:
-
-- Props/local state/bindings, conditional children, keyed reconciliation, cleanup and resource retirement.
-- [Command registry](../design/commands.md) implementation, [transaction](../design/commands.md#proposed-transaction-boundary) integration, and a [command palette](../design/commands.md#proposed-command-palette) prototype built from ordinary components.
-- [Error boundaries](../design/ui-model.md#proposed-error-boundaries) and [async state](../design/ui-model.md#proposed-async-state) primitives.
-- Image assets and theme variables.
-- Validate transform agreement between native pointer mapping and rendering when a consumer uses transformed menu paint or hit testing, under [layout coordinates](../design/layout.md#coordinate-spaces) and [rendering conversion](../design/rendering.md#coordinate-conversion).
-- Source-aware diagnostics, atomic live reload, compatible-state preservation, Path-finder preview.
-- Full property reflection/introspection v1 and a schema-driven Inspector.
-- OverlayRoot/Portal and bounded Tooltip/Dropdown/Modal primitives.
-- TextInput contract and VirtualList prototype based on stable item keys.
-- Scalar [CPU reference backend](../design/rendering.md#proposed-cpu-reference-backend) for the existing draw-list vocabulary and grayscale glyphs, with deterministic window- and GPU-free capture; Vulkan fixtures compared with it under declared tolerances.
-- A small inspection/render CLI consumer and versioned snapshot bundle prototype; semantic/layout/counter comparisons and selective visual regression artifacts across declared viewport fixtures, captured with the CPU reference backend by default.
-- Reload-to-snapshot linkage and source-edit-to-verification instrumentation shared with Path-finder.
-- [UI invariant](../design/inspection.md#proposed-ui-invariants) prototype and [agent capability manifest](../design/inspection.md#proposed-agent-capability-manifest) v0.
-- Source consumption by a downstream CMake project through `add_subdirectory`/`FetchContent` with the `tessera::core` and optional `tessera::vulkan` targets, checked by a minimal consumer, as Path-finder's integration path. Installed/exported packages remain v0.5.0 scope.
-
-Exit criteria:
-
-- An inventory/tool panel updates without corrupting identity, focus, bindings, or cleanup.
-- Missing/replaced assets and theme variables follow declared fallback/diagnostic rules.
-- Invalid edits keep the last valid UI; compatible edits preserve declared state and retire old resources.
-- Runtime and Path-finder round-trip the same document, including editor metadata; a minimal downstream project builds and links Tessera from source.
-- Inspector properties derive from runtime metadata; portal focus/ownership and list item identity remain coherent.
-- Tooling uses host-declared state slots, captures one generation, and emits machine-readable observations/differences; invalid bundle versions or incompatible comparison conditions are diagnosed.
-- The CPU reference backend renders the primitive/glyph fixtures identically across runs without a window or GPU, and both Vulkan paths agree with it within declared tolerances.
-- Menu, shortcut, palette, and semantic invocations of one command share eligibility and produce one transaction per gesture; a failing subtree or reload keeps the previous valid generation; invariants report located results for one captured generation.
-
-Owners: [UI model](../design/ui-model.md), [commands](../design/commands.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [input](../design/input.md), [layout](../design/layout.md), [Path-finder](../design/path-finder-integration.md), [inspection](../design/inspection.md).
+The dynamic UI/editor scope and exit criteria are owned by [current](current.md#v030--dynamic-ui-and-editor-prototype).
 
 ## v0.4.0 candidate — Productive tool UI
 
