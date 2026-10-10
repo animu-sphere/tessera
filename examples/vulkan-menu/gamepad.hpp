@@ -22,6 +22,47 @@ struct Sample {
     std::int16_t stick_x = 0, stick_y = 0;
 };
 
+// DirectInput POV in clockwise hundredths of degrees, 0 up and low-word 0xffff neutral.
+inline std::uint16_t pov_buttons(std::uint32_t pov) {
+    std::uint16_t buttons = 0;
+    if ((pov & 0xffff) != 0xffff && pov < 36000) {
+        const auto direction = ((pov + 2250) / 4500) % 8;
+        if (direction == 0 || direction == 1 || direction == 7) buttons |= dpad_up;
+        if (direction == 1 || direction == 2 || direction == 3) buttons |= dpad_right;
+        if (direction == 3 || direction == 4 || direction == 5) buttons |= dpad_down;
+        if (direction == 5 || direction == 6 || direction == 7) buttons |= dpad_left;
+    }
+    return buttons;
+}
+
+// DualSense's descriptor: button 1 Cross, 2 Circle; host axis range [-32768,32767], +y down.
+inline Sample dualsense_sample(bool cross, bool circle, std::uint32_t pov, std::int32_t x, std::int32_t y) {
+    Sample sample;
+    sample.buttons = pov_buttons(pov);
+    if (cross) sample.buttons |= accept;
+    if (circle) sample.buttons |= back;
+    sample.stick_x = static_cast<std::int16_t>(std::clamp(x, -32768, 32767));
+    sample.stick_y = static_cast<std::int16_t>(std::clamp(-std::int64_t(y), std::int64_t(-32768), std::int64_t(32767)));
+    return sample;
+}
+
+// Original Joy-Con Bluetooth simple descriptors, held vertically as an L/R pair:
+// L buttons 0/1/2/3 = left/down/up/right, R 0/2 = A/B; left POV 27000 = up.
+// Only eight-way stick direction is exposed; unused analog fields are not interpreted.
+inline Sample joycon_pair_sample(std::uint16_t left, std::uint16_t right, std::uint32_t left_pov) {
+    Sample sample;
+    if (left & 1) sample.buttons |= dpad_left;
+    if (left & 2) sample.buttons |= dpad_down;
+    if (left & 4) sample.buttons |= dpad_up;
+    if (left & 8) sample.buttons |= dpad_right;
+    if (right & 1) sample.buttons |= accept;
+    if (right & 4) sample.buttons |= back;
+    const auto stick = pov_buttons(left_pov < 36000 ? (left_pov + 9000) % 36000 : left_pov);
+    sample.stick_x = (stick & dpad_left) ? -32768 : ((stick & dpad_right) ? 32767 : 0);
+    sample.stick_y = (stick & dpad_down) ? -32768 : ((stick & dpad_up) ? 32767 : 0);
+    return sample;
+}
+
 // The stick engages a direction above `engage` of full deflection and keeps it until it falls to
 // `release`, XInput's recommended left-stick dead zone, so noise near one threshold cannot
 // retrigger navigation.

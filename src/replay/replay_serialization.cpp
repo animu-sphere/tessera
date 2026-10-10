@@ -93,6 +93,15 @@ constexpr std::array<std::string_view, 2> visibility_names{"visible", "hidden"};
 constexpr std::array<std::string_view, 3> button_names{"primary", "secondary", "middle"};
 constexpr std::array<std::string_view, 4> direction_key_names{"up", "down", "left", "right"};
 constexpr std::array<std::string_view, 3> role_names{"root", "button", "text"};
+constexpr std::array<std::string_view, 5> readiness_names{"idle", "loading", "ready", "failed", "cancelled"};
+
+ReplayHostSlot host_slot(const JsonValue& value, const std::string& path) {
+    const auto& o = object(value, path, {"id", "owner", "request", "readiness", "value"});
+    return {string(o.at("id"), path + "/id"), string(o.at("owner"), path + "/owner"),
+            unsigned32(o.at("request"), path + "/request"),
+            choice<ReplayReadiness>(o.at("readiness"), path + "/readiness", readiness_names),
+            boolean(o.at("value"), path + "/value")};
+}
 constexpr std::array<std::string_view, 2> text_kind_names{"placeholder", "font_profile"};
 
 Point point(const JsonValue& value, const std::string& path) {
@@ -261,6 +270,13 @@ ReplayStep step(const JsonValue& value, const std::string& path, const Validatio
         auto replacement = document(o.at("document"), path + "/document", context);
         return ReplayReload{std::move(replacement), styles(o.at("styles"), path + "/styles")};
     }
+    if (type == "host_update") {
+        const auto& o = fields({"type", "slot", "view"});
+        const auto& view = object(o.at("view"), path + "/view", {"document", "styles"});
+        return ReplayHostUpdate{host_slot(o.at("slot"), path + "/slot"),
+            {document(view.at("document"), path + "/view/document", context),
+             styles(view.at("styles"), path + "/view/styles")}};
+    }
     if (type == "focus") return ReplayFocus{target(fields({"type", "target"}).at("target"), path + "/target")};
     if (type == "semantic_action") {
         const auto& o = fields({"type", "target", "binding"});
@@ -283,7 +299,8 @@ ReplayRecording read(const JsonValue& value) {
                                           "styles", "steps"});
     ReplayRecording result;
     result.version = unsigned32(root.at("version"), "/version");
-    if (result.version != replay_version) fail("unsupported_version", "/version", "Expected replay version 1.");
+    if (result.version != replay_version && result.version != replay_host_version)
+        fail("unsupported_version", "/version", "Expected replay version 1 or 2.");
     const auto& actions = array(root.at("actions"), "/actions");
     for (std::size_t i = 0; i < actions.size(); ++i) {
         const auto location = "/actions/" + std::to_string(i);
@@ -296,7 +313,15 @@ ReplayRecording read(const JsonValue& value) {
     const auto& policy = object(root.at("policy"), "/policy", {"press_focus", "reveal_focus"});
     result.policy = {boolean(policy.at("press_focus"), "/policy/press_focus"),
                      boolean(policy.at("reveal_focus"), "/policy/reveal_focus")};
-    const auto& environment = object(root.at("environment"), "/environment", {"scale", "locale", "text"});
+    const auto& environment = result.version == replay_host_version
+        ? object(root.at("environment"), "/environment", {"scale", "locale", "text", "host"})
+        : object(root.at("environment"), "/environment", {"scale", "locale", "text"});
+    if (result.version == replay_host_version) {
+        const auto& slots = array(environment.at("host"), "/environment/host");
+        if (slots.size() > max_replay_host_slots) fail("out_of_range", "/environment/host", "Declare at most 64 slots.");
+        for (std::size_t i = 0; i < slots.size(); ++i)
+            result.environment.host.push_back(host_slot(slots[i], "/environment/host/" + std::to_string(i)));
+    }
     result.environment.scale = real(environment.at("scale"), "/environment/scale");
     result.environment.locale = string(environment.at("locale"), "/environment/locale");
     const auto& kind = tag(environment.at("text"), "/environment/text", "kind");
@@ -383,6 +408,12 @@ std::vector<Diagnostic> check_values(const ReplayRecording& recording, bool docu
             } else if constexpr (std::is_same_v<T, ReplayReload>) {
                 if (documents) relocate(errors, validate(step.document, recording.context), at + "/document");
                 styles(step.styles, at + "/styles");
+            } else if constexpr (std::is_same_v<T, ReplayHostUpdate>) {
+                if (recording.version != replay_host_version)
+                    check.error("unsupported_event", at, "Host updates require Replay version 2.");
+                relocate(errors, detail::check_host_slot(step.slot, at + "/slot"), "");
+                if (documents) relocate(errors, validate(step.view.document, recording.context), at + "/view/document");
+                styles(step.view.styles, at + "/view/styles");
             } else if constexpr (std::is_same_v<T, ReplayFocus>) {
                 check_target(step.target, at + "/target", check);
             } else {
@@ -500,6 +531,10 @@ JsonValue event_json(const InputEvent& event) {
     }, event.data);
     return JsonValue{std::move(result)};
 }
+JsonValue host_json(const ReplayHostSlot& slot) {
+    return JsonValue{Object{{"id", text(slot.id)}, {"owner", text(slot.owner)}, {"request", number(slot.request)},
+                            {"readiness", name(slot.readiness, readiness_names)}, {"value", JsonValue{slot.value}}}};
+}
 JsonValue step_json(const ReplayStep& step) {
     return std::visit([](const auto& s) -> JsonValue {
         using T = std::decay_t<decltype(s)>;
@@ -513,6 +548,10 @@ JsonValue step_json(const ReplayStep& step) {
         else if constexpr (std::is_same_v<T, ReplayReload>)
             return JsonValue{Object{{"type", text("reload")}, {"document", detail::write_document_json(s.document)},
                                     {"styles", styles_json(s.styles)}}};
+        else if constexpr (std::is_same_v<T, ReplayHostUpdate>)
+            return JsonValue{Object{{"type", text("host_update")}, {"slot", host_json(s.slot)},
+                {"view", JsonValue{Object{{"document", detail::write_document_json(s.view.document)},
+                                         {"styles", styles_json(s.view.styles)}}}}}};
         else if constexpr (std::is_same_v<T, ReplayFocus>)
             return JsonValue{Object{{"type", text("focus")}, {"target", target_json(s.target)}}};
         else return JsonValue{Object{{"type", text("semantic_action")}, {"target", target_json(s.target)},
@@ -530,14 +569,19 @@ JsonValue write(const ReplayRecording& recording) {
         text_service["id"] = text(service.id);
         text_service["sha256"] = text(service.sha256);
     }
+    Object environment{{"scale", real_json(recording.environment.scale)},
+                       {"locale", text(recording.environment.locale)}, {"text", JsonValue{std::move(text_service)}}};
+    if (recording.version == replay_host_version) {
+        Array slots;
+        for (const auto& slot : recording.environment.host) slots.push_back(host_json(slot));
+        environment["host"] = JsonValue{std::move(slots)};
+    }
     return JsonValue{Object{
         {"version", number(recording.version)},
         {"actions", JsonValue{std::move(actions)}},
         {"policy", JsonValue{Object{{"press_focus", JsonValue{recording.policy.press_focus}},
                                     {"reveal_focus", JsonValue{recording.policy.reveal_focus}}}}},
-        {"environment", JsonValue{Object{{"scale", real_json(recording.environment.scale)},
-                                         {"locale", text(recording.environment.locale)},
-                                         {"text", JsonValue{std::move(text_service)}}}}},
+        {"environment", JsonValue{std::move(environment)}},
         {"viewport", size_json(recording.viewport)},
         {"document", detail::write_document_json(recording.document)},
         {"styles", styles_json(recording.styles)},

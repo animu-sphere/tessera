@@ -200,7 +200,7 @@ void rejected() {
 
     // Replay diagnostics keep their recording location under /recording.
     auto invalid = replay;
-    invalid.version = 2;
+    invalid.version = 3;
     check(has(run(invalid, &frames).diagnostics, "unsupported_version", "/recording/version"),
           "Replay version diagnostic not relocated");
     invalid = replay;

@@ -24,6 +24,7 @@
 #include <tessera/style/style_sheet.hpp>
 #include <tessera/ui/serialization.hpp>
 #include "gamepad.hpp"
+#include "directinput.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -294,6 +295,10 @@ struct App {
     std::vector<std::string> actions;
     gamepad::Navigator navigator;
     std::optional<DWORD> pad_slot;
+    gamepad::DualSenseInput dualsense;
+    gamepad::JoyConPairInput joycons;
+    bool joycon_pair = false;
+    std::string gamepad_source;
     std::chrono::microseconds next_pad_scan{0};
     std::optional<gamepad::Sample> scripted_pad; // Smoke-only replacement for the controller.
     float wheeled_from = 0; // Smoke-only list offset before the scripted wheel.
@@ -1044,6 +1049,10 @@ struct App {
     // supplies scripted samples instead, so a physical controller cannot perturb it.
     std::optional<gamepad::Sample> read_gamepad(std::chrono::microseconds time) {
         if (smoke) return scripted_pad;
+        if (joycon_pair) {
+            gamepad_source = "DirectInput Joy-Con L/R";
+            return joycons.read(window, time);
+        }
         if (GetForegroundWindow() != window) return std::nullopt;
         XINPUT_STATE state{};
         if (!pad_slot && time >= next_pad_scan) {
@@ -1051,13 +1060,39 @@ struct App {
             for (DWORD slot = 0; slot < XUSER_MAX_COUNT && !pad_slot; ++slot)
                 if (XInputGetState(slot, &state) == ERROR_SUCCESS) pad_slot = slot;
         }
-        if (!pad_slot) return std::nullopt;
+        if (!pad_slot) {
+            auto dualsense_state = dualsense.read(window, time);
+            if (dualsense_state && gamepad_source != "DirectInput DualSense") {
+                navigator = {}; gamepad_source = "DirectInput DualSense";
+            }
+            return dualsense_state;
+        }
         if (XInputGetState(*pad_slot, &state) != ERROR_SUCCESS) { pad_slot.reset(); return std::nullopt; }
+        const auto source = "XInput slot=" + std::to_string(*pad_slot);
+        if (gamepad_source != source) { navigator = {}; gamepad_source = source; }
         return sample(state.Gamepad);
     }
     void poll_gamepad() {
         const auto time = now();
-        for (const auto& event : navigator.update(read_gamepad(time), time)) command(event);
+        const auto state = read_gamepad(time);
+        for (const auto& event : navigator.update(state, time)) {
+            if (!smoke) {
+                std::cout << "Physical " << gamepad_source << " buttons=" << state->buttons
+                          << " stick=" << state->stick_x << ',' << state->stick_y << " command=";
+                if (const auto* navigate = std::get_if<tessera::Navigate>(&event.data)) {
+                    const char* names[]{"up", "down", "left", "right"};
+                    std::cout << names[static_cast<unsigned>(navigate->direction)] << " repeat=" << navigate->repeat;
+                } else std::cout << (std::holds_alternative<tessera::Activate>(event.data) ? "activate" : "cancel");
+                std::cout << '\n';
+            }
+            command(event);
+            if (!smoke) {
+                std::cout << "Gamepad focus=";
+                if (focused) std::cout << menu.tree->get(*focused)->id.value_or("<unnamed>");
+                else std::cout << "<none>";
+                std::cout << std::endl;
+            }
+        }
     }
     bool pressed() const {
         return std::any_of(pointers.begin(), pointers.end(), [](const auto& p) { return p.pressed.has_value(); });
@@ -1139,6 +1174,34 @@ struct App {
     // Gamepad policy alone, with synthetic times: dead zone, hysteresis, axis and D-pad precedence,
     // repeat timing, press edges, and input held at (re)connection.
     void check_gamepad_mapping() {
+        for (unsigned direction = 0; direction < 8; ++direction) {
+            const auto sample = gamepad::dualsense_sample(true, true, direction * 4500, -32768, -32768);
+            const std::uint16_t hats[]{gamepad::dpad_up, gamepad::dpad_up | gamepad::dpad_right,
+                gamepad::dpad_right, gamepad::dpad_down | gamepad::dpad_right, gamepad::dpad_down,
+                gamepad::dpad_down | gamepad::dpad_left, gamepad::dpad_left, gamepad::dpad_up | gamepad::dpad_left};
+            expect(sample.buttons == (hats[direction] | gamepad::accept | gamepad::back) &&
+                   sample.stick_x == -32768 && sample.stick_y == 32767, "DualSense normalization differs");
+        }
+        for (const auto neutral : {0xffffffffu, 0xffffu, 36000u})
+            expect(gamepad::dualsense_sample(false, false, neutral, 0, 0).buttons == 0, "Neutral DualSense POV must not navigate");
+        const std::pair<std::int16_t, std::int16_t> joycon_sticks[]{
+            {32767, 0}, {32767, -32768}, {0, -32768}, {-32768, -32768},
+            {-32768, 0}, {-32768, 32767}, {0, 32767}, {32767, 32767}};
+        for (unsigned direction = 0; direction < 8; ++direction) {
+            const auto mapped = gamepad::joycon_pair_sample(15, 5, direction * 4500);
+            expect(mapped.buttons == 63 && mapped.stick_x == joycon_sticks[direction].first &&
+                   mapped.stick_y == joycon_sticks[direction].second, "Joy-Con vertical pair mapping differs");
+        }
+        const std::uint16_t joycon_directions[]{gamepad::dpad_left, gamepad::dpad_down, gamepad::dpad_up, gamepad::dpad_right};
+        for (unsigned bit = 0; bit < 4; ++bit)
+            expect(gamepad::joycon_pair_sample(std::uint16_t(1u << bit), 0, 0xffffffffu).buttons == joycon_directions[bit], "Joy-Con D-pad mapping differs");
+        for (const auto neutral : {0xffffffffu, 0xffffu, 36000u}) {
+            const auto mapped = gamepad::joycon_pair_sample(0, 0, neutral);
+            expect(mapped.buttons == 0 && mapped.stick_x == 0 && mapped.stick_y == 0, "Neutral Joy-Con POV must not navigate");
+        }
+        expect(gamepad::joycon_pair_sample(0, 1, 0xffffffffu).buttons == gamepad::accept &&
+               gamepad::joycon_pair_sample(0, 4, 0xffffffffu).buttons == gamepad::back &&
+               gamepad::joycon_pair_sample(0xfff0, 0xfffa, 0xffffffffu).buttons == 0, "Joy-Con A/B or ignored buttons differ");
         using tessera::Direction;
         using Data = decltype(tessera::InputEvent::data);
         const auto nav = [](Direction direction, bool repeat) -> Data { return tessera::Navigate{direction, repeat}; };
@@ -1294,16 +1357,19 @@ LRESULT CALLBACK window_proc(HWND window, UINT msg, WPARAM wparam, LPARAM lparam
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
+    std::cout << std::unitbuf;
     App app;
     try {
         std::vector<std::filesystem::path> fonts;
         for (int i = 1; i < argc; ++i) {
             if (std::wcscmp(argv[i], L"--smoke") == 0) app.smoke = true;
+            else if (std::wcscmp(argv[i], L"--joycons") == 0) app.joycon_pair = true;
             else if (std::wcscmp(argv[i], L"--fonts") == 0 && fonts.empty() && i + 2 < argc) {
                 fonts.emplace_back(argv[++i]); fonts.emplace_back(argv[++i]);
-            } else throw std::runtime_error("Usage: tessera_vulkan_menu [--smoke] [--fonts <Latin.ttf/otf> <Japanese.ttf/otf>]");
+            } else throw std::runtime_error("Usage: tessera_vulkan_menu [--smoke] [--joycons] [--fonts <Latin.ttf/otf> <Japanese.ttf/otf>]");
         }
         if (!fonts.empty()) app.menu = Menu(fonts);
+        if (app.joycon_pair) std::cout << "Joy-Con pair selected: left directions/stick, right A=activate, B=cancel; both sides required.\n";
         std::cout << (app.menu.glyph_cache ? "Real text with explicit Latin/Japanese assets.\n" : "Placeholder text; pass --fonts in a fonts-enabled build for real glyphs.\n");
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         WNDCLASSEXW type{sizeof(type)};

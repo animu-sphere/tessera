@@ -109,6 +109,10 @@ The host queues owned transitions and publishes them in explicit logical order a
 
 Open decisions: concrete observation/payload types and bounds, host subscription delivery/backpressure, and whether a consumer needs stale values across more than one replacement. First implementation fixtures: immediate-ready cache, retry after failure with an old completion arriving later, cancellation/removal/reload with reused author IDs, progress regression rejection, preserved stale value, and resource replacement while an earlier GPU submission owns the old bytes.
 
+## Implemented controlled host-state boundary
+
+The [Replay host update boundary](replay.md#implemented-controlled-host-updates), defined in [replay.hpp](../../include/tessera/replay/replay.hpp), implements the async ownership rules for declared boolean fixture slots and host-built immutable replacement views. Loading attempts use strictly increasing request numbers; only the current attempt can complete, and view replacement cancels other pending owners before publication. Failure/cancellation retain accepted values, and rejected candidate views retain the previous generation. It has no component subscription, progress payload, provider execution, or application mutation. General component async observations follow the proposal above.
+
 ## Proposed error boundaries
 
 Dynamic UI, live reload, and agent-generated UI must fail locally. An error boundary is a declared subtree whose validation, build, or binding failure is contained: the boundary presents a declared fallback and reports diagnostics linked to source locations under [inspection](inspection.md#proposed-inspection-records-and-source-mapping), while the rest of the tree keeps its identity, focus, and state. At document level the same rule is the [reload transaction](path-finder-integration.md#live-reload-transaction): a new document is validated and built as a candidate generation, swapped in only on success, and otherwise rejected while the previous valid generation stays live. Boundaries never catch host action failures; those return through the [command](commands.md) result contract.

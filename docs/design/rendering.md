@@ -29,7 +29,13 @@ Concrete-backend validation is recorded in [support](../reference/support-matrix
 
 ## Coordinate conversion
 
-`FrameInfo::device_scale` expresses physical pixels per logical unit. Layout and draw geometry follow [logical coordinates](layout.md#coordinate-spaces); the renderer/host boundary converts them to the physical framebuffer and backend viewport/scissor conventions. Define framebuffer extent, rounding, clip-edge conversion, and resize handling with the concrete backend. Pixel snapping is a later explicit scale-aware policy, not hidden rounding in layout.
+`FrameInfo::device_scale` expresses physical pixels per logical unit. Layout and draw geometry follow [logical coordinates](layout.md#coordinate-spaces); the renderer/host boundary converts them to the physical framebuffer and backend viewport/scissor conventions. Framebuffer extent, rounding, clip-edge conversion, and resize handling follow the concrete backend.
+
+### Implemented continuous-coordinate policy
+
+The [paint generator](../../src/render/paint.cpp), [glyph atlas preparation](../../src/render/glyph_atlas.cpp), and [Vulkan renderer](../../backends/vulkan/renderer.cpp) preserve continuous logical edges, glyph origins, and advances. Device scale changes raster size and sampling; it does not snap layout, border widths, or baselines to integer pixels. Vulkan coverage and scissors use the pixel-center rule below, and native pointer mapping uses that same center. The extent rounds outward with `ceil(logical_size * device_scale)`. A fractional border can cover different pixel counts as scale changes; this is coverage under the declared policy, not a geometry mutation. Independent rounding of neighboring boxes or text would break shared layout/hit geometry and is not part of this policy.
+
+The [GPU fixtures](../../tests/render/vulkan_tests.cpp) verify fractional scales, noninteger padding and mixed-script baselines against independent raster sampling. An opt-in snap policy would require shared paint/hit geometry and a separate contract before use.
 
 Validate fractional scales and scale changes as well as 1:1 rendering. Normalized input must map back to the same logical space. World-space projection belongs to a host adapter. The [Win32 example host](#implemented-win32-vulkan-example-host) defines one concrete logical-size and pointer-pixel mapping.
 

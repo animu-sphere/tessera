@@ -2,7 +2,22 @@
 
 Dated delivery history and release records. Each release is a `## vX.Y.Z — YYYY-MM-DD` section matching [VERSION](VERSION); unreleased entries collect under `## Unreleased`. Live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).
 
-## Unreleased
+## v0.2.0 — 2026-10-10
+
+Usable navigable menus milestone: mixed Latin/Japanese real text, scrolling and focus recovery, and one ordinary action path for mouse, keyboard, gamepad and semantic clients. This source-only release carries no compatibility guarantee; prebuilt binaries and install/export packages are outside this milestone. Fresh-build acceptance and limits are in the [support matrix](docs/reference/support-matrix.md#v020-menu-acceptance--2026-10-10).
+
+The Win32 host also gained an explicit `--joycons` mode for the original Bluetooth Joy-Con L/R pair: left directions and eight-way stick movement, right A/B activation/cancellation. A physical operator session confirmed menu actions, held-stick repeats and normalized B Cancel input; the default XInput/DualSense selection is retained. Mapping/lifetime rules are in [input](docs/design/input.md#host-boundary).
+
+Exit criteria accepted against the linked evidence:
+
+- Mixed-script measurement, wrapping and glyph pixels agree with the declared font profile and independent raster sampling; continuous geometry is preserved at fractional device scales.
+- Scroll/clip targeting, disabled eligibility, deterministic styles, focus recovery and semantic observations agree across ordinary input and replay.
+- Owned in-process inspection rejects stale or ambiguous targets, while windowless runs reproduce coherent geometry/semantics/paint and optional completed Vulkan frames.
+- Declared boolean host state and resource readiness reproduce through an explicit Replay JSON v2 recording; superseded, cancelled and replaced-owner completions fail without changing the accepted generation.
+- The command, transaction and general async-state pages define resolved rules, open decisions and first implementation fixtures; a component runtime or command registry is outside this release.
+
+- Added the bounded [host update boundary](docs/design/replay.md#implemented-controlled-host-updates) and Replay JSON v2 while preserving the Replay JSON v1 schema. Loading/ready menu fixtures cover ordinary eligibility, rejection rollback, failure/retry/cancellation, request bounds, owner replacement and deterministic offscreen reproduction. The real-font Vulkan runner also captures loading/ready views and additional fractional scales.
+- Added a host-only [DirectInput DualSense adapter](examples/vulkan-menu/directinput.hpp) alongside XInput, with Cross/Circle mapped to the same activation/cancel policy and foreground-only polling. The USB operator session requested the same `start-game`, `show-credits` and `quit-game` actions as mouse/keyboard/scripted-gamepad fixtures. Physical stick/repeat/Circle coverage is not claimed. Adopted the [continuous-coordinate policy](docs/design/rendering.md#implemented-continuous-coordinate-policy) without rounding logical layout or glyph baselines.
 
 - Added owned Semantic JSON v1 snapshots with host update sequences, bounded canonical encoding, state/identity validation, and generation-aware semantic invocation through ordinary action eligibility. Replay uses the same semantic record type. Added subtree-scoped inspection resolution with relative paths and root-coordinate points. Contracts are in [semantics](docs/design/semantics.md#implemented-semantic-snapshot-contract) and [inspection](docs/design/inspection.md#implemented-prototype-capture-and-target-resolution).
 
