@@ -673,6 +673,113 @@ void effect_feedback() {
     check(r.publish() == 0 && r.deliver_cleanups().empty(), "After breaking the feedback, publication resumes");
 }
 
+void fault_boundaries() {
+    ReactiveRuntime r, other;
+    auto root = r.root();
+    auto source = r.signal(root, "source", 1);
+    bool reject = false;
+    int bad_count = 0;
+    Log log;
+    auto panel = r.boundary(root, "panel/~");
+    auto nested = r.boundary(panel, "nested");
+    auto bad = r.computed<int>(panel, "bad", [&] {
+        ++bad_count;
+        const int value = source.read();
+        if (reject) throw std::runtime_error("Missing record");
+        return value;
+    });
+    // Two consumers share the failed prerequisite; it must fail once per flush.
+    r.effect<int>(panel, "details", EffectPhase::notify, [&] { return bad.read() * 10; },
+        [&](int value) { log.push_back("details " + std::to_string(value)); });
+    r.effect<int>(nested, "inner", EffectPhase::notify, [&] { return source.read(); },
+        [&](int value) { log.push_back("inner " + std::to_string(value)); });
+    auto sibling = r.boundary(root, "sibling");
+    r.effect<int>(sibling, "mirror", EffectPhase::notify, [&] { return bad.read() + 1; },
+        [&](int value) { log.push_back("mirror " + std::to_string(value)); });
+    r.effect<int>(root, "outer", EffectPhase::notify, [&] { return source.read(); },
+        [&](int value) { log.push_back("outer " + std::to_string(value)); });
+    check(r.flush().empty() && r.publish() == 4 && !r.faulted(panel), "A healthy boundary publishes normally");
+    r.deliver_effects(EffectPhase::notify); log.clear();
+
+    reject = true; bad_count = 0; source.write(2);
+    auto contained = r.flush();
+    check(contained.size() == 1 && contained[0].code == "reactive_calculation_failed" &&
+          contained[0].path == "/reactive/root/owners/panel~1~0/values/bad" &&
+          contained[0].message.find("Missing record") != std::string::npos,
+          "Flush returns each contained cause once, located at the failing calculation");
+    check(bad_count == 1, "A failed prerequisite is not recalculated for each consumer in one flush");
+    check(r.faulted(panel) && r.faulted(nested) && r.faulted(sibling) && !r.faulted(root),
+          "Failure faults the boundaries of each failed calculation and holds nested subtrees");
+    check(r.publish() == 1, "Failures contained by boundaries do not block the rest of the candidate");
+    r.deliver_effects(EffectPhase::notify);
+    check(log == Log({"outer 2"}), "Faulted subtrees hold effects at their last published values");
+
+    // Writes reaching only held calculations do not block publication;
+    // a stale calculation outside the faulted boundaries does.
+    auto nested_source = r.signal(nested, "local", 0);
+    r.computed<int>(nested, "local_view", [&] { return nested_source.read(); });
+    r.flush(); nested_source.write(1);
+    check(r.publish() == 0, "Held stale calculations do not block publication");
+    source.write(3);
+    rejects([&] { r.publish(); }, "reactive_unsettled");
+
+    log.clear(); bad_count = 0; reject = false;
+    check(r.flush().empty() && bad_count == 1 && !r.faulted(panel) && !r.faulted(sibling),
+          "A later flush retries failed calculations and clears recovered boundaries");
+    check(r.publish() == 4, "Recovered boundaries publish their latest values");
+    r.deliver_effects(EffectPhase::notify);
+    check(log == Log({"details 30", "inner 3", "mirror 4", "outer 3"}), "Recovered effects deliver once in creation order");
+
+    // A consumer outside every boundary that reads a contained failure escapes.
+    auto escape = r.owner(root, "escape");
+    r.computed<int>(escape, "reader", [&] { return bad.read(); });
+    r.flush(); reject = true; source.write(4);
+    const auto escaped = rejects([&] { r.flush(); }, "reactive_calculation_failed");
+    check(escaped.path.ends_with("/values/bad"), "An escaping failure reports its located cause");
+    rejects([&] { r.publish(); }, "reactive_unsettled");
+    escape.dispose();
+    check(r.flush().size() == 1 && r.publish() == 1, "Disposing the escaping consumer restores containment");
+
+    // A root consumer refreshed before its prerequisite abandons it after that
+    // prerequisite fails; the failure still faults only its own boundary.
+    Computed<int> late;
+    bool use_late = true, late_reject = false;
+    int late_count = 0;
+    const auto chooser = r.computed<int>(root, "chooser", [&] { return use_late ? late.read() : 0; });
+    auto late_scope = r.boundary(root, "late");
+    late = r.computed<int>(late_scope, "value", [&] {
+        ++late_count;
+        const int value = source.read();
+        if (late_reject) throw std::runtime_error("Late failure");
+        return value;
+    });
+    r.flush();
+    late_count = 0; use_late = false; late_reject = true; source.write(5);
+    contained = r.flush();
+    check(contained.size() == 2 && contained[1].path.ends_with("/owners/late/values/value") && late_count == 1 &&
+          chooser.read() == 0 && r.faulted(late_scope) && r.faulted(panel),
+          "An abandoned failed prerequisite stays contained without recalculating");
+    late_scope.dispose();
+
+    bool allocation = false;
+    auto alloc = r.boundary(root, "alloc");
+    r.computed<int>(alloc, "throws", [&] { const int value = source.read(); if (allocation) throw std::bad_alloc{}; return value; });
+    r.flush(); allocation = true; source.write(6);
+    bool allocation_threw = false;
+    try { r.flush(); } catch (const std::bad_alloc&) { allocation_threw = true; }
+    check(allocation_threw, "Boundaries do not contain allocation failure");
+    alloc.dispose(); r.flush();
+    rejects([&] { r.faulted(alloc); }, "disposed_reactive_owner");
+    rejects([&] { r.faulted(other.root()); }, "foreign_reactive_owner");
+    auto query = r.owner(root, "query");
+    auto querying = r.computed<bool>(query, "faulted", [&] { return r.faulted(panel); });
+    rejects([&] { querying.read(); }, "reactive_untracked_read");
+    rejects([&] { r.boundary(root, "panel/~"); }, "duplicate_reactive_name");
+    query.dispose(); panel.dispose(); sibling.dispose();
+    check(r.flush().empty() && r.publish() == 1 && r.deliver_cleanups().empty(),
+          "Disposing faulted boundaries releases their held state");
+}
+
 void effect_limits() {
     ReactiveRuntime r;
     auto scope = r.owner(r.root(), "bounded");
@@ -695,6 +802,7 @@ int main() {
         ownership_and_boundaries(); stable_order_and_limits();
         cleanup_order_and_lifetimes(); cleanup_failures_and_boundaries(); cleanup_limits();
         effects_and_publication(); effect_failures_and_boundaries(); effect_feedback(); effect_limits();
-        std::cout << "Reactive graph, equality, batches, ownership, cleanup, effect and failure checks passed\n";
+        fault_boundaries();
+        std::cout << "Reactive graph, equality, batches, ownership, cleanup, effect, boundary and failure checks passed\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

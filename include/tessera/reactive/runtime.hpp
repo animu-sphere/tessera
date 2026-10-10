@@ -94,6 +94,13 @@ public:
     ReactiveRuntime& operator=(const ReactiveRuntime&) = delete;
     ReactiveOwner root() const;
     ReactiveOwner owner(const ReactiveOwner& parent, std::string name);
+    // An owner whose calculation failures flush contains: the boundary faults,
+    // its subtree holds effects at their last published values, and the rest of
+    // the graph keeps settling and publishing.
+    ReactiveOwner boundary(const ReactiveOwner& parent, std::string name);
+    // Host query: whether the most recent flush faulted a boundary enclosing this
+    // owner, so the host presents that subtree's fallback.
+    bool faulted(const ReactiveOwner&) const;
     // Owner disposal queues this callback; it never invokes external operations.
     // Cleanup callbacks must not enter any reactive runtime.
     void on_cleanup(const ReactiveOwner&, std::string name, std::function<void()>);
@@ -143,9 +150,11 @@ public:
         catch (...) { end_batch(); throw; }
         end_batch();
     }
-    // Demand reads are allowed within batches; flush is not. First failure stops
-    // draining; accepted caches survive and failed/pending calculations can retry.
-    void flush();
+    // Demand reads are allowed within batches; flush is not. Returns each distinct
+    // cause contained by a boundary once; the first failure outside every boundary
+    // stops draining and throws. Accepted caches survive and failed/pending
+    // calculations can retry.
+    std::vector<Diagnostic> flush();
     // Accepts the settled graph as the published candidate after the host has
     // built its presentation. Captures changed effect values and returns how
     // many deliveries were queued; failure queues nothing.
@@ -154,6 +163,7 @@ public:
     // sources; writes wait for a later flush/publication.
     std::vector<Diagnostic> deliver_effects(EffectPhase);
 private:
+    ReactiveOwner add_owner(const ReactiveOwner&, std::string, bool boundary);
     detail::ReactiveRef add(const ReactiveOwner&, std::string, std::any,
                             std::function<std::any()>, detail::ReactiveEqual);
     void add_effect(const ReactiveOwner&, std::string, EffectPhase, std::function<std::any()>,
