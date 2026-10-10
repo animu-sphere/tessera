@@ -173,6 +173,16 @@ Pixel-free checks need no renderer: layout, hit testing, focus, semantics, inspe
 
 The host constructs and selects the backend; core never chooses one. An application host may offer an automatic policy that tries its preferred GPU backend and falls back to the CPU backend, and it records which backend was selected so diagnostics and snapshot manifests can report it. Tests, CI, and capture runs declare the backend explicitly; an unavailable backend fails rather than falling back. Command-line switches and environment variables for selection are host or tooling choices, not core contracts.
 
+## Implemented capture boundary
+
+[capture.hpp](../../include/tessera/render/capture.hpp) defines a prototype completed-frame boundary in core, used by the [offscreen runner](inspection.md#implemented-prototype-offscreen-runner). It names no SDK object, window, or encoder.
+
+- **Declaration.** `CaptureBackend` is the host's statement of what it constructed: a `backend` and a `device` identity, each 1–256 UTF-8 bytes without ASCII controls (`invalid_identifier` or `invalid_utf8` at `/backend` or `/device`), and a `CaptureFormat`. The only format is `rgba8_srgb`: top-down rows of tightly packed 8-bit RGBA with sRGB-encoded RGB and the target's alpha as read back (`unknown_value` at `/format` otherwise). Identities are fixture names compared exactly, not discovered or normalized device properties.
+- **Extent.** `capture_extent(logical_size, device_scale)` is `ceil(logical * scale)` per axis computed in double, the [Vulkan target rule](#implemented-vulkan-primitive-boundary). Both inputs must be finite and positive (`invalid_number` or `out_of_range` at `/logical_size/width`, `/logical_size/height`, or `/device_scale`), and each axis must fit 32 bits (`out_of_range` at `/logical_size`).
+- **Adapter.** A `FrameCapture` reports its `backend()` and implements `capture(CaptureRequest)`, which borrows the generation index, logical size, scale, extent, and paint list for the call. It returns an owned `CapturedImage` only after the frame has completed on the host's device; it owns target allocation, any image resources such as [glyph atlas](#implemented-frame-local-glyph-atlas) uploads, renderer frame numbers, submission, completion, retirement, and readback. Calls are sequential and not reentrant. Rejected submissions return their diagnostics.
+
+The [Vulkan fixtures](../../tests/render/vulkan_tests.cpp) implement an adapter over the reference path with explicit placeholder Text, keeping renderer frame numbers increasing across runs. A real-font adapter, a CPU reference adapter, and GPU/CPU comparison remain proposals.
+
 ## Proposed capture boundary
 
 An offscreen host owns targets, submission, completion, and readback. A reusable capture service associates an image with the submitted frame/update generation, physical extent, scale, format/color convention, and backend/device metadata. CPU inspection and GPU completion must agree under the [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle) contract. Readback does not weaken retirement requirements or add window/platform types to core.
