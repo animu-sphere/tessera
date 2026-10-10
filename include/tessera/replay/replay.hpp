@@ -4,6 +4,7 @@
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/draw_list.hpp>
 #include <tessera/semantics/semantics.hpp>
+#include <tessera/semantics/semantic_snapshot.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -23,6 +24,17 @@ inline constexpr std::size_t max_replay_steps = 10000;
 struct ReplayResize {
     Size viewport;
     bool operator==(const ReplayResize&) const = default;
+};
+// Device-scale change at an update point; logical geometry and input coordinates stay logical.
+struct ReplayScale {
+    float scale = 1;
+    bool operator==(const ReplayScale&) const = default;
+};
+// Explicit animation-clock observation/update point, independent of input timestamps. Nonnegative,
+// non-decreasing microseconds from the recording's origin; initial value is zero.
+struct ReplayTick {
+    std::chrono::microseconds time{};
+    bool operator==(const ReplayTick&) const = default;
 };
 // Replaces the document at an update point. styles[i] belongs to the new tree's preorder node i.
 // The new tree has a new identity, so pointer state is cleared as by snapshot replacement.
@@ -48,7 +60,8 @@ struct ReplaySemanticAction {
 // Cancel); they share one non-decreasing timestamp stream. A scroll step is routed by route_scroll and
 // applied at an update point; a command goes through FocusDispatcher. Keys are host-translated, not replayed.
 // Focus and semantic action steps are untimed.
-using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload, ReplayFocus, ReplaySemanticAction>;
+using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload, ReplayFocus, ReplaySemanticAction,
+                                ReplayScale, ReplayTick>;
 
 // Host focus policies that playback applies on the host's behalf; both are off by default.
 struct ReplayFocusPolicy {
@@ -65,9 +78,8 @@ struct ReplayText {
     std::string sha256; // font_profile: lowercase hex SHA-256 of the profile's canonical font profile JSON v1.
     bool operator==(const ReplayText&) const = default;
 };
-// Declared host configuration. Playback is logical and does not interpret scale or locale. Version 1 has no
-// animation clock or readiness transitions: input timestamps are the only time, and every declared resource is
-// ready before the initial snapshot.
+// Initial host configuration. Playback is logical and does not interpret locale. Scale and the explicit
+// animation clock are recorded per generation; every declared resource is ready before the initial snapshot.
 struct ReplayEnvironment {
     float scale = 1;            // Device pixels per logical unit; finite and positive.
     std::string locale = "und"; // BCP 47 tag syntax, compared exactly.
@@ -99,29 +111,19 @@ struct ReplayBox {
     std::optional<ScrollGeometry> scroll;
     bool operator==(const ReplayBox&) const = default;
 };
-// Full-tree layout and paint for one snapshot: the initial one, one per resize/reload/scroll step, and one per
-// focus reveal that changes an offset.
+// Full-tree layout and paint plus the owned host conditions of one update generation: initial,
+// resize/reload/scroll/scale/tick steps, and focus reveals that change an offset.
 struct ReplayGeneration {
     std::optional<std::size_t> step; // Producing step; absent for the initial snapshot.
     std::vector<ReplayBox> boxes;
     UiDrawList paint;
+    Size viewport;
+    float device_scale = 1;
+    std::chrono::microseconds animation_time{};
     bool operator==(const ReplayGeneration&) const = default;
 };
 // Owned semantic entry; preorder indices replace the snapshot's handles.
-struct ReplaySemanticNode {
-    std::uint32_t node = 0;                    // Tree preorder index within its generation.
-    std::optional<std::string> id;             // Author ID, when present.
-    std::uint32_t parent = no_semantic_parent; // Index into ReplaySemantics::nodes.
-    SemanticRole role = SemanticRole::root;
-    std::string name;
-    NameSource name_source = NameSource::none;
-    std::optional<std::uint32_t> labelled_by; // Referenced node's preorder index.
-    bool enabled = true;
-    bool focusable = false;
-    bool focused = false;
-    std::vector<SemanticAction> actions;
-    bool operator==(const ReplaySemanticNode&) const = default;
-};
+using ReplaySemanticNode = SemanticRecord;
 // Semantic projection of one generation with the focus held at an observation point: after each generation
 // settles, after each command or focus step, and after a pointer step that moves focus.
 struct ReplaySemantics {

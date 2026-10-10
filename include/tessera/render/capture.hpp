@@ -5,6 +5,7 @@
 #include <tessera/ui/document.hpp>
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <optional>
 #include <string>
 #include <vector>
@@ -45,6 +46,7 @@ struct CaptureRequest {
     float device_scale = 1;
     CaptureExtent extent; // capture_extent(logical_size, device_scale).
     const UiDrawList* paint = nullptr;
+    std::chrono::microseconds animation_time{}; // Recorded clock; capture must not sample wall time.
 };
 
 struct CapturedImage {

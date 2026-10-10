@@ -114,20 +114,35 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
     return {std::move(snapshot), {}};
 }
 
-Result<NodeHandle> resolve_target(const InspectionSnapshot& snapshot, const InspectionTarget& target) {
+Result<NodeHandle> resolve_target(const InspectionSnapshot& snapshot, const InspectionTarget& target,
+                                  std::optional<NodeHandle> scope) {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     const auto& elements = snapshot.elements;
+    if (scope && (scope->tree != snapshot.generation || scope->index >= elements.size())) {
+        check.error("stale_target", "/scope", "Resolve the scope in the captured generation.");
+        return {std::nullopt, std::move(errors)};
+    }
+    // Mark the subtree once; walking ancestors per candidate would be quadratic for deep trees.
+    std::vector<bool> included(elements.size(), !scope);
+    if (scope) {
+        included[scope->index] = true;
+        for (std::size_t i = scope->index + 1; i < elements.size(); ++i) {
+            const auto parent = elements[i].parent;
+            if (parent < i) included[i] = included[parent];
+        }
+    }
     std::vector<std::uint32_t> matches;
     if (const auto* id = std::get_if<AuthorIdTarget>(&target)) {
         for (std::uint32_t i = 0; i < elements.size(); ++i)
-            if (elements[i].id == id->id) matches.push_back(i);
+            if (included[i] && elements[i].id == id->id) matches.push_back(i);
     } else if (const auto* semantic = std::get_if<SemanticTarget>(&target)) {
         for (const auto& entry : snapshot.semantics.nodes)
-            if (entry.role == semantic->role && entry.name == semantic->name) matches.push_back(entry.node.index);
+            if (entry.node.index < included.size() && included[entry.node.index] &&
+                entry.role == semantic->role && entry.name == semantic->name) matches.push_back(entry.node.index);
     } else if (const auto* path = std::get_if<PathTarget>(&target)) {
         if (!elements.empty()) {
-            std::uint32_t current = 0;
+            std::uint32_t current = scope ? scope->index : 0;
             for (std::size_t i = 0; i < path->children.size(); ++i) {
                 const auto& children = elements[current].children;
                 if (path->children[i] >= children.size()) {
@@ -144,6 +159,7 @@ Result<NodeHandle> resolve_target(const InspectionSnapshot& snapshot, const Insp
         check.point(position, "/target/position");
         if (!errors.empty()) return {std::nullopt, std::move(errors)};
         for (auto i = elements.size(); i-- > 0;) {
+            if (!included[i]) continue;
             const auto& geometry = elements[i].geometry;
             if (geometry && geometry->visible && inside(geometry->border_box, position) &&
                 (!geometry->clip || inside(*geometry->clip, position))) {

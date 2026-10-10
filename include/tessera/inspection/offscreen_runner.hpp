@@ -44,6 +44,7 @@ struct OffscreenFrame {
     CaptureExtent extent;
     FrameStatus status = FrameStatus::not_declared;
     std::optional<CapturedImage> image; // Present exactly when captured.
+    std::chrono::microseconds animation_time{}; // Explicit replay clock of this generation.
     bool operator==(const OffscreenFrame&) const = default;
 };
 
@@ -57,7 +58,7 @@ struct OffscreenRun {
 std::vector<Diagnostic> validate(const OffscreenInput&);
 
 // Plays the recording as play_replay does, then captures each generation's owned paint list through the
-// declared adapter at the generation's viewport and the recorded device scale. Replay diagnostics are located
+// declared adapter at the generation's owned viewport, device scale, and explicit animation time. Replay diagnostics are located
 // under /recording; capture diagnostics under /generations/<g>/capture. Failure returns no partial run.
 Result<OffscreenRun> run_offscreen(const OffscreenInput&);
 

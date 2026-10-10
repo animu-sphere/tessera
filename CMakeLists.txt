@@ -31,6 +31,7 @@ add_library(tessera_core
     src/replay/replay_serialization.cpp
     src/detail/sha256.cpp
     src/semantics/semantics.cpp
+    src/semantics/semantic_snapshot.cpp
     src/inspection/inspection.cpp
     src/inspection/offscreen_runner.cpp
 )
@@ -69,7 +70,7 @@ if(BUILD_TESTING)
     target_compile_definitions(tessera_document_tests PRIVATE
         TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")
     add_test(NAME document COMMAND tessera_document_tests)
-    foreach(contract IN ITEMS ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll render/draw_list render/paint render/glyph_atlas replay/replay replay/replay_serialization semantics/semantics inspection/inspection inspection/offscreen_runner)
+    foreach(contract IN ITEMS ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll render/draw_list render/paint render/glyph_atlas replay/replay replay/replay_serialization semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/offscreen_runner)
         get_filename_component(name ${contract} NAME)
         add_executable(tessera_${name}_tests tests/${contract}_tests.cpp)
         target_link_libraries(tessera_${name}_tests PRIVATE tessera::core)

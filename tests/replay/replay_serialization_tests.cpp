@@ -100,6 +100,8 @@ tessera::ReplayRecording every_step() {
     steps.push_back(tessera::ReplayFocus{tessera::PathTarget{}});
     steps.push_back(tessera::ReplaySemanticAction{tessera::PointTarget{{5, 6}}, "cancel"});
     steps.push_back(tessera::ReplaySemanticAction{tessera::SemanticTarget{tessera::SemanticRole::button, "Resume"}});
+    steps.push_back(tessera::ReplayScale{1.5f});
+    steps.push_back(tessera::ReplayTick{9007199254740991us});
     return result;
 }
 
@@ -344,7 +346,18 @@ void playback_checks_the_environment() {
     check(!opened && has(opened.diagnostics, "out_of_range", "/environment/scale"), "Sessions must check the environment");
     value = recording();
     value.environment = {1.25f, "en-US", {tessera::ReplayText::Kind::font_profile, "fonts", std::string(64, 'f')}};
-    check(play(value) == play(recording()), "Declarations are not interpreted by logical playback");
+    auto declared = play(value);
+    check(declared.generations[0].device_scale == 1.25f, "Initial scale was not observed");
+    declared.generations[0].device_scale = 1;
+    check(declared == play(recording()), "Environment changed logical geometry or interaction");
+    value = recording();
+    value.steps = {tessera::ReplayScale{0}, tessera::ReplayTick{-1us}};
+    check(has(tessera::save_replay(value).diagnostics, "out_of_range", "/steps/0/scale") &&
+              has(tessera::save_replay(value).diagnostics, "out_of_range", "/steps/1/time"),
+          "Invalid scale/tick saved");
+    value.steps = {tessera::ReplayTick{9007199254740992us}};
+    check(has(tessera::save_replay(value).diagnostics, "out_of_range", "/steps/0/time"),
+          "Inexact animation time saved");
 }
 
 void sha256_matches_fips_vectors() {

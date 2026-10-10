@@ -21,6 +21,15 @@ The application owns the registry contents and every implementation. Tessera sto
 
 ## Proposed invocation path
 
+### Descriptor and eligibility rules
+
+- Command IDs use dot-separated segments matching `[a-z][a-z0-9_]*`, with at least two segments. The application reserves its leading namespace and registers library namespaces explicitly; duplicate IDs fail before publishing the registry. Display labels never resolve commands.
+- A descriptor is an owned immutable value in one registry revision. Availability is checked before discovery or resolution; production requests cannot discover or invoke a development-only descriptor. The host publishes eligibility queries together with settled UI state, without callbacks during traversal. A query yields enabled, checked, and an optional disabled reason, and errors fail closed.
+- Arguments are a named object of declared required/optional booleans, finite numbers with inclusive bounds, UTF-8 strings with byte bounds, string enumerations, or host object IDs. Defaults are descriptor values validated on registration. Unknown fields, missing required values, type mismatches, and invalid references fail at the argument field; there is no coercion. Reuse the scalar vocabulary of [property metadata](ui-model.md#implemented-property-metadata), with command schemas owned here rather than added to UI JSON.
+- An action binding resolves by exact command ID only when the host explicitly registers that action-to-command mapping. Existing action names retain the [input action](input.md#action-registration-and-lifetime) contract. The mapping, descriptor revision, and eligibility observation belong to one generation. A request carries that generation, command ID, arguments, invocation source, and logical request sequence; stale generations fail before any host implementation runs.
+- Effective enabled state is the conjunction of ordinary node/ancestor eligibility and command eligibility. The host applies the same eligibility observation to pointer/focus dispatch, style, and semantic projection when settling the generation. It does not merely hide an action in the semantic adapter. Requests without a node use the same command query and argument validation.
+- Dispatch returns an owned validated invocation. Immediately before executing it, the host rechecks generation, registry revision, and eligibility; changes reject the invocation instead of activating a replacement. Execution happens after traversal. Results are success with a declared serializable value, cancellation, or a structured error with command/request identity and located diagnostics. Host exceptions are converted at the execution adapter, never inside core.
+
 ```text
 pointer / keyboard / gamepad / accessibility / agent / replay
         -> normalized event or semantic operation (input, semantics, inspection)
@@ -39,6 +48,14 @@ The command palette is the reference consumer of the registry and is composed fr
 
 ## Proposed transaction boundary
 
+### Transaction rules
+
+An application adapter owns a transaction token and every mutation. A discrete editing command requests one explicit begin/commit pair; non-editing commands request none. Continuous gestures begin once on the first accepted edit and commit on completion. Escape, capture loss, owner removal/reload, or command failure requests rollback once, even after multiple updates. Undo/redo implementations consume application history and do not implicitly open another transaction. A commit/rollback result settles before the next published UI generation.
+
+Transactions are single-level: nested begin requests fail with a located diagnostic. A command invoked within a gesture may join its explicitly supplied token but cannot implicitly begin or commit it. Each token belongs to one host session, command/gesture owner, and logical request sequence; a closed or foreign token rejects later edits and a late asynchronous completion cannot reopen it. Merge hints never merge in core; the application decides history coalescing after a successful commit. Rollback failure is reported as a host error, without claiming application state was restored.
+
+Long-running commands either perform no mutation until ready and then request a discrete transaction, or explicitly keep one gesture-owned token whose cancellation requests rollback. They use [async request identities](ui-model.md#proposed-async-state) and publish transitions only at update points. Pending execution grants no exemption from command eligibility, stale-owner rejection, or the transaction token rules.
+
 Tessera does not own application data history. It provides a common boundary so that UI-driven edits group consistently:
 
 ```text
@@ -56,12 +73,12 @@ The application applies mutations, keeps the undo stack, and decides merge polic
 
 ## Open decisions
 
-- Command ID grammar and namespace ownership across libraries.
-- Argument schema vocabulary and its relation to [property metadata](ui-model.md#implemented-property-metadata).
-- Nested transactions and whether a command can open a transaction implicitly.
-- Long-running commands and their [async state](ui-model.md#proposed-async-state).
+- Concrete C++ registration/query/execution adapter types and ownership of descriptor revision storage.
+- Host object-ID validation and the serialized invocation/result schema, including size limits.
 - Shortcut scopes, conflict diagnostics, and platform key conventions.
 
 ## Verification
+
+First implementation fixtures: one menu command requested by pointer, keyboard, scripted gamepad, semantic identity, and replay with identical validated arguments; eligibility changing between dispatch and execution; a removed/replaced owner with a reused author ID; malformed and unknown arguments; a development-only command in production discovery; and a multi-update edit with one commit, cancellation with one rollback, nested begin rejection, and a late completion after token closure. Record descriptor revisions and eligibility as fixture inputs before extending [Replay](replay.md); no callback-only check establishes generation or semantic agreement.
 
 Check that every input source produces the same command invocation under the same eligibility, that disabled commands and nodes agree in semantics, that invalid arguments fail with located diagnostics, that stale targets fail after replacement, and that a continuous gesture produces exactly one committed or rolled-back transaction. Use replayed fixtures rather than callback mocks; follow the [testing strategy](../guides/testing.md).

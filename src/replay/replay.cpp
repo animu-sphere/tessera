@@ -51,7 +51,8 @@ namespace detail {
 class ReplayPlayer {
 public:
     ReplayPlayer(ReplayRecording recording, TextShaper& text)
-        : recording_(std::move(recording)), text_(text), viewport_(recording_.viewport) {}
+        : recording_(std::move(recording)), text_(text), viewport_(recording_.viewport),
+          scale_(recording_.environment.scale) {}
 
     // Settles the initial snapshot and then applies every recorded step.
     bool run() {
@@ -80,6 +81,8 @@ public:
         const auto clock = clock_;
         const auto viewport = viewport_;
         const auto offsets = offsets_;
+        const auto scale = scale_;
+        const auto animation_time = animation_time_;
         committed_ = false;
         bool ok = true;
         if (const auto* event = std::get_if<InputEvent>(&step)) {
@@ -92,6 +95,17 @@ public:
             ok = replace(*reload, i, at);
         } else if (const auto* focus = std::get_if<ReplayFocus>(&step)) {
             ok = focus_on(*focus, i, at);
+        } else if (const auto* scale_step = std::get_if<ReplayScale>(&step)) {
+            detail::Checker check(errors_);
+            check.positive(scale_step->scale, at + "/scale");
+            ok = errors_.empty();
+            if (ok) { scale_ = scale_step->scale; ok = settle(i, at); }
+        } else if (const auto* tick = std::get_if<ReplayTick>(&step)) {
+            if (tick->time < animation_time_) {
+                errors_.push_back({"event_order", Severity::error, at + "/time",
+                                   "Use nonnegative, non-decreasing animation-clock microseconds.", {}});
+                ok = false;
+            } else { animation_time_ = tick->time; ok = settle(i, at); }
         } else {
             ok = invoke(std::get<ReplaySemanticAction>(step), i, at);
         }
@@ -103,6 +117,8 @@ public:
             clock_ = clock;
             viewport_ = viewport;
             offsets_ = offsets;
+            scale_ = scale;
+            animation_time_ = animation_time;
         }
         return false;
     }
@@ -231,6 +247,9 @@ private:
             }
         }
         ReplayGeneration generation{step, {}, std::move(*paint.value)};
+        generation.viewport = viewport_;
+        generation.device_scale = scale_;
+        generation.animation_time = animation_time_;
         generation.boxes.reserve(current_.layout.boxes.size());
         for (const auto& box : current_.layout.boxes)
             generation.boxes.push_back(
@@ -249,14 +268,7 @@ private:
         relocate(warnings_, std::move(projected.diagnostics), at);
         ReplaySemantics semantics{step, output_.generations.size() - 1, {}, {}};
         if (focused_) semantics.focused = focused_->index;
-        semantics.nodes.reserve(projected.value->nodes.size());
-        for (auto& entry : projected.value->nodes) {
-            std::optional<std::uint32_t> labelled_by;
-            if (entry.labelled_by) labelled_by = entry.labelled_by->index;
-            semantics.nodes.push_back({entry.node.index, std::move(entry.id), entry.parent, entry.role,
-                                       std::move(entry.name), entry.name_source, labelled_by, entry.enabled,
-                                       entry.focusable, entry.focused, std::move(entry.actions)});
-        }
+        semantics.nodes = own_semantic_records(*projected.value);
         output_.semantics.push_back(std::move(semantics));
         return true;
     }
@@ -402,6 +414,8 @@ private:
     ReplayRecording recording_; // Accepted steps only.
     TextShaper& text_;
     Size viewport_;
+    float scale_ = 1;
+    std::chrono::microseconds animation_time_{};
     Snapshot current_;
     std::vector<Point> offsets_; // Requested scroll offsets by node index; reset by reload.
     std::optional<std::chrono::microseconds> clock_;
@@ -511,6 +525,10 @@ public:
 
     void generation(const ReplayGeneration& expected, const ReplayGeneration& actual, const std::string& path) {
         if (expected.step != actual.step) mismatch(path + "/step", "Generation was produced by a different step.");
+        if (expected.viewport != actual.viewport) mismatch(path + "/viewport", "Logical viewport differs.");
+        if (expected.device_scale != actual.device_scale) mismatch(path + "/device_scale", "Device scale differs.");
+        if (expected.animation_time != actual.animation_time)
+            mismatch(path + "/animation_time", "Animation-clock observation differs.");
         const auto boxes = path + "/boxes";
         count(expected.boxes.size(), actual.boxes.size(), boxes, "boxes");
         for (std::size_t i = 0; i < std::min(expected.boxes.size(), actual.boxes.size()); ++i)
