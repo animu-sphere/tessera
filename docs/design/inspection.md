@@ -80,6 +80,12 @@ Snapshot comparisons should report semantic additions/removals/state/action chan
 
 Comparisons are diagnosable in a fixed order, so a report explains a failure at the most semantic level that changed: semantic diff, layout diff, action diff, paint diff, visual diff, then performance counter diff. Pixel differences alone never establish or rule out a behavior change.
 
+## Proposed reactive observations
+
+Development inspection can join [reactive graph](reactive-runtime.md) and owner-tree observations with presentation/source records from one settled generation. Record lifetime-aware computation/owner IDs, dependencies/dependents, accepted value revisions, potential dirtiness, evaluation counts, and the cause of invalidation. A bounded causal trace connects a changed source through derivation, measurement/layout, and paint work so an Inspector or agent can explain why a node updated. Durations are optional measured observations rather than deterministic graph state.
+
+Snapshots own their records, identify unavailable fields, and carry explicit record/edge/trace limits with truncation reporting. Graph exports use the same observations; JSON/DOT encoding, transport operations, and UI panels are separate API decisions. They expose no addresses, mutable storage, executable closures, or private application values. Source names/values are host-declared exports under the [production boundary](#proposed-tooling-and-production-boundary). Observation never flushes pending work or creates dependency edges.
+
 ## Proposed performance metrics
 
 A GPU-native renderer is not itself a performance guarantee; CPU and GPU work are both measured.
@@ -87,10 +93,13 @@ A GPU-native renderer is not itself a performance guarantee; CPU and GPU work ar
 | Side | Metrics |
 | --- | --- |
 | CPU | Document update, reconciliation, style resolution, layout, semantic projection, paint generation, text shaping, glyph cache |
+| Reactive | Invalidated/evaluated computations, replaced dependency edges, layout nodes touched, paint items rebuilt, allocations per update, owner creation/disposal, queue depth, and update latency |
 | GPU | Draw and instance counts, upload bytes, atlas pages, render passes, GPU timing when the backend supplies it |
 | Iteration | Edit-to-visible-result latency, broken down into parse, update, layout, paint, submit, completion/readback, and export |
 
 Iteration latency, not frame rate alone, is the first-class metric for live reload, Path-finder, and agent loops. Performance comparisons identify workload, changed-node count, build/backend/device, warmup, sample count, and measurement method. Separate deterministic counters from noisy durations; absent GPU timing is unavailable, never zero. Consumer-specific budgets require representative baselines and explicit tolerance policy. These are instrumentation goals, not promised millisecond or framework-speedup targets.
+
+Measure work proportionality by varying total UI/graph size and the changed region independently. Use chains, fan-out, diamonds, dynamic branches, owner churn, keyed reorder, one changing label among static content, theme changes, viewport resize, and streaming/virtualized consumers. Compare evaluated/touched counts and upload bytes with a full-update baseline; avoid adopting illustrative million-node or widget-count targets as guarantees.
 
 ## Proposed UI invariants
 

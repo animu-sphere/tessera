@@ -86,7 +86,9 @@ Conversation, log, and terminal views motivate the anchor and follow-end rules u
 
 ## Invalidation
 
-Initially recompute the full layout tree. Later classify changes as geometry-affecting or paint-only. Size changes can invalidate ancestors and siblings, so dirty-subtree optimization must preserve the result of a full calculation. Text measurement and resolved font changes participate in layout invalidation.
+Full-tree calculation is the correctness reference. Proposed incremental calculation distinguishes intrinsic/text measurement from placement under [stage invalidation](styling.md#proposed-stage-invalidation). Size changes can invalidate ancestors and siblings; available size, inherited font metrics, flex allocation, scroll extents/clamping, and clips must be included in dependency propagation. An unchanged measured size may stop size propagation, but changed placement or clips must reach input, semantic bounds, and paint. Paint-only color changes do not require layout.
+
+The [reactive scheduler](reactive-runtime.md#proposed-presentation-integration) selects work and publication boundaries; layout consumes nodes, resolved styles, constraints, and text metrics without accessing graph internals or a renderer. Incremental output must preserve the result of a full calculation.
 
 ## Verification
 

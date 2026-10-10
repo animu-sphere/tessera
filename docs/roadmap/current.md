@@ -12,7 +12,8 @@ Consumer fixture: an inventory/tool panel driven by host-owned selection and ite
 
 Remaining work:
 
-- Props/local state/bindings, conditional children, keyed reconciliation, cleanup and resource retirement.
+- Core-only [reactive kernel](../design/reactive-runtime.md): tracked sources/derivations, revisions/equality, dynamic dependency replacement, explicit owners, deterministic disposal, batch/flush/effect semantics, and cycle/reentrancy diagnostics. Establish graph semantics before presentation optimization or frontend syntax.
+- Props/local state/bindings and conditional children over that kernel; [keyed reconciliation](../design/ui-model.md#state-and-reconciliation), cleanup and completion-safe resource retirement. Use full-tree style/layout/semantic/paint evaluation as the presentation reference, with affected-stage metadata for later incremental work.
 - Extend the [command boundary](../design/commands.md#implemented-in-process-command-boundary) with shortcut scopes/conflict diagnostics and host execution/result adapters; integrate the [transaction boundary](../design/commands.md#proposed-transaction-boundary) and build a [command palette](../design/commands.md#proposed-command-palette) from ordinary components.
 - [Error boundaries](../design/ui-model.md#proposed-error-boundaries) and [async state](../design/ui-model.md#proposed-async-state) primitives.
 - Image assets and theme variables.
@@ -29,6 +30,8 @@ Remaining work:
 
 Exit criteria:
 
+- Core-only chain/diamond and dynamic-branch fixtures settle coherently; equal derived outputs suppress unnecessary downstream evaluation, batched writes coalesce scheduled work, and disposed owners produce no later evaluations/effects. Cycles, reentrant flush, and failed calculations report located diagnostics while preserving valid publication/bookkeeping.
+- A successful event batch publishes at most one visible generation; explicit reads during the batch do not deliver partial effects. A continuous edit can span batches with one application transaction, and a non-editing action opens no edit token.
 - An inventory/tool panel updates without corrupting identity, focus, bindings, or cleanup.
 - Missing/replaced assets and theme variables follow declared fallback/diagnostic rules.
 - Invalid edits keep the last valid UI; compatible edits preserve declared state and retire old resources.
@@ -36,8 +39,8 @@ Exit criteria:
 - Inspector properties derive from runtime metadata; portal focus/ownership and list item identity remain coherent.
 - Tooling uses host-declared state slots, captures one generation, and emits machine-readable observations/differences; invalid bundle versions or incompatible comparison conditions are diagnosed.
 - The CPU reference backend renders the primitive/glyph fixtures identically across runs without a window or GPU, and both Vulkan paths agree with it within declared tolerances.
-- Menu, shortcut, palette, and semantic invocations of one command share eligibility and produce one transaction per gesture; a failing subtree or reload keeps the previous valid generation; invariants report located results for one captured generation.
+- Menu, shortcut, palette, and semantic invocations of one command share eligibility; editing gestures produce one application transaction and non-editing requests produce none. A failing subtree or reload keeps the previous valid generation; invariants report located results for one captured generation.
 
-Owners: [UI model](../design/ui-model.md), [commands](../design/commands.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [input](../design/input.md), [layout](../design/layout.md), [Path-finder](../design/path-finder-integration.md), [inspection](../design/inspection.md).
+Owners: [reactive runtime](../design/reactive-runtime.md), [UI model](../design/ui-model.md), [commands](../design/commands.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [input](../design/input.md), [layout](../design/layout.md), [Path-finder](../design/path-finder-integration.md), [inspection](../design/inspection.md).
 
 Live capability and validation evidence belongs to the [support matrix](../reference/support-matrix.md); delivery history belongs to the [changelog](../../CHANGELOG.md).

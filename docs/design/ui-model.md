@@ -55,7 +55,7 @@ Runtime node handles, serialized author IDs, and reconciliation keys serve diffe
 
 Candidate primitive vocabulary: `Box`, `Text`, `Image`, `Button`, `ScrollView`, `Spacer`, `Stack`, `Grid`, and `Canvas`, with a controlled custom-node extension point. `Container` is a category; use `Box` as the initial concrete container name. `Panel` and `List` can begin as composed components rather than additional storage categories. Scrolling is a Box's resolved [`overflow: scroll`](layout.md#implemented-prototype-algorithm); a `ScrollView` primitive or component lowers to it.
 
-A user component maps `props + local state` to a subtree. Examples include `HealthBar`, `InventorySlot`, `Toolbar`, and `PropertyEditor`. Composition is preferred to widget inheritance. Primitive storage kinds and component authoring names need not have a one-to-one correspondence.
+A user component maps `props + local state` to a subtree. Examples include `HealthBar`, `InventorySlot`, `Toolbar`, and `PropertyEditor`. A component provides composition, an owner scope, and an identity boundary over the [reactive kernel](reactive-runtime.md#proposed-kernel-boundary); reactive values can also belong to explicit scopes outside a component. Composition is preferred to widget inheritance. Primitive storage kinds and component authoring names need not have a one-to-one correspondence.
 
 The candidate list is vocabulary, not a requirement to implement every primitive. Tool consumers such as data grids, tree tables, timelines, command palettes, and node editors are compositions of these primitives with [virtualization](layout.md#proposed-virtualization-foundation) and [commands](commands.md), not dedicated runtime widgets.
 
@@ -85,13 +85,15 @@ Documents are serialized as [JSON v1](../../formats/tessera-ui/README.md) or con
 
 ## State and reconciliation
 
-Applications retain ownership of game/application state. Tessera supplies minimal bindings and local component state, with a view model connecting external state to UI. `Signal` / `Computed` / `Effect` and `State` / `Binding` are alternative candidate APIs, not two required systems.
+Applications retain ownership of game/application state. Tessera supplies minimal bindings and local view state, with a view model connecting external state to UI. The [reactive runtime](reactive-runtime.md#proposed-kernel-boundary) defines mutable sources, cached derivations, owner scopes, batches, effects, and resource observations. Public API names are open; a `State` or `Binding` convenience must compose these semantics rather than introduce another system.
 
-Proposed update semantics: state writes schedule a defined update, rendering observes settled values, and subscriptions end with their owning component. Conditional children and dynamic lists require identity rules before reconciliation is implemented. Use stable sibling keys; reject or diagnose duplicate keys. Specify mount/update/unmount cleanup and focus/interaction recovery when nodes disappear.
+Proposed reconciliation uses explicit stable keys scoped to one sibling collection or identity boundary. Duplicate keys fail before publication. Reordering a compatible keyed child preserves its logical instance, local state, owner, focus, and subscriptions rather than reconstructing every row. Removal or incompatible kind/identity replacement closes the old owner and creates a new lifetime; reusing a key later cannot revive disposed state or accept its late results. Unkeyed child matching and cross-parent moves require an explicit compatibility policy before exposing them.
+
+Collection insert/remove/move/item-update operations can target keyed instances without requiring a new collection API. Logical item identity, realized presentation instances, and visible paint records are distinct; [virtualization](layout.md#proposed-virtualization-foundation) must not store logical selection/focus in recycled render nodes. [Input](input.md#implemented-prototype-focus-dispatch) owns recovery when a logical target disappears, while [reactive ownership](reactive-runtime.md#proposed-reactive-ownership) owns subscription/effect cleanup.
 
 Compatible-state preservation during reload uses the same identity rules; see [Path-finder integration](path-finder-integration.md).
 
-Property-level dependency tracking is the long-term reactive direction. Define dependency ownership, cycle/reentrancy handling, settled update order, and subscription cleanup before selecting an API. Dirty property/subtree updates must match full-tree results. Test state capture/restore uses only host-declared slots through [inspection](inspection.md#proposed-inspection-records-and-source-mapping), with application state ownership unchanged.
+Property bindings follow [dependency and change detection](reactive-runtime.md#proposed-dependencies-and-change-detection) and [batch scheduling](reactive-runtime.md#proposed-update-batches-and-scheduler). Dirty property/subtree updates must match full-tree results. Test state capture/restore uses only host-declared slots through [inspection](inspection.md#proposed-inspection-records-and-source-mapping), with application state ownership unchanged.
 
 ## Proposed async state
 

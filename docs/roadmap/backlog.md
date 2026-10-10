@@ -24,12 +24,13 @@ Candidates:
 - [Context](../design/ui-model.md#proposed-context) for subtree services; transaction/undo integration hardening.
 - Canvas/custom paint, [performance instrumentation](../design/inspection.md#proposed-performance-metrics), and a timeline/profiling primitive.
 - UI invariants in CI.
-- Dirty style/layout/paint tracking after full-tree correctness.
+- [Stage invalidation](../design/styling.md#proposed-stage-invalidation) and incremental style, measure/placement, [text](../design/text.md#proposed-incremental-text-invalidation), input, semantic, and paint evaluation over the active milestone's reactive kernel, verified against full-tree output.
+- Bounded [reactive observations](../design/inspection.md#proposed-reactive-observations), owner/dependency inspection and update-cause traces, plus graph/work-proportionality benchmarks without fixed illustrative scale targets.
 - Representative dense/high-frequency tool benchmarks, measured iteration latency, and consumer-specific regression budgets after recording a baseline; thin scenario tooling and compact CI reports/artifacts.
 
 Exit criteria to refine from a consumer prototype: long lists, trees, and grids preserve keyed selection/focus and scroll anchors, Japanese composition and clipboard work under declared platform evidence, custom paint respects the common draw/resource contract, and incremental results match full-tree output. Benchmark/iteration reports identify representative fixtures and measurement conditions; consumer budgets and CI reports distinguish timing noise from deterministic counter regressions.
 
-Owners: [UI model](../design/ui-model.md), [layout](../design/layout.md), [input](../design/input.md), [commands](../design/commands.md), [text](../design/text.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [inspection](../design/inspection.md).
+Owners: [reactive runtime](../design/reactive-runtime.md), [UI model](../design/ui-model.md), [layout](../design/layout.md), [input](../design/input.md), [commands](../design/commands.md), [text](../design/text.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [inspection](../design/inspection.md).
 
 ## v0.5.0 candidate — Accessibility, automation, and robust runtime
 
@@ -83,6 +84,21 @@ Candidates, in dependency order:
 Exit criteria to refine per item: measurement/paint agreement holds across fallback and variation changes, zoomed text meets declared image tolerances, and each script or emoji format claim has dedicated fixtures.
 
 Owners: [text](../design/text.md), [rendering](../design/rendering.md), [dependencies](../reference/dependencies.md).
+
+## Later — Reactive scheduling and retained render performance
+
+Prerequisites: the [active reactive kernel and keyed UI scope](current.md), incremental stage parity from v0.4.0, and representative measured tool workloads.
+
+Candidates, in dependency order:
+
+- [Retained display items and partial uploads](../design/rendering.md#proposed-retained-render-updates), with completion-safe buffer/atlas reuse and full paint/image agreement.
+- Host-driven animation integration, then priority/frame queues or visibility-aware evaluation only when needed without losing input, semantic, or lifetime work.
+- Selective parallel text/layout/resource preparation with owned inputs and ordered publication; general concurrent reactive mutation and compiler dependency hints require separate justification.
+- Optional immediate authoring facades or observable collection helpers over the common IR/kernel only when a consumer needs them.
+
+Exit criteria to refine per consumer: deterministic observations and full-tree/render-reference output agree; changed-region work is measured separately from total UI size; queues, cancellation, and retirement stay bounded under replacement and owner churn. Optimization results cannot imply platform support or universal timing guarantees.
+
+Owners: [reactive runtime](../design/reactive-runtime.md), [UI model](../design/ui-model.md), [styling](../design/styling.md), [layout](../design/layout.md), [text](../design/text.md), [rendering](../design/rendering.md), [inspection](../design/inspection.md).
 
 ## Later — Analytic primitives and CPU compatibility performance
 

@@ -68,6 +68,8 @@ The command palette is the reference consumer of the registry and is composed fr
 
 ## Proposed transaction boundary
 
+Reactive [update batches](reactive-runtime.md#proposed-update-batches-and-scheduler) coalesce view evaluation and effect delivery. This page owns application edit tokens and undo/rollback boundaries. A non-editing event can use a batch without a token; a continuous editing gesture can retain one token across several batches. Nested batch scopes joining an outer batch do not relax the single-level edit transaction rule below.
+
 ### Transaction rules
 
 An application adapter owns a transaction token and every mutation. A discrete editing command requests one explicit begin/commit pair; non-editing commands request none. Continuous gestures begin once on the first accepted edit and commit on completion. Escape, capture loss, owner removal/reload, or command failure requests rollback once, even after multiple updates. Undo/redo implementations consume application history and do not implicitly open another transaction. A commit/rollback result settles before the next published UI generation.
