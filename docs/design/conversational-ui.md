@@ -2,7 +2,7 @@
 
 ## Proposed scope
 
-Conversational applications (chat assistants, coding agents, AI workspaces) are a primary reference workload for Tessera. They are structured, asynchronous, streaming UI, not a text transcript in a scroll view. The same primitives serve IDEs, terminals, log viewers, documentation tools, dashboards, and agent control panels. This page proposes a design; no conversation API exists, and capability evidence belongs in [support](../reference/support-matrix.md).
+Conversational applications (chat assistants, coding agents, AI workspaces) are a primary reference workload for Tessera. They are structured, asynchronous, streaming UI, not a text transcript in a scroll view. The same primitives serve IDEs, terminals, log viewers, documentation tools, dashboards, and agent control panels. This page proposes a design.
 
 Chat is one workspace primitive, not the whole application. A workspace can combine conversation with code and diffs, files, tool activity, artifacts, terminals, [node graphs](graph-editor.md), and host-owned 2D/3D or OpenUSD viewports in one native runtime.
 
@@ -33,7 +33,7 @@ Long conversations need a virtualized list of variable-height items with stable 
 
 Incoming chunks append to application state and reach the runtime only at [update points](architecture.md#update-and-snapshot-rules). Many network events per second (for example 50-200) coalesce into at most one update generation per frame, so layout and GPU submission follow the display rate rather than the token rate. Rebuilding or diffing the whole conversation per chunk is excluded. Limiting invalidation to the affected message subtree is the intended optimization, introduced only with parity to full-tree results.
 
-Asynchronous execution (network, coroutines, threads, subprocesses) is host-owned. A host-side or optional-library bridge delivers results at update points, propagates errors, and cancels or detaches tasks owned by a removed component; the core gains no coroutine runtime or multithreaded API. A request moves through application states such as idle, submitting, connecting, streaming, running tools, completed, failed, and cancelled. Stop is available in every intermediate state, and cancellation propagates through agent, network, tool, and subprocess services where supported.
+Asynchronous execution (network, coroutines, threads, subprocesses) is host-owned. A host-side or optional-library bridge delivers results at update points, propagates errors, and cancels or detaches tasks owned by a removed component; the core gains no coroutine runtime or multithreaded API. A request moves through application states such as idle, submitting, connecting, streaming, running tools, completed, failed, and cancelled, presented through the shared [async state](ui-model.md#proposed-async-state) vocabulary. Stop is available in every intermediate state, and cancellation propagates through agent, network, tool, and subprocess services where supported.
 
 Markdown parsing, syntax highlighting, diff parsing, image decoding, attachment metadata, and search indexing may run off the UI thread in the host. Their results are immutable document patches applied at update points, preserving selection and scroll anchors.
 

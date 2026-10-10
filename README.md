@@ -1,6 +1,6 @@
 # Tessera
 
-Tessera is a small native declarative UI runtime for the animu-sphere ecosystem. It combines web-inspired authoring with explicit C++ ownership and backend-neutral documents for real-time applications.
+Tessera is a deterministic GPU-native UI runtime for humans and agents, built for the animu-sphere ecosystem. It combines declarative, backend-neutral documents with explicit C++ ownership, and is designed so that people and machines inspect, operate, replay, and verify the same UI through one semantic model.
 
 Intended uses include game HUDs and menus, editor panels, inspectors, overlays, in-world UI, Mimikuri application UI, Path-finder previews, and OpenUSD utility applications. These are intended consumers, not support claims.
 

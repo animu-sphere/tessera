@@ -4,19 +4,23 @@ Inactive milestone candidates live here; [current](current.md) owns the active s
 
 Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below. External strategy phase numbers do not replace these candidate scopes.
 
+Priority across candidates: finish v0.2.0 correctness, then the contracts that later work depends on (commands, transactions, async state, UI invariants, component identity and reconciliation), then error boundaries, the command palette, the agent capability manifest, generalized virtualization, typed drag and drop, data grids, and context, and only then generation history, timeline/plotting primitives, collaboration, Web/WASM, and world-space UI. Items within a candidate are listed in dependency order.
+
 ## v0.2.0 — Usable navigable menus
 
 Active; its complete scope and exit criteria are in [current](current.md).
 
 ## v0.3.0 candidate — Dynamic UI and editor prototype
 
-Objective: support application-driven composition and Path-finder iteration using the same document/schema.
+Objective: support application-driven composition and Path-finder iteration using the same document/schema, and make dynamic UI safe to observe and verify, not only able to change.
 
 Depends on menu/text/style foundations and explicit document identity/versioning.
 
 Work:
 
 - Props/local state/bindings, conditional children, keyed reconciliation, cleanup and resource retirement.
+- [Command registry](../design/commands.md) implementation, [transaction](../design/commands.md#proposed-transaction-boundary) integration, and a [command palette](../design/commands.md#proposed-command-palette) prototype built from ordinary components.
+- [Error boundaries](../design/ui-model.md#proposed-error-boundaries) and [async state](../design/ui-model.md#proposed-async-state) primitives.
 - Image assets and theme variables.
 - Source-aware diagnostics, atomic live reload, compatible-state preservation, Path-finder preview.
 - Full property reflection/introspection v1 and a schema-driven Inspector.
@@ -25,6 +29,7 @@ Work:
 - Scalar [CPU reference backend](../design/rendering.md#proposed-cpu-reference-backend) for the existing draw-list vocabulary and grayscale glyphs, with deterministic window- and GPU-free capture; Vulkan fixtures compared with it under declared tolerances.
 - A small inspection/render CLI consumer and versioned snapshot bundle prototype; semantic/layout/counter comparisons and selective visual regression artifacts across declared viewport fixtures, captured with the CPU reference backend by default.
 - Reload-to-snapshot linkage and source-edit-to-verification instrumentation shared with Path-finder.
+- [UI invariant](../design/inspection.md#proposed-ui-invariants) prototype and [agent capability manifest](../design/inspection.md#proposed-agent-capability-manifest) v0.
 - Source consumption by a downstream CMake project through `add_subdirectory`/`FetchContent` with the `tessera::core` and optional `tessera::vulkan` targets, checked by a minimal consumer, as Path-finder's integration path. Installed/exported packages remain v0.5.0 scope.
 
 Exit criteria:
@@ -36,26 +41,30 @@ Exit criteria:
 - Inspector properties derive from runtime metadata; portal focus/ownership and list item identity remain coherent.
 - Tooling uses host-declared state slots, captures one generation, and emits machine-readable observations/differences; invalid bundle versions or incompatible comparison conditions are diagnosed.
 - The CPU reference backend renders the primitive/glyph fixtures identically across runs without a window or GPU, and both Vulkan paths agree with it within declared tolerances.
+- Menu, shortcut, palette, and semantic invocations of one command share eligibility and produce one transaction per gesture; a failing subtree or reload keeps the previous valid generation; invariants report located results for one captured generation.
 
-Owners: [UI model](../design/ui-model.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [input](../design/input.md), [layout](../design/layout.md), [Path-finder](../design/path-finder-integration.md), [inspection](../design/inspection.md).
+Owners: [UI model](../design/ui-model.md), [commands](../design/commands.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [input](../design/input.md), [layout](../design/layout.md), [Path-finder](../design/path-finder-integration.md), [inspection](../design/inspection.md).
 
 ## v0.4.0 candidate — Productive tool UI
 
-Objective: add primitives required by real editor/utility consumers without growing a general widget catalog.
+Objective: add primitives required by real editor/utility consumers without growing a general widget catalog. Mimikuri, Path-finder, and utility applications become full consumers in this generation.
 
 Depends on component identity, text/editing boundaries, and the Path-finder prototype.
 
 Candidates:
 
-- Production VirtualList, tree/hierarchy primitives, resizable split panels, a minimal docking subset.
-- Editable TextInput, IME implementation, clipboard, selection, and drag/drop.
-- Canvas/custom paint and performance instrumentation.
+- [Generalized virtualization](../design/layout.md#proposed-virtualization-foundation) with production VirtualList and tree/hierarchy primitives, then DataGrid/TreeTable composed from primitives: resizable, sortable, pinned, and hideable columns; single and multi-selection; editable cells; keyboard navigation; row hierarchy; context menus.
+- Resizable split panels and a minimal docking subset.
+- Editable TextInput, IME implementation, clipboard, selection, and [typed drag and drop](../design/input.md#proposed-typed-drag-and-drop).
+- [Context](../design/ui-model.md#proposed-context) for subtree services; transaction/undo integration hardening.
+- Canvas/custom paint, [performance instrumentation](../design/inspection.md#proposed-performance-metrics), and a timeline/profiling primitive.
+- UI invariants in CI.
 - Dirty style/layout/paint tracking after full-tree correctness.
 - Representative dense/high-frequency tool benchmarks, measured iteration latency, and consumer-specific regression budgets after recording a baseline; thin scenario tooling and compact CI reports/artifacts.
 
-Exit criteria to refine from a consumer prototype: long lists preserve keyed selection/focus, Japanese composition and clipboard work under declared platform evidence, custom paint respects the common draw/resource contract, and incremental results match full-tree output. Benchmark/iteration reports identify representative fixtures and measurement conditions; consumer budgets and CI reports distinguish timing noise from deterministic counter regressions.
+Exit criteria to refine from a consumer prototype: long lists, trees, and grids preserve keyed selection/focus and scroll anchors, Japanese composition and clipboard work under declared platform evidence, custom paint respects the common draw/resource contract, and incremental results match full-tree output. Benchmark/iteration reports identify representative fixtures and measurement conditions; consumer budgets and CI reports distinguish timing noise from deterministic counter regressions.
 
-Owners: [UI model](../design/ui-model.md), [layout](../design/layout.md), [input](../design/input.md), [text](../design/text.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [inspection](../design/inspection.md).
+Owners: [UI model](../design/ui-model.md), [layout](../design/layout.md), [input](../design/input.md), [commands](../design/commands.md), [text](../design/text.md), [rendering](../design/rendering.md), [styling](../design/styling.md), [inspection](../design/inspection.md).
 
 ## v0.5.0 candidate — Accessibility, automation, and robust runtime
 
@@ -68,11 +77,13 @@ Candidates:
 - Native accessibility adapters and external semantic invocation using the earlier shared inspection foundation.
 - Replay recording tools, focus recovery/modal navigation hardening.
 - Resource/device-loss diagnostics, install/export packaging, downstream integration checks.
+- [Agent capability manifest](../design/inspection.md#proposed-agent-capability-manifest) v1, command discovery, and semantic automation through the shared command path.
+- [Generation history](../design/inspection.md#proposed-generation-history) for time-travel inspection, failure reproduction bundles, and performance regression bundles.
 - Persistent automation adapters built on the earlier inspection/action API: bounded stdin/stdout JSON-RPC first, local RPC/subscriptions only for a consumer, optional MCP last; explicit development enablement and production exclusion.
 
-Exit criteria to refine per adapter: semantic invocation obeys ordinary action eligibility, stale identities fail safely, adapter behavior has platform-specific evidence, replay reproduces failures, and downstream consumers exercise documented lifetime boundaries. Transport validation must cover request limits, cancellation/teardown, permitted state slots, and exclusion of development mutation/source exports from production.
+Exit criteria to refine per adapter: external automation handles inspect, invoke, replay, capture, diff, and assert consistently; semantic invocation obeys ordinary action and command eligibility, stale identities fail safely, adapter behavior has platform-specific evidence, replay reproduces failures, and downstream consumers exercise documented lifetime boundaries. Transport validation must cover request limits, cancellation/teardown, permitted state slots, and exclusion of development mutation/source exports from production.
 
-Owners: [semantics](../design/semantics.md), [input](../design/input.md), [replay](../design/replay.md), [rendering](../design/rendering.md), [dependencies](../reference/dependencies.md), [inspection](../design/inspection.md).
+Owners: [semantics](../design/semantics.md), [input](../design/input.md), [commands](../design/commands.md), [replay](../design/replay.md), [rendering](../design/rendering.md), [dependencies](../reference/dependencies.md), [inspection](../design/inspection.md).
 
 ## Later — WebGPU, WASM, and world-space UI
 
@@ -99,7 +110,7 @@ Prerequisites: v0.2.0 real text (faces, shaping, bitmap glyph cache, fallback, w
 
 Candidates, in dependency order:
 
-- Logical font aliases and application/user font registration; caret and selection geometry for text inputs.
+- Caret and selection geometry for text inputs; authored font-alias syntax and bundled alias mappings.
 - Read-only rich text spans, MSDF glyphs with size/scale-dependent [raster mode selection](../design/text.md#proposed-glyph-raster-strategy) sampled by GPU and CPU backends, and variable font instances.
 - Unicode line breaking, script segmentation, advanced bidirectional layout, color emoji, and advanced OpenType features.
 - Font asset metadata, license metadata hooks, and packaging warnings under [font licensing](../reference/dependencies.md#font-licensing).
@@ -126,7 +137,7 @@ Owners: [rendering](../design/rendering.md), [text](../design/text.md), [inspect
 
 Objective: a domain-agnostic [graph canvas](../design/graph-editor.md) over ordinary components and custom paint.
 
-Prerequisites: Canvas/custom paint and transformed paint/hit-test agreement, overlays/portals, keyed reconciliation, themes, and inspection target resolution.
+Prerequisites: Canvas/custom paint and transformed paint/hit-test agreement, overlays/portals, keyed reconciliation, themes, commands and transactions, typed drag and drop, generalized virtualization, and inspection target resolution.
 
 Stages:
 
@@ -145,7 +156,7 @@ Owners: [graph editor](../design/graph-editor.md), [rendering](../design/renderi
 
 Objective: a reference [conversational workspace](../design/conversational-ui.md) that exercises text, virtualization, streaming, async work, and automation together.
 
-Prerequisites: production VirtualList with key-plus-offset anchors, editable text with IME/clipboard, real text with fallback, and inspection fixtures.
+Prerequisites: production VirtualList with key-plus-offset anchors, editable text with IME/clipboard, real text with fallback, async state primitives, commands, and inspection fixtures.
 
 Stages:
 
@@ -160,6 +171,8 @@ Owners: [conversational UI](../design/conversational-ui.md), [layout](../design/
 
 ## Unscheduled extensions
 
+- Timeline and plotting primitives beyond the v0.4.0 profiling primitive.
+- Collaboration and multi-user presence, after commands, transactions, and generation history.
 - Host-clock property animation after baseline style/layout correctness; see [styling](../design/styling.md#proposed-animation).
 - Richer layout algorithms in the order owned by [layout](../design/layout.md#extension-order).
 - Finer dirty-subtree/reactive updates after measured need and full-tree parity.
@@ -170,6 +183,6 @@ Owners: [conversational UI](../design/conversational-ui.md), [layout](../design/
 
 ## Explicitly deferred
 
-Full DOM/CSS compatibility, JavaScript VM, embedded browser, complete SVG, complex filters/effects, rich-text editor suite (read-only rich text and Markdown rendering are separate candidates above), huge widget catalog, scene-graph coupling, and an OpenUSD-backed internal UI tree are outside early/mid scope. Premature multithreaded API or stable ABI guarantees are also excluded.
+Full DOM/CSS compatibility, JavaScript VM, embedded browser, complete SVG, complex filters/effects, rich-text editor suite (read-only rich text and Markdown rendering are separate candidates above), huge widget catalog, Qt or Flutter API compatibility, scene-graph coupling, an OpenUSD-backed internal UI tree, application data ownership, and an unrestricted remote mutation API are outside early/mid scope. Premature multithreaded API or stable ABI guarantees are also excluded.
 
 Optional USD/engine integration reaches the runtime through view models and adapters under [architecture](../design/architecture.md).

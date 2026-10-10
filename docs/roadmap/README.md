@@ -8,7 +8,7 @@ Version labels are candidate scopes without committed dates or release promises.
 
 - Each candidate has an objective, dependencies, bounded work, and observable exit criteria.
 - Establish full-tree correctness before incremental invalidation or aggressive batching.
-- Define reflection, semantic, replay, coordinate, and event/action boundaries early; introduce implementations at their owning milestones.
+- Define reflection, semantic, replay, coordinate, event/action, and command/transaction boundaries early; introduce implementations at their owning milestones.
 - Prioritize keyboard/gamepad operation, mixed Latin/Japanese text, and consumer-driven editor primitives.
 - Promote optional work explicitly before making it an exit gate.
 - Move a candidate's scope between backlog and current when scheduling changes; do not copy it.

@@ -2,7 +2,7 @@
 
 ## Proposed scope
 
-Tessera should provide a domain-agnostic graph canvas for node-based editors in the style of Blender nodes, Unreal Blueprint, MaterialX graph editors, or Node-RED. It is a thin layer over ordinary components, layout, input, and custom paint, not a separate UI system. This page proposes a design; no graph API exists, and capability evidence belongs in [support](../reference/support-matrix.md).
+Tessera should provide a domain-agnostic graph canvas for node-based editors in the style of Blender nodes, Unreal Blueprint, MaterialX graph editors, or Node-RED. It is a thin layer over ordinary components, layout, input, and custom paint, not a separate UI system. This page proposes a design.
 
 Intended domains include material graphs (UsdShade, MaterialX, OpenPBR), USD composition, render-pass graphs, motion/retargeting pipelines, behavior graphs and state machines, physics, avatar control, and agent workflows. Each domain is application-owned and reaches Tessera through view models, as defined by [architecture](architecture.md#ecosystem-ownership); OpenUSD and domain types never enter the graph layer.
 
@@ -63,11 +63,11 @@ Nodes use ordinary hit testing. Ports use their enlarged hit areas. Edges test d
 - **Selection:** click, modifier toggle/add, rectangle, lasso, select all, invert. Selection is view state.
 - **Moving:** dragging moves the selection snapshot by a graph-space delta; grid snap, alignment guides, and spacing are optional.
 - **Connecting:** a port drag shows a temporary edge, queries domain compatibility on hover, and connects on drop. Valid, convertible, and invalid feedback uses theme tokens rather than fixed colors.
-- **Creation:** a context action on empty canvas, or releasing a connection on empty space, opens a search palette filtered by compatible port types and indexed by name, category, description, aliases, and tags.
+- **Creation:** a context action on empty canvas, or releasing a connection on empty space, opens a search palette, built like the [command palette](commands.md#proposed-command-palette), filtered by compatible port types and indexed by name, category, description, aliases, and tags.
 - **Context menus:** per canvas, node, port, edge, and group, using the [overlay model](ui-model.md#proposed-overlays-and-portals).
 - **Keyboard and gamepad:** next node, directional neighbor, edit, delete, select all, copy/paste, and focus-selection are logical commands through [focus and navigation](input.md#focus-and-navigation), not canvas-private key handling.
 
-Edits are requests to the application: add/remove/move node, connect/disconnect, and property updates. The domain applies them and owns undo/redo history. A continuous gesture forms one transaction, so a 100-frame drag is one history entry. Copy/paste uses a serializable, JSON-compatible intermediate representation; clipboard access stays host-owned under [input](input.md#proposed-editing-ime-and-clipboard-boundary).
+Edits are [commands](commands.md) requested from the application: add/remove/move node, connect/disconnect, and property updates. The domain applies them and owns undo/redo history. A continuous gesture forms one [transaction](commands.md#proposed-transaction-boundary), so a 100-frame drag is one history entry. Dragging assets or nodes onto the canvas uses [typed drag and drop](input.md#proposed-typed-drag-and-drop). Copy/paste uses a serializable, JSON-compatible intermediate representation; clipboard access stays host-owned under [input](input.md#proposed-editing-ime-and-clipboard-boundary).
 
 ## Proposed definitions, registry, and reload
 

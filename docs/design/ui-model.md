@@ -12,12 +12,12 @@ Author IDs are optional document-scoped names used for diagnostics, lookup, and 
 
 The implemented semantic property vocabulary is deliberately small:
 
-| Property | Nodes | Value | Current behavior |
+| Property | Nodes | Value | Behavior |
 | --- | --- | --- | --- |
-| `text` | Text only, required | UTF-8 string, including empty text | Measured by layout and shaped by paint through `TextShaper`; placeholder implementation only. Also names [semantic](semantics.md#implemented-prototype-projection) entries |
+| `text` | Text only, required | UTF-8 string, including empty text | Measured by layout and shaped by paint through the injected `TextShaper`. Also names [semantic](semantics.md#implemented-prototype-projection) entries |
 | `focusable` | Box/Text | Boolean | Stored interaction intent read by [focus dispatch](input.md#implemented-prototype-focus-dispatch) and exposed as semantic state |
 | `disabled` | Box/Text | Boolean | Excludes the node/subtree from pointer targeting and semantic actions; absent means false; see [input](input.md) |
-| `labelled_by` | Box/Text | `NodeReference` to an existing author ID | Existence validation; names the prototype semantic entry; no native accessibility adapter |
+| `labelled_by` | Box/Text | `NodeReference` to an existing author ID | Existence validation; names the prototype semantic entry |
 
 `Property` has explicit boolean, binary64, string, and reference alternatives. No current semantic property accepts a number; unknown properties or mismatched types fail without coercion. Absent boolean properties remain absent rather than materializing defaults. Layout/style properties and asset references are deferred; they are not arbitrary semantic properties.
 
@@ -49,15 +49,15 @@ UiNode
 
 The minimum document is implemented as one rooted, ordered tree. Sibling order is meaningful; property-map iteration must not determine behavior. Validation diagnoses unknown node types, invalid property types, invalid references, and duplicate author IDs. Style/asset references in the broader diagram remain proposed.
 
-Runtime node handles, serialized author IDs, and reconciliation keys serve different purposes. Handles identify live instances; author IDs support references and diagnostics; keys preserve identity across component updates. The implemented handle/author-ID rules are above; key semantics still need component implementation evidence.
+Runtime node handles, serialized author IDs, and reconciliation keys serve different purposes. Handles identify live instances; author IDs support references and diagnostics; keys preserve identity across component updates. The implemented handle/author-ID rules are above; key semantics are proposed under [state and reconciliation](#state-and-reconciliation).
 
 ## Primitives and components
 
-Candidate primitive vocabulary: `Box`, `Text`, `Image`, `Button`, `ScrollView`, `Spacer`, `Stack`, `Grid`, and `Canvas`, with a controlled custom-node extension point. `Container` is a category; use `Box` as the initial concrete container name. `Panel` and `List` can begin as composed components rather than additional storage categories. Scrolling currently exists only as a Box's resolved [`overflow: scroll`](layout.md#implemented-prototype-algorithm); a `ScrollView` primitive or component would lower to it.
+Candidate primitive vocabulary: `Box`, `Text`, `Image`, `Button`, `ScrollView`, `Spacer`, `Stack`, `Grid`, and `Canvas`, with a controlled custom-node extension point. `Container` is a category; use `Box` as the initial concrete container name. `Panel` and `List` can begin as composed components rather than additional storage categories. Scrolling is a Box's resolved [`overflow: scroll`](layout.md#implemented-prototype-algorithm); a `ScrollView` primitive or component lowers to it.
 
 A user component maps `props + local state` to a subtree. Examples include `HealthBar`, `InventorySlot`, `Toolbar`, and `PropertyEditor`. Composition is preferred to widget inheritance. Primitive storage kinds and component authoring names need not have a one-to-one correspondence.
 
-The foundation should implement only the minimum node/property/document representation. A list of candidate primitives is not a requirement to implement them all in Phase 0.
+The candidate list is vocabulary, not a requirement to implement every primitive. Tool consumers such as data grids, tree tables, timelines, command palettes, and node editors are compositions of these primitives with [virtualization](layout.md#proposed-virtualization-foundation) and [commands](commands.md), not dedicated runtime widgets.
 
 Proposed component descriptions should express typed props, declared signals/actions, named slots/children, local state, bindings, and composed subtrees. Keep drawing primitives, interactive controls, and application composites distinguishable without making them separate runtimes. C++ builders and later textual/visual frontends should have equivalent meaning for the same supported vocabulary; source mapping survives lowering under [inspection](inspection.md#proposed-inspection-records-and-source-mapping). These descriptions extend the common IR only after identity, validation, and lifetime rules are defined.
 
@@ -81,7 +81,7 @@ Required properties:
 - Unsupported versions fail clearly; migrations must be explicit.
 - No renderer objects, GPU handles, platform input codes, or runtime callbacks in serialized data.
 
-The foundation now uses [JSON v1](../../formats/tessera-ui/README.md) and direct C++ value construction. Defaults, extension names, numeric precision, and rejection policy are recorded there. A later TypeScript-inspired DSL and optional JSX/TSX compiler lower into the IR. This does not require executing JavaScript inside the host.
+Documents are serialized as [JSON v1](../../formats/tessera-ui/README.md) or constructed directly as C++ values. Defaults, extension names, numeric precision, and rejection policy are recorded there. A later TypeScript-inspired DSL and optional JSX/TSX compiler lower into the IR. This does not require executing JavaScript inside the host.
 
 ## State and reconciliation
 
@@ -89,9 +89,21 @@ Applications retain ownership of game/application state. Tessera supplies minima
 
 Proposed update semantics: state writes schedule a defined update, rendering observes settled values, and subscriptions end with their owning component. Conditional children and dynamic lists require identity rules before reconciliation is implemented. Use stable sibling keys; reject or diagnose duplicate keys. Specify mount/update/unmount cleanup and focus/interaction recovery when nodes disappear.
 
-Keyed reconciliation is planned for a later component milestone. Compatible-state preservation during reload uses the same identity rules; see [Path-finder integration](path-finder-integration.md).
+Compatible-state preservation during reload uses the same identity rules; see [Path-finder integration](path-finder-integration.md).
 
 Property-level dependency tracking is the long-term reactive direction. Define dependency ownership, cycle/reentrancy handling, settled update order, and subscription cleanup before selecting an API. Dirty property/subtree updates must match full-tree results. Test state capture/restore uses only host-declared slots through [inspection](inspection.md#proposed-inspection-records-and-source-mapping), with application state ownership unchanged.
+
+## Proposed async state
+
+Real-time UI shares one asynchronous state vocabulary instead of exposing backend futures or threads to components: `idle`, `loading`, `ready`, `failed`, and `cancelled`, optionally qualified by progress, retryable, and stale. Image, font, and other resource loading; shader compilation; remote data; AI responses; filesystem scans; asset import; and thumbnail generation report through it. The host or an optional library owns execution and delivers transitions only at [update points](architecture.md#update-and-snapshot-rules); a component observes the settled state of its generation. Removing the owning component cancels or detaches the work, and a late result for a removed or replaced owner is dropped with a diagnostic rather than applied. [Replay](replay.md) records transitions as declared readiness inputs, never wall-clock completion.
+
+## Proposed error boundaries
+
+Dynamic UI, live reload, and agent-generated UI must fail locally. An error boundary is a declared subtree whose validation, build, or binding failure is contained: the boundary presents a declared fallback and reports diagnostics linked to source locations under [inspection](inspection.md#proposed-inspection-records-and-source-mapping), while the rest of the tree keeps its identity, focus, and state. At document level the same rule is the [reload transaction](path-finder-integration.md#live-reload-transaction): a new document is validated and built as a candidate generation, swapped in only on success, and otherwise rejected while the previous valid generation stays live. Boundaries never catch host action failures; those return through the [command](commands.md) result contract.
+
+## Proposed context
+
+A subtree can receive shared services through an explicit context: theme, locale, asset provider, [command registry](commands.md), selection model, undo stack, font environment, or diagnostics sink. A context value has a declared type, an owner that outlives every consumer, and a scope limited to the subtree that provides it; consumers resolve the nearest provider and diagnose a missing one. Context is not a global service locator, does not let components reach host internals, and does not move application state into the runtime. Changing a provided value invalidates its consumers under the ordinary update rules.
 
 ## Implemented property metadata
 
@@ -113,7 +125,7 @@ Property-level dependency tracking is the long-term reactive direction. Define d
 | `labelled_by` | reference | Box/Text / none | none | semantics | accessibility |
 | `text` | string | Text / Text | none | layout, paint, semantics | content |
 
-`validate` derives property name, node-kind, type, and required-property checks from these descriptors; string UTF-8, finite-number, and reference-existence checks remain value rules. JSON v1 encodes a property under its descriptor name using its `Property` alternative. `effective_property` returns the authored value or the descriptor's absent value, borrowing from the node or the static table; pointer and focus targeting read `disabled` and focus dispatch reads `focusable` through it, and layout/paint read `text` through `property_names`. Descriptors cover authored properties only; resolved style, layout, and other derived values are not listed. The current vocabulary has no numeric range or enumeration, so descriptors carry no range/enum fields yet.
+`validate` derives property name, node-kind, type, and required-property checks from these descriptors; string UTF-8, finite-number, and reference-existence checks remain value rules. JSON v1 encodes a property under its descriptor name using its `Property` alternative. `effective_property` returns the authored value or the descriptor's absent value, borrowing from the node or the static table; pointer and focus targeting read `disabled` and focus dispatch reads `focusable` through it, and layout/paint read `text` through `property_names`. Descriptors cover authored properties only; resolved style, layout, and other derived values are not listed. The current vocabulary has no numeric range or enumeration, so descriptors carry no range/enum fields.
 
 [Property metadata checks](../../tests/ui/property_metadata_tests.cpp) validate every descriptor, node kind, and value type against validation, absence handling, and canonical encoded names, and [pointer checks](../../tests/input/pointer_tests.cpp) compare absent and explicit `disabled`.
 
@@ -121,7 +133,7 @@ Property-level dependency tracking is the long-term reactive direction. Define d
 
 Extend the implemented descriptors as the schema evolves, without a general reflection framework or editor SDK dependency. Add valid range/enum metadata when a numeric or enumerated property is introduced, and distinguish derived or read-only values if they are exposed. A property can affect multiple stages; do not force style/layout/paint/semantics into a mutually exclusive enum.
 
-Use the same descriptors for Inspector generation and invalidation. Do not maintain a second editor-owned list of types/defaults. No dirty tracking consumes `stages` yet. This proposal does not add fields to JSON v1. Path-finder consumes this metadata under its [bridge contract](path-finder-integration.md).
+Use the same descriptors for Inspector generation and invalidation. Do not maintain a second editor-owned list of types/defaults. This proposal does not add fields to JSON v1. Path-finder consumes this metadata under its [bridge contract](path-finder-integration.md).
 
 ## Proposed overlays and portals
 
@@ -129,7 +141,7 @@ An overlay root provides a presentation layer for popups, tooltips, context menu
 
 The model owns mount/unmount, keyed identity, and cleanup. [Layout](layout.md#scrolling-and-overlay-geometry) owns anchor/viewport placement; [rendering](rendering.md#proposed-overlay-paint) owns presentation order/clips; [input](input.md#proposed-overlay-interaction) owns modal focus and hit eligibility. These consumers must use the same layer identity rather than inventing independent z-order schemes.
 
-Virtualized lists rely on keyed item identity and reconciliation cleanup, including offscreen focus/selection policy. Geometry and realization requirements are owned by [layout](layout.md#scrolling-and-overlay-geometry).
+Virtualized views rely on keyed item identity and reconciliation cleanup. A realized item keeps its key across recycling and generations; selection and focus refer to item keys, so they persist while the item is unrealized, and focus recovery follows [input](input.md#implemented-prototype-focus-dispatch) when the keyed item disappears. Geometry and realization are owned by [layout](layout.md#proposed-virtualization-foundation).
 
 ## Verification
 
