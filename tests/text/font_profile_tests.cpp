@@ -1,6 +1,7 @@
 #include <tessera/fonts/font_profile.hpp>
 #include <tessera/fonts/font_profile_serialization.hpp>
-#include <tessera/replay/replay.hpp>
+#include <tessera/fonts/replay_fonts.hpp>
+#include <tessera/replay/replay_serialization.hpp>
 #include <tessera/render/glyph_atlas.hpp>
 #include "../check.hpp"
 #include <algorithm>
@@ -148,6 +149,58 @@ void replay_and_capture() {
     }
 }
 
+// Replay JSON v1 identifies the profile by digest; restored inputs reproduce playback and atlas outputs.
+void serialized_replay_inputs() {
+    const auto digest = font_profile_sha256(fixture());
+    check(digest && digest.value->size() == 64 &&
+              std::all_of(digest.value->begin(), digest.value->end(),
+                          [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }),
+          "Profile digest must be 64 lowercase hex digits");
+    const auto saved_profile = save_font_profile(fixture());
+    const auto restored_profile = load_font_profile(*saved_profile.value);
+    check(restored_profile && font_profile_sha256(*restored_profile.value).value == digest.value,
+          "A restored profile must keep its digest");
+    auto flipped = fixture();
+    flipped.assets[1].bytes[1000] ^= std::byte{1};
+    auto reordered = fixture();
+    std::swap(reordered.families[0], reordered.families[1]);
+    check(font_profile_sha256(flipped).value != digest.value && font_profile_sha256(reordered).value != digest.value,
+          "Asset bytes and declaration order must change the digest");
+
+    auto recording = menu();
+    recording.environment = {2.0f, "ja-JP", {ReplayText::Kind::font_profile, "menu-fonts", *digest.value}};
+    const auto json = save_replay(recording);
+    check(json && json.diagnostics.empty() && json.value->find(*digest.value) != std::string::npos &&
+              json.value->find("\"bytes\"") == std::string::npos,
+          "Replay JSON must identify the profile without embedding it");
+    const auto restored = load_replay(*json.value);
+    check(restored && *restored.value == recording, "Replay JSON must restore the font environment");
+    check(verify_replay_fonts(*restored.value, *restored_profile.value).empty(), "Recorded profile must verify");
+
+    auto original = service();
+    auto replayed = service(*restored_profile.value);
+    const auto expected = play_replay(recording, original);
+    const auto actual = play_replay(*restored.value, replayed);
+    check(expected && actual && actual.value == expected.value && actual.diagnostics == expected.diagnostics,
+          "Restored replay and profile must reproduce playback");
+    GlyphCache cache_a(original), cache_b(replayed);
+    const auto scale = restored.value->environment.scale;
+    const auto atlas_a = prepare_glyph_atlas(expected.value->generations[0].paint, cache_a, recording.environment.scale, {10});
+    const auto atlas_b = prepare_glyph_atlas(actual.value->generations[0].paint, cache_b, scale, {10});
+    check(atlas_a && atlas_b && !atlas_a.value->pages.empty() && atlas_a.value == atlas_b.value,
+          "The declared scale must reproduce atlas outputs");
+
+    check(has(verify_replay_fonts(recording, flipped), "font_profile_mismatch", "/environment/text/sha256"),
+          "A different profile must not verify");
+    check(has(verify_replay_fonts(menu(), fixture()), "font_profile_mismatch", "/environment/text/kind"),
+          "A placeholder recording declares no profile");
+    auto invalid = fixture();
+    invalid.faces.clear();
+    check(has(verify_replay_fonts(recording, invalid), "out_of_range", "/faces") &&
+              has(font_profile_sha256(invalid).diagnostics, "out_of_range", "/faces"),
+          "An invalid profile has no digest");
+}
+
 template<class Edit>
 void reject(Edit edit, std::string_view code, std::string_view path) {
     auto profile = fixture();
@@ -288,9 +341,10 @@ int main() {
     try {
         owned_selection_and_rasters();
         replay_and_capture();
+        serialized_replay_inputs();
         invalid_profiles();
         serialized_profiles();
-        std::cout << "Owned font profile, sealed services, replay/capture, raster and rejection checks passed.\n";
+        std::cout << "Owned font profile, sealed services, replay/capture, replay JSON identity, raster and rejection checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

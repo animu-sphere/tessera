@@ -1,7 +1,9 @@
 #include <tessera/replay/replay.hpp>
 #include <tessera/input/scroll.hpp>
 #include <tessera/render/paint.hpp>
+#include "replay_detail.hpp"
 #include "../detail/checks.hpp"
+#include "../ui/json_detail.hpp"
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -518,17 +520,71 @@ private:
 
 namespace {
 
-std::vector<Diagnostic> check_recording(const ReplayRecording& recording) {
-    std::vector<Diagnostic> errors;
-    detail::Checker check(errors);
-    if (recording.version != replay_prototype_version)
-        check.error("unsupported_version", "/version", "Only replay prototype version 0 is supported; re-record explicitly.");
-    if (recording.steps.size() > max_replay_steps)
-        check.error("out_of_range", "/steps", "Use at most " + std::to_string(max_replay_steps) + " replay steps.");
-    return errors;
+bool ascii_alpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+bool ascii_alnum(char c) { return ascii_alpha(c) || (c >= '0' && c <= '9'); }
+
+// Hyphen-separated subtags of 1-8 ASCII letters/digits; the first has 2-8 letters. No canonicalization.
+bool locale_syntax(std::string_view locale) {
+    if (locale.empty() || locale.size() > 64) return false;
+    bool first = true;
+    for (std::size_t begin = 0; begin <= locale.size();) {
+        auto end = locale.find('-', begin);
+        if (end == std::string_view::npos) end = locale.size();
+        const auto subtag = locale.substr(begin, end - begin);
+        if (subtag.empty() || subtag.size() > 8) return false;
+        for (const auto c : subtag)
+            if (first ? !ascii_alpha(c) : !ascii_alnum(c)) return false;
+        if (first && subtag.size() < 2) return false;
+        first = false;
+        begin = end + 1;
+    }
+    return true;
+}
+
+void check_text(const ReplayText& text, detail::Checker& check) {
+    check.enumeration(text.kind, ReplayText::Kind::font_profile, "/environment/text/kind");
+    if (text.kind == ReplayText::Kind::placeholder) {
+        if (!text.id.empty() || !text.sha256.empty())
+            check.error("invalid_text_service", "/environment/text",
+                        "Placeholder text declares no font profile; clear id and sha256.");
+        return;
+    }
+    if (text.kind != ReplayText::Kind::font_profile) return;
+    if (!detail::valid_utf8(text.id)) check.error("invalid_utf8", "/environment/text/id", "Use valid UTF-8.");
+    else if (text.id.empty() || text.id.size() > 256 ||
+             std::any_of(text.id.begin(), text.id.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
+        check.error("invalid_identifier", "/environment/text/id",
+                    "Use 1-256 UTF-8 bytes without ASCII controls for the font profile identity.");
+    if (text.sha256.size() != 64 || !std::all_of(text.sha256.begin(), text.sha256.end(), [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        }))
+        check.error("invalid_digest", "/environment/text/sha256",
+                    "Use the 64 lowercase hexadecimal digits of the profile's SHA-256.");
 }
 
 } // namespace
+
+namespace detail {
+
+std::vector<Diagnostic> check_recording(const ReplayRecording& recording) {
+    std::vector<Diagnostic> errors;
+    Checker check(errors);
+    if (recording.version != replay_version)
+        check.error("unsupported_version", "/version", "Only replay version 1 is supported; re-record explicitly.");
+    if (recording.steps.size() > max_replay_steps)
+        check.error("out_of_range", "/steps", "Use at most " + std::to_string(max_replay_steps) + " replay steps.");
+    check.positive(recording.environment.scale, "/environment/scale");
+    if (!locale_syntax(recording.environment.locale))
+        check.error("invalid_locale", "/environment/locale",
+                    "Use hyphen-separated subtags of 1-8 ASCII letters or digits, starting with 2-8 letters, "
+                    "e.g. 'und' or 'ja-JP'.");
+    check_text(recording.environment.text, check);
+    return errors;
+}
+
+} // namespace detail
+
+using detail::check_recording;
 
 Result<ReplayOutput> play_replay(const ReplayRecording& recording, TextShaper& text) {
     auto errors = check_recording(recording);

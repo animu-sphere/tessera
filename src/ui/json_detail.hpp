@@ -15,4 +15,8 @@ struct ParsedJson {
 Result<ParsedJson> parse_json(std::string_view, std::size_t byte_limit, std::size_t value_limit);
 void annotate_json(std::vector<Diagnostic>&, const ParsedJson&);
 std::string write_json_value(const JsonValue&); // Canonical keys, no trailing newline.
+// A UI JSON v1 document object embedded at `path` of another format, validated against `context`.
+// Diagnostics are located under `path` without source offsets.
+Result<UiDocument> read_document_json(const JsonValue&, const std::string& path, const ValidationContext&);
+JsonValue write_document_json(const UiDocument&); // Unvalidated; callers validate first.
 }

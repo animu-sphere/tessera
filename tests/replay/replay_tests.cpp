@@ -461,7 +461,7 @@ void session_steps_match_playback() {
     check(play(session.recording()) == session.output(), "The session recording must replay its output");
 
     auto bad = recording();
-    bad.version = 1;
+    bad.version = 0;
     tessera::PlaceholderTextShaper text;
     const auto rejected = tessera::ReplaySession::open(bad, text);
     check(!rejected && has(rejected.diagnostics, "unsupported_version", "/version"), "Session version must be checked");
@@ -594,7 +594,7 @@ void comparison_locates_differences() {
 
 void invalid_recordings_are_located_without_output() {
     auto bad = recording();
-    bad.version = 1;
+    bad.version = 0;
     check(has(play_invalid(bad).diagnostics, "unsupported_version", "/version"), "Replay version must be checked");
 
     bad = recording();

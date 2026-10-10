@@ -82,16 +82,20 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput&);
 // Target forms in preferred order. Paths and points are less stable across edits.
 struct AuthorIdTarget {
     std::string id;
+    bool operator==(const AuthorIdTarget&) const = default;
 };
 struct SemanticTarget {
     SemanticRole role = SemanticRole::button;
     std::string name; // Exact match.
+    bool operator==(const SemanticTarget&) const = default;
 };
 struct PathTarget {
     std::vector<std::uint32_t> children; // Child indices from the root; empty selects the root.
+    bool operator==(const PathTarget&) const = default;
 };
 struct PointTarget {
     Point position; // Root logical coordinates.
+    bool operator==(const PointTarget&) const = default;
 };
 using InspectionTarget = std::variant<AuthorIdTarget, SemanticTarget, PathTarget, PointTarget>;
 

@@ -14,7 +14,7 @@ if(NOT harfbuzz_version STREQUAL "10.2.0")
     message(FATAL_ERROR "Expected HarfBuzz 10.2.0, got '${harfbuzz_version}' from ${TESSERA_HB_VERSION_HEADER}")
 endif()
 
-add_library(tessera_fonts font_shaper.cpp font_profile.cpp font_profile_serialization.cpp)
+add_library(tessera_fonts font_shaper.cpp font_profile.cpp font_profile_serialization.cpp replay_fonts.cpp)
 add_library(tessera::fonts ALIAS tessera_fonts)
 target_include_directories(tessera_fonts PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(tessera_fonts PUBLIC tessera::core PRIVATE harfbuzz::harfbuzz Freetype::Freetype)
