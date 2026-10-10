@@ -62,23 +62,36 @@ struct Reconciled {
 
 // The anchor is the stored focus in the same tree, or the node with the stored author ID in a
 // replacement tree. An ineligible anchor moves focus to the nearest following focusable node in
-// preorder, else the nearest preceding one.
+// preorder, else the nearest preceding one. A replacement tree without the anchor recovers in its place:
+// after the nearest stored preceding neighbor present in the new tree, else before the nearest stored
+// following one, by the same rule; without either, focus clears.
 Reconciled reconcile(const HitTestInput& input, const detail::Targeting& targeting,
                      const std::vector<std::uint32_t>& candidates, std::optional<NodeHandle> focused,
-                     const std::optional<std::string>& id, std::uint64_t tree) {
+                     const std::optional<std::string>& id, const std::vector<std::string>& preceding,
+                     const std::vector<std::string>& following, std::uint64_t tree) {
     if (!focused) return {};
+    const auto& boxes = input.layout->boxes;
+    // The first candidate at or after a preorder position, else the last candidate.
+    const auto from = [&](std::uint32_t position) -> Reconciled {
+        const auto at = std::find_if(candidates.begin(), candidates.end(),
+                                     [&](std::uint32_t index) { return boxes[index].node.index >= position; });
+        if (at != candidates.end()) return {boxes[*at].node, true};
+        if (!candidates.empty()) return {boxes[candidates.back()].node, true};
+        return {std::nullopt, true};
+    };
     std::optional<NodeHandle> anchor;
     if (tree == input.tree->root().tree) anchor = focused;
     else if (id) anchor = input.tree->find(*id);
-    if (!anchor) return {std::nullopt, true};
+    if (!anchor) {
+        for (const auto& neighbor : preceding)
+            if (const auto node = input.tree->find(neighbor)) return from(node->index + 1);
+        for (const auto& neighbor : following)
+            if (const auto node = input.tree->find(neighbor)) return from(node->index);
+        return {std::nullopt, true};
+    }
     const auto box = targeting.box(*anchor);
     if (box != no_layout_parent && targeting.focusable(box)) return {anchor, false};
-    const auto& boxes = input.layout->boxes;
-    const auto after = std::find_if(candidates.begin(), candidates.end(),
-                                    [&](std::uint32_t index) { return boxes[index].node.index > anchor->index; });
-    if (after != candidates.end()) return {boxes[*after].node, true};
-    if (!candidates.empty()) return {boxes[candidates.back()].node, true};
-    return {std::nullopt, true};
+    return from(anchor->index + 1);
 }
 
 } // namespace
@@ -87,10 +100,9 @@ Result<FocusDispatchResult> FocusDispatcher::refresh(const HitTestInput& input) 
     auto errors = validate(input);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     const detail::Targeting targeting(input);
-    const auto focused = reconcile(input, targeting, candidates(input, targeting), focused_, id_, tree_).focused;
-    focused_ = focused;
-    id_ = focused ? input.tree->get(*focused)->id : std::nullopt;
-    tree_ = input.tree->root().tree;
+    const auto focusable = candidates(input, targeting);
+    const auto focused = reconcile(input, targeting, focusable, focused_, id_, preceding_, following_, tree_).focused;
+    store(input, focusable, focused);
     return {FocusDispatchResult{focused, {}}, {}};
 }
 
@@ -111,9 +123,7 @@ Result<FocusDispatchResult> FocusDispatcher::focus(const HitTestInput& input, No
     else if (!targeting.focusable(box))
         check.error("not_focusable", "/target", "Set the target's focusable property to true.");
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
-    focused_ = target;
-    id_ = input.tree->get(target)->id;
-    tree_ = input.tree->root().tree;
+    store(input, candidates(input, targeting), target);
     return {FocusDispatchResult{target, {}}, {}};
 }
 
@@ -131,7 +141,7 @@ Result<FocusDispatchResult> FocusDispatcher::dispatch(const HitTestInput& input,
     const detail::Targeting targeting(input);
     const auto focusable = candidates(input, targeting);
     const auto& boxes = input.layout->boxes;
-    const auto reconciled = reconcile(input, targeting, focusable, focused_, id_, tree_);
+    const auto reconciled = reconcile(input, targeting, focusable, focused_, id_, preceding_, following_, tree_);
     auto focused = reconciled.focused;
     std::vector<ActionRequest> actions;
     const auto request = [&](std::optional<NodeHandle> origin, const char* binding) {
@@ -164,16 +174,35 @@ Result<FocusDispatchResult> FocusDispatcher::dispatch(const HitTestInput& input,
             request(focused ? focused : input.tree->root(), "cancel");
         }
     }, event.data);
-    focused_ = focused;
-    id_ = focused ? input.tree->get(*focused)->id : std::nullopt;
-    tree_ = input.tree->root().tree;
+    store(input, focusable, focused);
     timestamp_ = event.timestamp;
     return {FocusDispatchResult{focused, std::move(actions)}, {}};
+}
+
+void FocusDispatcher::store(const HitTestInput& input, const std::vector<std::uint32_t>& candidates,
+                            std::optional<NodeHandle> focused) {
+    std::vector<std::string> preceding, following;
+    if (focused) {
+        for (const auto index : candidates) {
+            const auto node = input.layout->boxes[index].node;
+            if (node == *focused) continue;
+            if (const auto& id = input.tree->get(node)->id)
+                (node.index < focused->index ? preceding : following).push_back(*id);
+        }
+        std::reverse(preceding.begin(), preceding.end());
+    }
+    id_ = focused ? input.tree->get(*focused)->id : std::nullopt;
+    focused_ = focused;
+    preceding_ = std::move(preceding);
+    following_ = std::move(following);
+    tree_ = input.tree->root().tree;
 }
 
 void FocusDispatcher::reset() noexcept {
     focused_.reset();
     id_.reset();
+    preceding_.clear();
+    following_.clear();
     tree_ = 0;
     timestamp_.reset();
 }

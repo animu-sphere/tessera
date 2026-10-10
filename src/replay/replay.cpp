@@ -167,17 +167,19 @@ private:
         return true;
     }
 
-    // Loads a replacement document and settles it; the previous snapshot returns if neither commits.
+    // Loads a replacement document and settles it, revealing recovered focus under the host policy since
+    // the reload reset every offset; the previous snapshot returns if neither commits.
     bool replace(const ReplayReload& reload, std::size_t step, const std::string& at) {
         auto previous = std::move(current_);
-        if (load(reload.document, reload.styles, at) && settle(step, at)) return true;
+        if (load(reload.document, reload.styles, at) && settle(step, at, recording_.policy.reveal_focus)) return true;
         if (!committed_) current_ = std::move(previous);
         return false;
     }
 
     // Full-tree layout and paint at an update point, then re-target stationary pointers and recover focus.
-    // The new layout is the commit point.
-    bool settle(std::optional<std::size_t> step, const std::string& at) {
+    // The new layout is the commit point. With `reveal`, recovered focus is scrolled into view and laid
+    // out again before the generation is recorded, so no generation shows it hidden.
+    bool settle(std::optional<std::size_t> step, const std::string& at, bool reveal = false) {
         auto layout = compute_layout({current_.tree.get(), current_.styles, viewport_, &text_, offsets_});
         if (!layout) {
             relocate(errors_, std::move(layout.diagnostics), at);
@@ -201,6 +203,17 @@ private:
             return false;
         }
         focused_ = recovered.value->focused;
+        if (reveal && focused_) {
+            auto revealed = scroll_into_view(current_.input(), *focused_);
+            if (!revealed) {
+                relocate(errors_, std::move(revealed.diagnostics), at);
+                return false;
+            }
+            if (!revealed.value->empty()) {
+                for (const auto& update : *revealed.value) offsets_[update.container.index] = update.offset;
+                return settle(step, at);
+            }
+        }
         ReplayGeneration generation{step, {}, std::move(*paint.value)};
         generation.boxes.reserve(current_.layout.boxes.size());
         for (const auto& box : current_.layout.boxes)

@@ -242,12 +242,48 @@ void recovery_and_replacement() {
     Fixture removed(menu(false));
     f.set("b");
     snapshot = removed.input();
-    check(!f.refresh(&snapshot), "A missing author ID must clear focus");
+    check(f.refresh(&snapshot) == removed.id("c"), "A missing author ID must recover after its nearest surviving predecessor");
     check(f.focus.focus(f.input(), last).value->focused == last, "Focus without an author ID rejected");
     snapshot = same.input();
+    const auto moved = f.send(tessera::FocusNext{}, &snapshot);
+    check(moved.focused == same.layout.boxes.back().node && moved.actions.empty(),
+          "Focus without an author ID must recover by position and consume the command");
+}
+
+// A replacement tree without the focused author ID recovers in its place: after the nearest surviving
+// focusable predecessor, else before the nearest surviving successor; with neither, focus clears.
+void replacement_recovers_removed_focus() {
+    const auto ids = [](std::vector<std::string> names) {
+        std::vector<tessera::UiNode> children;
+        for (auto& name : names) children.push_back(button(std::move(name), "open"));
+        return root(std::move(children));
+    };
+    Fixture f(ids({"a", "b", "c", "d"}));
+    const auto recover = [&](std::string_view from, const Fixture& next) {
+        f.set(from);
+        const auto snapshot = next.input();
+        return f.refresh(&snapshot);
+    };
+    Fixture last(ids({"a", "b", "c"}));
+    check(recover("d", last) == last.id("c"), "A removed last item must recover to its predecessor");
+    Fixture first(ids({"b", "c", "d"}));
+    check(recover("a", first) == first.id("b"), "A removed first item must recover to its successor");
+    Fixture inserted(ids({"a", "n", "c", "d"}));
+    check(recover("b", inserted) == inserted.id("n"), "A replaced item must recover to the node now in its place");
+    Fixture skipped(ids({"a", "d"}));
+    check(recover("b", skipped) == skipped.id("d"), "Recovery must skip removed neighbors");
+    auto disabled_menu = ids({"a", "c", "d"});
+    disabled_menu.children[1].properties["disabled"] = true;
+    Fixture disabled(std::move(disabled_menu));
+    check(recover("b", disabled) == disabled.id("d"), "Recovery in place must skip ineligible nodes");
+    Fixture unrelated(ids({"x", "y"}));
+    check(!recover("b", unrelated), "Without a surviving neighbor, focus must clear");
+
+    f.set("b");
+    auto snapshot = unrelated.input();
     const auto lost = f.send(tessera::FocusNext{}, &snapshot);
     check(!lost.focused && lost.actions.empty(), "Losing focus during dispatch must consume the command");
-    check(f.send(tessera::FocusNext{}, &snapshot).focused == same.id("a"), "Traversal must restart after losing focus");
+    check(f.send(tessera::FocusNext{}, &snapshot).focused == unrelated.id("x"), "Traversal must restart after losing focus");
 }
 
 void programmatic_focus_and_validation() {
@@ -304,6 +340,7 @@ int main() {
         directional_navigation();
         activation_and_cancel();
         recovery_and_replacement();
+        replacement_recovers_removed_focus();
         programmatic_focus_and_validation();
         std::cout << "Focus traversal, directional navigation, activation/cancel, recovery, and validation checks passed.\n";
     } catch (const std::exception& error) {
