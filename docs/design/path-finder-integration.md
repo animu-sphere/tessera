@@ -38,4 +38,4 @@ Compatible reload should preserve keyed component identity/local state, focus, a
 
 Use one document fixture in both a runtime loader and an editor preview consumer. Check invalid edits, stable-ID state preservation, type changes, deleted nodes, focus recovery, extension metadata round trips, and cleanup across repeated reloads.
 
-The v0.3.0 candidate is an integration prototype, not a complete visual editor. A full bridge follows the component identity and schema foundations in the [backlog](../roadmap/backlog.md).
+An integration prototype precedes any complete visual editor, and a full bridge depends on component identity and schema foundations; scheduling is owned by the [roadmap](../roadmap/README.md). Invalid candidates follow the [error boundary](ui-model.md#proposed-error-boundaries) rule, and editor edits group through the [transaction boundary](commands.md#proposed-transaction-boundary).

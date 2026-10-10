@@ -31,7 +31,7 @@ node tree + resolved style + available size + text metrics
 -> layout calculation -> LayoutBox tree -> paint generation
 ```
 
-Layout consumes resolved values, not selector grammar or backend objects. A proposed `LayoutBox` contains node identity, bounds, content bounds, and information needed to derive clipping/scrolling. Distinguish border, padding, and content areas so paint and hit testing use the same geometry.
+Layout consumes resolved values, not selector grammar or backend objects. `LayoutBox` distinguishes border, padding, and content areas and records clipping/scrolling, so paint and hit testing use the same geometry.
 
 Transform composition within layout, pixel snapping, rounding, and numerical tolerances must be specified before algorithms become public contracts.
 
@@ -53,26 +53,36 @@ Scale/viewport changes must be supplied coherently at an update boundary. Specif
 | 6 | Absolute/anchored positioning | Position against a declared containing box or anchor |
 | 7 | Richer intrinsic sizing | Content-driven sizing with explicit constraints |
 | 8 | Grid | Explicit rows/columns before advanced placement |
-| 9 | Virtualization support | Realized keyed items, estimated extents, stable scrolling |
+| 9 | [Virtualization](#proposed-virtualization-foundation) | Realized keyed items, estimated extents, stable scrolling |
 
-The prototype contract above defines orders 1–4. Extension order is a dependency guide; milestone scope lives in [current](../roadmap/current.md) and [backlog](../roadmap/backlog.md). Text measurement always goes through `TextShaper`.
+Extension order is a dependency guide; milestone scope lives in [current](../roadmap/current.md) and [backlog](../roadmap/backlog.md). Text measurement always goes through `TextShaper`.
 
 ## Scrolling and overlay geometry
 
-The [prototype scrolling rule](#implemented-prototype-algorithm) makes viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing, including nested scroll boxes; [input](input.md#implemented-scroll-routing) turns wheel deltas and reveal requests into new requested offsets. The remainder of this section is proposed. VirtualList follows ordinary scrolling and stable keyed reconciliation; realization/estimated-size changes must preserve a declared scroll anchor and expose enough geometry for navigation. A proposed anchor is an item key plus a local offset within that item, so prepending items or correcting estimated heights does not move visible content. A follow-end policy keeps the trailing edge visible as content grows, ends when the user scrolls away, and resumes only on request. Conversation, log, and terminal views motivate these rules under [conversational workspaces](conversational-ui.md#proposed-list-virtualization-requirements).
+The [prototype scrolling rule](#implemented-prototype-algorithm) makes viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing, including nested scroll boxes; [input](input.md#implemented-scroll-routing) turns wheel deltas and reveal requests into new requested offsets.
 
-Overlay placement resolves an anchor in logical coordinates against a declared viewport, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](ui-model.md#proposed-overlays-and-portals). Layout supplies shared geometry; input and paint must not independently recompute popup positions.
+Proposed: overlay placement resolves an anchor in logical coordinates against a declared viewport, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](ui-model.md#proposed-overlays-and-portals). Layout supplies shared geometry; input and paint must not independently recompute popup positions.
 
 ## Proposed rules to settle
 
 Settled by the resolved-style contract: the only units are `automatic` and logical `points`; non-finite and negative sizes, edges, and gaps are rejected; a minimum above its maximum is rejected rather than resolved by precedence; maximums may be unbounded. Sizing, flex distribution, spacing, overflow, scroll extents and limits, and display/visibility are settled by the prototype rules above; margins stay unrecorded because neither scrolling nor hit testing needs them. The prototype is flex-like, not browser flexbox conformance: there is no flex-item wrapping, `align-self`, explicit flex basis, order property, or baseline alignment. Text line wrapping is defined separately by [text](text.md#implemented-boundary).
 
-- Specify width-constrained text measurement when wrapping arrives with real line breaking.
 - Decide whether grandchild overflow should extend a scroll extent, and whether a consumer needs scroll snapping or overscroll.
 
 These rules are implementation decisions to record with examples and algorithm tests. Percent sizing, advanced grid, and browser-specific formatting behavior are deferred until needed.
 
 Responsive application layout should consume an explicit logical viewport or containing-box size. Breakpoint/rule syntax and general constraint/flow solvers are later consumer-driven candidates, following flex, scrolling, absolute positioning, and explicit grid. They must remain backend-neutral and diagnose conflicting or unsatisfiable rules. Validate selected viewport/scale fixtures through [inspection tooling](inspection.md), without claiming browser layout compatibility.
+
+## Proposed virtualization foundation
+
+Virtualization is one shared layer, not a VirtualList-specific implementation. VirtualList, VirtualTree, VirtualGrid, DataGrid, TreeTable, log views, and timelines build on it. It follows ordinary scrolling and realizes only items intersecting the viewport plus a declared overscan, exposing enough geometry for navigation and [reveal](input.md#implemented-scroll-routing).
+
+- **Keys and extents.** Every item has a stable key from [keyed identity](ui-model.md#state-and-reconciliation). Unrealized items use an estimated extent; a realized item's measured extent replaces the estimate. Grids and tables apply the same rule per axis, with row and column extents kept separately.
+- **Anchor.** Scroll position is restored from an anchor item key plus a local offset within that item, not a pixel offset, so prepending items, correcting estimates, or reloading does not move visible content. A follow-end policy keeps the trailing edge visible as content grows, ends when the user scrolls away, and resumes only on request.
+- **Recycling and generations.** Realized components may be recycled across keys, but identity, state, selection, and focus follow keys, never recycled instances. Realization changes settle in an update generation like any other change, and observations name the generation they belong to.
+- **Correctness reference.** Realizing every item is the reference: a virtualized frame must match the full frame within the viewport, as required by [architecture](architecture.md#frame-scheduling).
+
+Conversation, log, and terminal views motivate the anchor and follow-end rules under [conversational workspaces](conversational-ui.md#proposed-list-virtualization-requirements); spatial culling for 2D canvases follows the [graph editor](graph-editor.md#proposed-visibility-culling-and-lod).
 
 ## Invalidation
 
@@ -80,4 +90,4 @@ Initially recompute the full layout tree. Later classify changes as geometry-aff
 
 ## Verification
 
-[Layout checks](../../tests/layout/layout_tests.cpp) compare numeric boxes for fixed sizes, row/column stacks, nested padding, margins/gaps, justify/align, grow/shrink with limit freezing, overflow, overflow clips, scroll extents with clamped and nested offsets, empty containers, fractional sizes, display/visibility, repeated-run equality, and failures. Later add absolute, grid, and intrinsic cases as each algorithm lands. Use no screenshot dependency for geometry correctness.
+[Layout checks](../../tests/layout/layout_tests.cpp) verify geometry numerically: sizing and limits, stacks, spacing, alignment, grow/shrink freezing, overflow, clips, scroll extents and offsets, display/visibility, fractional values, repeated-run equality, and rejected input. Each new algorithm adds its own numeric cases, and virtualized geometry is compared with full realization. Geometry correctness has no screenshot dependency.

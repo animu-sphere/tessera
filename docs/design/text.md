@@ -111,9 +111,9 @@ shapeText(text, font/style, shaping options) -> GlyphRun
 
 Index units are explicit: clusters are UTF-8 byte offsets. Unicode code points, grapheme clusters, and glyph indices are not interchangeable with them; any later grapheme-aware API must state its own unit.
 
-## Candidate implementation
+## Implementation choices
 
-The baseline is HarfBuzz for shaping and OpenType features and FreeType for rasterization, accepting TTF, OTF, and TTC collections. Both are [adopted](../reference/dependencies.md#adopted-text-choices); both serve the implementation above, with atlas integration and further raster modes following the proposal below. ICU or an equivalent dependency should be adopted only for a demonstrated Unicode requirement. Font discovery/loading goes through the host asset boundary defined in [rendering](rendering.md#assets).
+The baseline is HarfBuzz for shaping and OpenType features and FreeType for rasterization, accepting TTF, OTF, and TTC collections. Both are [adopted](../reference/dependencies.md#adopted-text-choices); both serve the implementation above, and further raster modes follow the proposal below. ICU or an equivalent dependency should be adopted only for a demonstrated Unicode requirement. Font discovery/loading goes through the host asset boundary defined in [rendering](rendering.md#assets).
 
 Web hosts are intended to run the same shaping and layout code in WASM instead of measuring DOM text, so native and Web geometry come from one implementation. Browser font serving remains a host concern.
 
@@ -133,7 +133,7 @@ A host-side font database registers faces from separate sources:
 | System | Fonts installed in the OS | Vary by machine; excluded from deterministic fixtures |
 | Platform provider | Optional OS font services | Optional host adapter, never a core dependency |
 
-Future authored styles refer to families, stacks, and logical aliases rather than physical files. Candidate conventional aliases are `ui-sans`, `ui-serif`, `ui-mono`, `heading`, `body`, `code`, `emoji`, and `cjk`; none is automatically registered. Applications can rebind an alias to their own or licensed fonts without modifying Tessera. The [implemented host-built selection](#implemented-family-and-logical-alias-selection) resolves names to host-assigned `FontId`s and selects declared weights/fallback families during shaping; serialized style syntax and bundled default mappings remain proposals.
+Future authored styles refer to families, stacks, and logical aliases rather than physical files. Candidate conventional aliases are `ui-sans`, `ui-serif`, `ui-mono`, `heading`, `body`, `code`, `emoji`, and `cjk`; none is automatically registered. Applications can rebind an alias to their own or licensed fonts without modifying Tessera. The [implemented host-built selection](#implemented-family-and-logical-alias-selection) resolves names to host-assigned `FontId`s and selects declared weights/fallback families during shaping; serialized style syntax and bundled default mappings are proposed here.
 
 Fallback is required. A stack such as Latin face, CJK face, emoji face, then a system or bundled sans resolves per shaping run, or per cluster when a run lacks coverage. Latin, CJK, and emoji coverage must not depend on one large font. Missing-glyph results and the selected face are observable for diagnostics.
 
@@ -176,7 +176,7 @@ Load errors carry JSON pointers and UTF-8 byte offsets. Schema errors use `missi
 
 ## Proposed deterministic font profile
 
-Snapshot and agent-driven tests declare a font profile: fixed redistributable fonts and versions, fixed fallback chain, device scale, shaping options, rasterizer settings, and rendering backend configuration. The [in-process profile](#implemented-in-process-font-profile) supplies owned face/mapping inputs and the sealed service; [font profile JSON v1](#implemented-font-profile-json-v1) preserves those inputs. [Replay JSON v1](replay.md#implemented-replay-json-v1) identifies that profile by digest and declares device scale and locale; shaping and rasterizer settings are fixed by profile version 1. The [offscreen runner](inspection.md#implemented-prototype-offscreen-runner) manifest carries that identity with a declared capture backend, and a Vulkan fixture adapter captures real-font frames under the [declared fixture profile](#declared-grayscale-fixture-profile); a snapshot bundle still needs to identify both. System fonts are never a CI default. The profile is one of the declared inputs under [determinism](architecture.md#determinism) and the [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle).
+Snapshot and agent-driven tests declare a font profile: fixed redistributable fonts and versions, fixed fallback chain, device scale, shaping options, rasterizer settings, and rendering backend configuration. The [in-process profile](#implemented-in-process-font-profile) supplies owned face/mapping inputs and the sealed service; [font profile JSON v1](#implemented-font-profile-json-v1) preserves those inputs. [Replay JSON v1](replay.md#implemented-replay-json-v1) identifies that profile by digest and declares device scale and locale; shaping and rasterizer settings are fixed by profile version 1. The [offscreen runner](inspection.md#implemented-prototype-offscreen-runner) manifest carries that identity with a declared capture backend, and a Vulkan fixture adapter captures real-font frames under the [declared fixture profile](#declared-grayscale-fixture-profile); a [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle) identifies both. System fonts are never a CI default. The profile is one of the declared inputs under [determinism](architecture.md#determinism) and the [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle).
 
 ## Measurement and rendering agreement
 
@@ -200,12 +200,6 @@ A text-side glyph manager owns face, metrics, and raster caches and allocates at
 Glyphs are rasterized on demand; pre-rasterizing whole character sets, such as all CJK glyphs, is excluded. Overflow eviction is LRU- or generation-based. Atlas placement must not affect final pixels: padding and sampling must make a glyph render identically wherever it is placed, so image fixtures do not depend on insertion order. Page allocation, the exact eviction policy, texture arrays or bindless resources, and the interface by which a backend obtains rasters remain open. Glyph resources follow the backend submission/completion lifetime in [rendering](rendering.md); reusing a live atlas region while an earlier frame references it must be prevented.
 
 Text antialiasing is grayscale: coverage on CPUs, distance threshold with derivative width and MSDF median reconstruction on GPUs. Subpixel LCD rendering is not a portable default; see [primitive semantics](rendering.md#proposed-primitive-semantics).
-
-## Incremental delivery
-
-Use the placeholder boundary as a reference, then introduce real font abstraction, shaping, glyph cache, fallback, and wrapping. Measurement and paint must share results throughout. Editing/IME follows the input boundary; expanded scripts or glyph techniques require separate evidence. Scheduled scope is owned by [backlog](../roadmap/backlog.md).
-
-Placeholders must be described as placeholders in examples and the [support matrix](../reference/support-matrix.md). An early menu can use placeholder text while validating geometry and interaction.
 
 ## Verification
 

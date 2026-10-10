@@ -2,7 +2,7 @@
 
 ## Active — v0.2.0 usable navigable menus
 
-Objective: make game/tool menus usable with real text and mouse, keyboard, or gamepad.
+Objective: make game/tool menus usable with real text and mouse, keyboard, or gamepad. This milestone completes runtime correctness and adds no large UI components.
 
 Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Existing capability/evidence is recorded only in the [support matrix](../reference/support-matrix.md); the v0.1.0 release and earlier slices are in the [changelog](../../CHANGELOG.md). This page lists remaining work.
 
@@ -14,6 +14,7 @@ Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Exi
 - IME/clipboard boundary contracts; DPI and pixel-snapping validation.
 - In-process inspection with scoped target resolution, source mapping where available, and structured diagnostics; extend the [offscreen runner](../design/inspection.md#implemented-prototype-offscreen-runner) with declared state, animation time, and resource readiness inputs as fixtures require, and with real-font capture beyond the [Vulkan fixture adapter](../design/rendering.md#implemented-capture-boundary) as fixtures require.
 - Carried from v0.1.0: validate transform agreement between native pointer mapping and rendering once menu paint or hit testing uses transforms; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
+- Design only: settle the proposed [command registry and transaction boundary](../design/commands.md) and [async state](../design/ui-model.md#proposed-async-state) contracts against the input, semantics, replay, and inspection contracts, so the next milestone can implement them. No implementation is required here.
 - Preserve deterministic geometry/paint, offscreen primitive/placeholder Text GPU fixtures, adjacent-batch/reference agreement, and the native menu smoke, including its clip-edge agreement, through the [testing strategy](../guides/testing.md).
 
 ## Exit criteria
@@ -24,8 +25,9 @@ Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Exi
 - Class/state resolution is deterministic and semantic state matches focus/action eligibility.
 - Replay reproduces representative interactions, including expected action sequences.
 - An in-process consumer observes one coherent tree/layout/semantic generation and rejects ambiguous or stale targets; controlled host fixtures reproduce it without a window, with optional completed-frame capture.
+- The command, transaction, and async-state pages list their resolved rules, remaining open decisions, and first implementation fixtures.
 
-Owners: [text](../design/text.md), [input](../design/input.md), [layout](../design/layout.md), [styling](../design/styling.md), [semantics](../design/semantics.md), [replay](../design/replay.md), [inspection](../design/inspection.md), [rendering](../design/rendering.md).
+Owners: [text](../design/text.md), [input](../design/input.md), [commands](../design/commands.md), [UI model](../design/ui-model.md), [layout](../design/layout.md), [styling](../design/styling.md), [semantics](../design/semantics.md), [replay](../design/replay.md), [inspection](../design/inspection.md), [rendering](../design/rendering.md).
 
 ## Immediately next
 

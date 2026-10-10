@@ -2,7 +2,7 @@
 
 ## Proposed shared runtime
 
-Native and Web applications should share the same component model, backend-neutral document/IR, layout, style, semantic projection, and action rules. Web is an intended application host with WASM runtime and WebGPU canvas rendering. This is architectural direction, not a selected toolchain, supported browser configuration, or delivery commitment; [support](../reference/support-matrix.md) owns those claims.
+Native and Web applications should share the same component model, backend-neutral document/IR, layout, style, semantic projection, and action rules. Web is an intended application host with WASM runtime and WebGPU canvas rendering; the Web path never changes runtime semantics. This is architectural direction, not a selected toolchain, supported browser configuration, or delivery commitment; [support](../reference/support-matrix.md) owns those claims.
 
 The intended workload is dense application UI: inspectors, timelines, node graphs, CAD/DCC tools, dashboards, and UI composed with a 3D viewport. Content sites, SEO, HTML/CSS compatibility, and a React-compatible API are outside the target. Host-owned viewport resources can compose with UI through [rendering boundaries](rendering.md); the world scene remains external to the UI tree under [architecture](architecture.md#ecosystem-ownership).
 

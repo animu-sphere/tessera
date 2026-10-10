@@ -67,6 +67,19 @@ foreach ($file in $documents) {
     if ($relative -eq 'docs/roadmap/current.md' -and $body -match '(?im)^##\s+(Delivered|Phase [01]|Documentation foundation)') {
         $issues.Add("${relative}: current must contain remaining work, not foundation history")
     }
+    # Contract and guide pages express maturity only through Implemented/Proposed labels.
+    if ($relative -match '^(docs/design/|docs/guides/|formats/)' -or $relative -eq 'docs/reference/dependencies.md') {
+        $progress = [regex]::Match($body, '(?i)\b(not yet|yet|currently|still needs?|remains? (a )?proposals?|remains? planned|(is|are) planned|no [a-z/ -]{1,40} (API|CLI|implementation) exists)\b')
+        if ($progress.Success) {
+            $issues.Add("${relative}: progress wording '$($progress.Value)' belongs in support; state the contract or link the proposal")
+        }
+    }
+    if ($relative -match '^docs/design/' -and $body -match '(?i)\b(v\d+\.\d+(\.\d+)?|Phase \d+)\b') {
+        $issues.Add("${relative}: version/milestone labels belong in current or backlog")
+    }
+    if ($relative -eq 'docs/reference/support-matrix.md' -and $body -match '(?im)^\|[^|\r\n]+\|\s*Planned\b') {
+        $issues.Add("${relative}: capabilities without implementation have no row")
+    }
 }
 $linkCount = 0
 foreach ($file in $documents) {
