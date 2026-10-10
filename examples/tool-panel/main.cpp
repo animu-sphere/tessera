@@ -1,9 +1,17 @@
 #include <tessera/commands/commands.hpp>
 #include <tessera/input/focus.hpp>
+#include <tessera/reactive/runtime.hpp>
 #include <iostream>
 
 using namespace tessera;
 using namespace std::chrono_literals;
+
+struct PanelObservation {
+    CommandState command;
+    CommandObjectIds objects;
+    std::optional<std::string> selection;
+    bool operator==(const PanelObservation&) const = default;
+};
 
 int main() {
     CommandDescriptor inspect;
@@ -28,10 +36,29 @@ int main() {
     std::uint64_t sequence = 0;
     std::optional<std::string> inspected_item; // Application state stays in the host.
 
-    for (const bool selected : {false, true}) {
-        const std::uint64_t generation = selected ? 2 : 1;
+    std::optional<std::string> host_selection;
+    ReactiveRuntime runtime;
+    auto selected_item = runtime.signal(runtime.root(), "selection", host_selection);
+    int evaluations = 0;
+    const auto panel = runtime.computed<PanelObservation>(runtime.root(), "panel", [&] {
+        ++evaluations;
+        const auto selection = selected_item.read();
+        return PanelObservation{{selection.has_value(), false, selection ? "" : "Select an item."},
+            selection ? CommandObjectIds{*selection} : CommandObjectIds{}, selection};
+    });
+
+    std::uint64_t generation = 0;
+    for (const bool selected : {false, true, false}) {
+        runtime.batch([&] {
+            host_selection = selected ? std::optional<std::string>{"item-7"} : std::nullopt;
+            // Publish an owned host-state observation at the update point.
+            selected_item.write(host_selection);
+        });
+        runtime.flush();
+        const auto observation = panel.read();
+        ++generation; // Host-owned UI generation, distinct from reactive revisions.
         const auto commands = CommandSnapshot::publish(*registry.value, generation, CommandMode::production,
-            {{inspect.id, {selected, false, selected ? "" : "Select an item."}}}, selected ? CommandObjectIds{"item-7"} : CommandObjectIds{});
+            {{inspect.id, observation.command}}, observation.objects);
         if (!commands) return 2;
         const auto document = commands.value->apply_eligibility(authored, context);
         if (!document) return 3;
@@ -52,7 +79,7 @@ int main() {
         if (!activated || activated.value->actions.size() != (selected ? 1u : 0u)) return 8;
         for (const auto& action : activated.value->actions) {
             const auto invocation = commands.value->resolve_action(ui, action, generation,
-                {{"item", CommandObjectId{"item-7"}}}, CommandSource::keyboard, ++sequence);
+                {{"item", CommandObjectId{*observation.selection}}}, CommandSource::keyboard, ++sequence);
             if (!invocation || !commands.value->recheck(*invocation.value, &ui).empty()) return 9;
             // Dispatch and validation have returned. Execute the non-editing host command here.
             inspected_item = std::get<CommandObjectId>(invocation.value->record().arguments.at("item")).value;
@@ -62,6 +89,6 @@ int main() {
         if (!selected) std::cout << " (" << info.value->state.disabled_reason << ')';
         std::cout << '\n';
     }
-    if (inspected_item != "item-7") return 10;
+    if (inspected_item != "item-7" || evaluations != 3) return 10;
     std::cout << "Host inspected " << *inspected_item << ". Synthetic core-only panel; placeholder text, no native window.\n";
 }
