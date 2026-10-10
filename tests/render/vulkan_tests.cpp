@@ -1,11 +1,13 @@
 #include <tessera/vulkan/renderer.hpp>
 #include <tessera/inspection/offscreen_runner.hpp>
+#include <tessera/render/glyph_atlas.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <tessera/ui/serialization.hpp>
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
+#include <tessera/fonts/font_profile_serialization.hpp>
 #include <tessera/fonts/font_shaper.hpp>
-#include <tessera/render/glyph_atlas.hpp>
+#include <tessera/fonts/replay_fonts.hpp>
 #endif
 #include "../check.hpp"
 #include <array>
@@ -102,7 +104,6 @@ struct Host {
         for (auto& buffer : atlas_staging) destroy(buffer);
         atlas_images.clear(); atlas_staging.clear();
     }
-#ifdef TESSERA_REAL_GLYPH_FIXTURES
     void upload_atlas(const tessera::GlyphAtlasFrame& frame) {
         check(atlas_images.empty(), "Retire/unbind old atlas before upload");
         atlas_images.resize(frame.pages.size()); atlas_staging.resize(frame.pages.size());
@@ -137,7 +138,6 @@ struct Host {
         for (auto& buffer : atlas_staging) destroy(buffer);
         atlas_staging.clear();
     }
-#endif
     void destroy_target() {
         if (framebuffer) vkDestroyFramebuffer(device, framebuffer, nullptr);
         framebuffer = VK_NULL_HANDLE;
@@ -800,24 +800,53 @@ void batch_fixtures(Host& host) {
     host.finish("batch-empty.ppm"); renderer.retire(frame);
 }
 // Offscreen runner adapter: this host owns the target, submission, completion, retirement and readback.
+// With a glyph cache, each generation's atlas pages are prepared, uploaded and bound before submission, then
+// unbound and destroyed after completion and retirement; no atlas outlives its generation.
 class VulkanCapture final : public tessera::FrameCapture {
 public:
     VulkanCapture(Host& host, tessera::VulkanRenderer& renderer, tessera::CaptureBackend backend)
         : host_(host), renderer_(renderer), backend_(std::move(backend)) {}
     tessera::CaptureBackend backend() const override { return backend_; }
     tessera::Result<tessera::CapturedImage> capture(const tessera::CaptureRequest& request) override {
+        const tessera::UiDrawList* paint = request.paint;
+        std::optional<tessera::GlyphAtlasFrame> atlas;
+        std::vector<tessera::Diagnostic> warnings;
+        std::size_t bound = 0;
+        if (glyphs) {
+            auto prepared = tessera::prepare_glyph_atlas(*request.paint, *glyphs, request.device_scale, {1});
+            if (!prepared) return {std::nullopt, std::move(prepared.diagnostics)};
+            warnings = std::move(prepared.diagnostics);
+            atlas = std::move(*prepared.value);
+            host_.upload_atlas(*atlas);
+            for (; bound < atlas->pages.size(); ++bound) {
+                auto errors = renderer_.bind_image(atlas->pages[bound].image, host_.atlas_images[bound].view, glyph_sampler);
+                if (!errors.empty()) { release(*atlas, bound); return {std::nullopt, std::move(errors)}; }
+            }
+            paint = &atlas->draw_list;
+        }
         host_.resize({request.extent.width, request.extent.height});
         host_.begin(renderer_);
         // Renderer frame numbers stay strictly increasing across runs; the generation is the run's identity.
-        auto errors = renderer_.submit({frame_ + 1, request.logical_size, request.device_scale}, *request.paint);
-        const auto artifact = "runner-" + std::to_string(runs) + "-" + std::to_string(request.generation) + ".ppm";
+        auto errors = renderer_.submit({frame_ + 1, request.logical_size, request.device_scale}, *paint);
+        const auto artifact = artifacts + "-" + std::to_string(runs) + "-" + std::to_string(request.generation) + ".ppm";
         auto pixels = host_.finish(artifact.c_str());
+        if (errors.empty()) renderer_.retire(++frame_);
+        if (atlas) release(*atlas, bound);
         if (!errors.empty()) return {std::nullopt, std::move(errors)};
-        renderer_.retire(++frame_);
-        return {tessera::CapturedImage{request.extent, tessera::CaptureFormat::rgba8_srgb, std::move(pixels)}, {}};
+        return {tessera::CapturedImage{request.extent, tessera::CaptureFormat::rgba8_srgb, std::move(pixels)},
+                std::move(warnings)};
     }
     unsigned runs = 0;
+    std::string artifacts = "runner";
+    tessera::GlyphCache* glyphs = nullptr; // Borrowed; its service must outlive the run.
+    VkSampler glyph_sampler = VK_NULL_HANDLE;
 private:
+    // A completed (or rejected, hence unpinned) frame no longer references its pages.
+    void release(const tessera::GlyphAtlasFrame& atlas, std::size_t bound) {
+        for (std::size_t i = 0; i < bound; ++i)
+            check(renderer_.unbind_image(atlas.pages[i].image).empty(), "Generation atlas page still in use");
+        host_.clear_atlas();
+    }
     Host& host_;
     tessera::VulkanRenderer& renderer_;
     tessera::CaptureBackend backend_;
@@ -894,13 +923,108 @@ void runner_fixtures(Host& host) {
     check(has(tessera::run_offscreen({&recording,&text,other,&frames}).diagnostics,"capture_mismatch","/capture"),
         "Mismatched capture backend accepted");
 }
+#ifdef TESSERA_REAL_GLYPH_FIXTURES
+// Real-font capture: the recording declares the grayscale fixture profile by digest, the host verifies its
+// profile before running, and the adapter prepares atlas pages per generation. Mixed Latin/Japanese frames
+// are compared with the independent raster oracle across wrapping, scroll clipping and resize.
+void real_runner_fixtures(Host& host) {
+    tessera::FontProfile profile;
+    profile.assets = {{"noto-latin","2.015",font_bytes("NotoSans-Regular.ttf")},
+                      {"noto-jp","2.004",font_bytes("NotoSansJP-Regular.otf")}};
+    profile.faces = {{{0},"noto-latin"},{{1},"noto-jp"}};
+    profile.fallbacks = {{{0},{{1}}}};
+    const auto digest = tessera::font_profile_sha256(profile);
+    check(digest && digest.diagnostics.empty(), "Fixture profile digest failed");
+
+    tessera::ReplayRecording recording;
+    recording.environment = {1.25f, "ja-JP", {tessera::ReplayText::Kind::font_profile, "menu-fonts", *digest.value}};
+    recording.viewport = {78.1f,72};
+    recording.document.root.id = "menu";
+    for (const char* text : {"Start スタート", "終了 Quit"}) {
+        tessera::UiNode label; label.kind = tessera::NodeKind::text; label.properties["text"] = std::string(text);
+        recording.document.root.children.push_back(std::move(label));
+    }
+    recording.styles.resize(3);
+    recording.styles[0].height = tessera::Dimension::points(56);
+    recording.styles[0].overflow = tessera::Overflow::scroll;
+    recording.styles[0].padding = {4,4,4,4}; recording.styles[0].gap = 4;
+    for (const std::size_t i : {1,2}) recording.styles[i].text.size = 20;
+    recording.styles[1].color = {0.6f,0.85f,1,0.75f};
+    recording.styles[2].color = {1,0.7f,0.3f,0.65f};
+    recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10,10},{0,20}}},
+                       tessera::ReplayResize{{180.6f,72}}};
+
+    // The host restores both inputs and verifies the declared profile before running; core checks neither.
+    const auto saved = tessera::save_replay(recording);
+    const auto loaded = tessera::load_replay(*saved.value);
+    const auto saved_profile = tessera::save_font_profile(profile);
+    const auto restored = tessera::load_font_profile(*saved_profile.value);
+    check(saved && loaded && *loaded.value == recording && saved_profile && restored, "Real runner inputs did not round trip");
+    check(tessera::verify_replay_fonts(*loaded.value, *restored.value).empty(), "Declared fixture profile did not verify");
+    auto service = tessera::ProfileFontShaper::create(*restored.value);
+    check(service && service.diagnostics.empty(), "Fixture profile service rejected");
+    tessera::GlyphCache cache(*service.value);
+
+    const auto vertex=shader("primitive.vertex.spv"),fragment=shader("primitive.fragment.spv"),image=shader("primitive.image.spv");
+    tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,16};
+    tessera::VulkanRenderer renderer(context);
+    VkSamplerCreateInfo info{}; info.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter=info.minFilter=VK_FILTER_LINEAR; info.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    info.addressModeU=info.addressModeV=info.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler sampler; require(vkCreateSampler(host.device,&info,nullptr,&sampler), "create runner glyph sampler");
+    struct SamplerOwner { VkDevice device; VkSampler sampler; ~SamplerOwner(){vkDestroySampler(device,sampler,nullptr);} } sampler_owner{host.device,sampler};
+    VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(host.physical,&properties);
+    const tessera::CaptureBackend declared{"vulkan-reference-atlas", properties.deviceName};
+    VulkanCapture frames(host, renderer, declared);
+    frames.artifacts = "runner-real"; frames.glyphs = &cache; frames.glyph_sampler = sampler;
+
+    const auto result = tessera::run_offscreen({&*loaded.value,&*service.value,declared,&frames});
+    check(result && result.diagnostics.empty(), "Real-font offscreen run rejected");
+    const auto& run = *result.value;
+    check(run.manifest.environment == recording.environment && run.manifest.capture == declared && run.frames.size() == 3,
+        "Real-font run lost its profile, declaration or generations");
+    check(host.atlas_images.empty() && renderer.pending_uploads() == 0, "Generation atlas outlived its frame");
+    const auto& generations = run.output.generations;
+    check(generations[1].boxes[1].border_box.origin.y < generations[0].boxes[1].border_box.origin.y,
+        "Scroll generation did not move the wrapped text");
+    check(generations[2].boxes[1].border_box.size.height < generations[0].boxes[1].border_box.size.height,
+        "Resize generation did not unwrap the mixed text");
+    const tessera::CaptureExtent extents[]{{98,90},{98,90},{226,90}};
+    for (std::size_t g = 0; g < run.frames.size(); ++g) {
+        const auto& frame = run.frames[g];
+        check(frame.status == tessera::FrameStatus::captured && frame.extent == extents[g] && frame.image,
+            "Real-font frame extent/status differs");
+        const auto expected = glyph_reference(generations[g].paint, cache, frame.device_scale,
+            {frame.extent.width, frame.extent.height}, properties.limits.subPixelPrecisionBits);
+        const auto& actual = frame.image->pixels;
+        const auto decode=[](std::uint8_t v) { const double c=double(v)/255; return c<=0.04045 ? c/12.92 : std::pow((c+0.055)/1.055,2.4); };
+        double max_linear_error = 0;
+        bool ink = false;
+        for (std::size_t i = 0; i < actual.size(); ++i) {
+            max_linear_error = std::max(max_linear_error, std::abs(decode(actual[i])-decode(expected[i])));
+            ink = ink || (i % 4 != 3 && actual[i] != 0);
+        }
+        std::cout << "Real runner generation=" << g << " max linear error=" << max_linear_error << '\n';
+        check(ink, "Real-font frame drew no glyphs");
+        check(max_linear_error <= 2.0/255, "Real-font runner frame differs from independent raster sampling (linear tolerance 2/255)");
+    }
+    // A second service and cache from the same declared profile reproduce every observation and image byte.
+    ++frames.runs;
+    auto again = tessera::ProfileFontShaper::create(profile);
+    check(again && again.diagnostics.empty(), "Original fixture profile service rejected");
+    tessera::GlyphCache repeated_cache(*again.value);
+    frames.glyphs = &repeated_cache;
+    const auto repeated = tessera::run_offscreen({&recording,&*again.value,declared,&frames});
+    check(repeated && repeated.value == result.value, "Repeated real-font offscreen run differs");
+}
+#endif
 }
 int main() {
     try {
         { Host host; host.initialize(); host.make_texture();
           fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host); runner_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
-          real_glyph_fixtures(host);
+          real_glyph_fixtures(host); real_runner_fixtures(host);
 #endif
         }
         check(validation_errors == 0,"Vulkan validation errors occurred");
