@@ -39,8 +39,11 @@ int main() {
     std::optional<std::string> host_selection;
     ReactiveRuntime runtime;
     auto selected_item = runtime.signal(runtime.root(), "selection", host_selection);
+    auto panel_owner = runtime.owner(runtime.root(), "panel");
+    bool selection_observer_connected = true; // Synthetic host subscription lifetime.
+    runtime.on_cleanup(panel_owner, "selection-observer", [&] { selection_observer_connected = false; });
     int evaluations = 0;
-    const auto panel = runtime.computed<PanelObservation>(runtime.root(), "panel", [&] {
+    const auto panel = runtime.computed<PanelObservation>(panel_owner, "panel", [&] {
         ++evaluations;
         const auto selection = selected_item.read();
         return PanelObservation{{selection.has_value(), false, selection ? "" : "Select an item."},
@@ -90,5 +93,8 @@ int main() {
         std::cout << '\n';
     }
     if (inspected_item != "item-7" || evaluations != 3) return 10;
+    panel_owner.dispose();
+    runtime.flush();
+    if (!selection_observer_connected || !runtime.deliver_cleanups().empty() || selection_observer_connected) return 11;
     std::cout << "Host inspected " << *inspected_item << ". Synthetic core-only panel; placeholder text, no native window.\n";
 }

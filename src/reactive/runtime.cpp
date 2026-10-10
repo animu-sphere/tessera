@@ -2,6 +2,7 @@
 #include "../ui/json_detail.hpp"
 #include <algorithm>
 #include <limits>
+#include <list>
 #include <set>
 #include <thread>
 
@@ -40,19 +41,27 @@ struct Node {
     std::set<std::uint64_t> consumers;
 };
 struct Collection { std::uint64_t id; std::vector<std::pair<std::uint64_t, std::uint64_t>> dependencies; };
+struct Cleanup {
+    std::uint64_t owner;
+    std::string path;
+    std::function<void()> callback;
+};
 thread_local ReactiveState* active = nullptr;
 }
 struct ReactiveState {
     std::thread::id thread = std::this_thread::get_id();
     std::map<std::uint64_t, Owner> owners{{1, {0, "/reactive/root", 1}}};
     std::map<std::uint64_t, Node> nodes;
+    std::list<Cleanup> cleanups, pending_cleanups;
     std::uint64_t next_owner = 2, next_node = 1;
     std::size_t batches = 0;
-    bool flushing = false, comparing = false;
+    bool flushing = false, comparing = false, delivering_cleanups = false;
     std::vector<Collection> stack;
     void check() const {
         if (thread != std::this_thread::get_id())
             fail("reactive_thread", "/reactive", "Use the runtime on its creating UI thread.");
+        if (active && active->delivering_cleanups)
+            fail("reactive_cleanup_entry", "/reactive", "Deliver external cleanup only; queue reactive updates for a later host batch.");
         if (active && active != this)
             fail("foreign_reactive_runtime", "/reactive", "A calculation may read only its own runtime.");
         if (comparing)
@@ -224,6 +233,15 @@ void reactive_dispose(const ReactiveRef& ref) {
     };
     visit(ref.id); // Child-first postorder; siblings in creation order.
     const std::set<std::uint64_t> closed(closing.begin(), closing.end());
+    // Splice registered callbacks without allocation. Keep their owned captures
+    // alive until the explicit host delivery, in child-first registration order.
+    for (const auto owner : closing) {
+        for (auto it = state->cleanups.begin(); it != state->cleanups.end();) {
+            auto current = it++;
+            if (current->owner == owner)
+                state->pending_cleanups.splice(state->pending_cleanups.end(), state->cleanups, current);
+        }
+    }
     // Close every scope before destroying stored values/callables.
     for (const auto id : closing) state->owners.erase(id);
     for (const auto& [id, n] : state->nodes)
@@ -265,6 +283,55 @@ ReactiveOwner ReactiveRuntime::owner(const ReactiveOwner& parent, std::string na
     const auto id = detail::identity(state_->next_owner);
     state_->owners.emplace(id, detail::Owner{parent.ref_.id, path, p.depth + 1});
     return ReactiveOwner({state_, id});
+}
+void ReactiveRuntime::on_cleanup(const ReactiveOwner& owner, std::string name, std::function<void()> callback) {
+    state_->mutation();
+    if (detail::lock(owner.ref_) != state_)
+        detail::fail("foreign_reactive_owner", "/reactive", "Use an owner from this runtime.");
+    const auto& scope = state_->owner(owner.ref_.id);
+    detail::validate_name(name);
+    const auto path = scope.path + "/cleanups/" + detail::escaped(name);
+    if (!callback)
+        detail::fail("invalid_reactive_cleanup", path, "Supply a callable external cleanup operation.");
+    if (state_->cleanups.size() + state_->pending_cleanups.size() >= max_reactive_cleanups)
+        detail::fail("reactive_cleanup_limit", path, "Keep live and pending cleanup registrations within 4096; deliver queued cleanups to release capacity.");
+    for (const auto& cleanup : state_->cleanups)
+        if (cleanup.path == path)
+            detail::fail("duplicate_reactive_name", path, "Use a unique cleanup name within its owner.");
+    state_->cleanups.push_back({owner.ref_.id, path, std::move(callback)});
+}
+std::vector<Diagnostic> ReactiveRuntime::deliver_cleanups() {
+    auto state = state_;
+    state->mutation();
+    if (state->batches)
+        detail::fail("reactive_open_batch", "/reactive", "Close the outer batch before delivering external cleanups.");
+    std::vector<Diagnostic> diagnostics;
+    diagnostics.reserve(state->pending_cleanups.size());
+    auto* previous = detail::active;
+    detail::active = state.get();
+    state->delivering_cleanups = true;
+    try {
+        while (!state->pending_cleanups.empty()) {
+            auto cleanup = std::move(state->pending_cleanups.front());
+            state->pending_cleanups.pop_front(); // Consume before invocation, even on failure.
+            try { cleanup.callback(); }
+            catch (const std::bad_alloc&) { throw; }
+            catch (const std::exception& e) {
+                diagnostics.push_back({"reactive_cleanup_failed", Severity::error, cleanup.path,
+                    "Cleanup failed and will not be retried: " + std::string(e.what()), {}});
+            } catch (...) {
+                diagnostics.push_back({"reactive_cleanup_failed", Severity::error, cleanup.path,
+                    "Cleanup failed with a nonstandard exception and will not be retried.", {}});
+            }
+        }
+        state->delivering_cleanups = false;
+        detail::active = previous;
+    } catch (...) {
+        state->delivering_cleanups = false;
+        detail::active = previous;
+        throw;
+    }
+    return diagnostics;
 }
 detail::ReactiveRef ReactiveRuntime::add(const ReactiveOwner& owner, std::string name, std::any value,
     std::function<std::any()> calculate, detail::ReactiveEqual equal) {

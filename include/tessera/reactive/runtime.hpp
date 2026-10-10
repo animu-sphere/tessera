@@ -7,11 +7,13 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace tessera {
 inline constexpr std::size_t max_reactive_nodes = 4096;
 inline constexpr std::size_t max_reactive_owners = 4096;
 inline constexpr std::size_t max_reactive_depth = 32;
+inline constexpr std::size_t max_reactive_cleanups = 4096;
 
 class ReactiveError final : public std::runtime_error {
 public:
@@ -74,7 +76,7 @@ private:
     friend class ReactiveRuntime;
 };
 
-// One host UI thread; explicit flush, with no presentation/effect delivery.
+// One host UI thread; explicit graph flush and external cleanup delivery.
 class ReactiveRuntime final {
 public:
     ReactiveRuntime();
@@ -83,6 +85,13 @@ public:
     ReactiveRuntime& operator=(const ReactiveRuntime&) = delete;
     ReactiveOwner root() const;
     ReactiveOwner owner(const ReactiveOwner& parent, std::string name);
+    // Owner disposal queues this callback; it never invokes external operations.
+    // Cleanup callbacks must not enter any reactive runtime.
+    void on_cleanup(const ReactiveOwner&, std::string name, std::function<void()>);
+    // Host boundary, outside batches/calculations. Consumes each queued callback
+    // once, continues after callable failures, and returns located diagnostics.
+    // Runtime destruction releases captures without invoking pending callbacks.
+    std::vector<Diagnostic> deliver_cleanups();
     template<class T, class Equal = std::equal_to<T>>
     Signal<T> signal(const ReactiveOwner& owner, std::string name, T value, Equal equal = {}) {
         static_assert(std::is_copy_constructible_v<T>, "Reactive values must be copyable owned values.");
