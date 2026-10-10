@@ -49,6 +49,12 @@ The `TESSERA_BUILD_FONTS` option defaults OFF and performs no HarfBuzz or FreeTy
 
 OpenUSD, Chromium/WebView, a JavaScript VM, Qt, and large application frameworks are not foundational dependencies. Optional adapters must not introduce them transitively into core-only consumption.
 
+## Proposed localization choices
+
+[MessageFormat 2](https://www.unicode.org/reports/tr35/tr35-messageFormat.html) is the structured-message design reference under [localization](../design/localization.md#proposed-semantic-message-values); selecting an implementation and catalog container is a separate adoption decision. [ICU4X](https://github.com/unicode-org/icu4x) is a candidate for modular locale/formatting/Unicode data services, with ICU or equivalent implementations evaluated against the same boundary. ICU4X's modular code and pluggable locale data suit an evaluation of bounded data subsets; this does not select a Tessera dependency or establish coverage.
+
+Evaluate C++ integration/FFI and build acquisition, code/data size, required locale/Unicode/formatting features, fallback/missing-data diagnostics, data generation and version identity, licensing, and reproducibility with fixed fixtures. Message formatting and text Unicode services may share data without sharing widget APIs or importing implementation types into core. Declare code and data requirements separately; require no automatic fetch or mandatory Rust/locale SDK for core-only builds. Adopt versions and acquisition only through the process below, with configuration evidence in [support](support-matrix.md).
+
 ## Adoption requirements
 
 For each adopted dependency, record the owner module, purpose, pinned or constrained version, license/redistribution terms, acquisition method, and tested toolchain/platform combinations. Explain whether it is needed at build time, application runtime, or only for development.

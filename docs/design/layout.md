@@ -73,6 +73,16 @@ These rules are implementation decisions to record with examples and algorithm t
 
 Responsive application layout should consume an explicit logical viewport or containing-box size. Breakpoint/rule syntax and general constraint/flow solvers are later consumer-driven candidates, following flex, scrolling, absolute positioning, and explicit grid. They must remain backend-neutral and diagnose conflicting or unsatisfiable rules. Validate selected viewport/scale fixtures through [inspection tooling](inspection.md), without claiming browser layout compatibility.
 
+## Proposed logical direction and edges
+
+Use a declared inline direction (LTR, RTL, or automatic resolution from the nearest [locale context](localization.md#proposed-locale-context)), independent of the flex `direction` field that selects row/column. An explicit subtree override wins over inherited locale direction. Text paragraph direction and mixed-direction runs are owned by [text](text.md#proposed-international-text-layout), rather than inferred from flex orientation or mirrored paint.
+
+Resolve logical inline-start/inline-end and block-start/block-end edges and start/end alignment into physical geometry before placement. Physical left/right edges remain useful for intentionally fixed geometry; define precedence or reject conflicts when physical and logical values specify the same edge. Horizontal writing is the initial design domain; logical naming does not establish vertical-writing behavior. The resulting boxes and clips are shared by paint, hit testing, focus navigation and semantic bounds. Sequential focus and authored semantic order retain their declared identity/order; directional keyboard/gamepad movement uses resolved geometry under [input](input.md).
+
+Locale/direction changes require remeasurement and placement where affected, including wrap heights, ancestor sizing, scroll extents and clamping. Prefer intrinsic/content sizing with min/max constraints and wrapping for translatable labels; explicit fixed sizes must have an intentional overflow policy. Semantic back/forward affordances resolve direction explicitly at component/paint preparation, while non-directional icons remain unchanged. Do not implement RTL by reflecting the final framebuffer: text, icons, interaction geometry and semantics must agree.
+
+Verify logical-edge mapping, nested direction overrides, safe alignment, wrapped text, scroll/reveal geometry and directional navigation numerically before selective image checks under the [localization fixtures](../guides/testing.md#localization-fixtures). Property syntax, physical/logical conflict rules and automatic-direction defaults must be settled before extending authored styles.
+
 ## Proposed virtualization foundation
 
 Virtualization is one shared layer, not a VirtualList-specific implementation. VirtualList, VirtualTree, VirtualGrid, DataGrid, TreeTable, log views, and timelines build on it. It follows ordinary scrolling and realizes only items intersecting the viewport plus a declared overscan, exposing enough geometry for navigation and [reveal](input.md#implemented-scroll-routing).

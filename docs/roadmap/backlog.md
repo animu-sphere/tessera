@@ -70,6 +70,25 @@ World-space adapters and streamed resources require bounded host requirements. M
 
 Owners: [architecture](../design/architecture.md), [Web host](../design/web-host.md), [rendering](../design/rendering.md), [semantics](../design/semantics.md), [input](../design/input.md), [dependencies](../reference/dependencies.md), [replay](../design/replay.md).
 
+## Later — Localization and international layout
+
+Objective: [localized messages](../design/localization.md) and runtime language changes participate in the same reactive, semantic, layout and verification contracts as other UI values.
+
+Prerequisites: reactive bindings and coherent publication, the v0.4.0 subtree context, host resource/reload ownership, and text measurement/paint agreement. Contract design can inform those foundations without adding the external direction's implementation phases to the active milestone.
+
+Candidates, in dependency order:
+
+- Define validated locale identity, semantic message references/typed arguments and provider integration in the common IR before frontend convenience APIs or resource encodings; settle inline direction and logical-edge rules with [layout](../design/layout.md#proposed-logical-direction-and-edges).
+- Owned versioned catalogs, centralized fallback and missing-message policy, runtime locale switching and atomic catalog replacement with last-valid-state preservation.
+- Plural/select and number/date/time/unit formatting behind optional services; evaluate MessageFormat/ICU4X under [dependency adoption](../reference/dependencies.md#proposed-localization-choices).
+- Language/script-aware text inputs and direction-aware placement/icons, coordinated with the [international text algorithms](#later--typography-expansion); introduce RTL consumer fixtures without waiting for every typography extension.
+- [Locale observations](../design/inspection.md#proposed-localization-observations), static ID/argument/coverage tooling and reproducible [locale/catalog transitions](../design/replay.md#proposed-localization-inputs).
+- Expanded and RTL pseudo locales with numeric/semantic invariants, selective CPU-reference screenshots and compact CI/agent reports under [testing](../guides/testing.md#localization-fixtures).
+
+Exit criteria to refine per consumer: language/resource changes preserve identity, focus and user edits while publishing coherent messages, semantic labels, geometry and paint; invalid catalogs keep the accepted state with located diagnostics. Fallback, formatting and missing-glyph reports remain distinguishable. Declared default, expanded and RTL fixtures reveal clipping, wrap and direction regressions; repeated replay/capture agrees with fixed catalogs, data, fonts and formatting inputs.
+
+Owners: [localization](../design/localization.md), [UI model](../design/ui-model.md), [reactive runtime](../design/reactive-runtime.md), [layout](../design/layout.md), [text](../design/text.md), [inspection](../design/inspection.md), [replay](../design/replay.md), [dependencies](../reference/dependencies.md).
+
 ## Later — Typography expansion
 
 Prerequisites: v0.2.0 real text (faces, shaping, bitmap glyph cache, fallback, wrapping, deterministic fixtures) and the v0.4.0 editing/selection work.
@@ -78,7 +97,7 @@ Candidates, in dependency order:
 
 - Caret and selection geometry for text inputs; authored font-alias syntax and bundled alias mappings.
 - Read-only rich text spans, MSDF glyphs with size/scale-dependent [raster mode selection](../design/text.md#proposed-glyph-raster-strategy) sampled by GPU and CPU backends, and variable font instances.
-- Unicode line breaking, script segmentation, advanced bidirectional layout, color emoji, and advanced OpenType features.
+- [International text layout](../design/text.md#proposed-international-text-layout): Unicode line breaking, script segmentation and bidirectional layout coordinated with [localization](#later--localization-and-international-layout); color emoji and advanced OpenType features.
 - Font asset metadata, license metadata hooks, and packaging warnings under [font licensing](../reference/dependencies.md#font-licensing).
 
 Exit criteria to refine per item: measurement/paint agreement holds across fallback and variation changes, zoomed text meets declared image tolerances, and each script or emoji format claim has dedicated fixtures.
