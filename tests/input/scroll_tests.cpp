@@ -179,6 +179,21 @@ void reveal_minimal_nested_and_oversized() {
           "A target larger than a viewport must align its leading edge");
 }
 
+// With fractional geometry the revealed edge lands within float rounding of the viewport edge; revealing
+// again must still request no change, so hosts can treat an empty reveal as "in view".
+void reveal_is_stable_under_rounding() {
+    for (int step = 1; step < 10; ++step) {
+        Fixture f;
+        for (std::size_t i : {2, 4, 6, 8}) f.styles[i].height = Dimension::points(20 + 0.1f * static_cast<float>(step));
+        f.styles[1].margin = {0.3f * static_cast<float>(step), 0, 0, 0};
+        f.compute();
+        for (std::uint32_t target : {8u, 6u, 2u, 10u, 4u}) {
+            f.apply(f.reveal(target));
+            check(f.reveal(target).empty(), "A revealed target must be stable under rounding");
+        }
+    }
+}
+
 void invalid_input() {
     Fixture f;
     const auto nan = std::numeric_limits<float>::quiet_NaN();
@@ -209,6 +224,7 @@ int main() {
     try {
         routing_chains_per_axis();
         reveal_minimal_nested_and_oversized();
+        reveal_is_stable_under_rounding();
         invalid_input();
         std::cout << "Scroll routing, chaining, reveal, paint/hit agreement, and rejection checks passed.\n";
     } catch (const std::exception& error) {

@@ -431,6 +431,17 @@ void resize_keeps_visible_focus_in_view() {
     const auto unrevealed = play(keyboard);
     check(unrevealed.generations.size() == 4 && !in_view(unrevealed.generations[1], 5),
           "Without the policy, a resize never reveals focus");
+
+    // A fractional gap leaves the revealed Quit within float rounding of the viewport edge; it is still in
+    // view, so the resize must reveal it again.
+    auto fractional = scrolled_menu();
+    fractional.policy.reveal_focus = true;
+    fractional.styles[0].gap = 8.2f;
+    fractional.viewport = {200, 50};
+    fractional.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}}, tessera::ReplayResize{{200, 40}}};
+    const auto rounded = play(fractional);
+    check(rounded.generations.size() == 3 && in_view(rounded.generations[1], 5) && in_view(rounded.generations[2], 5),
+          "Focus revealed within rounding of the viewport edge must stay in view across a resize");
 }
 
 // A semantic action step requests what a click requests, even for a button scrolled out of view, and
