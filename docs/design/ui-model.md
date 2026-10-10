@@ -123,6 +123,8 @@ Dynamic UI, live reload, and agent-generated UI must fail locally. An error boun
 
 A subtree can receive shared services through an explicit context: theme, locale, asset provider, [command registry](commands.md), selection model, undo stack, font environment, or diagnostics sink. A context value has a declared type, an owner that outlives every consumer, and a scope limited to the subtree that provides it; consumers resolve the nearest provider and diagnose a missing one. Context is not a global service locator, does not let components reach host internals, and does not move application state into the runtime. Changing a provided value invalidates its consumers under the ordinary update rules.
 
+[Localization](localization.md#proposed-locale-context) defines locale inputs and message resolution. A localized message binding preserves its ID and typed arguments in the common representation; changing provider values changes presentation without replacing component keys or user editing state. Literal text and message references need distinct validated forms before a serialized schema is extended.
+
 ## Implemented property metadata
 
 [property_metadata.hpp](../../include/tessera/ui/property_metadata.hpp) describes the authored semantic property vocabulary above without a reflection framework or editor dependency. `property_descriptors()` returns one `PropertyDescriptor` per property, ordered by name; `find_property_descriptor` performs exact, case-sensitive lookup. Descriptors have static storage duration and remain valid for the rest of the program.

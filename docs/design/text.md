@@ -121,6 +121,16 @@ Begin with UTF-8, Latin, Japanese, and basic fallback fonts. Specify missing-gly
 
 Japanese verification requires declared font fixtures and real mixed-script examples. Do not infer coverage of every script or writing mode from a library choice. Vertical writing and rich-text editor suites are outside early scope. Editing/selection/IME and clipboard contracts are owned by [input](input.md#proposed-editing-ime-and-clipboard-boundary); shaping alone cannot establish editing support.
 
+## Proposed international text layout
+
+Text consumes resolved UTF-8 content plus explicit language/script and paragraph-direction inputs from [localization](localization.md); it does not resolve message IDs or read catalogs. Locale, paragraph direction, and UI inline direction are distinct: an RTL UI can contain LTR identifiers and mixed-script paragraphs. Define automatic paragraph-direction and bidirectional isolation policies, including interpolated user content, before exposing authored controls.
+
+Unicode segmentation, bidirectional analysis, script itemization, language-aware font selection, shaping and line breaking cooperate in text layout. Do not prescribe one unconditional pass order: chosen line boundaries and shaping context must preserve correct visual ordering. A paragraph can contain several directional/script runs and concrete font faces, while source clusters keep explicit UTF-8 byte offsets. Measure and paint consume identical resolved options and constraints. Broader grapheme/line-break and BiDi behavior requires explicit Unicode/data identities and dedicated fixtures rather than a HarfBuzz library inference.
+
+Font selection can use declared language/script preferences as well as coverage and the host's ordered fallback stack. Selected concrete faces and missing-glyph diagnostics stay observable; color emoji formats follow the separate [glyph strategy](#proposed-glyph-raster-strategy). Reuse keys must include resolved content, language/direction, font/fallback revisions and line constraints under [incremental invalidation](#proposed-incremental-text-invalidation).
+
+Use representative Latin/CJK, Arabic/Hebrew mixed with numbers and Latin, Indic, Thai and emoji fixtures as each algorithm is introduced. They are verification targets, not a script-support claim. Text editing, caret/selection and IME continue to follow the [input boundary](input.md#proposed-editing-ime-and-clipboard-boundary).
+
 ## Proposed font sources and selection
 
 A host-side font database registers faces from separate sources:

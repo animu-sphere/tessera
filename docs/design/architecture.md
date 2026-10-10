@@ -10,6 +10,8 @@ The core concentrates on document and component identity, reactive view updates,
 
 Model updates through dependency, identity, time, and ownership: what invalidates a value, what persists across updates, when work may run, and who disposes it. The [reactive kernel](reactive-runtime.md) sits beneath components and preserves application-state ownership. Its dependency graph is distinct from its owner tree. The long-term performance goal is work proportional to affected observable UI, measured against representative workloads while preserving full-tree correctness.
 
+[Localization](localization.md) treats locale as a first-class reactive subtree context and preserves message identity until resolution before text measurement. Message formatting, Unicode/font processing, logical layout and semantic naming participate in one coherent update while keeping separate interfaces. Direction-aware layout belongs in runtime primitives; translation resources reach the runtime through host services, and no concrete localization library enters the core API.
+
 Long-term constraints:
 
 1. Declarative composition above imperative execution.

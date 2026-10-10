@@ -13,6 +13,7 @@ Test algorithms and boundaries heavily; test appearance selectively. Keep tests 
 | [Input](../design/input.md) | Hit testing, clip/transform agreement, cancellation, propagation, focus/navigation recovery, typed drop eligibility |
 | [Commands](../design/commands.md) | Equal invocation and eligibility across input sources, argument validation, disabled agreement with semantics, one transaction per gesture |
 | [Text](../design/text.md) | Shaping/measurement agreement, UTF-8 errors, fallback, wrapping, cache invalidation |
+| [Localization](../design/localization.md) | Locale/argument validation, fallback and missing-key distinctions, formatting, atomic locale/catalog changes, logical direction and pseudo locales |
 | [Rendering](../design/rendering.md) | Paint order, stack validity, resource lifetime, a few primitive/glyph images |
 | [Semantics](../design/semantics.md) | Roles/names/relationships, state/action consistency, stale identities and adapter boundaries |
 | [Replay](../design/replay.md) | Controlled time/readiness, deterministic outputs, malformed recording/version failures |
@@ -51,6 +52,14 @@ Capture tree, geometry, diagnostics, render counters, and optional image from on
 Check a core-only observation path with no renderer, a window-free CPU reference capture path, and a window-free GPU capture path with explicit device/completion requirements. Never silently substitute the CPU backend for a failing GPU configuration. Future CI artifacts may include actual/expected/diff images, a snapshot bundle, and a machine-readable report. Reports must distinguish unavailable observations from successful zero-valued metrics.
 
 Development transports require bounded input, ordinary action eligibility, allowed-state enforcement, cancellation/disposal, and production exclusion fixtures. Browser adapters require their own focus/IME/accessibility and lifecycle checks under [Web host](../design/web-host.md#verification); native evidence does not establish browser behavior.
+
+## Localization fixtures
+
+As the [localization proposal](../design/localization.md) is implemented, verify locale normalization/rejection, script-preserving fallback, duplicate/missing message IDs, argument types, plural/select branches, number/date/time/unit formatting, and unavailable data with fixed catalog/formatter inputs. Distinguish fallback hits from missing messages and formatting failures. Cover rejected catalog reload, late resource completion after provider disposal, nested locale providers and stable component/focus/edit state across switches. Incremental results must equal full resolution and presentation.
+
+Use a compact consumer fixture in its declared default locale, an expanded pseudo locale and an RTL pseudo locale. Pseudo transformations operate on message literal content while preserving IDs, argument types and formatting structure; make expansion and direction settings deterministic. Assert expected message coverage/markers, geometry, wrapping/clipping, logical edge/alignment mapping, nested direction overrides, semantic names, and directional icons. Check pointer targeting and keyboard/gamepad navigation against the resolved geometry. Intentional clipping/scrolling follows the fixture's declared overflow policy. Pseudo RTL stresses UI direction but does not replace actual mixed-direction shaping fixtures.
+
+Text fixtures introduce real script/BiDi and language-aware fallback cases under the [text contract](../design/text.md#proposed-international-text-layout). Fix locale-data identity, catalog revisions, formatting preferences/time zone, fonts and backend in [replay](../design/replay.md#proposed-localization-inputs) and capture inputs. Pair numeric/semantic checks with a few CPU-reference images when that capture path is available, plus declared GPU comparisons for render behavior. Avoid locale-by-widget screenshot multiplication. CI/agent reports distinguish missing translation, fallback, missing glyph and overflow and identify resource/node source locations; these are procedures, not CLI flags or executed-check evidence.
 
 ## Image regression and performance
 

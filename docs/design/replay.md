@@ -16,6 +16,12 @@ A recording identifies:
 
 Use fixture-owned resources and explicit readiness timing instead of relying on live filesystem/network completion. Define schema versioning, unsupported-version diagnostics, bounds, and deterministic event ordering before freezing the format. Document, replay, and semantic schema versions are distinct.
 
+## Proposed localization inputs
+
+Reproducing [localized UI](localization.md) requires initial subtree locale/formatting preferences and direction overrides, catalog identities and revisions, the configured message fallback/default policy, formatter/locale-data identity, and declared font/shaping inputs. Include explicit time-zone inputs for date/time formatting; do not consult the process locale or clock. Pseudo-locale transformations also need a declared configuration/identity.
+
+Record locale switches and catalog readiness/replacement as ordered host inputs at update points. Accepted and rejected replacements must reproduce the same visible generation, diagnostics and semantic/layout/paint values. Captures identify the catalogs used by their generation; semantic-name targets are interpreted in that generation's resolved locale. These additions require bounded schema/version decisions and do not extend the encoded environment fields of the prototype below.
+
 ## Implemented prototype playback
 
 [replay.hpp](../../include/tessera/replay/replay.hpp) implements an in-process subset of this contract. It is not a stable API and does not extend UI JSON v1; [Replay JSON v1](#implemented-replay-json-v1) and explicit [Replay JSON v2](#implemented-replay-json-v2) serialize its recordings.
