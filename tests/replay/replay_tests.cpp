@@ -400,6 +400,39 @@ void reload_reveals_recovered_focus() {
           "Without the policy, a reload recovers focus without scrolling");
 }
 
+// Under the reveal policy a resize keeps focus that was in view in view, in the resize's one generation,
+// but leaves focus the user scrolled away from out of view.
+void resize_keeps_visible_focus_in_view() {
+    auto keyboard = scrolled_menu();
+    keyboard.policy.reveal_focus = true;
+    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},                 // 0: quit, revealed
+                      tessera::ReplayResize{{200, 40}},                                    // 1: quit kept in view
+                      tessera::InputEvent{2us, tessera::Scroll{{100, 20}, {0, -1000}}},    // 2: scrolled to top
+                      tessera::ReplayResize{{200, 30}}};                                   // 3: quit stays hidden
+    const auto output = play(keyboard);
+    check(output.generations.size() == 5 && output.generations[2].step == 1u && output.generations[4].step == 3u,
+          "A revealing resize must settle exactly one generation");
+    const auto in_view = [](const tessera::ReplayGeneration& generation, std::size_t box) {
+        const auto viewport = generation.boxes[0].border_box;
+        const auto rect = generation.boxes.at(box).border_box;
+        return rect.origin.y >= -0.001f && rect.origin.y + rect.size.height <= viewport.size.height + 0.001f;
+    };
+    check(in_view(output.generations[1], 5) && output.generations[2].boxes[0].border_box.size.height == 40 &&
+              offset(output.generations[2]) > offset(output.generations[1]) && in_view(output.generations[2], 5),
+          "A resize that hides visible focus must reveal it");
+    check(offset(output.generations[3]) == 0 && offset(output.generations[4]) == 0 &&
+              !in_view(output.generations[4], 5),
+          "A resize must not reveal focus that was already out of view");
+    check(output.semantics.size() == 5 && output.semantics[2].generation == 2 && output.semantics[2].focused == 5u,
+          "A revealing resize must be observed once, after its reveal");
+    check(output == play(keyboard), "Repeated resize reveal playback must be identical");
+
+    keyboard.policy.reveal_focus = false;
+    const auto unrevealed = play(keyboard);
+    check(unrevealed.generations.size() == 4 && !in_view(unrevealed.generations[1], 5),
+          "Without the policy, a resize never reveals focus");
+}
+
 // A semantic action step requests what a click requests, even for a button scrolled out of view, and
 // ambiguous or unexposed targets fail.
 void semantic_action_steps_match_clicks() {
@@ -693,6 +726,7 @@ int main() {
         logical_commands_match_clicks_and_semantics();
         reveal_policy_scrolls_focus_into_view();
         reload_reveals_recovered_focus();
+        resize_keeps_visible_focus_in_view();
         semantic_action_steps_match_clicks();
         press_policy_focuses_without_reveal();
         session_steps_match_playback();

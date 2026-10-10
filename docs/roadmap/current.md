@@ -31,6 +31,6 @@ Owners: [text](../design/text.md), [input](../design/input.md), [commands](../de
 
 ## Immediately next
 
-Continue hardening [focus recovery](../design/input.md#implemented-prototype-focus-dispatch) for scrolled menus where fixtures expose gaps, such as focus left out of view by a resize, which no step reveals, using replay recordings and the [offscreen runner](../design/inspection.md#implemented-prototype-offscreen-runner) for fixtures. Preserve the existing offscreen, real-font runner, and native glyph checks, and extend the [bounded menu wrapping profile](../design/text.md#implemented-menu-wrapping-profile) only for demonstrated Unicode/Japanese fixture requirements. A physical-controller session can confirm the gamepad path whenever a controller is available.
+Continue hardening [focus recovery](../design/input.md#implemented-prototype-focus-dispatch) for scrolled menus where fixtures expose gaps, using replay recordings and the [offscreen runner](../design/inspection.md#implemented-prototype-offscreen-runner) for fixtures. Preserve the existing offscreen, real-font runner, and native glyph checks, and extend the [bounded menu wrapping profile](../design/text.md#implemented-menu-wrapping-profile) only for demonstrated Unicode/Japanese fixture requirements. A physical-controller session can confirm the gamepad path whenever a controller is available.
 
 Later candidate scopes are in [backlog](backlog.md).
