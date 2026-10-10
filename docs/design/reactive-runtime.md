@@ -1,5 +1,25 @@
 # Reactive runtime
 
+## Implemented in-process graph contract
+
+[runtime.hpp](../../include/tessera/reactive/runtime.hpp) defines `ReactiveRuntime`, `ReactiveOwner`, `Signal<T>`, `Computed<T>`, and `ReactiveError`; [runtime.cpp](../../src/reactive/runtime.cpp) owns the dependency graph. The runtime is noncopyable and nonmovable. Its operations run on its creating UI thread; background-thread entry and cross-runtime reads during calculations or equality comparisons fail. The core imports no host, renderer, text-service, or executor types.
+
+`root()` returns the runtime's explicit root owner. `owner(parent, name)` creates a child scope. `signal(owner, name, value, equal)` creates an owned source; `computed<T>(owner, name, calculate, equal)` registers a lazy cached calculation. Values and callables must be copyable for C++ `std::any`/`std::function` storage. Names are nonempty UTF-8, at most 256 bytes, unique among sibling owners or values within one owner. Diagnostics escape names as JSON-pointer segments beneath `/reactive/root`. Owner and value identities are monotonically allocated within a runtime and never reused; they are distinct from document handles and host UI generations. References are weak: they neither keep the runtime alive nor transfer ownership across scopes.
+
+`read()` returns an owned value copy. Reads during a calculation collect dependencies; reads outside calculations do not subscribe. Nested evaluation restores the previous collector on success and failure. A successful calculation replaces its complete dependency set even when its output compares equal, so abandoned branches detach. Constants need no edges. `revision()` refreshes a computed value but does not subscribe the caller; use `read()` for tracked calculations.
+
+Sources start at revision one. A computation has no value until its first successful evaluation, which accepts revision one. Equality defaults to `std::equal_to<T>` and can be supplied explicitly, including an always-false comparator for always-changed values. Equal writes return false and do not invalidate; accepted writes return true and advance the source revision. Equal derived outputs retain the accepted value and revision. Comparators must be deterministic and may not enter any reactive runtime.
+
+Writes iteratively mark all reachable consumers potentially stale without evaluating them. Before a stale calculation runs, dependency revisions and refreshed prerequisites determine whether its output needs recalculation. Unchanged derived revisions suppress downstream calculation. Demand evaluation refreshes shared prerequisites before consuming them, including when registration order differs from dependency order; a diamond cannot read mixed source revisions. An invalid or failed obsolete prerequisite allows consumer recalculation to discover a replacement branch. A calculation that reads the invalid prerequisite fails rather than returning an old cached result.
+
+`begin_batch`/`end_batch` and `batch(update)` join nested updates. The callback helper closes its batch on exceptions without undoing accepted source writes. Closing a batch performs no implicit flush. Reads inside it see the latest source values and can demand intermediate derived values. `flush()` requires all batches closed and scans live computations in creation order, refreshing each stale calculation and initially evaluating uninitialized calculations. Dependency order takes precedence when a calculation demands a prerequisite. The first failure stops draining; accepted caches remain, and failed/pending work can retry at a later read or flush. This is graph settlement, with no presentation generation, effect, transaction, or automatic frame publication. The [tool panel](../../examples/tool-panel/main.cpp) explicitly flushes a host selection observation before rebuilding command eligibility and the full UI snapshot.
+
+Calculations must be pure: source writes, graph/owner mutation, and batch operations during evaluation fail. Synchronous direct and indirect cycles report the dependency path; reentrant flush is rejected. Standard and nonstandard callable exceptions become located `ReactiveError` diagnostics. Failed calculation or comparison accepts neither a candidate value nor its dependency set; collection and draining guards restore so later updates can retry. Allocation failures remain standard C++ exceptions. Identity/revision exhaustion reports a diagnostic before reuse or wraparound. Subtree error fallback and atomic presentation publication follow the scheduler proposal below.
+
+`ReactiveOwner::dispose()` closes all descendant scopes before releasing their values/callables, detaches their subscriptions, and discards their pending computations. Disposal traverses children before parents, siblings in creation order, and values within a scope in creation order. Repeated disposal is harmless. Reusing a name creates a new lifetime; expired/disposed reads and writes fail. Surviving consumers of a disposed source become stale and must either replace that dependency or report its stale reference. Stored captures release once through ordinary C++ destruction; they must not reenter the graph from destructors. Explicit host cleanup registrations, effect cleanup, cancellation, and GPU retirement follow the ownership/scheduler proposals below. Destroying the runtime releases its storage and expires all references.
+
+Bounds are 4,096 live values, 4,096 live owners including the root, and 32 nested owners, batches, or active calculations. Disposed storage releases the live count budget. There is no fixed-point solver, dependency graph inspection schema, observer priority, or parallel evaluation API. Graph checks are in [reactive_tests.cpp](../../tests/reactive/reactive_tests.cpp).
+
 ## Proposed kernel boundary
 
 Treat view updates as incremental evaluation of a dynamic dependency graph. Components provide composition, identity boundaries, and owner scopes above this kernel; state does not require component re-execution, a virtual-tree diff, or call-order-dependent hook slots. All frontends lower to the [common UI representation](ui-model.md#common-representation). Reactive closures, graph edges, and scheduler queues are runtime data, never serialized document fields.
@@ -63,8 +83,8 @@ A paint-only value change should avoid measurement and layout. Geometry, inherit
 
 ## Open decisions
 
-- Concrete typed source/binding API, comparator defaults, callable storage, and public lifetime/error types.
-- Demand tracking and dirty-state representation, queue and dependency bounds, revision exhaustion, and deterministic sibling disposal order.
+- Typed presentation binding API and mapping between reactive owners and component identity.
+- Observed-demand tracking, queue structures, and wider graph bounds based on consumer workloads.
 - Effect delivery/result adapter and cleanup failure policy; routing graph failures to subtree fallbacks without suppressing diagnostics.
 - Allocation strategy and debug metadata storage, selected after measuring graph workloads rather than fixing an illustrative node ABI.
 

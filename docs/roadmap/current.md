@@ -12,7 +12,7 @@ Consumer fixture: an inventory/tool panel driven by host-owned selection and ite
 
 Remaining work:
 
-- Core-only [reactive kernel](../design/reactive-runtime.md): tracked sources/derivations, revisions/equality, dynamic dependency replacement, explicit owners, deterministic disposal, batch/flush/effect semantics, and cycle/reentrancy diagnostics. Establish graph semantics before presentation optimization or frontend syntax.
+- Extend the core-only [reactive graph](../design/reactive-runtime.md#implemented-in-process-graph-contract) with host-delivered effect phases, explicit cleanup registrations, bounded effect-induced update draining, and failure-safe candidate publication under the [scheduler contract](../design/reactive-runtime.md#proposed-update-batches-and-scheduler). Integrate graph errors with subtree boundaries before presentation optimization or frontend syntax.
 - Props/local state/bindings and conditional children over that kernel; [keyed reconciliation](../design/ui-model.md#state-and-reconciliation), cleanup and completion-safe resource retirement. Use full-tree style/layout/semantic/paint evaluation as the presentation reference, with affected-stage metadata for later incremental work.
 - Extend the [command boundary](../design/commands.md#implemented-in-process-command-boundary) with shortcut scopes/conflict diagnostics and host execution/result adapters; integrate the [transaction boundary](../design/commands.md#proposed-transaction-boundary) and build a [command palette](../design/commands.md#proposed-command-palette) from ordinary components.
 - [Error boundaries](../design/ui-model.md#proposed-error-boundaries) and [async state](../design/ui-model.md#proposed-async-state) primitives.
