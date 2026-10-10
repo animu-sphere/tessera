@@ -2,6 +2,10 @@
 
 Dated delivery history and release records. Each release is a `## vX.Y.Z — YYYY-MM-DD` section matching [VERSION](VERSION); unreleased entries collect under `## Unreleased`. Live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).
 
+## Unreleased
+
+- Activated the v0.3.0 dynamic UI/editor scope with an inventory/tool-panel consumer. Added the [in-process command boundary](docs/design/commands.md#implemented-in-process-command-boundary): owned descriptor revisions and settled eligibility, exact action mappings, bounded typed arguments/defaults and host object IDs, development/production discovery, shared activation eligibility, and execution-time generation/owner checks. The core-only tool panel demonstrates host execution of a non-editing command; serialized Replay interactions verify input-route agreement against declared command fixture inputs. Transactions, execution/result adapters, shortcut routing, and components remain in active scope. Validation and limits are recorded in [support](docs/reference/support-matrix.md#command-boundary-evidence--2026-10-10).
+
 ## v0.2.0 — 2026-10-10
 
 Usable navigable menus milestone: mixed Latin/Japanese real text, scrolling and focus recovery, and one ordinary action path for mouse, keyboard, gamepad and semantic clients. This source-only release carries no compatibility guarantee; prebuilt binaries and install/export packages are outside this milestone. Fresh-build acceptance and limits are in the [support matrix](docs/reference/support-matrix.md#v020-menu-acceptance--2026-10-10).

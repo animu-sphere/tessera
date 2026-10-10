@@ -1,8 +1,28 @@
 # Commands and transactions
 
+## Implemented in-process command boundary
+
+[commands.hpp](../../include/tessera/commands/commands.hpp) defines immutable owned `CommandRegistry`, `CommandSnapshot`, and `CommandInvocation` values. Registry copies share descriptor storage and a process-unique revision; replacement registries receive a distinct revision, even for equal descriptors. There is no global registry or callback. The host reserves command namespaces and passes the registry explicitly; subtree context follows the [context proposal](ui-model.md#proposed-context).
+
+`CommandRegistry::create` validates a candidate atomically. IDs have at least two dot-separated `[a-z][a-z0-9_]*` segments and at most 128 bytes. Parameter names use one such segment. A descriptor owns its ID, nonempty label, description, category, availability (`both`, `development`, or `production`), and parameter schema. Explicit action-to-command mappings resolve exact registered IDs; a label or an unmapped action cannot implicitly resolve a command. Legacy actions keep their [input contract](input.md#action-registration-and-lifetime).
+
+Parameters accept distinct boolean, binary64 number, UTF-8 string, string enumeration, and `CommandObjectId` alternatives. Numbers must be finite and meet optional inclusive bounds. Strings and object IDs meet a descriptor byte bound; object IDs are nonempty and belong to the host's permitted set for the settled generation. Enumeration choices are unique. Defaults are type/range checked on registration and materialized on resolution; object defaults additionally require the current permitted set. A default satisfies an omitted required parameter. Optional parameters without defaults remain absent. Unknown fields, missing required arguments, mismatched types, invalid references, and invalid defaults fail with located diagnostics and no partial value; no coercion occurs.
+
+Bounds are 1,024 descriptors and action mappings, 64 parameters/arguments per command, 64 choices per enumeration, 4,096 bytes per presentation string or parameter string, and 10,000 permitted host object IDs. Descriptor string bounds can be smaller; an object-ID bound is nonzero. Registry revision exhaustion throws, as do allocation failures.
+
+The host publishes `CommandSnapshot` at an update point with a nonzero logical generation, execution mode, owned query observations, and permitted object IDs. Generations and request sequences are host-issued and never reused within a session; they are independent of tree identities and Replay generation indices. Missing observations disable commands. A `query_error` disables the command and clears checked state, even if the supplied flags are true. Unknown observation IDs and invalid modes or metadata reject publication. `discover` returns owned metadata/observations ordered by ID; `lookup` uses exact IDs. Unavailable descriptors cannot be discovered or resolved; their lookup produces the same diagnostic as an unknown command.
+
+`apply_eligibility` validates and copies the authored document before tree/style/layout/semantic construction. It composes unavailable or disabled command state into the `disabled` property of explicitly mapped `activate` owners, preserving authored disabled state and ordinary ancestor eligibility. Always lower from the authored document to restore eligibility on a later update. Input targeting, pseudo-state resolution, focus, and semantic projection then read the same disabled property. Unmapped actions retain their existing behavior. This boundary supports activation bindings; cancellation bindings and shortcut routing follow the invocation proposal below.
+
+`resolve` checks generation, nonzero request sequence, invocation source, availability, eligibility, and arguments for a node-free request. `resolve_action` additionally borrows a coherent `SemanticInput` and verifies the live activation owner and exact binding through ordinary semantic action eligibility. All sources (pointer, keyboard, gamepad, accessibility, agent, and replay) use these checks. The resulting invocation owns normalized arguments, source/sequence, generation/revision, and an optional action owner handle; it retains its command observation without borrowing descriptor or tree memory. It exposes a const record and cannot be constructed by the requester.
+
+Immediately before executing after dispatch returns, the host calls `recheck` against its current command snapshot and, for node invocations, current coherent UI snapshot. A changed registry revision or observation identity rejects the invocation, including accidental reuse of a generation number. A removed/replaced, hidden, disabled, or differently bound node fails ordinary owner validation. A copied snapshot shares its identity. The host is responsible for pairing UI and command observations from one update, rejecting reentrant changes, executing each request once, converting host failures, and publishing later changes as a new generation. `recheck` performs no execution or sequence deduplication. Invocation handles are values, and a destroyed tree is never dereferenced; an author ID reused in a replacement tree does not retain ownership.
+
+This API does not encode command schemas in UI JSON or Replay JSON. [Command checks](../../tests/commands/commands_tests.cpp) declare descriptors, queries, arguments, and object IDs as host fixture inputs, then replay the ordinary UI recording and resolve its action observations through that fixture. [The tool-panel example](../../examples/tool-panel/main.cpp) demonstrates disabled/enabled generations and host execution of a non-editing inspection command. Serialized invocation/results, transaction tokens, shortcuts, palette composition, and execution adapters follow the proposals below.
+
 ## Proposed command registry
 
-Commands are the semantic operations an application exposes, such as `file.open`, `edit.undo`, `view.frame_selection`, or `node.delete`. They decouple widgets from application functions: a menu item, toolbar button, shortcut, gamepad binding, accessibility client, agent, or replay step requests a command instead of calling the application directly. This page proposes a design; it does not change [JSON v1](../../formats/tessera-ui/README.md) or the implemented [action request](input.md#action-registration-and-lifetime) contract.
+Commands are the semantic operations an application exposes, such as `file.open`, `edit.undo`, `view.frame_selection`, or `node.delete`. They decouple widgets from application functions: a menu item, toolbar button, shortcut, gamepad binding, accessibility client, agent, or replay step requests a command instead of calling the application directly. This proposal extends the in-process boundary above; it does not change [JSON v1](../../formats/tessera-ui/README.md) or the implemented [action request](input.md#action-registration-and-lifetime) contract.
 
 A command descriptor carries:
 
@@ -73,8 +93,8 @@ The application applies mutations, keeps the undo stack, and decides merge polic
 
 ## Open decisions
 
-- Concrete C++ registration/query/execution adapter types and ownership of descriptor revision storage.
-- Host object-ID validation and the serialized invocation/result schema, including size limits.
+- Concrete host execution/result adapter types and serialized invocation/result schemas, including transport size limits.
+- Domain-specific host object-ID validation beyond the settled permitted-ID set.
 - Shortcut scopes, conflict diagnostics, and platform key conventions.
 
 ## Verification

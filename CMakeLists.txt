@@ -23,6 +23,7 @@ add_library(tessera_core
     src/input/pointer.cpp
     src/input/focus.cpp
     src/input/scroll.cpp
+    src/commands/commands.cpp
     src/render/draw_list.cpp
     src/render/paint.cpp
     src/render/glyph_atlas.cpp
@@ -53,6 +54,8 @@ if(TESSERA_BUILD_EXAMPLES)
     target_link_libraries(tessera_flex_layout PRIVATE tessera::core)
     add_executable(tessera_pointer_menu examples/pointer-menu/main.cpp)
     target_link_libraries(tessera_pointer_menu PRIVATE tessera::core)
+    add_executable(tessera_tool_panel examples/tool-panel/main.cpp)
+    target_link_libraries(tessera_tool_panel PRIVATE tessera::core)
 endif()
 
 include(CTest)
@@ -70,7 +73,7 @@ if(BUILD_TESTING)
     target_compile_definitions(tessera_document_tests PRIVATE
         TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")
     add_test(NAME document COMMAND tessera_document_tests)
-    foreach(contract IN ITEMS ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll render/draw_list render/paint render/glyph_atlas replay/replay replay/replay_serialization replay/replay_host semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/offscreen_runner)
+    foreach(contract IN ITEMS ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll commands/commands render/draw_list render/paint render/glyph_atlas replay/replay replay/replay_serialization replay/replay_host semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/offscreen_runner)
         get_filename_component(name ${contract} NAME)
         add_executable(tessera_${name}_tests tests/${contract}_tests.cpp)
         target_link_libraries(tessera_${name}_tests PRIVATE tessera::core)
@@ -80,5 +83,6 @@ if(BUILD_TESTING)
         add_test(NAME hello_ui COMMAND tessera_hello_ui)
         add_test(NAME flex_layout COMMAND tessera_flex_layout)
         add_test(NAME pointer_menu COMMAND tessera_pointer_menu)
+        add_test(NAME tool_panel COMMAND tessera_tool_panel)
     endif()
 endif()

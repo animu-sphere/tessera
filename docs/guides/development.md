@@ -13,9 +13,12 @@ ctest --test-dir build -C Debug --output-on-failure
 & .\build\Debug\tessera_hello_ui.exe
 & .\build\Debug\tessera_flex_layout.exe
 & .\build\Debug\tessera_pointer_menu.exe
+& .\build\Debug\tessera_tool_panel.exe
 ```
 
 The default configuration enables the core, tests, and examples. Build output is under `build/Debug`; CTest logs are under `build/Testing/Temporary`. Examples describe their own output and placeholders. [CMakeLists.txt](../../CMakeLists.txt) owns target/options/test registration; do not mirror its complete inventory here.
+
+The [tool-panel example](../../examples/tool-panel/main.cpp) uses synthetic keyboard navigation and placeholder text with no native window. It publishes selection-dependent [command eligibility](../design/commands.md#implemented-in-process-command-boundary), lowers disabled state into the shared UI document, and resolves/rechecks an inspection command before host execution. Descriptor/query/argument inputs are owned C++ fixtures, not a command recording format.
 
 MSVC uses the ordinary Windows SDK C++ toolchain. A core-only workflow requires no graphics/font/editor SDK or dependency download. Restricted build environments may need access to the toolchain's SDK configuration directories; dated environment issues belong in support evidence.
 
