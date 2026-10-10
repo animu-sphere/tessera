@@ -6,7 +6,9 @@ Tessera is a deterministic GPU-native UI runtime for humans and agents. It is ba
 
 The retained, declarative component model targets dense application UI, including inspectors, timelines, data grids, node graphs, conversational/agent workspaces, and UI alongside 3D viewports. [Graph editors](graph-editor.md) and [conversational workspaces](conversational-ui.md) are reference workloads that stress text, virtualization, input, custom paint, commands, and automation together; they remain consumers of the common runtime rather than separate frameworks. Advanced UI is composed from small runtime primitives instead of a large widget catalog. Source review, reusable composition, predictable updates, live reload, accessibility, and machine observation/operation are design requirements.
 
-The core concentrates on document and component identity, style, layout, semantics, input and focus, actions, paint lists, the resource contract, inspection, and replay. OpenUSD, application asset systems, browser engines, editor SDKs, game engines, AI providers, and RPC transports reach it only through adapters, hosts, or optional modules.
+The core concentrates on document and component identity, reactive view updates, style, layout, semantics, input and focus, actions, paint lists, the resource contract, inspection, and replay. OpenUSD, application asset systems, browser engines, editor SDKs, game engines, AI providers, and RPC transports reach it only through adapters, hosts, or optional modules.
+
+Model updates through dependency, identity, time, and ownership: what invalidates a value, what persists across updates, when work may run, and who disposes it. The [reactive kernel](reactive-runtime.md) sits beneath components and preserves application-state ownership. Its dependency graph is distinct from its owner tree. The long-term performance goal is work proportional to affected observable UI, measured against representative workloads while preserving full-tree correctness.
 
 Long-term constraints:
 
@@ -42,7 +44,7 @@ Host application state <- command registry / transaction API
           |                       |
 Authoring frontend -> UiDocument / retained nodes
                             |
-                    components + state/events
+                    components + reactive bindings/events
                             |
                       resolved styles
                             |
@@ -57,7 +59,7 @@ Authoring frontend -> UiDocument / retained nodes
 
 Frontends and host adapters depend on the common runtime representation. Backend implementations consume resolved draw data; they do not reach back into layout, event dispatch, or component state. Text and asset interfaces inject external services without importing their implementation types into UI contracts.
 
-C++ construction, future DSLs, and visual authoring lower to the same [UI model](ui-model.md#common-representation). Proposed component descriptions extend that representation; they must not establish a second runtime. Fine-grained reactive updates and retained GPU data are optimization directions after full-tree parity, not prerequisites for defining the IR.
+C++ construction, future DSLs, and visual authoring lower to the same [UI model](ui-model.md#common-representation). Proposed component descriptions extend that representation; they must not establish a second runtime. Dependency, owner, and batching semantics are defined by the [reactive runtime](reactive-runtime.md). Fine-grained layout/text evaluation and retained GPU updates require full-tree parity; they are not prerequisites for defining the IR or the reactive kernel's semantics.
 
 [Inspection](inspection.md) joins semantic, layout, property, and source observations for DevTools, testing, and agent adapters. It observes settled generations and invokes declared operations without exposing mutable internals. Action requests from every input source resolve to application [commands](commands.md), whose metadata also drives menus, shortcuts, palettes, and agent discovery. An agent follows the same loop as other tooling: inspect, resolve a semantic target, invoke an action or command, capture a snapshot, and verify it. [Web hosting](web-host.md) projects the same semantics to DOM and renders resolved draw data to a WebGPU canvas, with platform editing handled at the host boundary.
 
@@ -73,7 +75,7 @@ poll/normalize input -> update application -> dispatch UI events
 -> submit UI rendering -> host presents
 ```
 
-Full-tree style/layout/semantic/paint updates are the reference path. Property metadata identifies affected stages under [UI model](ui-model.md#implemented-property-metadata) and [styling](styling.md#property-effects). Introduce dirty flags, then dirty-subtree and finer reactive updates only after proving equivalence to that reference.
+Full-tree style/layout/semantic/paint updates are the reference path. Property metadata identifies affected stages under [UI model](ui-model.md#implemented-property-metadata) and [styling](styling.md#property-effects). The proposed scheduler settles view values and bindings before these stages, publishes one validated generation, and delivers effects at explicit commit/submission boundaries under [reactive update batches](reactive-runtime.md#proposed-update-batches-and-scheduler). Introduce stage dirtiness, then finer incremental work only after proving equivalence to the reference.
 
 ### Update and snapshot rules
 
@@ -86,7 +88,7 @@ Architectural direction for future runtime orchestration:
 - Render submission borrows a coherent snapshot and obeys the completion/retirement contract in [rendering](rendering.md#implemented-frame-contract).
 - Do not promise a multithreaded public API. Reentrant entry during an update must be rejected or deferred by a declared policy.
 
-The existing immutable tree and per-call contracts do not constitute a scheduler. Queue ownership, orchestration API, failure/rollback behavior, and enforcement of reentrancy remain decisions to settle with fixtures.
+The immutable tree and per-call contracts do not constitute a scheduler. [Reactive scheduling](reactive-runtime.md#proposed-update-batches-and-scheduler) proposes thread confinement, queue semantics, failure containment, and reentrancy rules; its concrete orchestration API must preserve the snapshot boundaries above.
 
 ## Determinism
 

@@ -144,7 +144,11 @@ Keep the reference path for image comparison whenever grouping or packet encodin
 
 `Canvas` / custom paint uses this command vocabulary and observes balanced clip/transform state. It must not bypass draw-list resource lifetime or depend on a concrete backend.
 
-Retained packets, atlas use, packed instance data, and partial uploads are future optimization choices driven by representative tool workloads. Preserve ordering, blend/clip/transform batch boundaries, and completion-safe ownership. A separate Paint Tree or Render Tree is not required merely to mirror an architecture diagram; introduce a representation only with a defined consumer and lifetime.
+### Proposed retained render updates
+
+[Reactive presentation invalidation](reactive-runtime.md#proposed-presentation-integration) can feed persistent display items, retained packets/atlas pages, instance-buffer regions, and partial uploads through backend-neutral paint data. Backends consume resolved changes and resource identities, never signals, owner objects, or application state. A paint-only change should update affected records without rebuilding unrelated geometry; static content can reuse prepared data under a declared lifetime.
+
+Preserve ordering, blend/clip/transform batch boundaries, and completion-safe ownership. Removal or replacement invalidates retained records; uploads and atlas regions cannot be overwritten while an earlier submission references them. Logical owner cleanup requests retirement rather than bypassing completion. Compare both commands and rendered output with full paint/reference rendering before measuring work reduction. Record affected items, rebuilt batches, and upload bytes without assuming that a local change always has constant cost. A separate Paint Tree or Render Tree is not required merely to mirror an architecture diagram; introduce a representation only with a defined consumer and lifetime.
 
 ## Proposed primitive semantics
 

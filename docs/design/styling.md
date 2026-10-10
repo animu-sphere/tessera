@@ -69,6 +69,12 @@ Theme variables follow basic stylesheet resolution. Specify variable scope, fall
 
 [Property descriptors](ui-model.md#implemented-property-metadata) identify a set of affected stages: style resolution, layout, paint, input targeting, and semantics, or none. Input targeting covers pointer eligibility derived from a snapshot, such as inherited `disabled`. Interaction state can affect more than one stage through pseudo states. Text/font changes affect measurement and paint; semantic label/state changes affect semantic projection. A dependency table must account for inherited values and ancestor/sibling geometry before incremental updates use it. Full-tree recomputation remains the correctness reference.
 
+### Proposed stage invalidation
+
+The [reactive scheduler](reactive-runtime.md#proposed-presentation-integration) consumes this stage mapping without importing renderer or component state into style resolution. Distinguish style resolution, text/intrinsic measurement, placement, paint, input targeting, and semantic projection. Measurement and placement can refine the layout stage; they do not change the implemented descriptor bits. Resolve inherited values and pseudo-state effects before deciding which outputs actually changed.
+
+Text color affects paint without requiring shaping or layout. Font face/size and text content affect measurement, placement, paint, and any dependent semantic names/bounds. Disabled changes affect input and semantics and can also affect style/layout through matching rules. Clip/transform changes can affect input and semantic bounds as well as paint. Theme changes invalidate actual consumers, including inherited dependents; do not infer paint-only work from a property's visual name.
+
 ## Proposed animation
 
 After baseline UI is correct, animate resolved opacity, transforms, color, size, and scroll offset through an injected host `AnimationClock`. Replay supplies that clock's values; no hidden wall clock or CSS animation compatibility is required. Geometry changes invalidate layout; paint-only changes need not. Interruption, easing, authored-versus-animated precedence, and scroll interaction are open decisions. Complex game animation remains host-owned.

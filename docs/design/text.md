@@ -180,7 +180,13 @@ Snapshot and agent-driven tests declare a font profile: fixed redistributable fo
 
 ## Measurement and rendering agreement
 
-Measurement and paint must use compatible shaping and line-break results. Cache keys include the text, font identity/version, relevant style, shaping options, and width constraints. Asset replacement and font fallback changes invalidate both geometry and glyph resources as appropriate.
+Measurement and paint must use compatible shaping and line-break results. Asset replacement and font fallback changes invalidate both geometry and glyph resources as appropriate; incremental reuse follows the proposal below.
+
+## Proposed incremental text invalidation
+
+Treat font selection, Unicode/script analysis, shaping, line breaking, placement, and raster preparation as distinct dependency stages under [reactive presentation integration](reactive-runtime.md#proposed-presentation-integration). Text color changes only paint. Font/alias/fallback/variation or string changes invalidate the relevant analysis, shaping, measurement, and paint; a width change invalidates wrapping and placement and can require reshaping where the wrapping algorithm shapes candidate segments. Do not promise line-break-only work unless cached shaping remains valid for that algorithm.
+
+Cache keys include all consumed text/style/constraint and font-environment revisions, plus locale/direction/options when supported. Raster size, face revision, and scale obey the [glyph cache contract](#implemented-grayscale-raster-and-cache-contract). Atlas or paint reuse cannot keep glyph indices from a replaced face. An accepted cache hit must preserve metrics, glyphs, and diagnostics, with `measure` and `shape` agreeing under the same inputs. Repeated full shaping/measurement is the correctness reference; stage reuse must not infer broader Unicode support or couple text to GPU storage.
 
 ## Proposed glyph raster strategy
 

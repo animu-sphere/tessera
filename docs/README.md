@@ -6,14 +6,16 @@ Repository documents are the only maintained plan and contract. Owner-provided d
 
 1. [Architecture](design/architecture.md): purpose, principles, ownership, dependency direction, and frame lifecycle.
 2. [UI model](design/ui-model.md): common representation beneath authoring frontends.
-3. [Current work](roadmap/current.md): active scope and exit criteria.
-4. The relevant subsystem contract and [testing strategy](guides/testing.md).
+3. [Reactive runtime](design/reactive-runtime.md): proposed dependency, ownership, batching, and effect semantics beneath components.
+4. [Current work](roadmap/current.md): active scope and exit criteria.
+5. The relevant subsystem contract and [testing strategy](guides/testing.md).
 
 ## Canonical owners
 
 | Document | Owns | Does not own |
 | --- | --- | --- |
 | [Architecture](design/architecture.md) | Purpose and differentiation, core scope, principles, ecosystem boundaries, determinism, update/snapshot lifecycle | Capability status, subsystem rules, or directory inventory |
+| [Reactive runtime](design/reactive-runtime.md) | Dependency graph, revisions/equality, reactive owner lifetimes, update batches, evaluation/effect scheduling | Application data/history, component keys, layout/text algorithms, renderer resources, or inspection schema |
 | [UI model](design/ui-model.md) | Tree/identity, semantic properties, reflection metadata, components, reconciliation, async state, error boundaries, context, portal ownership, frontend lowering | Encoded fields, editor transport, interaction policy |
 | [JSON v1](../formats/tessera-ui/README.md) | Serialized fields, formatting, metadata preservation, rejection and bounds | Future schema proposals |
 | [Layout](design/layout.md) | Geometry, logical coordinates, sizing, scrolling, positioning, virtualization foundation | Physical-pixel conversion, navigation, or item identity |
