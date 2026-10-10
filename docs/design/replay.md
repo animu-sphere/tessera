@@ -75,7 +75,7 @@ Playback injects recorded inputs at the [defined update points](architecture.md#
 
 Expect exact values where the numeric contract permits them; otherwise declare geometry tolerances. Compare command semantics and owned data rather than pointer addresses, cache allocation order, or process-specific handles. Resolve recorded targets through fixture identities with defined ambiguity/missing-target diagnostics.
 
-GPU images are optional adapter evidence with target size, scale, color format, fonts, device and tolerance metadata. An image hash alone is not portable cross-driver equivalence. Core replay must remain runnable without a renderer.
+GPU images are optional adapter evidence with target size, scale, color format, fonts, device and tolerance metadata. An image hash alone is not portable cross-driver equivalence. Core replay must remain runnable without a renderer; the [offscreen runner](inspection.md#implemented-prototype-offscreen-runner) plays a recording first and then captures each generation through a declared host adapter.
 
 [Inspection snapshot bundles](inspection.md#proposed-runner-and-snapshot-bundle) package observations at a selected generation; they do not replace the ordered recording. State restore uses the declared host adapter. Animation may be disabled or advanced at explicit fixture times, never read from an uncontrolled wall clock. Bundle exports and performance durations are separate from deterministic playback assertions.
 

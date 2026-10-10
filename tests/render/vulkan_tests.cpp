@@ -1,5 +1,7 @@
 #include <tessera/vulkan/renderer.hpp>
+#include <tessera/inspection/offscreen_runner.hpp>
 #include <tessera/render/paint.hpp>
+#include <tessera/replay/replay_serialization.hpp>
 #include <tessera/ui/serialization.hpp>
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
 #include <tessera/fonts/font_shaper.hpp>
@@ -797,11 +799,106 @@ void batch_fixtures(Host& host) {
         renderer.submission_stats().upload_bytes == 0,"Empty batch allocated upload memory");
     host.finish("batch-empty.ppm"); renderer.retire(frame);
 }
+// Offscreen runner adapter: this host owns the target, submission, completion, retirement and readback.
+class VulkanCapture final : public tessera::FrameCapture {
+public:
+    VulkanCapture(Host& host, tessera::VulkanRenderer& renderer, tessera::CaptureBackend backend)
+        : host_(host), renderer_(renderer), backend_(std::move(backend)) {}
+    tessera::CaptureBackend backend() const override { return backend_; }
+    tessera::Result<tessera::CapturedImage> capture(const tessera::CaptureRequest& request) override {
+        host_.resize({request.extent.width, request.extent.height});
+        host_.begin(renderer_);
+        // Renderer frame numbers stay strictly increasing across runs; the generation is the run's identity.
+        auto errors = renderer_.submit({frame_ + 1, request.logical_size, request.device_scale}, *request.paint);
+        const auto artifact = "runner-" + std::to_string(runs) + "-" + std::to_string(request.generation) + ".ppm";
+        auto pixels = host_.finish(artifact.c_str());
+        if (!errors.empty()) return {std::nullopt, std::move(errors)};
+        renderer_.retire(++frame_);
+        return {tessera::CapturedImage{request.extent, tessera::CaptureFormat::rgba8_srgb, std::move(pixels)}, {}};
+    }
+    unsigned runs = 0;
+private:
+    Host& host_;
+    tessera::VulkanRenderer& renderer_;
+    tessera::CaptureBackend backend_;
+    std::uint64_t frame_ = 0;
+};
+void runner_fixtures(Host& host) {
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+    tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,1,true};
+    tessera::VulkanRenderer renderer(context);
+    VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(host.physical,&properties);
+    const tessera::CaptureBackend declared{"vulkan-reference-placeholder", properties.deviceName};
+    VulkanCapture frames(host, renderer, declared);
+    // A scrolled placeholder menu at a fractional scale, resized; restored through Replay JSON v1.
+    tessera::ReplayRecording recording;
+    recording.context = {{"start","quit"}};
+    recording.environment.scale = 1.25f;
+    recording.viewport = {120,80};
+    recording.document.root.id = "menu";
+    for (const char* id : {"start","quit"}) {
+        tessera::UiNode label; label.kind = tessera::NodeKind::text; label.properties["text"] = std::string(id);
+        tessera::UiNode button; button.id = id; button.properties["focusable"] = true; button.events["activate"] = id;
+        button.children.push_back(std::move(label));
+        recording.document.root.children.push_back(std::move(button));
+    }
+    recording.styles.resize(5);
+    recording.styles[0].height = tessera::Dimension::points(48);
+    recording.styles[0].overflow = tessera::Overflow::scroll;
+    recording.styles[0].padding = {4,4,4,4}; recording.styles[0].gap = 4;
+    recording.styles[0].background = {0.5f,0.5f,0.5f,1};
+    for (const std::size_t i : {1,3}) { recording.styles[i].padding = {4,4,4,4}; recording.styles[i].background = {0,0,1,1}; }
+    for (const std::size_t i : {2,4}) recording.styles[i].color = {1,1,1,1};
+    recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10,10},{0,20}}},
+                       tessera::ReplayResize{{100.3f,72}},
+                       tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"quit"}}};
+    const auto saved = tessera::save_replay(recording);
+    const auto loaded = tessera::load_replay(*saved.value);
+    check(saved && loaded && *loaded.value == recording, "Runner recording JSON round trip failed");
+    tessera::PlaceholderTextShaper text;
+    const auto result = tessera::run_offscreen({&*loaded.value,&text,declared,&frames});
+    check(result && result.diagnostics.empty(), "Vulkan offscreen run rejected");
+    const auto& run = *result.value;
+    check(run.manifest.capture == declared && run.frames.size() == 3 && run.output.actions.size() == 1,
+        "Vulkan run lost its declaration, generations or actions");
+    const tessera::CaptureExtent extents[]{{150,100},{150,100},{126,90}};
+    for (std::size_t g = 0; g < 3; ++g) {
+        const auto& frame = run.frames[g];
+        check(frame.status == tessera::FrameStatus::captured && frame.extent == extents[g] && frame.image,
+            "Vulkan frame extent/status differs");
+        const auto& boxes = run.output.generations[g].boxes;
+        const auto at = [&](float x, float y) {
+            return std::array<unsigned,2>{unsigned((x+0.5f)*1.25f),unsigned((y+0.5f)*1.25f)};
+        };
+        // Panel padding, each visible button's top-left padding, and the clear below the fixed-height panel.
+        const auto panel = at(1,1);
+        pixel(frame.image->pixels,frame.extent.width,panel[0],panel[1],{128,128,128,255},"Runner panel background");
+        for (const std::size_t node : {1,3}) {
+            const auto& box = boxes[node].border_box;
+            const auto& clip = *boxes[node].clip;
+            if (box.origin.y + 1 < clip.origin.y || box.origin.y + 2 > clip.origin.y + clip.size.height) continue;
+            const auto inside = at(box.origin.x+1, box.origin.y+1);
+            pixel(frame.image->pixels,frame.extent.width,inside[0],inside[1],{0,0,255,255},"Runner button padding");
+        }
+        const auto below = at(1,60);
+        pixel(frame.image->pixels,frame.extent.width,below[0],below[1],{0,0,0,255},"Runner clear outside panel");
+    }
+    check(run.output.generations[1].boxes[1].border_box.origin.y < run.output.generations[0].boxes[1].border_box.origin.y,
+        "Scroll generation did not move the captured menu");
+    // Repeated runs on the same declared device reproduce every observation and image byte.
+    ++frames.runs;
+    const auto repeated = tessera::run_offscreen({&recording,&text,declared,&frames});
+    check(repeated && repeated.value == result.value, "Repeated Vulkan offscreen run differs");
+    // A different declaration fails before submission; no CPU or other backend substitutes.
+    auto other = declared; other.backend = "cpu-reference";
+    check(has(tessera::run_offscreen({&recording,&text,other,&frames}).diagnostics,"capture_mismatch","/capture"),
+        "Mismatched capture backend accepted");
+}
 }
 int main() {
     try {
         { Host host; host.initialize(); host.make_texture();
-          fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host);
+          fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host); runner_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
           real_glyph_fixtures(host);
 #endif
