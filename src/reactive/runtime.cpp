@@ -27,7 +27,7 @@ void validate_name(const std::string& name) {
     if (name.empty() || name.size() > 256 || !valid_utf8(name))
         fail("invalid_reactive_name", "/reactive", "Supply a nonempty UTF-8 name of at most 256 bytes.");
 }
-struct Owner { std::uint64_t parent = 0; std::string path; std::size_t depth = 1; };
+struct Owner { std::uint64_t parent = 0; std::string path; std::size_t depth = 1; bool boundary = false; };
 struct Node {
     std::uint64_t owner = 0;
     std::string path;
@@ -37,6 +37,7 @@ struct Node {
     std::uint64_t revision = 0;
     bool dirty = true;
     bool failed = false;
+    Diagnostic failure; // Located cause of the last failed attempt.
     std::vector<std::pair<std::uint64_t, std::uint64_t>> dependencies;
     std::set<std::uint64_t> consumers;
 };
@@ -69,6 +70,8 @@ struct ReactiveState {
     bool flushing = false, comparing = false, delivering_cleanups = false;
     const std::string* delivering_effect = nullptr;
     std::string induced; // Last effect whose accepted source write awaits publication.
+    std::set<std::uint64_t> faulted; // Boundaries faulted by the most recent flush.
+    std::vector<std::uint64_t> flush_failures; // Calculations failed during this flush.
     std::vector<Collection> stack;
     void check() const {
         if (thread != std::this_thread::get_id())
@@ -103,6 +106,21 @@ struct ReactiveState {
         if (it == owners.end()) fail("disposed_reactive_owner", "/reactive/owners/" + std::to_string(id),
                                      "Use a live owner lifetime.");
         return it->second;
+    }
+    // Nearest enclosing boundary, or zero for the root region.
+    std::uint64_t boundary_of(std::uint64_t id) {
+        for (; id; id = owner(id).parent)
+            if (owner(id).boundary) return id;
+        return 0;
+    }
+    // Whether a boundary faulted by the last flush encloses this owner.
+    bool held(std::uint64_t id) {
+        for (; id; id = owner(id).parent)
+            if (faulted.contains(id)) return true;
+        return false;
+    }
+    bool failed_in_flush(std::uint64_t id) const {
+        return std::find(flush_failures.begin(), flush_failures.end(), id) != flush_failures.end();
     }
     void invalidate(std::uint64_t id) {
         // Iterative fan-out, including consumers already stale from an earlier write.
@@ -139,6 +157,8 @@ struct ReactiveState {
     void refresh(std::uint64_t id) {
         auto& n = node(id);
         if (!n.calculate || !n.dirty) return;
+        // Within one flush a failed calculation reports its cause without rerunning.
+        if (n.failed && flushing && failed_in_flush(id)) throw ReactiveError(n.failure);
         const auto cycle = std::find_if(stack.begin(), stack.end(), [id](const auto& c) { return c.id == id; });
         if (cycle != stack.end()) {
             std::string path;
@@ -189,14 +209,20 @@ struct ReactiveState {
         } catch (...) {
             n.failed = true; n.dirty = true;
             stack.pop_back(); active = previous;
+            Diagnostic cause;
             try { throw; }
-            catch (const ReactiveError&) { throw; }
+            catch (const ReactiveError& e) { cause = e.diagnostic(); }
             catch (const std::bad_alloc&) { throw; }
             catch (const std::exception& e) {
-                fail("reactive_calculation_failed", n.path, "Calculation failed: " + std::string(e.what()));
+                cause = {"reactive_calculation_failed", Severity::error, n.path,
+                         "Calculation failed: " + std::string(e.what()), {}};
             } catch (...) {
-                fail("reactive_calculation_failed", n.path, "Calculation failed with a nonstandard exception.");
+                cause = {"reactive_calculation_failed", Severity::error, n.path,
+                         "Calculation failed with a nonstandard exception.", {}};
             }
+            n.failure = cause;
+            if (flushing) flush_failures.push_back(id);
+            throw ReactiveError(std::move(cause));
         }
     }
 };
@@ -265,7 +291,7 @@ void reactive_dispose(const ReactiveRef& ref) {
     }
     // Close every scope before destroying stored values/callables. Effect
     // cleanup slots were queued above; pending effect deliveries are discarded.
-    for (const auto id : closing) state->owners.erase(id);
+    for (const auto id : closing) { state->owners.erase(id); state->faulted.erase(id); }
     std::erase_if(state->effects, [&](const auto& effect) { return closed.contains(effect.second.owner); });
     for (const auto& [id, n] : state->nodes)
         if (closed.contains(n.owner)) state->invalidate(id);
@@ -333,6 +359,21 @@ ReactiveOwner ReactiveRuntime::root() const {
     return ReactiveOwner({state_, 1});
 }
 ReactiveOwner ReactiveRuntime::owner(const ReactiveOwner& parent, std::string name) {
+    return add_owner(parent, std::move(name), false);
+}
+ReactiveOwner ReactiveRuntime::boundary(const ReactiveOwner& parent, std::string name) {
+    return add_owner(parent, std::move(name), true);
+}
+bool ReactiveRuntime::faulted(const ReactiveOwner& owner) const {
+    if (detail::lock(owner.ref_) != state_)
+        detail::fail("foreign_reactive_owner", "/reactive", "Use an owner from this runtime.");
+    const auto& scope = state_->owner(owner.ref_.id);
+    if (!state_->stack.empty())
+        detail::fail("reactive_untracked_read", scope.path,
+                     "Query boundary faults from the host, not from a tracked calculation.");
+    return state_->held(owner.ref_.id);
+}
+ReactiveOwner ReactiveRuntime::add_owner(const ReactiveOwner& parent, std::string name, bool boundary) {
     state_->structural();
     if (detail::lock(parent.ref_) != state_)
         detail::fail("foreign_reactive_owner", "/reactive", "Use an owner from this runtime.");
@@ -346,7 +387,7 @@ ReactiveOwner ReactiveRuntime::owner(const ReactiveOwner& parent, std::string na
         if (owner.path == path) detail::fail("duplicate_reactive_name", path, "Use a unique sibling owner name.");
     }
     const auto id = detail::identity(state_->next_owner);
-    state_->owners.emplace(id, detail::Owner{parent.ref_.id, path, p.depth + 1});
+    state_->owners.emplace(id, detail::Owner{parent.ref_.id, path, p.depth + 1, boundary});
     return ReactiveOwner({state_, id});
 }
 void ReactiveRuntime::on_cleanup(const ReactiveOwner& owner, std::string name, std::function<void()> callback) {
@@ -427,7 +468,7 @@ void ReactiveRuntime::end_batch() {
         detail::fail("reactive_batch_unbalanced", "/reactive", "Close only a matching open batch.");
     --state_->batches;
 }
-void ReactiveRuntime::flush() {
+std::vector<Diagnostic> ReactiveRuntime::flush() {
     state_->check();
     if (state_->delivering_effect)
         detail::fail("reactive_effect_entry", *state_->delivering_effect,
@@ -436,25 +477,47 @@ void ReactiveRuntime::flush() {
         detail::fail("reactive_reentrant_flush", "/reactive", "Call flush after calculation and the prior flush return.");
     if (state_->batches)
         detail::fail("reactive_open_batch", "/reactive", "Close the outer batch before flushing scheduled calculations.");
-    state_->flushing = true;
+    auto& state = *state_;
+    state.faulted.clear();
+    state.flush_failures.clear();
+    std::vector<Diagnostic> contained;
+    state.flushing = true;
     try {
-        for (const auto& [id, node] : state_->nodes) {
+        for (const auto& [id, node] : state.nodes) {
             (void)node;
-            state_->refresh(id);
+            const auto first = state.flush_failures.size();
+            try { state.refresh(id); }
+            catch (const ReactiveError& e) {
+                // This calculation and every one that failed during the attempt
+                // must lie in a boundary; the root region escapes and stops draining.
+                std::vector<std::uint64_t> failed(state.flush_failures.begin() + first, state.flush_failures.end());
+                failed.push_back(id);
+                for (const auto f : failed) {
+                    const auto boundary = state.boundary_of(state.node(f).owner);
+                    if (!boundary) throw;
+                    state.faulted.insert(boundary);
+                }
+                if (std::find(contained.begin(), contained.end(), e.diagnostic()) == contained.end())
+                    contained.push_back(e.diagnostic());
+            }
         }
-        state_->flushing = false;
-    } catch (...) { state_->flushing = false; throw; }
+        state.flushing = false;
+        state.flush_failures.clear();
+    } catch (...) { state.flushing = false; state.flush_failures.clear(); throw; }
+    return contained;
 }
 std::size_t ReactiveRuntime::publish() {
     auto& state = *state_;
     state.structural();
     if (state.batches)
         detail::fail("reactive_open_batch", "/reactive", "Close the outer batch, then flush before publishing.");
+    // Calculations under a faulted boundary hold their effects, so their stale
+    // or failed state does not block the rest of the candidate.
     for (const auto& [id, n] : state.nodes) {
         (void)id;
-        if (n.calculate && (n.dirty || n.failed))
+        if (n.calculate && (n.dirty || n.failed) && !state.held(n.owner))
             detail::fail("reactive_unsettled", n.path,
-                "Flush successfully before publishing; failed or stale calculations keep the last published values.");
+                "Flush successfully before publishing; failed or stale calculations outside faulted boundaries keep the last published values.");
     }
     if (!state.induced.empty()) {
         if (++state.feedback_rounds > max_reactive_effect_rounds) {
@@ -470,7 +533,7 @@ std::size_t ReactiveRuntime::publish() {
     std::vector<std::pair<detail::Effect*, std::any>> changed;
     for (auto& [id, effect] : state.effects) {
         const auto& n = state.node(id);
-        if (n.revision != effect.published) changed.emplace_back(&effect, n.value);
+        if (n.revision != effect.published && !state.held(effect.owner)) changed.emplace_back(&effect, n.value);
     }
     for (auto& [effect, value] : changed) {
         effect->pending = std::move(value); // Replaces an older undelivered value.

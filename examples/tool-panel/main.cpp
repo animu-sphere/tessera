@@ -2,6 +2,7 @@
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
 #include <iostream>
+#include <map>
 
 using namespace tessera;
 using namespace std::chrono_literals;
@@ -49,6 +50,17 @@ int main() {
         return PanelObservation{{selection.has_value(), false, selection ? "" : "Select an item."},
             selection ? CommandObjectIds{*selection} : CommandObjectIds{}, selection};
     });
+    // Item details fail locally: a missing host record faults only this boundary,
+    // and the host presents a fallback while the rest of the panel publishes.
+    const std::map<std::string, std::string> host_records{{"item-3", "Rope"}};
+    auto details_owner = runtime.boundary(panel_owner, "details");
+    const auto details = runtime.computed<std::string>(details_owner, "details", [&] {
+        const auto selection = selected_item.read();
+        if (!selection) return std::string("No item");
+        const auto record = host_records.find(*selection);
+        if (record == host_records.end()) throw std::runtime_error("No host record for " + *selection);
+        return record->second;
+    });
     // Synthetic host status line; it only observes published generations.
     std::string status_line;
     int status_detached = 0;
@@ -65,7 +77,9 @@ int main() {
             // Publish an owned host-state observation at the update point.
             selected_item.write(host_selection);
         });
-        runtime.flush();
+        const auto faults = runtime.flush();
+        if (faults.size() != (selected ? 1u : 0u) || runtime.faulted(details_owner) != selected) return 13;
+        const auto details_text = runtime.faulted(details_owner) ? std::string("Details unavailable") : details.read();
         const auto observation = panel.read();
         ++generation; // Host-owned UI generation, distinct from reactive revisions.
         const auto commands = CommandSnapshot::publish(*registry.value, generation, CommandMode::production,
@@ -100,7 +114,9 @@ int main() {
         const auto info = commands.value->lookup(inspect.id);
         std::cout << "Generation " << generation << ": " << info.value->descriptor.label << " enabled=" << selected;
         if (!selected) std::cout << " (" << info.value->state.disabled_reason << ')';
-        std::cout << " status=\"" << status_line << "\"\n";
+        std::cout << " status=\"" << status_line << "\" details=\"" << details_text << '"';
+        for (const auto& fault : faults) std::cout << " fault=" << fault.code << '@' << fault.path;
+        std::cout << '\n';
     }
     if (inspected_item != "item-7" || evaluations != 3 || status_detached != 2) return 10;
     panel_owner.dispose();
