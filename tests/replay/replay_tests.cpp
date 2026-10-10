@@ -362,6 +362,44 @@ void reveal_policy_scrolls_focus_into_view() {
           "Path diagnostics must be located under the step");
 }
 
+// A reload resets offsets, so under the reveal policy its recovered focus, restored by author ID or in
+// place of a removed button, is revealed before the reload's single generation is recorded.
+void reload_reveals_recovered_focus() {
+    auto keyboard = scrolled_menu();
+    keyboard.policy.reveal_focus = true;
+    auto shorter = scrolled_menu();
+    shorter.document.root.children.pop_back();
+    shorter.styles.resize(5);
+    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},                    // 0: quit, revealed
+                      tessera::ReplayReload{keyboard.document, keyboard.styles},            // 1: quit restored
+                      tessera::ReplayReload{shorter.document, shorter.styles}};             // 2: quit removed
+    const auto output = play(keyboard);
+    check(output.generations.size() == 4 && output.generations[2].step == 1u && output.generations[3].step == 2u,
+          "A revealing reload must settle exactly one generation");
+    const auto in_view = [](const tessera::ReplayGeneration& generation, std::size_t box) {
+        const auto viewport = generation.boxes[0].border_box;
+        const auto rect = generation.boxes.at(box).border_box;
+        return offset(generation) > 0 && rect.origin.y >= -0.001f &&
+               rect.origin.y + rect.size.height <= viewport.size.height + 0.001f;
+    };
+    check(in_view(output.generations[2], 5), "Focus restored by a reload must be revealed");
+    check(in_view(output.generations[3], 3), "Focus recovered beside a removed button must be revealed");
+    const std::vector<std::optional<std::uint32_t>> focus{std::nullopt, 5u, 5u, 3u};
+    check(output.semantics.size() == focus.size(), "Each reload must be observed once, after its reveal");
+    for (std::size_t i = 0; i < focus.size(); ++i) {
+        check(output.semantics[i].generation == i && output.semantics[i].focused == focus[i],
+              "Reload observations must report the revealed generation and recovered focus");
+    }
+    check(output == play(keyboard), "Repeated reload reveal playback must be identical");
+
+    keyboard.policy.reveal_focus = false;
+    const auto unrevealed = play(keyboard);
+    check(unrevealed.generations.size() == 3 && offset(unrevealed.generations[1]) == 0 &&
+              offset(unrevealed.generations[2]) == 0 && unrevealed.semantics[2].focused == 5u &&
+              unrevealed.semantics[3].focused == 3u,
+          "Without the policy, a reload recovers focus without scrolling");
+}
+
 // A semantic action step requests what a click requests, even for a button scrolled out of view, and
 // ambiguous or unexposed targets fail.
 void semantic_action_steps_match_clicks() {
@@ -654,6 +692,7 @@ int main() {
         scroll_steps_relayout_before_clicks();
         logical_commands_match_clicks_and_semantics();
         reveal_policy_scrolls_focus_into_view();
+        reload_reveals_recovered_focus();
         semantic_action_steps_match_clicks();
         press_policy_focuses_without_reveal();
         session_steps_match_playback();
