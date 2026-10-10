@@ -631,7 +631,14 @@ struct App {
         const tessera::Size logical{logical_length(extent.width, scale), logical_length(extent.height, scale)};
         std::cout << "Swapchain " << extent.width << 'x' << extent.height << " at scale " << scale
                   << " -> logical " << logical.width << 'x' << logical.height << '\n';
+        // Host reveal policy: focus in view before the resize is revealed again if the new layout hides it;
+        // focus the user scrolled away from stays where it is.
+        const bool keep = focused && take(tessera::scroll_into_view(menu.snapshot(), *focused), "Focus reveal rejected").empty();
         menu.resize(logical);
+        if (keep) {
+            const auto revealed = take(tessera::scroll_into_view(menu.snapshot(), *focused), "Focus reveal rejected");
+            if (!revealed.empty()) menu.scroll(revealed);
+        }
         pointers = take(dispatcher.refresh(menu.snapshot()), "Pointer refresh rejected").pointers;
         focused = take(focus.refresh(menu.snapshot()), "Focus refresh rejected").focused;
         present();

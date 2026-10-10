@@ -87,8 +87,7 @@ public:
             else if (is_command(*event)) ok = command(*event, i, at);
             else ok = dispatch(*event, i, at);
         } else if (const auto* resize = std::get_if<ReplayResize>(&step)) {
-            viewport_ = resize->viewport;
-            ok = settle(i, at);
+            ok = resize_to(resize->viewport, i, at);
         } else if (const auto* reload = std::get_if<ReplayReload>(&step)) {
             ok = replace(*reload, i, at);
         } else if (const auto* focus = std::get_if<ReplayFocus>(&step)) {
@@ -174,6 +173,23 @@ private:
         if (load(reload.document, reload.styles, at) && settle(step, at, recording_.policy.reveal_focus)) return true;
         if (!committed_) current_ = std::move(previous);
         return false;
+    }
+
+    // Lays out the new viewport. Under the host reveal policy, focus that was in view, so that revealing it
+    // would move nothing, is revealed again before the resize's generation is recorded; focus the user
+    // scrolled away from stays where it is.
+    bool resize_to(Size viewport, std::size_t step, const std::string& at) {
+        bool keep = false;
+        if (recording_.policy.reveal_focus && focused_) {
+            auto revealed = scroll_into_view(current_.input(), *focused_);
+            if (!revealed) {
+                relocate(errors_, std::move(revealed.diagnostics), at);
+                return false;
+            }
+            keep = revealed.value->empty();
+        }
+        viewport_ = viewport;
+        return settle(step, at, keep);
     }
 
     // Full-tree layout and paint at an update point, then re-target stationary pointers and recover focus.
