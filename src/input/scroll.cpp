@@ -2,6 +2,8 @@
 #include "../detail/checks.hpp"
 #include "../detail/targeting.hpp"
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <utility>
 
 namespace tessera {
@@ -30,12 +32,19 @@ float consume(float& offset, float delta, float limit) {
     return 0;
 }
 
+// Float steps of slack, relative to the coordinates involved, within which a span counts as revealed.
+constexpr float reveal_rounding_steps = 4;
+
 // Adjusts one axis's offset so the span [start, start + size) lies inside the viewport where possible, and
-// moves `start` with the content.
+// moves `start` with the content. A misalignment within rounding of the offset arithmetic counts as none, so
+// revealing an already revealed span requests no change.
 void reveal(float& offset, float& start, float size, float view_start, float view_size, float limit) {
     float delta = 0;
     if (size > view_size || start < view_start) delta = start - view_start;
     else if (start + size > view_start + view_size) delta = start + size - (view_start + view_size);
+    const float magnitude = std::max({std::fabs(start), std::fabs(start + size), std::fabs(view_start),
+                                      std::fabs(view_start + view_size)}) + offset;
+    if (std::fabs(delta) <= reveal_rounding_steps * std::numeric_limits<float>::epsilon() * magnitude) return;
     const float next = std::min(std::max(offset + delta, 0.0f), limit);
     start -= next - offset;
     offset = next;
