@@ -455,12 +455,246 @@ void stable_order_and_limits() {
     check(fresh.read() == 1, "Disposal releases the live node budget");
     rejects([&] { stale.read(); }, "disposed_reactive_value");
 }
+
+using Log = std::vector<std::string>;
+
+void effects_and_publication() {
+    ReactiveRuntime r;
+    auto root = r.root();
+    auto source = r.signal(root, "source", 1);
+    Log log;
+    int prepare_calculations = 0;
+    auto view = r.owner(root, "view");
+    r.effect<int>(view, "notify", EffectPhase::notify, [&] { return source.read(); }, [&](int value) {
+        log.push_back("notify " + std::to_string(value));
+        return [&log, value] { log.push_back("undo notify " + std::to_string(value)); };
+    });
+    r.effect<int>(view, "prepare", EffectPhase::prepare, [&] { ++prepare_calculations; return source.read() * 2; },
+        [&](int value) { log.push_back("prepare " + std::to_string(value)); });
+    r.on_cleanup(view, "after", [&] { log.push_back("cleanup after"); });
+    auto doubled = r.computed<int>(root, "doubled", [&] { return source.read() * 2; });
+    rejects([&] { r.publish(); }, "reactive_unsettled");
+    r.flush();
+    check(r.deliver_effects(EffectPhase::prepare).empty() && log.empty(), "Graph settlement alone delivers no effect");
+    check(r.publish() == 2, "The first publication captures each initial effect value");
+    check(r.deliver_effects(EffectPhase::notify).empty() && log == Log({"notify 1"}), "Delivery runs only the requested phase");
+    check(r.deliver_effects(EffectPhase::prepare).empty() && log == Log({"notify 1", "prepare 2"}),
+          "Prepare delivery is independent of notify delivery");
+    check(r.publish() == 0 && r.deliver_effects(EffectPhase::notify).empty() && log.size() == 2,
+          "Publishing unchanged values queues no delivery");
+
+    log.clear();
+    r.batch([&] {
+        source.write(2);
+        check(doubled.read() == 4, "Explicit reads inside a batch see the newest source");
+        rejects([&] { r.publish(); }, "reactive_open_batch");
+        rejects([&] { r.deliver_effects(EffectPhase::notify); }, "reactive_open_batch");
+        source.write(3);
+    });
+    check(log.empty(), "Explicit reads during a batch deliver no partial effect");
+    rejects([&] { r.publish(); }, "reactive_unsettled");
+    r.flush();
+    check(r.publish() == 2, "One successful batch publishes one candidate");
+    r.deliver_effects(EffectPhase::prepare); r.deliver_effects(EffectPhase::notify);
+    check(log == Log({"prepare 6", "undo notify 1", "notify 3"}),
+          "Publication delivers final batch values; replacement runs prior cleanup once before applying");
+
+    // A failing calculation registered after the effects lets them refresh
+    // before flush fails; publication must still reject the whole candidate.
+    bool reject_candidate = false;
+    auto guard = r.owner(root, "guard");
+    r.computed<int>(guard, "candidate", [&] {
+        const int value = source.read();
+        if (reject_candidate) throw std::runtime_error("Candidate rejected");
+        return value;
+    });
+    r.flush(); r.publish(); log.clear();
+    reject_candidate = true; source.write(7);
+    rejects([&] { r.flush(); }, "reactive_calculation_failed");
+    rejects([&] { r.publish(); }, "reactive_unsettled");
+    check(r.deliver_effects(EffectPhase::prepare).empty() && r.deliver_effects(EffectPhase::notify).empty() && log.empty(),
+          "No effect observes a rejected candidate");
+    reject_candidate = false; source.write(8); r.flush();
+    check(r.publish() == 2, "A later successful candidate publishes");
+    r.deliver_effects(EffectPhase::prepare); r.deliver_effects(EffectPhase::notify);
+    check(log == Log({"prepare 16", "undo notify 3", "notify 8"}), "Only the latest published value is delivered");
+
+    // A host may publish again before delivering; deliveries coalesce.
+    log.clear();
+    source.write(9); r.flush(); r.publish();
+    source.write(10); r.flush();
+    check(r.publish() == 2, "Changed effects republish their latest value");
+    r.deliver_effects(EffectPhase::notify); r.deliver_effects(EffectPhase::prepare);
+    check(log == Log({"undo notify 8", "notify 10", "prepare 20"}), "An undelivered older value is replaced");
+
+    int parity_applications = 0;
+    auto parity = r.owner(root, "parity");
+    r.effect<int>(parity, "parity", EffectPhase::notify, [&] { return source.read() % 2; },
+        [&](int) { ++parity_applications; });
+    r.flush(); r.publish(); r.deliver_effects(EffectPhase::notify);
+    source.write(12); r.flush();
+    check(r.publish() == 2 && parity_applications == 1, "Equal effect outputs are not redelivered");
+    r.deliver_effects(EffectPhase::notify); r.deliver_effects(EffectPhase::prepare);
+
+    log.clear();
+    source.write(11); r.flush(); r.publish();
+    const int before_disposal = prepare_calculations;
+    view.dispose(); view.dispose();
+    source.write(13); r.flush();
+    check(r.deliver_effects(EffectPhase::notify).empty() && r.deliver_effects(EffectPhase::prepare).empty() &&
+          log.empty() && prepare_calculations == before_disposal,
+          "Disposed owners discard pending deliveries and evaluate no later effect calculations");
+    check(r.deliver_cleanups().empty() && log == Log({"undo notify 12", "cleanup after"}),
+          "Disposal queues the latest effect cleanup once in registration order");
+    check(r.deliver_cleanups().empty() && log.size() == 2, "Effect cleanup is never repeated");
+    parity.dispose(); guard.dispose(); r.deliver_cleanups();
+}
+
+void effect_failures_and_boundaries() {
+    ReactiveRuntime r, other;
+    auto root = r.root();
+    auto source = r.signal(root, "source", 0);
+    auto mirror = r.signal(root, "mirror", 0);
+    auto derived = r.computed<int>(root, "derived", [&] { return source.read() + 1; });
+    auto scope = r.owner(root, "effects/~");
+    std::vector<int> calls;
+    const auto read_source = [&] { return source.read(); };
+    r.effect<int>(scope, "standard/~", EffectPhase::notify, read_source,
+        [&](int) -> std::function<void()> { calls.push_back(1); throw std::runtime_error("apply failed"); });
+    r.effect<int>(scope, "nonstandard", EffectPhase::notify, read_source, [&](int) { calls.push_back(2); throw 42; });
+    r.effect<int>(scope, "guard", EffectPhase::notify, read_source, [&](int value) {
+        check(source.read() == value && derived.read() == value + 1, "Effects may read settled values");
+        rejects([&] { r.flush(); }, "reactive_effect_entry");
+        rejects([&] { r.publish(); }, "reactive_effect_entry");
+        rejects([&] { r.deliver_effects(EffectPhase::notify); }, "reactive_effect_entry");
+        rejects([&] { r.deliver_cleanups(); }, "reactive_effect_entry");
+        rejects([&] { r.begin_batch(); }, "reactive_effect_entry");
+        rejects([&] { root.dispose(); }, "reactive_effect_entry");
+        rejects([&] { r.owner(root, "late"); }, "reactive_effect_entry");
+        rejects([&] { r.signal(root, "late", 0); }, "reactive_effect_entry");
+        rejects([&] { r.on_cleanup(root, "late", [] {}); }, "reactive_effect_entry");
+        rejects([&] { r.effect<int>(root, "late", EffectPhase::notify, [] { return 0; }, [](int) {}); },
+                "reactive_effect_entry");
+        calls.push_back(3);
+        return [&calls] { calls.push_back(30); throw std::runtime_error("cleanup failed"); };
+    });
+    r.effect<int>(scope, "writer", EffectPhase::notify, read_source, [&](int value) {
+        check(mirror.write(value + 100), "Effects may write sources for a later batch");
+        calls.push_back(4);
+    });
+    r.flush();
+    check(r.publish() == 4, "Each effect captures its initial value");
+    auto diagnostics = r.deliver_effects(EffectPhase::notify);
+    check(calls == std::vector<int>({1, 2, 3, 4}) && diagnostics.size() == 2,
+          "Effect failures do not skip later deliveries");
+    check(diagnostics[0].code == "reactive_effect_failed" && diagnostics[0].severity == Severity::error &&
+          diagnostics[0].path == "/reactive/root/owners/effects~1~0/effects/standard~1~0" &&
+          diagnostics[0].message.find("apply failed") != std::string::npos,
+          "Effect diagnostics locate the escaped registration and retain the failure reason");
+    check(diagnostics[1].code == "reactive_effect_failed" && diagnostics[1].path.ends_with("/effects/nonstandard"),
+          "Nonstandard effect failures are located");
+    check(mirror.read() == 100 && r.deliver_effects(EffectPhase::notify).empty() && calls.size() == 4,
+          "Writes wait for a later flush, and failed effects are consumed rather than retried");
+    r.flush();
+    check(r.publish() == 0, "An effect-induced write that changes no effect queues nothing");
+
+    calls.clear();
+    source.write(1); r.flush(); r.publish();
+    diagnostics = r.deliver_effects(EffectPhase::notify);
+    check(calls == std::vector<int>({1, 2, 30, 3, 4}) && diagnostics.size() == 3 &&
+          diagnostics[2].code == "reactive_cleanup_failed" && diagnostics[2].path.ends_with("/effects/guard"),
+          "A failed replacement cleanup is reported once and the next application still runs");
+
+    auto pure = r.owner(root, "pure");
+    r.effect<int>(pure, "write", EffectPhase::notify, [&] { mirror.write(1); return 0; }, [](int) {});
+    rejects([&] { r.flush(); }, "reactive_mutation");
+    pure.dispose(); r.flush();
+
+    calls.clear();
+    auto allocation = r.owner(root, "allocation");
+    r.effect<int>(allocation, "failure", EffectPhase::prepare, read_source, [](int) { throw std::bad_alloc{}; });
+    r.effect<int>(allocation, "later", EffectPhase::prepare, read_source, [&](int) { calls.push_back(5); });
+    r.flush(); r.publish();
+    bool allocation_threw = false;
+    try { r.deliver_effects(EffectPhase::prepare); }
+    catch (const std::bad_alloc&) { allocation_threw = true; }
+    check(allocation_threw && calls.empty(), "Allocation failure propagates from effect delivery");
+    source.write(2); r.flush();
+    check(r.deliver_effects(EffectPhase::prepare).empty() && calls == std::vector<int>({5}),
+          "After allocation failure, guards restore and only undelivered effects remain queued");
+
+    bool thread_rejected = false;
+    std::thread worker([&] {
+        try { r.deliver_effects(EffectPhase::notify); }
+        catch (const ReactiveError& e) { thread_rejected = e.diagnostic().code == "reactive_thread"; }
+    });
+    worker.join();
+    check(thread_rejected, "Effect delivery uses the creating UI thread");
+    rejects([&] { r.effect<int>(other.root(), "foreign", EffectPhase::notify, [] { return 0; }, [](int) {}); },
+            "foreign_reactive_owner");
+    rejects([&] { r.effect<int>(root, "phase", static_cast<EffectPhase>(7), [] { return 0; }, [](int) {}); },
+            "invalid_reactive_effect");
+    r.effect<int>(root, "unique", EffectPhase::notify, [] { return 0; }, [](int) {});
+    rejects([&] { r.effect<int>(root, "unique", EffectPhase::prepare, [] { return 0; }, [](int) {}); },
+            "duplicate_reactive_name");
+    // Effects, values, and cleanups have separate namespaces.
+    r.signal(root, "unique", 0);
+    r.on_cleanup(root, "unique", [] {});
+}
+
+void effect_feedback() {
+    ReactiveRuntime r;
+    auto root = r.root();
+    auto count = r.signal(root, "count", 0);
+    // Host drain loop: each round settles, rebuilds, publishes, and delivers.
+    const auto drain = [&] {
+        std::size_t publications = 0;
+        for (;;) {
+            r.flush();
+            ++publications;
+            if (!r.publish()) return publications;
+            check(r.deliver_effects(EffectPhase::notify).empty(), "Feedback fixture effects succeed");
+        }
+    };
+    auto settling = r.owner(root, "settling");
+    r.effect<int>(settling, "clamp", EffectPhase::notify, [&] { return count.read(); },
+        [&](int value) { if (value < 5) count.write(value + 1); });
+    check(drain() == 7 && count.read() == 5, "Converging effect feedback drains through later publications");
+    settling.dispose(); r.deliver_cleanups();
+
+    auto runaway = r.owner(root, "runaway");
+    r.effect<int>(runaway, "increment", EffectPhase::notify, [&] { return count.read(); },
+        [&](int value) { count.write(value + 1); });
+    const auto diagnostic = rejects([&] { drain(); }, "reactive_effect_feedback");
+    check(diagnostic.path == "/reactive/root/owners/runaway/effects/increment" &&
+          count.read() == 5 + 1 + static_cast<int>(max_reactive_effect_rounds),
+          "Unsettled feedback is diagnosed at the writing effect after the bounded publication count");
+    runaway.dispose(); r.flush();
+    check(r.publish() == 0 && r.deliver_cleanups().empty(), "After breaking the feedback, publication resumes");
+}
+
+void effect_limits() {
+    ReactiveRuntime r;
+    auto scope = r.owner(r.root(), "bounded");
+    for (std::size_t i = 0; i + 1 < max_reactive_cleanups; ++i) r.on_cleanup(scope, "c" + std::to_string(i), [] {});
+    r.effect<int>(scope, "last", EffectPhase::notify, [] { return 0; }, [](int) {});
+    rejects([&] { r.effect<int>(scope, "overflow", EffectPhase::notify, [] { return 0; }, [](int) {}); },
+            "reactive_cleanup_limit");
+    scope.dispose();
+    rejects([&] { r.effect<int>(r.root(), "pending", EffectPhase::notify, [] { return 0; }, [](int) {}); },
+            "reactive_cleanup_limit");
+    check(r.deliver_cleanups().empty(), "Queued effect slots retain, then release, the shared cleanup budget");
+    r.effect<int>(r.root(), "fresh", EffectPhase::notify, [] { return 1; }, [](int) {});
+    r.flush();
+    check(r.publish() == 1, "Released capacity admits a new effect");
+}
 }
 int main() {
     try {
         diamond_and_equality(); branches_and_batches(); failures_and_recovery();
         ownership_and_boundaries(); stable_order_and_limits();
         cleanup_order_and_lifetimes(); cleanup_failures_and_boundaries(); cleanup_limits();
-        std::cout << "Reactive graph, equality, batches, ownership, cleanup and failure checks passed\n";
+        effects_and_publication(); effect_failures_and_boundaries(); effect_feedback(); effect_limits();
+        std::cout << "Reactive graph, equality, batches, ownership, cleanup, effect and failure checks passed\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

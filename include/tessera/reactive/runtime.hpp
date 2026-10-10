@@ -4,6 +4,7 @@
 #include <any>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -14,6 +15,13 @@ inline constexpr std::size_t max_reactive_nodes = 4096;
 inline constexpr std::size_t max_reactive_owners = 4096;
 inline constexpr std::size_t max_reactive_depth = 32;
 inline constexpr std::size_t max_reactive_cleanups = 4096;
+inline constexpr std::size_t max_reactive_effect_rounds = 32;
+
+// Host delivery points for values captured by a successful publication.
+enum class EffectPhase {
+    prepare, // After publication, before the host submits that generation.
+    notify,  // After publication; implies no GPU completion.
+};
 
 class ReactiveError final : public std::runtime_error {
 public:
@@ -29,6 +37,7 @@ struct ReactiveRef {
     std::uint64_t id = 0;
 };
 using ReactiveEqual = std::function<bool(const std::any&, const std::any&)>;
+using ReactiveApply = std::function<std::function<void()>(const std::any&)>;
 std::any reactive_read(const ReactiveRef&);
 std::uint64_t reactive_revision(const ReactiveRef&);
 bool reactive_write(const ReactiveRef&, std::any);
@@ -76,7 +85,7 @@ private:
     friend class ReactiveRuntime;
 };
 
-// One host UI thread; explicit graph flush and external cleanup delivery.
+// One host UI thread; explicit graph flush, publication, and external delivery.
 class ReactiveRuntime final {
 public:
     ReactiveRuntime();
@@ -105,6 +114,26 @@ public:
             [calculate = std::move(calculate)]() mutable -> std::any { return T(std::invoke(calculate)); },
             detail::reactive_equal<T>(std::move(equal))));
     }
+    // The pure calculation is tracked like a computed value. Each published
+    // change applies on its phase after running the prior returned cleanup once;
+    // owner disposal queues the latest cleanup for deliver_cleanups.
+    template<class T, class Calculate, class Apply, class Equal = std::equal_to<T>>
+    void effect(const ReactiveOwner& owner, std::string name, EffectPhase phase,
+                Calculate calculate, Apply apply, Equal equal = {}) {
+        static_assert(std::is_copy_constructible_v<T>, "Reactive values must be copyable owned values.");
+        add_effect(owner, std::move(name), phase,
+            [calculate = std::move(calculate)]() mutable -> std::any { return T(std::invoke(calculate)); },
+            detail::reactive_equal<T>(std::move(equal)),
+            [apply = std::move(apply)](const std::any& value) mutable -> std::function<void()> {
+                const auto& typed = std::any_cast<const T&>(value);
+                if constexpr (std::is_void_v<std::invoke_result_t<Apply&, const T&>>) {
+                    std::invoke(apply, typed);
+                    return {};
+                } else {
+                    return std::function<void()>(std::invoke(apply, typed));
+                }
+            });
+    }
     void begin_batch();
     void end_batch(); // Closes only; the host calls flush after the outer batch.
     template<class Update>
@@ -117,9 +146,18 @@ public:
     // Demand reads are allowed within batches; flush is not. First failure stops
     // draining; accepted caches survive and failed/pending calculations can retry.
     void flush();
+    // Accepts the settled graph as the published candidate after the host has
+    // built its presentation. Captures changed effect values and returns how
+    // many deliveries were queued; failure queues nothing.
+    std::size_t publish();
+    // Host boundary, outside batches/calculations. Effects may read and write
+    // sources; writes wait for a later flush/publication.
+    std::vector<Diagnostic> deliver_effects(EffectPhase);
 private:
     detail::ReactiveRef add(const ReactiveOwner&, std::string, std::any,
                             std::function<std::any()>, detail::ReactiveEqual);
+    void add_effect(const ReactiveOwner&, std::string, EffectPhase, std::function<std::any()>,
+                    detail::ReactiveEqual, detail::ReactiveApply);
     std::shared_ptr<detail::ReactiveState> state_;
 };
 } // namespace tessera
