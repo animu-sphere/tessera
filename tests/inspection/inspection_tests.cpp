@@ -237,6 +237,29 @@ void targets_resolve_exactly_one_element() {
           "Scroll boxes must expose their scroll geometry and clip like overflow clip");
 }
 
+void scoped_targets() {
+    const Fixture fixture;
+    const auto snapshot = fixture.capture();
+    const tessera::SemanticTarget start{tessera::SemanticRole::button, "Start"};
+    check(has(tessera::resolve_target(snapshot, start).diagnostics, "ambiguous_target", "/target"),
+          "Duplicate names should be ambiguous without a scope");
+    const auto scoped = tessera::resolve_target(snapshot, start, fixture.node(2));
+    check(scoped && *scoped.value == fixture.node(2), "Scope did not disambiguate duplicate names");
+    const auto path = tessera::resolve_target(snapshot, tessera::PathTarget{{0}}, fixture.node(2));
+    check(path && *path.value == fixture.node(3), "Scoped path did not start at scope");
+    check(has(tessera::resolve_target(snapshot, tessera::AuthorIdTarget{"spare"}, fixture.node(2)).diagnostics,
+              "target_not_found", "/target"), "ID lookup escaped scope");
+    const auto& rect = snapshot.elements[3].geometry->border_box;
+    const tessera::PointTarget point{{rect.origin.x + 1, rect.origin.y + 1}};
+    check(bool(tessera::resolve_target(snapshot, point, fixture.node(2))) &&
+              has(tessera::resolve_target(snapshot, point, fixture.node(8)).diagnostics, "target_not_found", "/target"),
+          "Scoped point changed coordinate space or escaped scope");
+    const Fixture replacement;
+    check(has(tessera::resolve_target(snapshot, start, replacement.node(2)).diagnostics, "stale_target", "/scope") &&
+              has(tessera::resolve_target(snapshot, start, fixture.node(999)).diagnostics, "stale_target", "/scope"),
+          "Stale or out-of-bounds scope accepted");
+}
+
 void actions_use_ordinary_eligibility_and_reject_stale_generations() {
     const Fixture fixture;
     const auto snapshot = fixture.capture();
@@ -294,6 +317,7 @@ void sourced_loading_matches_plain_loading() {
 
 int main() {
     try {
+        scoped_targets();
         capture_joins_one_generation();
         capture_rejects_incoherent_inputs();
         targets_resolve_exactly_one_element();

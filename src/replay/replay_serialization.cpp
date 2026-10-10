@@ -249,6 +249,13 @@ ReplayStep step(const JsonValue& value, const std::string& path, const Validatio
     if (type == "activate") return InputEvent{timestamp(fields({"type", "timestamp"}), path), Activate{}};
     if (type == "cancel") return InputEvent{timestamp(fields({"type", "timestamp"}), path), Cancel{}};
     if (type == "resize") return ReplayResize{size(fields({"type", "viewport"}).at("viewport"), path + "/viewport")};
+    if (type == "scale") return ReplayScale{real(fields({"type", "scale"}).at("scale"), path + "/scale")};
+    if (type == "tick") {
+        const auto& o = fields({"type", "time"});
+        return ReplayTick{std::chrono::microseconds{static_cast<std::int64_t>(
+            integer(o.at("time"), path + "/time", 0, max_exact_integer,
+                    "a nonnegative integer microsecond count within 2^53 - 1"))}};
+    }
     if (type == "reload") {
         const auto& o = fields({"type", "document", "styles"});
         auto replacement = document(o.at("document"), path + "/document", context);
@@ -263,7 +270,7 @@ ReplayStep step(const JsonValue& value, const std::string& path, const Validatio
         fail("unsupported_event", path + "/type", "Replay accepts host-translated commands; record navigate, "
              "focus_next, focus_previous, activate, or cancel instead of keys or text.");
     fail("unknown_value", path + "/type",
-         "Expected a pointer, scroll, command, resize, reload, focus, or semantic_action step type.");
+         "Expected a pointer, scroll, command, resize, scale, tick, reload, focus, or semantic_action step type.");
 }
 
 bool identifier(std::string_view value) {
@@ -367,6 +374,12 @@ std::vector<Diagnostic> check_values(const ReplayRecording& recording, bool docu
                                 "Timestamps must stay within +/-(2^53 - 1) microseconds to be exact in JSON.");
             } else if constexpr (std::is_same_v<T, ReplayResize>) {
                 check.size(step.viewport, at + "/viewport");
+            } else if constexpr (std::is_same_v<T, ReplayScale>) {
+                check.positive(step.scale, at + "/scale");
+            } else if constexpr (std::is_same_v<T, ReplayTick>) {
+                if (step.time.count() < 0 || step.time.count() > 9007199254740991LL)
+                    check.error("out_of_range", at + "/time",
+                                "Animation time must be within [0, 2^53 - 1] microseconds to be exact in JSON.");
             } else if constexpr (std::is_same_v<T, ReplayReload>) {
                 if (documents) relocate(errors, validate(step.document, recording.context), at + "/document");
                 styles(step.styles, at + "/styles");
@@ -493,6 +506,10 @@ JsonValue step_json(const ReplayStep& step) {
         if constexpr (std::is_same_v<T, InputEvent>) return event_json(s);
         else if constexpr (std::is_same_v<T, ReplayResize>)
             return JsonValue{Object{{"type", text("resize")}, {"viewport", size_json(s.viewport)}}};
+        else if constexpr (std::is_same_v<T, ReplayScale>)
+            return JsonValue{Object{{"type", text("scale")}, {"scale", real_json(s.scale)}}};
+        else if constexpr (std::is_same_v<T, ReplayTick>)
+            return JsonValue{Object{{"type", text("tick")}, {"time", number(static_cast<double>(s.time.count()))}}};
         else if constexpr (std::is_same_v<T, ReplayReload>)
             return JsonValue{Object{{"type", text("reload")}, {"document", detail::write_document_json(s.document)},
                                     {"styles", styles_json(s.styles)}}};

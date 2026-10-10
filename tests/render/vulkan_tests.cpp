@@ -880,7 +880,8 @@ void runner_fixtures(Host& host) {
     for (const std::size_t i : {2,4}) recording.styles[i].color = {1,1,1,1};
     recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10,10},{0,20}}},
                        tessera::ReplayResize{{100.3f,72}},
-                       tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"quit"}}};
+                       tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"quit"}},
+                       tessera::ReplayScale{1.5f}, tessera::ReplayScale{2}};
     const auto saved = tessera::save_replay(recording);
     const auto loaded = tessera::load_replay(*saved.value);
     check(saved && loaded && *loaded.value == recording, "Runner recording JSON round trip failed");
@@ -888,16 +889,16 @@ void runner_fixtures(Host& host) {
     const auto result = tessera::run_offscreen({&*loaded.value,&text,declared,&frames});
     check(result && result.diagnostics.empty(), "Vulkan offscreen run rejected");
     const auto& run = *result.value;
-    check(run.manifest.capture == declared && run.frames.size() == 3 && run.output.actions.size() == 1,
+    check(run.manifest.capture == declared && run.frames.size() == 5 && run.output.actions.size() == 1,
         "Vulkan run lost its declaration, generations or actions");
-    const tessera::CaptureExtent extents[]{{150,100},{150,100},{126,90}};
-    for (std::size_t g = 0; g < 3; ++g) {
+    const tessera::CaptureExtent extents[]{{150,100},{150,100},{126,90},{151,108},{201,144}};
+    for (std::size_t g = 0; g < run.frames.size(); ++g) {
         const auto& frame = run.frames[g];
         check(frame.status == tessera::FrameStatus::captured && frame.extent == extents[g] && frame.image,
             "Vulkan frame extent/status differs");
         const auto& boxes = run.output.generations[g].boxes;
         const auto at = [&](float x, float y) {
-            return std::array<unsigned,2>{unsigned((x+0.5f)*1.25f),unsigned((y+0.5f)*1.25f)};
+            return std::array<unsigned,2>{unsigned((x+0.5f)*frame.device_scale),unsigned((y+0.5f)*frame.device_scale)};
         };
         // Panel padding, each visible button's top-left padding, and the clear below the fixed-height panel.
         const auto panel = at(1,1);
@@ -952,7 +953,8 @@ void real_runner_fixtures(Host& host) {
     recording.styles[1].color = {0.6f,0.85f,1,0.75f};
     recording.styles[2].color = {1,0.7f,0.3f,0.65f};
     recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10,10},{0,20}}},
-                       tessera::ReplayResize{{180.6f,72}}};
+                       tessera::ReplayResize{{180.6f,72}}, tessera::ReplayScale{1.5f}, tessera::ReplayScale{2},
+                       tessera::ReplayTick{std::chrono::microseconds{16000}}};
 
     // The host restores both inputs and verifies the declared profile before running; core checks neither.
     const auto saved = tessera::save_replay(recording);
@@ -981,7 +983,7 @@ void real_runner_fixtures(Host& host) {
     const auto result = tessera::run_offscreen({&*loaded.value,&*service.value,declared,&frames});
     check(result && result.diagnostics.empty(), "Real-font offscreen run rejected");
     const auto& run = *result.value;
-    check(run.manifest.environment == recording.environment && run.manifest.capture == declared && run.frames.size() == 3,
+    check(run.manifest.environment == recording.environment && run.manifest.capture == declared && run.frames.size() == 6,
         "Real-font run lost its profile, declaration or generations");
     check(host.atlas_images.empty() && renderer.pending_uploads() == 0, "Generation atlas outlived its frame");
     const auto& generations = run.output.generations;
@@ -989,7 +991,7 @@ void real_runner_fixtures(Host& host) {
         "Scroll generation did not move the wrapped text");
     check(generations[2].boxes[1].border_box.size.height < generations[0].boxes[1].border_box.size.height,
         "Resize generation did not unwrap the mixed text");
-    const tessera::CaptureExtent extents[]{{98,90},{98,90},{226,90}};
+    const tessera::CaptureExtent extents[]{{98,90},{98,90},{226,90},{271,108},{362,144},{362,144}};
     for (std::size_t g = 0; g < run.frames.size(); ++g) {
         const auto& frame = run.frames[g];
         check(frame.status == tessera::FrameStatus::captured && frame.extent == extents[g] && frame.image,

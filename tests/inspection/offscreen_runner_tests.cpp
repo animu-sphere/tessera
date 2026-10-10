@@ -58,7 +58,7 @@ public:
     tessera::CaptureBackend backend() const override { return declaration; }
     tessera::Result<tessera::CapturedImage> capture(const tessera::CaptureRequest& request) override {
         requests.push_back({request.generation, request.logical_size, request.device_scale, request.extent,
-                            *request.paint});
+                            *request.paint, request.animation_time});
         if (fail_at && *fail_at == request.generation) return {std::nullopt, failure};
         tessera::CapturedImage image{request.extent, tessera::CaptureFormat::rgba8_srgb, {}};
         image.pixels.resize(std::size_t(request.extent.width) * request.extent.height * 4);
@@ -77,6 +77,7 @@ public:
         float device_scale;
         tessera::CaptureExtent extent;
         tessera::UiDrawList paint;
+        std::chrono::microseconds animation_time{};
     };
     tessera::CaptureBackend declaration = declared;
     std::vector<Request> requests;
@@ -241,6 +242,26 @@ void rejected() {
           "Capture byte bound must be checked before capturing");
 }
 
+void captures_generation_scale_and_time() {
+    auto replay = recording();
+    replay.steps = {tessera::ReplayScale{1.5f}, tessera::ReplayTick{16ms},
+                    tessera::ReplayResize{{100, 80}}, tessera::ReplayScale{2}};
+    FixtureCapture frames;
+    const auto result = run(replay, &frames);
+    check(result && result.value->frames.size() == 5 && frames.requests.size() == 5, "Scale/time capture failed");
+    const tessera::CaptureExtent expected[]{{250,150}, {300,180}, {300,180}, {150,120}, {200,160}};
+    const float scales[]{1.25f, 1.5f, 1.5f, 1.5f, 2};
+    for (std::size_t g = 0; g < 5; ++g) {
+        const auto& frame = result.value->frames[g];
+        const auto time = g < 2 ? 0us : std::chrono::microseconds(16ms);
+        check(frame.extent == expected[g] && frame.device_scale == scales[g] && frame.animation_time == time &&
+                  frames.requests[g].device_scale == scales[g] && frames.requests[g].animation_time == time,
+              "Capture used initial scale or lost explicit time");
+    }
+    const auto core = run(replay, nullptr);
+    check(core && core.value->output == result.value->output, "Core/captured generation conditions differ");
+}
+
 } // namespace
 
 int main() {
@@ -248,6 +269,7 @@ int main() {
         extents();
         core_only();
         captured();
+        captures_generation_scale_and_time();
         rejected();
         std::cout << "Offscreen runner core-only, declared capture association, determinism, and rejection checks "
                      "passed.\n";

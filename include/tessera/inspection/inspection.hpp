@@ -102,6 +102,9 @@ using InspectionTarget = std::variant<AuthorIdTarget, SemanticTarget, PathTarget
 // Resolves exactly one element of the snapshot and returns its handle in the snapshot generation.
 // Missing and ambiguous targets fail. Point targets select the topmost visible displayed element and
 // include disabled ones; pointer dispatch still uses hit testing.
-Result<NodeHandle> resolve_target(const InspectionSnapshot&, const InspectionTarget&);
+// A scope restricts matching to its authored subtree, including itself; paths start at that scope,
+// while points retain root logical coordinates. A scope from another generation fails at /scope.
+Result<NodeHandle> resolve_target(const InspectionSnapshot&, const InspectionTarget&,
+                                  std::optional<NodeHandle> scope = std::nullopt);
 
 } // namespace tessera

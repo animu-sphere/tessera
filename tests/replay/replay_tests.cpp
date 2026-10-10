@@ -728,11 +728,51 @@ void invalid_recordings_are_located_without_output() {
     check(!play_invalid(bad).value, "Undeclared actions must reject the recording");
 }
 
+void scale_and_time_settle_without_changing_logical_interaction() {
+    auto replay = recording();
+    replay.document.root.children[0].properties["focusable"] = true;
+    tessera::PlaceholderTextShaper text;
+    auto session = tessera::ReplaySession::open(replay, text);
+    check(bool(session), "Scale/time session failed to open");
+    check(bool(session.value->apply(tessera::InputEvent{10us, tessera::FocusNext{}})), "Focus failed");
+    const auto captured = session.value->capture();
+    const auto initial = session.value->output().generations[0];
+    check(bool(session.value->apply(tessera::ReplayScale{2})), "Scale update failed");
+    check(bool(session.value->apply(tessera::ReplayTick{25us})), "Time update failed");
+    check(bool(session.value->apply(tessera::ReplayTick{25us})), "Equal animation times rejected");
+    const auto output = session.value->output();
+    check(output.generations.size() == 4 && output.generations[1].device_scale == 2 &&
+              output.generations[2].animation_time == 25us, "Scale/time generation conditions lost");
+    for (const auto& generation : output.generations)
+        check(generation.boxes == initial.boxes && generation.paint == initial.paint &&
+                  generation.viewport == replay.viewport, "Scale/tick changed logical geometry/paint");
+    check(session.value->capture().value->generation == captured.value->generation &&
+              session.value->output().semantics.back().focused == 1, "Update changed tree identity or focus");
+    const auto accepted = session.value->recording();
+    check(has(session.value->apply(tessera::ReplayTick{24us}).diagnostics, "event_order", "/steps/4/time") &&
+              has(session.value->apply(tessera::ReplayScale{0}).diagnostics, "out_of_range", "/steps/4/scale") &&
+              has(session.value->apply(tessera::ReplayScale{std::numeric_limits<float>::infinity()}).diagnostics,
+                  "invalid_number", "/steps/4/scale"), "Invalid scale/time accepted");
+    check(!session.value->closed() && session.value->recording() == accepted && session.value->output() == output,
+          "Rejected updates changed session state");
+    // The animation clock is independent of the input clock.
+    check(bool(session.value->apply(tessera::InputEvent{11us, tessera::Activate{}})), "Tick advanced the input clock");
+    check(session.value->output().actions.back().action == "start-game", "Scale/tick changed action eligibility");
+    check(play(session.value->recording()) == session.value->output(), "Accepted scale/time steps do not reproduce");
+    auto changed = output;
+    changed.generations[2].animation_time = 26us;
+    changed.generations[1].device_scale = 1;
+    check(has(tessera::compare_replay(output, changed), "replay_mismatch", "/generations/2/animation_time") &&
+              has(tessera::compare_replay(output, changed), "replay_mismatch", "/generations/1/device_scale"),
+          "Comparison ignored scale/time differences");
+}
+
 } // namespace
 
 int main() {
     try {
         playback_observes_geometry_paint_and_actions();
+        scale_and_time_settle_without_changing_logical_interaction();
         scroll_steps_relayout_before_clicks();
         logical_commands_match_clicks_and_semantics();
         reveal_policy_scrolls_focus_into_view();
