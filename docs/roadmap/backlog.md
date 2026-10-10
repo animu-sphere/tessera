@@ -4,11 +4,7 @@ Inactive milestone candidates live here; [current](current.md) owns the active s
 
 Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below. External strategy phase numbers do not replace these candidate scopes.
 
-Priority across candidates: finish v0.2.0 correctness, then the contracts that later work depends on (commands, transactions, async state, UI invariants, component identity and reconciliation), then error boundaries, the command palette, the agent capability manifest, generalized virtualization, typed drag and drop, data grids, and context, and only then generation history, timeline/plotting primitives, collaboration, Web/WASM, and world-space UI. Items within a candidate are listed in dependency order.
-
-## v0.2.0 — Usable navigable menus
-
-Active; its complete scope and exit criteria are in [current](current.md).
+Priority across candidates: the contracts that later work depends on (commands, transactions, async state, UI invariants, component identity and reconciliation), then error boundaries, the command palette, the agent capability manifest, generalized virtualization, typed drag and drop, data grids, and context, and only then generation history, timeline/plotting primitives, collaboration, Web/WASM, and world-space UI. Items within a candidate are listed in dependency order.
 
 ## v0.3.0 candidate — Dynamic UI and editor prototype
 
@@ -22,6 +18,7 @@ Work:
 - [Command registry](../design/commands.md) implementation, [transaction](../design/commands.md#proposed-transaction-boundary) integration, and a [command palette](../design/commands.md#proposed-command-palette) prototype built from ordinary components.
 - [Error boundaries](../design/ui-model.md#proposed-error-boundaries) and [async state](../design/ui-model.md#proposed-async-state) primitives.
 - Image assets and theme variables.
+- Validate transform agreement between native pointer mapping and rendering when a consumer uses transformed menu paint or hit testing, under [layout coordinates](../design/layout.md#coordinate-spaces) and [rendering conversion](../design/rendering.md#coordinate-conversion).
 - Source-aware diagnostics, atomic live reload, compatible-state preservation, Path-finder preview.
 - Full property reflection/introspection v1 and a schema-driven Inspector.
 - OverlayRoot/Portal and bounded Tooltip/Dropdown/Modal primitives.

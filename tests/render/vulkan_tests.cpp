@@ -955,6 +955,19 @@ void real_runner_fixtures(Host& host) {
     recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10,10},{0,20}}},
                        tessera::ReplayResize{{180.6f,72}}, tessera::ReplayScale{1.5f}, tessera::ReplayScale{2},
                        tessera::ReplayTick{std::chrono::microseconds{16000}}};
+    recording.version = tessera::replay_host_version;
+    recording.environment.host = {{"menu-ready", "menu"}};
+    recording.steps.push_back(tessera::ReplayScale{1.75f});
+    recording.steps.push_back(tessera::ReplayScale{2.25f});
+    auto loading = tessera::ReplayReload{recording.document, recording.styles};
+    loading.document.root.children[0].properties["text"] = std::string("Loading 読み込み中");
+    loading.styles[0].padding = {4.25f, 4.5f, 4.75f, 4.125f};
+    recording.steps.push_back(tessera::ReplayHostUpdate{
+        {"menu-ready", "menu", 1, tessera::ReplayReadiness::loading, false}, loading});
+    auto ready = loading;
+    ready.document.root.children[0].properties["text"] = std::string("Ready 準備完了");
+    recording.steps.push_back(tessera::ReplayHostUpdate{
+        {"menu-ready", "menu", 1, tessera::ReplayReadiness::ready, true}, ready});
 
     // The host restores both inputs and verifies the declared profile before running; core checks neither.
     const auto saved = tessera::save_replay(recording);
@@ -983,7 +996,7 @@ void real_runner_fixtures(Host& host) {
     const auto result = tessera::run_offscreen({&*loaded.value,&*service.value,declared,&frames});
     check(result && result.diagnostics.empty(), "Real-font offscreen run rejected");
     const auto& run = *result.value;
-    check(run.manifest.environment == recording.environment && run.manifest.capture == declared && run.frames.size() == 6,
+    check(run.manifest.environment == recording.environment && run.manifest.capture == declared && run.frames.size() == 10,
         "Real-font run lost its profile, declaration or generations");
     check(host.atlas_images.empty() && renderer.pending_uploads() == 0, "Generation atlas outlived its frame");
     const auto& generations = run.output.generations;
@@ -991,7 +1004,11 @@ void real_runner_fixtures(Host& host) {
         "Scroll generation did not move the wrapped text");
     check(generations[2].boxes[1].border_box.size.height < generations[0].boxes[1].border_box.size.height,
         "Resize generation did not unwrap the mixed text");
-    const tessera::CaptureExtent extents[]{{98,90},{98,90},{226,90},{271,108},{362,144},{362,144}};
+    const tessera::CaptureExtent extents[]{{98,90},{98,90},{226,90},{271,108},{362,144},{362,144},
+                                          {317,126},{407,162},{407,162},{407,162}};
+    check(generations[8].host[0].readiness == tessera::ReplayReadiness::loading &&
+          generations[9].host[0].value && run.frames[8].image != run.frames[9].image,
+          "Real-font capture lost its coherent loading/ready state or changed no pixels");
     for (std::size_t g = 0; g < run.frames.size(); ++g) {
         const auto& frame = run.frames[g];
         check(frame.status == tessera::FrameStatus::captured && frame.extent == extents[g] && frame.image,

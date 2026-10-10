@@ -200,7 +200,7 @@ void loading_rejects_malformed_input() {
         for (const auto& diagnostic : loaded.diagnostics)
             check(diagnostic.byte_offset.has_value(), "Load diagnostics must carry a byte offset");
     };
-    reject(changed(base, "\"version\":1,\"viewport\"", "\"version\":2,\"viewport\""), "unsupported_version", "/version");
+    reject(changed(base, "\"version\":1,\"viewport\"", "\"version\":3,\"viewport\""), "unsupported_version", "/version");
     reject(changed(base, "\"version\":1,\"viewport\"", "\"version\":1.5,\"viewport\""), "schema_type", "/version");
     reject(changed(base, "\"actions\":[", "\"x/~\":0,\"actions\":["), "unknown_field", "/x~1~0");
     reject(changed(base, "\"actions\":[", "\"actions\":[],\"actions\":["), "duplicate_member", "/actions");

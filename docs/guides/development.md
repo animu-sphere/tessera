@@ -96,6 +96,8 @@ With `TESSERA_BUILD_VULKAN=ON` and examples enabled on Windows, the build above 
 
 The executable loads the SPIR-V artifacts from the build tree's shader directory. The smoke needs an interactive desktop session, the Khronos validation layer, and a device presenting an sRGB swapchain with transfer-source usage. It writes `vulkan-menu-{1,2,3,4}.ppm` presentation captures to `build-vulkan/backends/vulkan/artifacts` and fails after 30 seconds if the sequence stalls. Physical mouse activity over the window during the smoke can perturb it; the smoke reads no game controller.
 
+For the original Bluetooth Joy-Con L/R pair, run the interactive executable with `--joycons` and bring the menu window to the foreground. Both sides must be connected; use the left directions/stick to move, right A to activate, and right B to cancel. This explicitly selects the pair even when a DualSense or XInput controller is also attached. Device mapping and limits belong to the [input contract](../design/input.md#host-boundary).
+
 A separate fresh directory reproduces the host slice's independence check:
 
 ```powershell

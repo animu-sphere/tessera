@@ -1,35 +1,7 @@
 # Current
 
-## Active — v0.2.0 usable navigable menus
+## Scope selection
 
-Objective: make game/tool menus usable with real text and mouse, keyboard, or gamepad. This milestone completes runtime correctness and adds no large UI components.
+The next milestone is selected from [backlog](backlog.md). The dynamic UI/editor candidate depends on the [command](../design/commands.md), [transaction](../design/commands.md#proposed-transaction-boundary), and [async ownership](../design/ui-model.md#async-transition-and-ownership-rules) contracts; choose a concrete consumer fixture before activating its full scope.
 
-Depends on the v0.1.0 geometry, renderer, coordinate, and action boundaries. Existing capability/evidence is recorded only in the [support matrix](../reference/support-matrix.md); the v0.1.0 release and earlier slices are in the [changelog](../../CHANGELOG.md). This page lists remaining work.
-
-## Remaining required work
-
-- Real text beyond the [font shaper](../design/text.md#implemented-font-shaper), [family/logical-alias selection](../design/text.md#implemented-family-and-logical-alias-selection), [bounded menu wrapping profile](../design/text.md#implemented-menu-wrapping-profile), and [native menu font path](../design/rendering.md#implemented-win32-vulkan-example-host): broader Unicode line-break/Japanese tailoring as fixtures require it, and broader backend image evidence under the [deterministic font profile](../design/text.md#proposed-deterministic-font-profile).
-- Focus recovery hardening as menus require it; an operator session with a physical controller for the Win32 host's [gamepad translation](../design/input.md#host-boundary).
-- Replay v1 resource-readiness inputs beyond [Replay JSON v1](../design/replay.md#implemented-replay-json-v1) as fixtures require them, against the [async transition rules](../design/ui-model.md#async-transition-and-ownership-rules).
-- DPI and pixel-snapping validation.
-- Extend the [offscreen runner](../design/inspection.md#implemented-prototype-offscreen-runner) with declared state and resource readiness inputs as fixtures require, and with real-font capture beyond the [Vulkan fixture adapter](../design/rendering.md#implemented-capture-boundary) as fixtures require.
-- Carried from v0.1.0: validate transform agreement between native pointer mapping and rendering once menu paint or hit testing uses transforms; see [layout](../design/layout.md#coordinate-spaces) and [rendering](../design/rendering.md#coordinate-conversion).
-- Preserve deterministic geometry/paint, offscreen primitive/placeholder Text GPU fixtures, adjacent-batch/reference agreement, and the native menu smoke, including its clip-edge agreement, through the [testing strategy](../guides/testing.md).
-
-## Exit criteria
-
-- The same menu produces equivalent actions through mouse, keyboard, and gamepad.
-- Real measurement and painted glyph geometry agree in mixed Latin/Japanese wrapping fixtures.
-- Scrolled/clipped nodes paint and hit-test consistently; disabled nodes do not activate.
-- Class/state resolution is deterministic and semantic state matches focus/action eligibility.
-- Replay reproduces representative interactions, including expected action sequences.
-- An in-process consumer observes one coherent tree/layout/semantic generation and rejects ambiguous or stale targets; controlled host fixtures reproduce it without a window, with optional completed-frame capture.
-- The command, transaction, and async-state pages list their resolved rules, remaining open decisions, and first implementation fixtures.
-
-Owners: [text](../design/text.md), [input](../design/input.md), [commands](../design/commands.md), [UI model](../design/ui-model.md), [layout](../design/layout.md), [styling](../design/styling.md), [semantics](../design/semantics.md), [replay](../design/replay.md), [inspection](../design/inspection.md), [rendering](../design/rendering.md).
-
-## Immediately next
-
-Define a menu fixture that requires a readiness transition or declared host state before extending [Replay](../design/replay.md) and the [offscreen runner](../design/inspection.md#implemented-prototype-offscreen-runner); use the [async ownership rules](../design/ui-model.md#async-transition-and-ownership-rules) to reject late completions. Resolve the pixel-snapping policy with fractional-scale menu fixtures. Preserve the real-font runner, native glyph, and focus-recovery checks, and extend the [bounded menu wrapping profile](../design/text.md#implemented-menu-wrapping-profile) only for demonstrated Unicode/Japanese fixture requirements. A physical-controller session can confirm the gamepad path whenever a controller is available.
-
-Later candidate scopes are in [backlog](backlog.md).
+Live capability and validation evidence belongs to the [support matrix](../reference/support-matrix.md); delivery history belongs to the [changelog](../../CHANGELOG.md).

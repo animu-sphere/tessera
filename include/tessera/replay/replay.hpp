@@ -15,10 +15,25 @@
 
 namespace tessera {
 
-// In-process Replay v1 recording; replay_serialization.hpp encodes it as Replay JSON v1. Not a stable API.
-// The replay version is distinct from document, semantic, and font-profile versions; only version 1 is accepted.
+// In-process Replay recording; replay_serialization.hpp encodes Replay JSON v1/v2. Not a stable API.
+// The replay version is distinct from document, semantic, and font-profile versions.
 inline constexpr std::uint32_t replay_version = 1;
+// Explicit opt-in for controlled host state/readiness; v1 recordings keep their schema and behavior.
+inline constexpr std::uint32_t replay_host_version = 2;
 inline constexpr std::size_t max_replay_steps = 10000;
+inline constexpr std::size_t max_replay_host_slots = 64;
+
+enum class ReplayReadiness : std::uint8_t { idle, loading, ready, failed, cancelled };
+// A declared boolean host fixture slot, owned by an authored node. Request numbers never wrap/reuse.
+// Initial declarations must be idle with request zero. No asset/provider objects enter core.
+struct ReplayHostSlot {
+    std::string id;
+    std::string owner;
+    std::uint32_t request = 0;
+    ReplayReadiness readiness = ReplayReadiness::idle;
+    bool value = false;
+    bool operator==(const ReplayHostSlot&) const = default;
+};
 
 // New logical viewport applied at an update point.
 struct ReplayResize {
@@ -43,6 +58,14 @@ struct ReplayReload {
     std::vector<ResolvedStyle> styles;
     bool operator==(const ReplayReload&) const = default;
 };
+// One update point publishes a readiness transition, declared value, and host-built replacement view.
+// Starting a newer request supersedes the previous one. Only a current loading request may complete.
+// Replacing a view cancels other pending slots; a raw reload cancels every pending slot.
+struct ReplayHostUpdate {
+    ReplayHostSlot slot;
+    ReplayReload view;
+    bool operator==(const ReplayHostUpdate&) const = default;
+};
 // Host programmatic focus. The target is resolved by resolve_target in the current generation and focused
 // through FocusDispatcher::focus.
 struct ReplayFocus {
@@ -61,7 +84,7 @@ struct ReplaySemanticAction {
 // applied at an update point; a command goes through FocusDispatcher. Keys are host-translated, not replayed.
 // Focus and semantic action steps are untimed.
 using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload, ReplayFocus, ReplaySemanticAction,
-                                ReplayScale, ReplayTick>;
+                                ReplayScale, ReplayTick, ReplayHostUpdate>;
 
 // Host focus policies that playback applies on the host's behalf; both are off by default.
 struct ReplayFocusPolicy {
@@ -79,11 +102,13 @@ struct ReplayText {
     bool operator==(const ReplayText&) const = default;
 };
 // Initial host configuration. Playback is logical and does not interpret locale. Scale and the explicit
-// animation clock are recorded per generation; every declared resource is ready before the initial snapshot.
+// animation clock are recorded per generation. Text assets are ready before the initial snapshot;
+// explicit v2 host slots start idle and change only through controlled host updates.
 struct ReplayEnvironment {
     float scale = 1;            // Device pixels per logical unit; finite and positive.
     std::string locale = "und"; // BCP 47 tag syntax, compared exactly.
     ReplayText text;
+    std::vector<ReplayHostSlot> host; // v2 only, bounded declarations; v1 requires an empty vector.
     bool operator==(const ReplayEnvironment&) const = default;
 };
 
@@ -120,6 +145,7 @@ struct ReplayGeneration {
     Size viewport;
     float device_scale = 1;
     std::chrono::microseconds animation_time{};
+    std::vector<ReplayHostSlot> host; // Owned conditions used to settle this generation.
     bool operator==(const ReplayGeneration&) const = default;
 };
 // Owned semantic entry; preorder indices replace the snapshot's handles.

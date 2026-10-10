@@ -7,7 +7,7 @@
 
 namespace tessera {
 
-// Replay JSON v1: the serialized ReplayRecording, versioned separately from UI JSON and font profile JSON.
+// Replay JSON v1/v2: versioned separately from UI JSON and font profile JSON. v2 adds declared host slots.
 // Documents are embedded UI JSON v1 objects. A font profile is identified by its digest, never embedded.
 inline constexpr std::size_t max_serialized_replay_bytes = 64 * 1024 * 1024;
 inline constexpr std::size_t max_replay_json_values = 4 * 1024 * 1024;

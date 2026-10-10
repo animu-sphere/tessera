@@ -52,13 +52,21 @@ class ReplayPlayer {
 public:
     ReplayPlayer(ReplayRecording recording, TextShaper& text)
         : recording_(std::move(recording)), text_(text), viewport_(recording_.viewport),
-          scale_(recording_.environment.scale) {}
+          scale_(recording_.environment.scale), host_(recording_.environment.host) {}
 
     // Settles the initial snapshot and then applies every recorded step.
     bool run() {
         auto steps = std::move(recording_.steps);
         recording_.steps.clear();
-        if (!load(recording_.document, recording_.styles, "") || !settle({}, "")) return false;
+        if (!load(recording_.document, recording_.styles, "")) return false;
+        for (std::size_t i = 0; i < host_.size(); ++i) {
+            if (!current_.tree->find(host_[i].owner)) {
+                errors_.push_back({"target_not_found", Severity::error,
+                    "/environment/host/" + std::to_string(i) + "/owner", "Declare an owner in the initial document.", {}});
+                return false;
+            }
+        }
+        if (!settle({}, "")) return false;
         for (auto& step : steps) {
             if (!apply(std::move(step))) return false;
         }
@@ -83,6 +91,7 @@ public:
         const auto offsets = offsets_;
         const auto scale = scale_;
         const auto animation_time = animation_time_;
+        const auto host = host_;
         committed_ = false;
         bool ok = true;
         if (const auto* event = std::get_if<InputEvent>(&step)) {
@@ -92,7 +101,10 @@ public:
         } else if (const auto* resize = std::get_if<ReplayResize>(&step)) {
             ok = resize_to(resize->viewport, i, at);
         } else if (const auto* reload = std::get_if<ReplayReload>(&step)) {
+            cancel_pending();
             ok = replace(*reload, i, at);
+        } else if (const auto* update = std::get_if<ReplayHostUpdate>(&step)) {
+            ok = host_update(*update, i, at);
         } else if (const auto* focus = std::get_if<ReplayFocus>(&step)) {
             ok = focus_on(*focus, i, at);
         } else if (const auto* scale_step = std::get_if<ReplayScale>(&step)) {
@@ -119,6 +131,7 @@ public:
             offsets_ = offsets;
             scale_ = scale;
             animation_time_ = animation_time;
+            host_ = host;
         }
         return false;
     }
@@ -154,6 +167,54 @@ public:
     std::vector<Diagnostic> take_warnings() { return std::move(warnings_); }
 
 private:
+    void cancel_pending() {
+        for (auto& slot : host_)
+            if (slot.readiness == ReplayReadiness::loading) slot.readiness = ReplayReadiness::cancelled;
+    }
+
+    bool host_update(const ReplayHostUpdate& update, std::size_t step, const std::string& at) {
+        if (recording_.version != replay_host_version) {
+            errors_.push_back({"unsupported_event", Severity::error, at,
+                              "Host updates require an explicit Replay version 2 recording.", {}});
+            return false;
+        }
+        relocate(errors_, check_host_slot(update.slot, "/slot"), at);
+        if (!errors_.empty()) return false;
+        auto found = std::find_if(host_.begin(), host_.end(), [&](const auto& slot) { return slot.id == update.slot.id; });
+        const auto reject = [&](const char* code, const char* field, const char* message) {
+            errors_.push_back({code, Severity::error, at + "/slot" + field, message, {}});
+            return false;
+        };
+        if (found == host_.end()) return reject("undeclared_state", "/id", "Use a declared host slot.");
+        if (found->owner != update.slot.owner)
+            return reject("stale_owner", "/owner", "A slot cannot change its declared owner.");
+        if (update.slot.readiness == ReplayReadiness::loading) {
+            if (update.slot.request <= found->request)
+                return reject("stale_request", "/request", "Start with a strictly newer request number; never reuse it.");
+        } else if (update.slot.readiness == ReplayReadiness::idle) {
+            return reject("invalid_transition", "/readiness", "Idle is an initial declaration, not an update.");
+        } else if (found->readiness != ReplayReadiness::loading || update.slot.request != found->request) {
+            return reject("stale_request", "/request", "Complete only the current loading request.");
+        }
+        if (!current_.tree->find(found->owner))
+            return reject("stale_owner", "/owner", "The declared owner has been removed; resolve a live owner.");
+        if (update.slot.readiness != ReplayReadiness::ready && update.slot.value != found->value)
+            return reject("invalid_transition", "/value", "Only a ready completion may publish a new host value.");
+        // Validate the candidate before changing slot state or the live tree. Host updates replace the
+        // entire immutable view; conservative cancellation prevents author-ID reuse from reviving requests.
+        auto candidate = UiTree::create(update.view.document, recording_.context);
+        if (!candidate) {
+            relocate(errors_, std::move(candidate.diagnostics), at + "/view/document");
+            return false;
+        }
+        if (update.slot.readiness == ReplayReadiness::loading && !candidate.value->get()->find(found->owner))
+            return reject("stale_owner", "/owner", "A new request requires its owner in the replacement view.");
+        const auto index = static_cast<std::size_t>(found - host_.begin());
+        cancel_pending();
+        host_[index] = update.slot;
+        return replace(update.view, step, at + "/view");
+    }
+
     // The current coherent tree/styles/layout. Only values are copied into observations.
     struct Snapshot {
         std::unique_ptr<UiTree> tree;
@@ -250,6 +311,7 @@ private:
         generation.viewport = viewport_;
         generation.device_scale = scale_;
         generation.animation_time = animation_time_;
+        generation.host = host_;
         generation.boxes.reserve(current_.layout.boxes.size());
         for (const auto& box : current_.layout.boxes)
             generation.boxes.push_back(
@@ -416,6 +478,7 @@ private:
     Size viewport_;
     float scale_ = 1;
     std::chrono::microseconds animation_time_{};
+    std::vector<ReplayHostSlot> host_;
     Snapshot current_;
     std::vector<Point> offsets_; // Requested scroll offsets by node index; reset by reload.
     std::optional<std::chrono::microseconds> clock_;
@@ -529,6 +592,7 @@ public:
         if (expected.device_scale != actual.device_scale) mismatch(path + "/device_scale", "Device scale differs.");
         if (expected.animation_time != actual.animation_time)
             mismatch(path + "/animation_time", "Animation-clock observation differs.");
+        if (expected.host != actual.host) mismatch(path + "/host", "Declared host state/readiness differs.");
         const auto boxes = path + "/boxes";
         count(expected.boxes.size(), actual.boxes.size(), boxes, "boxes");
         for (std::size_t i = 0; i < std::min(expected.boxes.size(), actual.boxes.size()); ++i)
@@ -616,8 +680,8 @@ namespace detail {
 std::vector<Diagnostic> check_recording(const ReplayRecording& recording) {
     std::vector<Diagnostic> errors;
     Checker check(errors);
-    if (recording.version != replay_version)
-        check.error("unsupported_version", "/version", "Only replay version 1 is supported; re-record explicitly.");
+    if (recording.version != replay_version && recording.version != replay_host_version)
+        check.error("unsupported_version", "/version", "Use replay version 1 or 2; re-record explicitly.");
     if (recording.steps.size() > max_replay_steps)
         check.error("out_of_range", "/steps", "Use at most " + std::to_string(max_replay_steps) + " replay steps.");
     check.positive(recording.environment.scale, "/environment/scale");
@@ -626,6 +690,36 @@ std::vector<Diagnostic> check_recording(const ReplayRecording& recording) {
                     "Use hyphen-separated subtags of 1-8 ASCII letters or digits, starting with 2-8 letters, "
                     "e.g. 'und' or 'ja-JP'.");
     check_text(recording.environment.text, check);
+    if (recording.version == replay_version && !recording.environment.host.empty())
+        check.error("unsupported_event", "/environment/host", "Host slots require Replay version 2.");
+    if (recording.environment.host.size() > max_replay_host_slots)
+        check.error("out_of_range", "/environment/host", "Declare at most 64 host slots.");
+    std::vector<std::string> names;
+    for (std::size_t i = 0; i < recording.environment.host.size(); ++i) {
+        const auto& slot = recording.environment.host[i];
+        const auto at = "/environment/host/" + std::to_string(i);
+        relocate(errors, check_host_slot(slot, at), "");
+        if (slot.request != 0 || slot.readiness != ReplayReadiness::idle)
+            check.error("invalid_transition", at, "Initial slots must be idle with request zero.");
+        if (std::find(names.begin(), names.end(), slot.id) != names.end())
+            check.error("duplicate_state", at + "/id", "Declare each host slot once.");
+        names.push_back(slot.id);
+    }
+    return errors;
+}
+
+std::vector<Diagnostic> check_host_slot(const ReplayHostSlot& slot, const std::string& path) {
+    std::vector<Diagnostic> errors;
+    Checker check(errors);
+    const auto identifier = [&](const std::string& value, const char* field) {
+        if (!valid_utf8(value)) check.error("invalid_utf8", path + field, "Use valid UTF-8.");
+        else if (value.empty() || value.size() > 256 ||
+                 std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
+            check.error("invalid_identifier", path + field, "Use 1-256 UTF-8 bytes without ASCII controls.");
+    };
+    identifier(slot.id, "/id");
+    identifier(slot.owner, "/owner");
+    check.enumeration(slot.readiness, ReplayReadiness::cancelled, path + "/readiness");
     return errors;
 }
 
