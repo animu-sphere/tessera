@@ -236,6 +236,172 @@ void ownership_and_boundaries() {
     r.flush();
 }
 
+void cleanup_order_and_lifetimes() {
+    ReactiveRuntime r;
+    auto root = r.root();
+    auto parent = r.owner(root, "parent");
+    auto first = r.owner(parent, "first"), second = r.owner(parent, "second");
+    auto source = r.signal(root, "source", 1);
+    int evaluations = 0;
+    auto view = r.computed<int>(first, "view", [&] { ++evaluations; return source.read(); });
+    std::vector<int> calls;
+    std::weak_ptr<int> capture;
+    {
+        auto owned = std::make_shared<int>(1);
+        capture = owned;
+        r.on_cleanup(first, "first", [&, owned] { calls.push_back(*owned); });
+    }
+    // Registration across scopes deliberately differs from child-first order.
+    r.on_cleanup(parent, "parent", [&] { calls.push_back(4); });
+    r.on_cleanup(second, "second", [&] { calls.push_back(3); });
+    r.on_cleanup(first, "last", [&] { calls.push_back(2); });
+    r.on_cleanup(root, "root", [&] { calls.push_back(6); });
+    r.flush();
+    check(r.deliver_cleanups().empty() && calls.empty(), "Live owners do not deliver cleanup");
+    source.write(2);
+    r.batch([&] {
+        parent.dispose(); parent.dispose();
+        rejects([&] { view.read(); }, "disposed_reactive_value");
+        rejects([&] { r.on_cleanup(first, "late", [] {}); }, "disposed_reactive_owner");
+        rejects([&] { r.deliver_cleanups(); }, "reactive_open_batch");
+        check(calls.empty() && !capture.expired(), "Disposal closes scopes but retains queued cleanup captures");
+    });
+    r.flush();
+    check(evaluations == 1 && calls.empty(), "Flush discards disposed graph work without invoking cleanup");
+    // Reused names can queue new lifetimes while the old cleanup is pending.
+    auto replacement = r.owner(root, "parent");
+    r.on_cleanup(replacement, "parent", [&] { calls.push_back(5); });
+    replacement.dispose();
+    check(r.deliver_cleanups().empty() && calls == std::vector<int>({1, 2, 3, 4, 5}),
+          "Cleanup uses disposal order, child-first scopes, and registration order within each scope");
+    check(capture.expired(), "Delivered callbacks release owned captures");
+    parent.dispose();
+    check(r.deliver_cleanups().empty() && calls.size() == 5, "Repeated disposal and delivery never repeat callbacks");
+    root.dispose();
+    check(calls.size() == 5 && r.deliver_cleanups().empty() && calls.back() == 6,
+          "Explicit root shutdown delivers cleanup after the root is closed");
+
+    int implicit_calls = 0;
+    std::weak_ptr<int> implicit_capture;
+    {
+        ReactiveRuntime temporary;
+        auto held = std::make_shared<int>(7);
+        implicit_capture = held;
+        temporary.on_cleanup(temporary.root(), "live", [held, &implicit_calls] { ++implicit_calls; });
+        auto pending = temporary.owner(temporary.root(), "pending");
+        temporary.on_cleanup(pending, "queued", [&implicit_calls] { ++implicit_calls; });
+        pending.dispose();
+    }
+    check(implicit_calls == 0 && implicit_capture.expired(),
+          "Runtime destruction releases live and queued callbacks without implicit external delivery");
+}
+
+void cleanup_failures_and_boundaries() {
+    ReactiveRuntime r, other;
+    auto root = r.root();
+    auto scope = r.owner(root, "cleanup/~");
+    auto source = r.signal(root, "source", 0);
+    auto external = other.signal(other.root(), "external", 0);
+    std::vector<int> calls;
+    r.on_cleanup(scope, "standard/~", [&] { calls.push_back(1); throw std::runtime_error("cancel failed"); });
+    r.on_cleanup(scope, "nonstandard", [&] { calls.push_back(2); throw 42; });
+    r.on_cleanup(scope, "guard", [&] {
+        rejects([&] { source.read(); }, "reactive_cleanup_entry");
+        rejects([&] { source.write(1); }, "reactive_cleanup_entry");
+        rejects([&] { external.read(); }, "reactive_cleanup_entry");
+        rejects([&] { r.flush(); }, "reactive_cleanup_entry");
+        rejects([&] { r.deliver_cleanups(); }, "reactive_cleanup_entry");
+        rejects([&] { r.begin_batch(); }, "reactive_cleanup_entry");
+        rejects([&] { root.dispose(); }, "reactive_cleanup_entry");
+        rejects([&] { r.on_cleanup(root, "feedback", [] {}); }, "reactive_cleanup_entry");
+        calls.push_back(3);
+    });
+    r.on_cleanup(scope, "uncaught_entry", [&] { source.write(2); });
+    r.on_cleanup(scope, "last", [&] { calls.push_back(4); });
+    scope.dispose();
+    const auto diagnostics = r.deliver_cleanups();
+    check(calls == std::vector<int>({1, 2, 3, 4}) && diagnostics.size() == 3,
+          "Callable and forbidden-entry failures do not skip later queued cleanup");
+    check(diagnostics[0].code == "reactive_cleanup_failed" && diagnostics[0].severity == Severity::error &&
+          diagnostics[0].path == "/reactive/root/owners/cleanup~1~0/cleanups/standard~1~0" &&
+          diagnostics[0].message.find("cancel failed") != std::string::npos,
+          "Cleanup diagnostics locate the escaped registration name and retain the failure reason");
+    check(diagnostics[1].code == "reactive_cleanup_failed" &&
+          diagnostics[2].path.ends_with("/cleanups/uncaught_entry"), "All failures retain their cleanup location");
+    check(r.deliver_cleanups().empty() && calls.size() == 4 && source.read() == 0,
+          "Failed callbacks are consumed once, and rejected reactive writes accept nothing");
+    source.write(3); r.flush();
+    check(source.read() == 3 && external.read() == 0, "Cleanup guards restore both runtimes after delivery");
+
+    int after_allocation_failure = 0;
+    auto allocation = r.owner(root, "allocation");
+    r.on_cleanup(allocation, "failure", [] { throw std::bad_alloc{}; });
+    r.on_cleanup(allocation, "later", [&] { ++after_allocation_failure; });
+    allocation.dispose();
+    bool allocation_threw = false;
+    try { r.deliver_cleanups(); }
+    catch (const std::bad_alloc&) { allocation_threw = true; }
+    check(allocation_threw && after_allocation_failure == 0 && source.read() == 3,
+          "Allocation failure propagates and restores delivery guards");
+    check(r.deliver_cleanups().empty() && after_allocation_failure == 1,
+          "After allocation failure, only callbacks not yet invoked remain queued");
+
+    auto pure = r.owner(root, "pure");
+    auto registering = r.computed<int>(pure, "register", [&] { r.on_cleanup(root, "illegal", [] {}); return 0; });
+    rejects([&] { registering.read(); }, "reactive_mutation");
+    pure.dispose();
+    auto evaluator = r.owner(root, "evaluator");
+    auto delivery = r.computed<int>(evaluator, "deliver", [&] { r.deliver_cleanups(); return 0; });
+    rejects([&] { delivery.read(); }, "reactive_mutation");
+    evaluator.dispose();
+    auto comparing = r.signal(root, "comparing", 0, [&](int, int) { r.deliver_cleanups(); return false; });
+    rejects([&] { comparing.write(1); }, "reactive_comparator");
+    r.flush();
+
+    bool thread_rejected = false;
+    std::thread worker([&] {
+        try { r.deliver_cleanups(); }
+        catch (const ReactiveError& e) { thread_rejected = e.diagnostic().code == "reactive_thread"; }
+    });
+    worker.join();
+    check(thread_rejected, "Cleanup delivery uses the creating UI thread");
+    rejects([&] { r.on_cleanup(other.root(), "foreign", [] {}); }, "foreign_reactive_owner");
+    rejects([&] { r.on_cleanup(root, "", [] {}); }, "invalid_reactive_name");
+    rejects([&] { r.on_cleanup(root, "empty", {}); }, "invalid_reactive_cleanup");
+    r.on_cleanup(root, "unique", [] {});
+    rejects([&] { r.on_cleanup(root, "unique", [] {}); }, "duplicate_reactive_name");
+    // Cleanup and value names have separate namespaces.
+    r.signal(root, "unique", 0);
+
+    auto invalid = r.owner(root, "invalid");
+    r.computed<int>(invalid, "view", []() -> int { throw std::runtime_error("No valid graph candidate"); });
+    auto closed = r.owner(root, "closed");
+    int released = 0;
+    r.on_cleanup(closed, "subscription", [&] { ++released; });
+    closed.dispose();
+    rejects([&] { r.flush(); }, "reactive_calculation_failed");
+    check(released == 0 && r.deliver_cleanups().empty() && released == 1,
+          "Cleanup of a disposed subscription is independent of a failed surviving graph calculation");
+    invalid.dispose(); r.flush();
+}
+
+void cleanup_limits() {
+    ReactiveRuntime r;
+    auto scope = r.owner(r.root(), "bounded");
+    std::size_t calls = 0;
+    for (std::size_t i = 0; i < max_reactive_cleanups; ++i)
+        r.on_cleanup(scope, "c" + std::to_string(i), [&] { ++calls; });
+    rejects([&] { r.on_cleanup(scope, "overflow", [] {}); }, "reactive_cleanup_limit");
+    scope.dispose();
+    rejects([&] { r.on_cleanup(r.root(), "pending_overflow", [] {}); }, "reactive_cleanup_limit");
+    check(r.deliver_cleanups().empty() && calls == max_reactive_cleanups,
+          "Pending registrations retain their bounded storage until delivery");
+    r.on_cleanup(r.root(), "fresh", [&] { ++calls; });
+    r.root().dispose();
+    check(r.deliver_cleanups().empty() && calls == max_reactive_cleanups + 1,
+          "Delivery releases registration capacity");
+}
+
 void stable_order_and_limits() {
     ReactiveRuntime r;
     auto root = r.root();
@@ -294,6 +460,7 @@ int main() {
     try {
         diamond_and_equality(); branches_and_batches(); failures_and_recovery();
         ownership_and_boundaries(); stable_order_and_limits();
-        std::cout << "Reactive graph, equality, batches, ownership and failure checks passed\n";
+        cleanup_order_and_lifetimes(); cleanup_failures_and_boundaries(); cleanup_limits();
+        std::cout << "Reactive graph, equality, batches, ownership, cleanup and failure checks passed\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }
