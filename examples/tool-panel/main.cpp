@@ -49,6 +49,14 @@ int main() {
         return PanelObservation{{selection.has_value(), false, selection ? "" : "Select an item."},
             selection ? CommandObjectIds{*selection} : CommandObjectIds{}, selection};
     });
+    // Synthetic host status line; it only observes published generations.
+    std::string status_line;
+    int status_detached = 0;
+    runtime.effect<std::optional<std::string>>(panel_owner, "status", EffectPhase::notify,
+        [&] { return selected_item.read(); }, [&](const std::optional<std::string>& selection) {
+            status_line = selection ? "Selected " + *selection : "No selection";
+            return [&status_detached] { ++status_detached; };
+        });
 
     std::uint64_t generation = 0;
     for (const bool selected : {false, true, false}) {
@@ -74,6 +82,8 @@ int main() {
         const SemanticInput ui{tree.value->get(), styles, &*layout.value};
         const auto semantics = build_semantic_tree(ui);
         if (!semantics || semantics.value->nodes[1].enabled != selected) return 6;
+        // The full candidate is valid: publish it, then deliver post-publication effects.
+        if (runtime.publish() != 1 || !runtime.deliver_effects(EffectPhase::notify).empty()) return 12;
 
         FocusDispatcher focus;
         const HitTestInput hit{tree.value->get(), styles, &*layout.value};
@@ -90,11 +100,12 @@ int main() {
         const auto info = commands.value->lookup(inspect.id);
         std::cout << "Generation " << generation << ": " << info.value->descriptor.label << " enabled=" << selected;
         if (!selected) std::cout << " (" << info.value->state.disabled_reason << ')';
-        std::cout << '\n';
+        std::cout << " status=\"" << status_line << "\"\n";
     }
-    if (inspected_item != "item-7" || evaluations != 3) return 10;
+    if (inspected_item != "item-7" || evaluations != 3 || status_detached != 2) return 10;
     panel_owner.dispose();
     runtime.flush();
-    if (!selection_observer_connected || !runtime.deliver_cleanups().empty() || selection_observer_connected) return 11;
+    if (!selection_observer_connected || !runtime.deliver_cleanups().empty() || selection_observer_connected ||
+        status_detached != 3) return 11;
     std::cout << "Host inspected " << *inspected_item << ". Synthetic core-only panel; placeholder text, no native window.\n";
 }

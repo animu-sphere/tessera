@@ -46,6 +46,16 @@ struct Cleanup {
     std::string path;
     std::function<void()> callback;
 };
+struct Effect {
+    std::uint64_t owner = 0;
+    std::uint64_t node = 0;
+    EffectPhase phase = EffectPhase::notify;
+    ReactiveApply apply;
+    // Reserved cleanup registration holding the latest returned cleanup.
+    std::list<Cleanup>::iterator slot;
+    std::uint64_t published = 0;
+    std::optional<std::any> pending;
+};
 thread_local ReactiveState* active = nullptr;
 }
 struct ReactiveState {
@@ -53,9 +63,12 @@ struct ReactiveState {
     std::map<std::uint64_t, Owner> owners{{1, {0, "/reactive/root", 1}}};
     std::map<std::uint64_t, Node> nodes;
     std::list<Cleanup> cleanups, pending_cleanups;
+    std::map<std::uint64_t, Effect> effects; // Keyed by calculation node; creation order.
     std::uint64_t next_owner = 2, next_node = 1;
-    std::size_t batches = 0;
+    std::size_t batches = 0, feedback_rounds = 0;
     bool flushing = false, comparing = false, delivering_cleanups = false;
+    const std::string* delivering_effect = nullptr;
+    std::string induced; // Last effect whose accepted source write awaits publication.
     std::vector<Collection> stack;
     void check() const {
         if (thread != std::this_thread::get_id())
@@ -71,6 +84,13 @@ struct ReactiveState {
         check();
         if (!stack.empty())
             fail("reactive_mutation", path, "Calculations must not write values or mutate graph/owner/batch storage.");
+    }
+    // Graph, owner, batch, publication, and delivery operations.
+    void structural(const std::string& path = "/reactive") const {
+        mutation(path);
+        if (delivering_effect)
+            fail("reactive_effect_entry", *delivering_effect,
+                 "Effects may read and write sources only; queue other work for a later host update point.");
     }
     Node& node(std::uint64_t id) {
         const auto it = nodes.find(id);
@@ -219,11 +239,12 @@ bool reactive_write(const ReactiveRef& ref, std::any value) {
         fail("reactive_revision_exhausted", n.path, "Create a new runtime before revisions exhaust.");
     n.value = std::move(value); ++n.revision;
     state->invalidate(ref.id);
+    if (state->delivering_effect) state->induced = *state->delivering_effect;
     return true;
 }
 void reactive_dispose(const ReactiveRef& ref) {
     auto state = lock(ref);
-    state->mutation();
+    state->structural();
     if (!state->owners.contains(ref.id)) return;
     std::vector<std::uint64_t> closing;
     std::function<void(std::uint64_t)> visit = [&](std::uint64_t parent) {
@@ -242,8 +263,10 @@ void reactive_dispose(const ReactiveRef& ref) {
                 state->pending_cleanups.splice(state->pending_cleanups.end(), state->cleanups, current);
         }
     }
-    // Close every scope before destroying stored values/callables.
+    // Close every scope before destroying stored values/callables. Effect
+    // cleanup slots were queued above; pending effect deliveries are discarded.
     for (const auto id : closing) state->owners.erase(id);
+    std::erase_if(state->effects, [&](const auto& effect) { return closed.contains(effect.second.owner); });
     for (const auto& [id, n] : state->nodes)
         if (closed.contains(n.owner)) state->invalidate(id);
     for (const auto owner : closing) {
@@ -259,6 +282,48 @@ void reactive_dispose(const ReactiveRef& ref) {
         }
     }
 }
+namespace {
+// Validates a value or effect calculation registration and returns its path.
+std::string node_path(ReactiveState& state, const ReactiveRef& owner, const std::string& name,
+                      const std::string& kind) {
+    state.structural();
+    if (lock(owner).get() != &state)
+        fail("foreign_reactive_owner", "/reactive", "Use an owner from this runtime.");
+    const auto& scope = state.owner(owner.id);
+    validate_name(name);
+    auto path = scope.path + "/" + kind + "s/" + escaped(name);
+    if (state.nodes.size() >= max_reactive_nodes)
+        fail("reactive_node_limit", path, "Reduce the live value and effect count to at most 4096.");
+    for (const auto& [id, n] : state.nodes) {
+        (void)id;
+        if (n.path == path) fail("duplicate_reactive_name", path, "Use a unique " + kind + " name within its owner.");
+    }
+    return path;
+}
+std::uint64_t insert_node(ReactiveState& state, std::uint64_t owner, std::string path, std::any value,
+                          std::function<std::any()> calculate, ReactiveEqual equal) {
+    const auto id = identity(state.next_node);
+    Node node;
+    node.owner = owner; node.path = std::move(path); node.value = std::move(value);
+    node.revision = calculate ? 0 : 1;
+    node.calculate = std::move(calculate); node.equal = std::move(equal);
+    state.nodes.emplace(id, std::move(node));
+    return id;
+}
+// External operations are consumed by the caller and never retried.
+void invoke_external(const std::function<void()>& operation, const std::string& path, const char* code,
+                     const char* what, std::vector<Diagnostic>& diagnostics) {
+    try { operation(); }
+    catch (const std::bad_alloc&) { throw; }
+    catch (const std::exception& e) {
+        diagnostics.push_back({code, Severity::error, path,
+            std::string(what) + " failed and will not be retried: " + e.what(), {}});
+    } catch (...) {
+        diagnostics.push_back({code, Severity::error, path,
+            std::string(what) + " failed with a nonstandard exception and will not be retried.", {}});
+    }
+}
+}
 } // namespace detail
 
 ReactiveRuntime::ReactiveRuntime() : state_(std::make_shared<detail::ReactiveState>()) {}
@@ -268,7 +333,7 @@ ReactiveOwner ReactiveRuntime::root() const {
     return ReactiveOwner({state_, 1});
 }
 ReactiveOwner ReactiveRuntime::owner(const ReactiveOwner& parent, std::string name) {
-    state_->mutation();
+    state_->structural();
     if (detail::lock(parent.ref_) != state_)
         detail::fail("foreign_reactive_owner", "/reactive", "Use an owner from this runtime.");
     const auto& p = state_->owner(parent.ref_.id);
@@ -285,7 +350,7 @@ ReactiveOwner ReactiveRuntime::owner(const ReactiveOwner& parent, std::string na
     return ReactiveOwner({state_, id});
 }
 void ReactiveRuntime::on_cleanup(const ReactiveOwner& owner, std::string name, std::function<void()> callback) {
-    state_->mutation();
+    state_->structural();
     if (detail::lock(owner.ref_) != state_)
         detail::fail("foreign_reactive_owner", "/reactive", "Use an owner from this runtime.");
     const auto& scope = state_->owner(owner.ref_.id);
@@ -294,7 +359,7 @@ void ReactiveRuntime::on_cleanup(const ReactiveOwner& owner, std::string name, s
     if (!callback)
         detail::fail("invalid_reactive_cleanup", path, "Supply a callable external cleanup operation.");
     if (state_->cleanups.size() + state_->pending_cleanups.size() >= max_reactive_cleanups)
-        detail::fail("reactive_cleanup_limit", path, "Keep live and pending cleanup registrations within 4096; deliver queued cleanups to release capacity.");
+        detail::fail("reactive_cleanup_limit", path, "Keep live and pending cleanup and effect registrations within 4096; deliver queued cleanups to release capacity.");
     for (const auto& cleanup : state_->cleanups)
         if (cleanup.path == path)
             detail::fail("duplicate_reactive_name", path, "Use a unique cleanup name within its owner.");
@@ -302,7 +367,7 @@ void ReactiveRuntime::on_cleanup(const ReactiveOwner& owner, std::string name, s
 }
 std::vector<Diagnostic> ReactiveRuntime::deliver_cleanups() {
     auto state = state_;
-    state->mutation();
+    state->structural();
     if (state->batches)
         detail::fail("reactive_open_batch", "/reactive", "Close the outer batch before delivering external cleanups.");
     std::vector<Diagnostic> diagnostics;
@@ -314,15 +379,8 @@ std::vector<Diagnostic> ReactiveRuntime::deliver_cleanups() {
         while (!state->pending_cleanups.empty()) {
             auto cleanup = std::move(state->pending_cleanups.front());
             state->pending_cleanups.pop_front(); // Consume before invocation, even on failure.
-            try { cleanup.callback(); }
-            catch (const std::bad_alloc&) { throw; }
-            catch (const std::exception& e) {
-                diagnostics.push_back({"reactive_cleanup_failed", Severity::error, cleanup.path,
-                    "Cleanup failed and will not be retried: " + std::string(e.what()), {}});
-            } catch (...) {
-                diagnostics.push_back({"reactive_cleanup_failed", Severity::error, cleanup.path,
-                    "Cleanup failed with a nonstandard exception and will not be retried.", {}});
-            }
+            if (!cleanup.callback) continue; // Effect slot without a returned cleanup.
+            detail::invoke_external(cleanup.callback, cleanup.path, "reactive_cleanup_failed", "Cleanup", diagnostics);
         }
         state->delivering_cleanups = false;
         detail::active = previous;
@@ -335,40 +393,45 @@ std::vector<Diagnostic> ReactiveRuntime::deliver_cleanups() {
 }
 detail::ReactiveRef ReactiveRuntime::add(const ReactiveOwner& owner, std::string name, std::any value,
     std::function<std::any()> calculate, detail::ReactiveEqual equal) {
-    state_->mutation();
-    if (detail::lock(owner.ref_) != state_)
-        detail::fail("foreign_reactive_owner", "/reactive", "Use an owner from this runtime.");
-    const auto& scope = state_->owner(owner.ref_.id);
-    detail::validate_name(name);
-    const auto path = scope.path + "/values/" + detail::escaped(name);
-    if (state_->nodes.size() >= max_reactive_nodes)
-        detail::fail("reactive_node_limit", path, "Reduce the live value count to at most 4096.");
-    for (const auto& [id, n] : state_->nodes) {
-        (void)id;
-        if (n.path == path) detail::fail("duplicate_reactive_name", path, "Use a unique value name within its owner.");
+    auto path = detail::node_path(*state_, owner.ref_, name, "value");
+    return {state_, detail::insert_node(*state_, owner.ref_.id, std::move(path), std::move(value),
+                                        std::move(calculate), std::move(equal))};
+}
+void ReactiveRuntime::add_effect(const ReactiveOwner& owner, std::string name, EffectPhase phase,
+    std::function<std::any()> calculate, detail::ReactiveEqual equal, detail::ReactiveApply apply) {
+    auto path = detail::node_path(*state_, owner.ref_, name, "effect");
+    if (phase != EffectPhase::prepare && phase != EffectPhase::notify)
+        detail::fail("invalid_reactive_effect", path, "Use a declared effect phase.");
+    if (state_->cleanups.size() + state_->pending_cleanups.size() >= max_reactive_cleanups)
+        detail::fail("reactive_cleanup_limit", path, "Keep live and pending cleanup and effect registrations within 4096; deliver queued cleanups to release capacity.");
+    // Reserve the replacement cleanup slot in registration order with on_cleanup.
+    state_->cleanups.push_back({owner.ref_.id, path, {}});
+    const auto slot = std::prev(state_->cleanups.end());
+    try {
+        const auto id = detail::insert_node(*state_, owner.ref_.id, path, {}, std::move(calculate), std::move(equal));
+        state_->effects.emplace(id, detail::Effect{owner.ref_.id, id, phase, std::move(apply), slot, 0, {}});
+    } catch (...) {
+        state_->cleanups.erase(slot);
+        throw;
     }
-    const auto id = detail::identity(state_->next_node);
-    detail::Node node;
-    node.owner = owner.ref_.id; node.path = path; node.value = std::move(value);
-    node.revision = calculate ? 0 : 1;
-    node.calculate = std::move(calculate); node.equal = std::move(equal);
-    state_->nodes.emplace(id, std::move(node));
-    return {state_, id};
 }
 void ReactiveRuntime::begin_batch() {
-    state_->mutation();
+    state_->structural();
     if (state_->batches >= max_reactive_depth)
         detail::fail("reactive_batch_limit", "/reactive", "Reduce nested batches to at most 32.");
     ++state_->batches;
 }
 void ReactiveRuntime::end_batch() {
-    state_->mutation();
+    state_->structural();
     if (state_->batches == 0)
         detail::fail("reactive_batch_unbalanced", "/reactive", "Close only a matching open batch.");
     --state_->batches;
 }
 void ReactiveRuntime::flush() {
     state_->check();
+    if (state_->delivering_effect)
+        detail::fail("reactive_effect_entry", *state_->delivering_effect,
+                     "Effect-induced writes wait for a later host flush; do not flush during delivery.");
     if (state_->flushing || !state_->stack.empty())
         detail::fail("reactive_reentrant_flush", "/reactive", "Call flush after calculation and the prior flush return.");
     if (state_->batches)
@@ -381,5 +444,66 @@ void ReactiveRuntime::flush() {
         }
         state_->flushing = false;
     } catch (...) { state_->flushing = false; throw; }
+}
+std::size_t ReactiveRuntime::publish() {
+    auto& state = *state_;
+    state.structural();
+    if (state.batches)
+        detail::fail("reactive_open_batch", "/reactive", "Close the outer batch, then flush before publishing.");
+    for (const auto& [id, n] : state.nodes) {
+        (void)id;
+        if (n.calculate && (n.dirty || n.failed))
+            detail::fail("reactive_unsettled", n.path,
+                "Flush successfully before publishing; failed or stale calculations keep the last published values.");
+    }
+    if (!state.induced.empty()) {
+        if (++state.feedback_rounds > max_reactive_effect_rounds) {
+            const auto path = std::exchange(state.induced, {});
+            state.feedback_rounds = 0;
+            detail::fail("reactive_effect_feedback", path,
+                "Effect-induced writes did not settle within 32 publications; break the feedback before publishing again.");
+        }
+    } else {
+        state.feedback_rounds = 0;
+    }
+    // Copy every changed value before committing, so allocation failure queues nothing.
+    std::vector<std::pair<detail::Effect*, std::any>> changed;
+    for (auto& [id, effect] : state.effects) {
+        const auto& n = state.node(id);
+        if (n.revision != effect.published) changed.emplace_back(&effect, n.value);
+    }
+    for (auto& [effect, value] : changed) {
+        effect->pending = std::move(value); // Replaces an older undelivered value.
+        effect->published = state.node(effect->node).revision;
+    }
+    state.induced.clear();
+    return changed.size();
+}
+std::vector<Diagnostic> ReactiveRuntime::deliver_effects(EffectPhase phase) {
+    auto state = state_;
+    state->structural();
+    if (state->batches)
+        detail::fail("reactive_open_batch", "/reactive", "Close the outer batch before delivering effects.");
+    std::vector<Diagnostic> diagnostics;
+    try {
+        // Registration and disposal are rejected during delivery, so iteration is stable.
+        for (auto& [id, effect] : state->effects) {
+            (void)id;
+            if (effect.phase != phase || !effect.pending) continue;
+            auto value = std::move(*effect.pending);
+            effect.pending.reset(); // Consume before invocation, even on failure.
+            const auto& path = effect.slot->path;
+            state->delivering_effect = &path;
+            if (auto prior = std::exchange(effect.slot->callback, nullptr))
+                detail::invoke_external(prior, path, "reactive_cleanup_failed", "Replaced effect cleanup", diagnostics);
+            detail::invoke_external([&] { effect.slot->callback = effect.apply(value); },
+                                    path, "reactive_effect_failed", "Effect", diagnostics);
+            state->delivering_effect = nullptr;
+        }
+    } catch (...) {
+        state->delivering_effect = nullptr;
+        throw;
+    }
+    return diagnostics;
 }
 } // namespace tessera
