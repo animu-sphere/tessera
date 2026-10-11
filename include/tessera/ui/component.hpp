@@ -1,11 +1,13 @@
 #pragma once
 
 #include <tessera/ui/bindings.hpp>
+#include <tessera/style/style_sheet.hpp>
 
 namespace tessera {
 inline constexpr std::size_t max_component_props = 256;
 inline constexpr std::size_t max_component_slots = 256;
 inline constexpr std::size_t max_component_actions = 256;
+inline constexpr std::size_t max_component_styles = 256;
 
 // Required unless a literal default is supplied. Types are never coerced.
 struct ComponentProp {
@@ -38,6 +40,15 @@ struct ComponentEvent {
     std::string target; // Author ID in the template, not in slot content.
     std::string event;  // activate or cancel.
 };
+// A complete typed instance override, required unless a literal default exists.
+struct ComponentStyle {
+    std::string name;
+    std::optional<StyleDeclarations> default_value;
+};
+struct ComponentStyleBinding {
+    std::string style;  // Declared style argument.
+    std::string target; // Template author ID; slot content is opaque.
+};
 // Data-only composition IR. The host supplies document-unique author IDs and
 // uses `kind` with KeyedCollection for instance ownership/local state.
 struct ComponentDescription {
@@ -48,21 +59,31 @@ struct ComponentDescription {
     std::vector<ComponentSlot> slots;
     std::vector<ComponentAction> actions;
     std::vector<ComponentEvent> events;
+    std::vector<ComponentStyle> styles;
+    std::vector<ComponentStyleBinding> style_bindings;
 };
 // Reactive alternatives are weak references to the host's instance owner.
 using ComponentValue = std::variant<Property,
     Signal<bool>, Computed<bool>, Signal<double>, Computed<double>,
     Signal<std::string>, Computed<std::string>, Signal<NodeReference>, Computed<NodeReference>>;
 using ComponentActionValue = std::variant<std::string, Signal<std::string>, Computed<std::string>>;
+using ComponentStyleValue = std::variant<StyleDeclarations, Signal<StyleDeclarations>, Computed<StyleDeclarations>>;
 struct ComponentArguments {
     std::map<std::string, ComponentValue, std::less<>> props;
     std::map<std::string, std::vector<UiNode>, std::less<>> slots;
     std::map<std::string, ComponentActionValue, std::less<>> actions;
+    std::map<std::string, ComponentStyleValue, std::less<>> styles;
+};
+
+struct BoundComponent : BoundDocument {
+    // Empty when there are no style mappings; otherwise one entry per composed
+    // node in preorder, directly usable as StyleInput::overrides for this document.
+    std::vector<StyleDeclarations> overrides;
 };
 
 // Validates schema/arguments before reading settled values or copying subtrees.
 // Returns an ordinary, fully validated document; never creates/disposes owners,
 // evaluates calculations, publishes a generation, or invokes external code.
-Result<BoundDocument> lower_component(const ReactiveRuntime&, const ComponentDescription&,
+Result<BoundComponent> lower_component(const ReactiveRuntime&, const ComponentDescription&,
                                      const ComponentArguments&, const ValidationContext& = {});
 } // namespace tessera

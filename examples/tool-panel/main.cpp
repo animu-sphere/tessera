@@ -66,6 +66,8 @@ int main() {
     button.children.push_back(label); panel_component.document.root.children.push_back(button);
     panel_component.actions = {{"inspect", {}}};
     panel_component.events = {{"inspect", "inspect", "activate"}};
+    panel_component.styles = {{"button", {}}};
+    panel_component.style_bindings = {{"button", "inspect"}};
     const ValidationContext context{{"inspect-item"}};
     PlaceholderTextShaper text;
     std::uint64_t sequence = 0;
@@ -79,6 +81,13 @@ int main() {
     auto inspect_action = runtime.signal(panel_owner, "inspect-action", std::string("inspect-item"));
     ComponentArguments panel_arguments;
     panel_arguments.actions["inspect"] = inspect_action;
+    const auto button_style = runtime.computed<StyleDeclarations>(panel_owner, "button-style", [&] {
+        StyleDeclarations style;
+        style.height = Dimension::points(32);
+        style.background = selected_item.read() ? Color{0.2f, 0.4f, 0.8f, 1} : Color{0.5f, 0.5f, 0.5f, 1};
+        return style;
+    });
+    panel_arguments.styles["button"] = button_style;
     bool selection_observer_connected = true; // Synthetic host subscription lifetime.
     runtime.on_cleanup(panel_owner, "selection-observer", [&] { selection_observer_connected = false; });
     int evaluations = 0;
@@ -129,8 +138,10 @@ int main() {
         if (!document) return 3;
         auto tree = UiTree::create(*document.value, context);
         if (!tree) return 4;
-        std::vector<ResolvedStyle> styles((*tree.value)->size());
-        styles[1].height = Dimension::points(32);
+        const StyleSheet sheet;
+        const auto resolved = resolve_styles({tree.value->get(), &sheet, {}, composed.value->overrides});
+        if (!resolved) return 29;
+        const auto& styles = *resolved.value;
         const auto layout = compute_layout({tree.value->get(), styles, {240, 80}, &text});
         if (!layout) return 5;
         const SemanticInput ui{tree.value->get(), styles, &*layout.value};
