@@ -203,6 +203,7 @@ CommandInvocation::CommandInvocation(CommandInvocationRecord record, std::shared
     : record_(std::move(record)), snapshot_(std::move(data)) {}
 std::uint64_t CommandSnapshot::generation() const noexcept { return data_->generation; }
 std::uint64_t CommandSnapshot::registry_revision() const noexcept { return data_->registry->revision; }
+bool CommandSnapshot::permits_object(std::string_view id) const { return data_->objects.contains(id); }
 Result<CommandSnapshot> CommandSnapshot::publish(const CommandRegistry& registry, std::uint64_t generation,
     CommandMode mode, CommandStates states, CommandObjectIds objects) {
     std::vector<Diagnostic> errors;

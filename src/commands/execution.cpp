@@ -1,4 +1,5 @@
 #include <tessera/commands/execution.hpp>
+#include "outcome.hpp"
 #include "../detail/checks.hpp"
 #include "../ui/json_detail.hpp"
 #include <exception>
@@ -20,7 +21,9 @@ bool pointer(std::string_view path) {
     }
     return true;
 }
-std::vector<Diagnostic> validate_outcome(const CommandOutcome& outcome) {
+} // namespace
+namespace detail {
+std::vector<Diagnostic> validate_command_outcome(const CommandOutcome& outcome) {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     check.enumeration(outcome.status, CommandOutcomeStatus::error, "/result/status");
@@ -51,7 +54,12 @@ std::vector<Diagnostic> validate_outcome(const CommandOutcome& outcome) {
     if (!has_error) check.error("invalid_outcome", "/result/diagnostics", "An error outcome requires at least one error diagnostic.");
     return errors;
 }
-} // namespace
+CommandOutcome command_host_exception(std::string_view message) {
+    return failure({{"host_exception", Severity::error, "/result/host",
+        !message.empty() && message.size() <= max_command_string_bytes && valid_utf8(message) ?
+            std::string(message) : "The host command threw an exception.", {}}});
+}
+} // namespace detail
 
 CommandExecutor::CommandExecutor() : thread_(std::this_thread::get_id()) {}
 Result<CommandExecution> CommandExecutor::execute(const CommandSnapshot& snapshot,
@@ -77,17 +85,14 @@ Result<CommandExecution> CommandExecutor::execute(const CommandSnapshot& snapsho
     } catch (const std::bad_alloc&) {
         throw;
     } catch (const std::exception& e) {
-        const std::string_view message(e.what());
-        execution.outcome = failure({{"host_exception", Severity::error, "/result/host",
-            !message.empty() && message.size() <= max_command_string_bytes && detail::valid_utf8(message) ?
-                std::string(message) : "The host command threw an exception.", {}}});
+        execution.outcome = detail::command_host_exception(e.what());
         return {std::move(execution), {}};
     } catch (...) {
         execution.outcome = failure({{"host_exception", Severity::error, "/result/host",
             "The host command threw a non-standard exception.", {}}});
         return {std::move(execution), {}};
     }
-    errors = validate_outcome(execution.outcome);
+    errors = detail::validate_command_outcome(execution.outcome);
     if (!errors.empty()) execution.outcome = failure(std::move(errors));
     else if (execution.outcome.status == CommandOutcomeStatus::success) {
         auto values = retained.normalize_results(execution.invocation.command, execution.outcome.values);

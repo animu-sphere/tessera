@@ -8,12 +8,12 @@ Objective: support application-driven composition and Path-finder iteration usin
 
 Depends on menu/text/style foundations and explicit document identity/versioning.
 
-Consumer fixture: an inventory/tool panel driven by host-owned selection and item data. Inspection starts as a non-editing command; item edits will add discrete and continuous transactions, keyed rows, async resource replacement, compatible reload, and Inspector metadata. Use the same command eligibility and generation checks for pointer, normalized keyboard/gamepad, semantic, and replay requests before extending the fixture.
+Consumer fixture: an inventory/tool panel driven by host-owned selection and item data. Extend ordinary inspection and discrete/continuous item edits with input gesture cancellation, async resource replacement, compatible reload, and Inspector metadata. Use the same command eligibility and generation checks for pointer, normalized keyboard/gamepad, semantic, and replay requests before extending the fixture.
 
 Remaining work:
 
 - Extend [component descriptions](../design/ui-model.md#implemented-component-description-and-lowering) with automatic owner/local-state setup, nested invocation descriptions, declared signals/actions, style/event bindings, and frontend source mapping over the [reactive runtime](../design/reactive-runtime.md), [fault boundaries](../design/reactive-runtime.md#implemented-subtree-fault-boundary), and [keyed instance owners](../design/ui-model.md#implemented-keyed-instance-reconciliation); completion-safe resource retirement. Use full-tree style/layout/semantic/paint evaluation as the presentation reference, with affected-stage metadata for later incremental work.
-- Extend the [command boundary](../design/commands.md#implemented-in-process-command-boundary) with shortcut scopes/conflict diagnostics; integrate the [transaction boundary](../design/commands.md#proposed-transaction-boundary) and build a [command palette](../design/commands.md#proposed-command-palette) from ordinary components.
+- Extend the [command boundary](../design/commands.md#implemented-in-process-command-boundary) with shortcut scopes/conflict diagnostics; wire the [transaction boundary](../design/commands.md#implemented-synchronous-transaction-boundary) to input gesture completion/cancellation, capture loss and reload/owner disposal, and build a [command palette](../design/commands.md#proposed-command-palette) from ordinary components.
 - [Error boundaries](../design/ui-model.md#proposed-error-boundaries) and [async state](../design/ui-model.md#proposed-async-state) primitives.
 - Image assets and theme variables.
 - Validate transform agreement between native pointer mapping and rendering when a consumer uses transformed menu paint or hit testing, under [layout coordinates](../design/layout.md#coordinate-spaces) and [rendering conversion](../design/rendering.md#coordinate-conversion).

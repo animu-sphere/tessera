@@ -1,7 +1,9 @@
 #include <tessera/commands/commands.hpp>
 #include <tessera/commands/execution.hpp>
+#include <tessera/commands/transactions.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
+#include <tessera/render/paint.hpp>
 #include <tessera/ui/keyed.hpp>
 #include <tessera/ui/component.hpp>
 #include <iostream>
@@ -17,11 +19,21 @@ struct PanelObservation {
     bool operator==(const PanelObservation&) const = default;
 };
 
-struct InspectionHost final : CommandHost {
+struct PanelHost final : TransactionHost {
     std::optional<std::string> inspected_item;
+    double amount = 1, previous_amount = 0;
+    int history_entries = 0, rollbacks = 0;
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         inspected_item = std::get<CommandObjectId>(invocation.arguments.at("item")).value;
         return {CommandOutcomeStatus::success, {{"item", CommandObjectId{*inspected_item}}}, {}};
+    }
+    CommandOutcome begin(const TransactionRecord&) override { previous_amount = amount; return {}; }
+    CommandOutcome execute_edit(const CommandInvocationRecord& invocation, const TransactionRecord&) override {
+        amount = std::get<double>(invocation.arguments.at("amount")); return {};
+    }
+    CommandOutcome commit(const TransactionRecord&) override { ++history_entries; return {}; }
+    CommandOutcome rollback(const TransactionRecord&, TransactionCancel) override {
+        amount = previous_amount; ++rollbacks; return {};
     }
 };
 
@@ -34,7 +46,11 @@ int main() {
     item.name = "item"; item.type = CommandParameterType::object_id;
     inspect.parameters = {item};
     inspect.results = {item};
-    const auto registry = CommandRegistry::create({inspect}, {{"inspect-item", inspect.id}});
+    CommandDescriptor edit; edit.id = "inventory.set_amount"; edit.label = "Set amount";
+    CommandParameter amount_parameter; amount_parameter.name = "amount"; amount_parameter.type = CommandParameterType::number;
+    amount_parameter.minimum = 0; amount_parameter.maximum = 100;
+    edit.parameters = {item, amount_parameter};
+    const auto registry = CommandRegistry::create({inspect, edit}, {{"inspect-item", inspect.id}});
     if (!registry) return 1;
 
     UiDocument authored;
@@ -47,8 +63,8 @@ int main() {
     const ValidationContext context{{"inspect-item"}};
     PlaceholderTextShaper text;
     std::uint64_t sequence = 0;
-    InspectionHost command_host; // Application state stays in the host.
-    CommandExecutor executor;
+    PanelHost command_host; // Application state/history stay in the host.
+    CommandTransactions executor; // Non-editing and editing commands share sequences.
 
     std::optional<std::string> host_selection;
     ReactiveRuntime runtime;
@@ -212,6 +228,62 @@ int main() {
     const auto* lantern_row = rows.find("item-7");
     if (!lantern_row || rows.current("item-7", lantern) || row_state[lantern_row->lifetime].pinned.read() ||
         unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6) return 20;
+
+    // One application gesture spans three reactive batches. Each edit lowers a
+    // complete document and evaluates the ordinary presentation pipeline; only
+    // explicit completion adds an application history entry.
+    const auto amount_view = runtime.signal(panel_owner, "amount", command_host.amount);
+    const auto amount_label = runtime.computed<std::string>(panel_owner, "amount-label", [&] {
+        return "Amount: " + std::to_string(static_cast<int>(amount_view.read()));
+    });
+    const auto edit_snapshot = [&] {
+        return *CommandSnapshot::publish(*registry.value, ++generation, CommandMode::production,
+            {{edit.id, {true}}}, {"item-7"}).value;
+    };
+    const auto edit_request = [&](const CommandSnapshot& commands, double value) {
+        return *commands.resolve({commands.generation(), edit.id,
+            {{"item", CommandObjectId{"item-7"}}, {"amount", value}}, CommandSource::keyboard, ++sequence}).value;
+    };
+    const auto present_amount = [&] {
+        runtime.batch([&] { amount_view.write(command_host.amount); });
+        if (!runtime.flush().empty()) return false;
+        ComponentDescription caption; caption.kind = "amount"; caption.document.root.kind = NodeKind::text;
+        caption.document.root.id = "amount"; caption.document.root.properties["text"] = std::string{};
+        caption.props = {{"caption", PropertyType::string, {}}}; caption.properties = {{"caption", "amount", "text"}};
+        ComponentArguments args; args.props["caption"] = amount_label;
+        const auto lowered = lower_component(runtime, caption, args);
+        if (!lowered) return false;
+        const auto tree = UiTree::create(lowered.value->document);
+        if (!tree) return false;
+        const std::vector<ResolvedStyle> styles((*tree.value)->size());
+        const auto layout = compute_layout({tree.value->get(), styles, {240, 80}, &text});
+        if (!layout) return false;
+        const SemanticInput ui{tree.value->get(), styles, &*layout.value};
+        if (!build_semantic_tree(ui) || !build_paint_list({tree.value->get(), styles, &*layout.value, &text})) return false;
+        if (runtime.publish() != 0 || !runtime.deliver_effects(EffectPhase::notify).empty()) return false;
+        std::cout << "Edit generation " << generation << ": " << amount_label.read() << '\n';
+        return true;
+    };
+    auto commands = edit_snapshot(); auto command = edit_request(commands, 2);
+    auto transaction = executor.begin(commands, command, {"Change item amount", "amount", {"item-7"}, {}}, command_host);
+    if (!transaction) return 23;
+    for (const double value : {2.0, 3.0, 4.0}) {
+        if (value != 2) { commands = edit_snapshot(); command = edit_request(commands, value); }
+        const auto result = executor.execute_edit(commands, command, *transaction.value, command_host);
+        if (!result || result.value->outcome.status != CommandOutcomeStatus::success || !present_amount()) return 24;
+    }
+    const auto committed = executor.commit(commands, *transaction.value, command_host);
+    if (!committed || committed.value->status != CommandOutcomeStatus::success || command_host.history_entries != 1) return 25;
+    commands = edit_snapshot(); command = edit_request(commands, 99);
+    transaction = executor.begin(commands, command, {"Change item amount", "amount", {"item-7"}, {}}, command_host);
+    if (!transaction) return 26;
+    const auto changed = executor.execute_edit(commands, command, *transaction.value, command_host);
+    if (!changed || changed.value->outcome.status != CommandOutcomeStatus::success || !present_amount()) return 26;
+    const auto cancelled = executor.rollback(*transaction.value, TransactionCancel::user, command_host);
+    ++generation; // Rollback settles before the restoration's later presentation.
+    if (!cancelled || cancelled.value->status != CommandOutcomeStatus::success || command_host.amount != 4 ||
+        command_host.history_entries != 1 || command_host.rollbacks != 1 || !present_amount()) return 27;
+    std::cout << "One committed edit gesture; cancelled edit restored amount without another history entry.\n";
 
     if (command_host.inspected_item != "item-7" || evaluations != 3 || status_detached != 2) return 10;
     panel_owner.dispose();

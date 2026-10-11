@@ -22,6 +22,8 @@ The [tool-panel example](../../examples/tool-panel/main.cpp) uses synthetic keyb
 
 MSVC uses the ordinary Windows SDK C++ toolchain. A core-only workflow requires no graphics/font/editor SDK or dependency download. Restricted build environments may need access to the toolchain's SDK configuration directories; dated environment issues belong in support evidence.
 
+The tool panel also exercises the [transaction boundary](../design/commands.md#implemented-synchronous-transaction-boundary) with host-owned item amounts and history. Three edits lower a caption through ordinary components and the full presentation pipeline before one explicit commit; a subsequent cancelled edit restores the amount before publishing its restoration. Inspection and editing share one command sequence stream. Input gesture wiring is defined by the [transaction proposal](../design/commands.md#proposed-transaction-boundary).
+
 ## Library-only workflow
 
 Use a fresh build directory for a clean library-only check:
