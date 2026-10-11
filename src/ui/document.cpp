@@ -22,7 +22,8 @@ std::string expected(PropertyType type) {
 
 } // namespace
 
-std::vector<Diagnostic> validate(const UiDocument& document, const ValidationContext& context) {
+std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, const UiNode& root,
+    const JsonValue::Object& document_extensions, const ValidationContext& context) {
     std::vector<Diagnostic> errors;
     auto error = [&](std::string code, std::string path, std::string message) {
         errors.push_back({std::move(code), Severity::error, std::move(path), std::move(message), {}});
@@ -68,7 +69,7 @@ std::vector<Diagnostic> validate(const UiDocument& document, const ValidationCon
             metadata(value, location, depth + 1);
         }
     };
-    if (document.version != 1)
+    if (version != 1)
         error("unsupported_version", "/version", "Only document version 1 is supported; migrate explicitly.");
     std::map<std::string, std::string, std::less<>> ids;
     std::vector<std::pair<std::string, std::string>> references;
@@ -129,12 +130,16 @@ std::vector<Diagnostic> validate(const UiDocument& document, const ValidationCon
         for (std::size_t i = 0; i < node.children.size() && count <= max_document_nodes; ++i)
             visit(node.children[i], path + "/children/" + std::to_string(i), depth + 1);
     };
-    extensions(document.extensions, "/extensions", 1);
-    visit(document.root, "/root", 1);
+    extensions(document_extensions, "/extensions", 1);
+    visit(root, "/root", 1);
     if (count > max_document_nodes) error("node_limit", "/root", "Document exceeds the node limit (10000).");
     for (const auto& [id, path] : references) {
         if (!ids.contains(id)) error("invalid_reference", path, "No node has author ID '" + id + "'.");
     }
     return errors;
+}
+
+std::vector<Diagnostic> validate(const UiDocument& document, const ValidationContext& context) {
+    return detail::validate_document_parts(document.version, document.root, document.extensions, context);
 }
 } // namespace tessera

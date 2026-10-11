@@ -137,7 +137,7 @@ A paint-only value change should avoid measurement and layout. Geometry, inherit
 
 ## Open decisions
 
-- Component prop/slot descriptions over [typed property bindings](ui-model.md#implemented-typed-property-bindings) and [keyed instance owners](ui-model.md#implemented-keyed-instance-reconciliation).
+- Automatic component owner/state setup and nested invocation descriptions over [component lowering](ui-model.md#implemented-component-description-and-lowering) and [keyed instance owners](ui-model.md#implemented-keyed-instance-reconciliation).
 - Observed-demand tracking, queue structures, and wider graph bounds based on consumer workloads.
 - Effect result adapter; mapping [fault boundaries](#implemented-subtree-fault-boundary) to presentation [error boundaries](ui-model.md#proposed-error-boundaries) and component identity. Disposal and replacement cleanup use the implemented [cleanup](#implemented-external-cleanup-boundary) and [publication](#implemented-effect-and-publication-boundary) boundaries.
 - Allocation strategy and debug metadata storage, selected after measuring graph workloads rather than fixing an illustrative node ABI.
