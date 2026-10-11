@@ -6,7 +6,7 @@ Test algorithms and boundaries heavily; test appearance selectively. Keep tests 
 
 | Subsystem | Primary checks |
 | --- | --- |
-| [UI model](../design/ui-model.md) | Semantic round trip, stable ordering, schema/type failures, invalid IDs/references/versions, keyed instance reuse and disposal |
+| [UI model](../design/ui-model.md) | Semantic round trip, stable ordering, schema/type failures, invalid IDs/references/versions, keyed instance reuse and disposal, typed binding candidate rejection and full-tree parity |
 | [Reactive runtime](../design/reactive-runtime.md) | Chain/diamond coherence, dynamic edges, equality suppression, batching, cycle/reentrancy failures, fault-boundary containment, disposal and effect phases |
 | [Layout](../design/layout.md) | Fixed, stack/flex, constraints, nested spacing, scroll extents/offsets; later absolute/grid/intrinsic geometry |
 | [Styling](../design/styling.md) | Selector matching, layer/source-order ties, inheritance, overrides, pseudo-state invalidation |

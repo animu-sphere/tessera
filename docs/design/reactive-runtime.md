@@ -20,6 +20,14 @@ Calculations must be pure: source writes, graph/owner mutation, and batch operat
 
 Bounds are 4,096 live values, 4,096 live owners including the root, and 32 nested owners, batches, or active calculations. Disposed storage releases the live count budget. There is no fixed-point solver, dependency graph inspection schema, observer priority, or parallel evaluation API. Graph checks are in [reactive_tests.cpp](../../tests/reactive/reactive_tests.cpp).
 
+## Implemented settled presentation reads
+
+[runtime.hpp](../../include/tessera/reactive/runtime.hpp) exposes `check_settled()` and `snapshot(Signal<T>/Computed<T>)`; [runtime.cpp](../../src/reactive/runtime.cpp) owns their guards. These are host operations on the creating UI thread outside batches, calculations, equality comparison, cleanup delivery, and effect delivery. They neither evaluate calculations nor track dependencies, capture effects, or accept publication.
+
+`check_settled()` uses the same graph eligibility check as `publish()`: an open batch fails with `reactive_open_batch`, and a dirty or failed calculation outside faulted boundaries fails with `reactive_unsettled` at its graph location. Calculations held by faulted boundaries do not block healthy presentation. This check changes no feedback counter or delivery record.
+
+`snapshot(value)` returns an owned copy of that value's accepted cache. It rejects foreign-runtime, expired, or disposed references using the graph diagnostics. A dirty or failed calculation fails with `reactive_unsettled`; any value owned beneath a faulted boundary fails with `reactive_faulted_snapshot`, including a source or a clean cache. It never retries the failing calculation. The host substitutes explicit fallback content for such a subtree. `snapshot` checks its individual value; callers check the whole graph with `check_settled()` before composing a candidate. [Typed property bindings](ui-model.md#implemented-typed-property-bindings) perform both checks, and [binding checks](../../tests/ui/bindings_tests.cpp) verify presentation entry, candidate rejection, and lifetime isolation.
+
 ## Implemented external cleanup boundary
 
 [runtime.hpp](../../include/tessera/reactive/runtime.hpp) defines `ReactiveRuntime::on_cleanup(owner, name, callback)` and `deliver_cleanups()`; [runtime.cpp](../../src/reactive/runtime.cpp) owns registrations and their delivery queue. A registration holds a copyable, nonempty `std::function<void()>` external operation until its owner is disposed. Cleanup names follow the graph's UTF-8/name bounds, are unique among cleanup registrations within one live owner, and have a separate namespace from values and child owners. Diagnostic paths append `/cleanups/<escaped-name>` to the owner path.
@@ -129,7 +137,7 @@ A paint-only value change should avoid measurement and layout. Geometry, inherit
 
 ## Open decisions
 
-- Typed presentation binding API and component descriptions over [keyed instance owners](ui-model.md#implemented-keyed-instance-reconciliation).
+- Component prop/slot descriptions over [typed property bindings](ui-model.md#implemented-typed-property-bindings) and [keyed instance owners](ui-model.md#implemented-keyed-instance-reconciliation).
 - Observed-demand tracking, queue structures, and wider graph bounds based on consumer workloads.
 - Effect result adapter; mapping [fault boundaries](#implemented-subtree-fault-boundary) to presentation [error boundaries](ui-model.md#proposed-error-boundaries) and component identity. Disposal and replacement cleanup use the implemented [cleanup](#implemented-external-cleanup-boundary) and [publication](#implemented-effect-and-publication-boundary) boundaries.
 - Allocation strategy and debug metadata storage, selected after measuring graph workloads rather than fixing an illustrative node ABI.

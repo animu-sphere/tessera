@@ -13,6 +13,7 @@ add_library(tessera_core
     src/ui/serialization.cpp
     src/ui/property_metadata.cpp
     src/ui/keyed.cpp
+    src/ui/bindings.cpp
     src/style/resolved_style.cpp
     src/style/style_sheet.cpp
     src/layout/layout_box.cpp
@@ -75,7 +76,7 @@ if(BUILD_TESTING)
     target_compile_definitions(tessera_document_tests PRIVATE
         TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")
     add_test(NAME document COMMAND tessera_document_tests)
-    foreach(contract IN ITEMS reactive/reactive ui/keyed ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll commands/commands render/draw_list render/paint render/glyph_atlas replay/replay replay/replay_serialization replay/replay_host semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/offscreen_runner)
+    foreach(contract IN ITEMS reactive/reactive ui/keyed ui/bindings ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll commands/commands render/draw_list render/paint render/glyph_atlas replay/replay replay/replay_serialization replay/replay_host semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/offscreen_runner)
         get_filename_component(name ${contract} NAME)
         add_executable(tessera_${name}_tests tests/${contract}_tests.cpp)
         target_link_libraries(tessera_${name}_tests PRIVATE tessera::core)
