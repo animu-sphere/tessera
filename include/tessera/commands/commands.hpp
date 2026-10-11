@@ -41,6 +41,7 @@ struct CommandDescriptor {
     std::string category;
     CommandAvailability availability = CommandAvailability::both;
     std::vector<CommandParameter> parameters;
+    std::vector<CommandParameter> results; // Named success fields; same scalar schema/default rules.
     bool operator==(const CommandDescriptor&) const = default;
 };
 struct CommandState {
@@ -122,6 +123,8 @@ public:
 private:
     explicit CommandSnapshot(std::shared_ptr<const detail::CommandSnapshotData>);
     std::shared_ptr<const detail::CommandSnapshotData> data_;
+    Result<CommandArguments> normalize_results(std::string_view, const CommandArguments&) const;
+    friend class CommandExecutor;
 };
 
 } // namespace tessera

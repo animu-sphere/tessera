@@ -1,4 +1,5 @@
 #include <tessera/commands/commands.hpp>
+#include <tessera/commands/execution.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <tessera/style/style_sheet.hpp>
@@ -6,6 +7,9 @@
 #include <iostream>
 #include <limits>
 #include <tuple>
+#include <functional>
+#include <thread>
+#include <type_traits>
 
 using namespace tessera;
 using namespace std::chrono_literals;
@@ -32,6 +36,7 @@ CommandDescriptor descriptor() {
     note.name = "note"; note.type = CommandParameterType::string;
     note.required = false; note.max_bytes = 8;
     d.parameters = {object, count, verbose, mode, note};
+    d.results = d.parameters;
     return d;
 }
 CommandRegistry registry() {
@@ -84,6 +89,15 @@ struct Panel {
 CommandRequest request(const CommandSnapshot& s, CommandArguments args = {{"item", CommandObjectId{"item-7"}}}) {
     return {s.generation(), "inventory.inspect", std::move(args), CommandSource::agent, 1};
 }
+struct Host final : CommandHost {
+    std::vector<CommandInvocationRecord> calls;
+    std::function<CommandOutcome(const CommandInvocationRecord&)> operation;
+    CommandOutcome execute(const CommandInvocationRecord& record) override {
+        calls.push_back(record);
+        if (operation) return operation(record);
+        return {CommandOutcomeStatus::success, record.arguments, {}};
+    }
+};
 void registration_and_discovery() {
     const auto r = registry();
     const auto s = snapshot(r);
@@ -175,6 +189,8 @@ void input_and_replay_agreement() {
     actions.push_back({*semantic.value, CommandSource::accessibility});
     actions.push_back({*semantic.value, CommandSource::agent});
     const auto expected = s.resolve(request(s));
+    CommandExecutor executor;
+    Host host;
     for (std::size_t i = 0; i < actions.size(); ++i) {
         const auto& [action, source] = actions[i];
         const auto resolved = s.resolve_action(ui, action, 1, request(s).arguments, source, i + 1);
@@ -182,6 +198,11 @@ void input_and_replay_agreement() {
             resolved.value->record().command == expected.value->record().command && resolved.value->record().source == source,
             "Every ordinary input route must resolve the same typed command");
         check(s.recheck(*resolved.value, &ui).empty(), "Execution check must accept the current coherent owner");
+        const auto executed = executor.execute(s, *resolved.value, host, &ui);
+        check(executed && executed.value->invocation == resolved.value->record() &&
+            executed.value->outcome.status == CommandOutcomeStatus::success &&
+            executed.value->outcome.values == expected.value->record().arguments,
+            "Every ordinary route must execute once and return the same declared fields");
     }
     ReplayRecording recording;
     recording.context = panel.context; recording.document = panel.document; recording.styles = panel.styles; recording.viewport = {240, 80};
@@ -196,12 +217,187 @@ void input_and_replay_agreement() {
     const auto second = play_replay(*loaded.value, panel.text);
     check(first && second && compare_replay(*first.value, *second.value).empty() && first.value->actions.size() == 4,
         "Serialized replay must reproduce pointer, keyboard, gamepad and semantic actions");
+    CommandExecutor replay_executor;
     for (const auto& action : first.value->actions) {
         check(action.id == "inspect" && action.action == "inspect-item" && action.generation == 0, "Replay must preserve the fixture's owner and binding");
         const auto result = s.resolve_action(ui, *semantic.value, 1, request(s).arguments, CommandSource::replay, action.step + 1);
         check(result && result.value->record().arguments == expected.value->record().arguments,
             "Replayed action observations must use the same declared command fixture");
+        const auto executed = replay_executor.execute(s, *result.value, host, &ui);
+        check(executed && executed.value->outcome.values == expected.value->record().arguments &&
+            executed.value->invocation.source == CommandSource::replay,
+            "Serialized replay observations must execute through the same result adapter");
     }
+    check(host.calls.size() == 9, "Five live routes and four replay requests execute exactly once");
+}
+void execution_rejection_and_lifetime() {
+    static_assert(!std::is_copy_constructible_v<CommandExecutor> && !std::is_move_constructible_v<CommandExecutor>);
+    const auto r = registry(); const auto s = snapshot(r);
+    Panel panel(s); const auto ui = panel.semantic();
+    const auto action = request_semantic_action(ui, *panel.tree->find("inspect"), "activate");
+    const auto invocation = *s.resolve_action(ui, *action.value, 1, request(s).arguments, CommandSource::pointer, 1).value;
+    CommandExecutor executor; Host host;
+    const auto reject = [&](const CommandSnapshot& current, const SemanticInput* current_ui, const char* code, const char* path) {
+        const auto result = executor.execute(current, invocation, host, current_ui);
+        check(!result && has(result.diagnostics, code, path) && host.calls.empty(), "Rejected execution must never enter application code");
+    };
+    reject(snapshot(r, 2, false), &ui, "stale_generation", "/generation");
+    reject(snapshot(r), &ui, "stale_generation", "/generation");
+    reject(snapshot(registry()), &ui, "stale_registry", "/registry_revision");
+    reject(s, nullptr, "missing_snapshot", "/owner");
+    Panel replacement(s); const auto replaced = replacement.semantic();
+    reject(s, &replaced, "stale_target", "/target");
+    auto hidden_styles = panel.styles; hidden_styles[1].visibility = Visibility::hidden;
+    const auto hidden_layout = compute_layout({panel.tree.get(), hidden_styles, {240, 80}, &panel.text});
+    const SemanticInput hidden{panel.tree.get(), hidden_styles, &*hidden_layout.value};
+    reject(s, &hidden, "hidden_target", "/target");
+    std::vector<Diagnostic> thread_errors;
+    std::thread other([&] { thread_errors = executor.execute(s, invocation, host, &ui).diagnostics; }); other.join();
+    check(has(thread_errors, "wrong_thread", "/execution") && host.calls.empty(), "Foreign thread fails before state or host access");
+    const auto accepted = executor.execute(s, invocation, host, &ui);
+    check(accepted && host.calls.size() == 1, "Pre-execution rejection must not consume a request");
+    const auto duplicate = executor.execute(s, invocation, host, &ui);
+    check(!duplicate && has(duplicate.diagnostics, "consumed_sequence", "/sequence") && host.calls.size() == 1,
+        "Invocation copies cannot execute twice");
+    const auto later = snapshot(r, 2);
+    auto req = request(later); req.sequence = 5;
+    auto newest = *later.resolve(req).value;
+    check(bool(executor.execute(later, newest, host)), "A later generation accepts increasing node-free sequences");
+    req.sequence = 4;
+    const auto old = executor.execute(later, *later.resolve(req).value, host);
+    check(!old && has(old.diagnostics, "consumed_sequence", "/sequence") && host.calls.size() == 2,
+        "Out-of-order sequences cannot bypass session deduplication across generations");
+    req.sequence = 6;
+    const auto next = *later.resolve(req).value;
+    req.sequence = 7;
+    const auto queued = *later.resolve(req).value;
+    host.operation = [&](const auto& record) {
+        const auto nested = executor.execute(later, queued, host);
+        check(!nested && has(nested.diagnostics, "reentrant_execution", "/execution"), "Reentrant execution fails before host entry");
+        return CommandOutcome{CommandOutcomeStatus::success, record.arguments, {}};
+    };
+    check(bool(executor.execute(later, next, host)) && host.calls.size() == 3, "Outer execution survives rejected reentry");
+    host.operation = {};
+    check(bool(executor.execute(later, next, host)) == false, "Reentrant rejection does not allow outer sequence reuse");
+    check(bool(executor.execute(later, queued, host)), "Rejected higher-sequence reentry remains available after outer return");
+    auto current = later;
+    req.sequence = 8;
+    const auto publishing = *current.resolve(req).value;
+    host.operation = [&](const auto& record) {
+        auto replaced_descriptor = descriptor(); replaced_descriptor.results.clear();
+        const auto replaced_registry = *CommandRegistry::create({replaced_descriptor}).value;
+        current = *CommandSnapshot::publish(replaced_registry, 3, CommandMode::production,
+            {{replaced_descriptor.id, {true}}}, {"item-7"}).value;
+        return CommandOutcome{CommandOutcomeStatus::success, record.arguments, {}};
+    };
+    const auto published = executor.execute(current, publishing, host);
+    check(published && published.value->outcome.status == CommandOutcomeStatus::success &&
+        published.value->invocation.generation == 2 && current.generation() == 3 &&
+        published.value->outcome.values == publishing.record().arguments,
+        "Host publication cannot replace the retained result schema or execution identity");
+    host.operation = {};
+    const auto owned = [&] {
+        const auto temporary = snapshot(registry()); Panel temporary_panel(temporary);
+        const auto current = temporary_panel.semantic();
+        const auto activate = request_semantic_action(current, *temporary_panel.tree->find("inspect"), "activate");
+        const auto resolved = temporary.resolve_action(current, *activate.value, 1, request(temporary).arguments, CommandSource::agent, 1);
+        CommandExecutor temporary_executor;
+        return *temporary_executor.execute(temporary, *resolved.value, host, &current).value;
+    }();
+    check(owned.invocation.owner && owned.invocation.command == "inventory.inspect" &&
+        std::get<CommandObjectId>(owned.outcome.values.at("item")).value == "item-7",
+        "Execution results own schema-normalized fields and identity after source lifetimes expire");
+}
+void result_contract_and_host_failures() {
+    auto d = descriptor(); d.results.push_back(d.results[0]);
+    check(has(CommandRegistry::create({d}).diagnostics, "duplicate_parameter", "/commands/0/results/5/name"), "Result schemas reject duplicates atomically");
+    d = descriptor(); d.results[1].default_value = 20.0;
+    check(has(CommandRegistry::create({d}).diagnostics, "out_of_range", "/commands/0/results/1/default"), "Result defaults must meet their schema");
+    d = descriptor(); d.results.resize(max_command_parameters + 1);
+    check(has(CommandRegistry::create({d}).diagnostics, "out_of_range", "/commands/0/results"), "Result schema size is bounded");
+    const auto s = snapshot(registry()); CommandExecutor executor; Host host; std::uint64_t sequence = 0;
+    const auto execute = [&] {
+        auto req = request(s); req.sequence = ++sequence;
+        return executor.execute(s, *s.resolve(req).value, host);
+    };
+    host.operation = [](const auto&) { return CommandOutcome{CommandOutcomeStatus::success, {{"item", CommandObjectId{"new-item"}}}, {}}; };
+    auto good = execute();
+    check(good && good.value->outcome.values == CommandArguments{{"item", CommandObjectId{"new-item"}}, {"count", 1.0},
+        {"verbose", false}, {"mode", std::string("brief")}}, "Success fills defaults, omits optional values, and returns newly created host IDs");
+    const auto invalid = [&](CommandOutcome outcome, const char* code, const char* path) {
+        host.operation = [outcome = std::move(outcome)](const auto&) { return outcome; };
+        const auto failed = execute();
+        check(failed && failed.diagnostics.empty() && failed.value->outcome.status == CommandOutcomeStatus::error &&
+            failed.value->outcome.values.empty() && has(failed.value->outcome.diagnostics, code, path),
+            "Invalid host outcomes yield one owned error execution and no partial values");
+        auto req = request(s); req.sequence = sequence;
+        check(!executor.execute(s, *s.resolve(req).value, host), "Invalid result still consumes execution sequence");
+    };
+    const CommandArguments item{{"item", CommandObjectId{"item-7"}}};
+    invalid({CommandOutcomeStatus::success, {}, {}}, "missing_argument", "/result/values/item");
+    invalid({CommandOutcomeStatus::success, {{"item", std::string("item-7")}}, {}}, "argument_type", "/result/values/item");
+    auto values = item; values["count"] = std::numeric_limits<double>::infinity();
+    invalid({CommandOutcomeStatus::success, values, {}}, "invalid_number", "/result/values/count");
+    values = item; values["count"] = 11.0;
+    invalid({CommandOutcomeStatus::success, values, {}}, "out_of_range", "/result/values/count");
+    values = item; values["mode"] = std::string("unknown");
+    invalid({CommandOutcomeStatus::success, values, {}}, "unknown_value", "/result/values/mode");
+    values = item; values["note"] = std::string(1, char(0xff));
+    invalid({CommandOutcomeStatus::success, values, {}}, "invalid_utf8", "/result/values/note");
+    values["note"] = std::string(9, 'x');
+    invalid({CommandOutcomeStatus::success, values, {}}, "out_of_range", "/result/values/note");
+    values = item; values["extra/field"] = true;
+    invalid({CommandOutcomeStatus::success, values, {}}, "unknown_argument", "/result/values/extra~1field");
+    values[std::string(129, 'x')] = false;
+    invalid({CommandOutcomeStatus::success, values, {}}, "unknown_argument", "/result/values/<oversized>");
+    values.clear(); for (std::size_t i = 0; i <= max_command_parameters; ++i) values[std::to_string(i)] = true;
+    invalid({CommandOutcomeStatus::success, values, {}}, "out_of_range", "/result/values");
+    invalid({static_cast<CommandOutcomeStatus>(255), {}, {}}, "unknown_value", "/result/status");
+    invalid({CommandOutcomeStatus::cancelled, item, {}}, "invalid_outcome", "/result/values");
+    invalid({CommandOutcomeStatus::success, item, {{"oops", Severity::error, "/item", "Failed", {}}}}, "invalid_outcome", "/result/diagnostics");
+    invalid({CommandOutcomeStatus::error, {}, {}}, "out_of_range", "/result/diagnostics");
+    invalid({CommandOutcomeStatus::error, {}, std::vector<Diagnostic>(max_command_result_diagnostics + 1)}, "out_of_range", "/result/diagnostics");
+    invalid({CommandOutcomeStatus::error, {}, {{"host_error", Severity::warning, "", "Warning only", {}}}}, "invalid_outcome", "/result/diagnostics");
+    invalid({CommandOutcomeStatus::error, {}, {{"host_error", Severity::error, "/bad~escape", "Failed", {}}}}, "invalid_diagnostic", "/result/diagnostics/0/path");
+    invalid({CommandOutcomeStatus::error, {}, {{"host_error", Severity::error, "/item", std::string(4097, 'x'), {}}}}, "invalid_diagnostic", "/result/diagnostics/0/message");
+    invalid({CommandOutcomeStatus::error, {}, {{"", Severity::error, "/item", "Failed", {}}}}, "invalid_diagnostic", "/result/diagnostics/0/code");
+    host.operation = [](const auto&) { return CommandOutcome{CommandOutcomeStatus::error, {},
+        {{"missing_item", Severity::error, "/objects/item~17", "The selected item was removed.", 5}}}; };
+    auto failed = execute();
+    check(failed && has(failed.value->outcome.diagnostics, "missing_item", "/result/host/objects/item~17") &&
+        failed.value->outcome.diagnostics[0].byte_offset == 5, "Structured host errors preserve code, escaped location and offset");
+    host.operation = [](const auto&) { return CommandOutcome{CommandOutcomeStatus::cancelled, {}, {}}; };
+    auto cancelled = execute();
+    check(cancelled && cancelled.value->outcome.status == CommandOutcomeStatus::cancelled, "Cancellation skips required success field validation");
+    auto consumed = request(s); consumed.sequence = sequence;
+    check(has(executor.execute(s, *s.resolve(consumed).value, host).diagnostics, "consumed_sequence", "/sequence"),
+        "Cancellation cannot be reexecuted with the consumed request identity");
+    host.operation = [](const auto&) -> CommandOutcome { throw std::runtime_error("Host rejected the operation"); };
+    failed = execute();
+    check(failed && has(failed.value->outcome.diagnostics, "host_exception", "/result/host") &&
+        failed.value->outcome.diagnostics[0].message == "Host rejected the operation", "Standard host exceptions become located errors");
+    consumed.sequence = sequence;
+    check(has(executor.execute(s, *s.resolve(consumed).value, host).diagnostics, "consumed_sequence", "/sequence"),
+        "Host exceptions cannot retry a possibly applied mutation");
+    host.operation = [](const auto&) -> CommandOutcome { throw 7; };
+    failed = execute();
+    check(failed && has(failed.value->outcome.diagnostics, "host_exception", "/result/host"), "Nonstandard exceptions become located errors");
+    host.operation = [](const auto&) -> CommandOutcome { throw std::runtime_error(std::string(4097, 'x')); };
+    failed = execute();
+    check(failed && failed.value->outcome.diagnostics[0].message.size() < 4096, "Unbounded host exception text is replaced with a bounded diagnostic");
+    host.operation = [](const auto&) -> CommandOutcome { throw std::bad_alloc(); };
+    bool allocation_threw = false;
+    try { (void)execute(); } catch (const std::bad_alloc&) { allocation_threw = true; }
+    check(allocation_threw, "Allocation failures propagate rather than pretending to form a result");
+    auto req = request(s); req.sequence = sequence;
+    check(has(executor.execute(s, *s.resolve(req).value, host).diagnostics, "consumed_sequence", "/sequence"), "Entered allocation failure cannot retry the host mutation");
+    host.operation = {};
+    check(bool(execute()), "Execution guard recovers after host errors and allocation failure");
+    auto void_descriptor = descriptor(); void_descriptor.results.clear();
+    const auto void_snapshot = *CommandSnapshot::publish(*CommandRegistry::create({void_descriptor}).value, 1,
+        CommandMode::production, {{void_descriptor.id, {true}}}, {"item-7"}).value;
+    CommandExecutor void_executor; host.operation = [](const auto&) { return CommandOutcome{}; };
+    check(bool(void_executor.execute(void_snapshot, *void_snapshot.resolve(request(void_snapshot)).value, host)), "Empty result schema accepts a void success");
 }
 void eligibility_and_lifetime() {
     const auto r = registry(); const auto enabled = snapshot(r); const auto disabled = snapshot(r, 2, false);
@@ -282,6 +478,7 @@ void eligibility_and_lifetime() {
 int main() {
     try {
         registration_and_discovery(); arguments_and_observations(); input_and_replay_agreement(); eligibility_and_lifetime();
-        std::cout << "Command registration, arguments, input/replay parity, eligibility and lifetime checks passed.\n";
+        execution_rejection_and_lifetime(); result_contract_and_host_failures();
+        std::cout << "Command registration, arguments, input/replay parity, execution/results, eligibility and lifetime checks passed.\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

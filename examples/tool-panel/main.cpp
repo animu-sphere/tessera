@@ -1,4 +1,5 @@
 #include <tessera/commands/commands.hpp>
+#include <tessera/commands/execution.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
 #include <tessera/ui/keyed.hpp>
@@ -16,6 +17,14 @@ struct PanelObservation {
     bool operator==(const PanelObservation&) const = default;
 };
 
+struct InspectionHost final : CommandHost {
+    std::optional<std::string> inspected_item;
+    CommandOutcome execute(const CommandInvocationRecord& invocation) override {
+        inspected_item = std::get<CommandObjectId>(invocation.arguments.at("item")).value;
+        return {CommandOutcomeStatus::success, {{"item", CommandObjectId{*inspected_item}}}, {}};
+    }
+};
+
 int main() {
     CommandDescriptor inspect;
     inspect.id = "inventory.inspect";
@@ -24,6 +33,7 @@ int main() {
     CommandParameter item;
     item.name = "item"; item.type = CommandParameterType::object_id;
     inspect.parameters = {item};
+    inspect.results = {item};
     const auto registry = CommandRegistry::create({inspect}, {{"inspect-item", inspect.id}});
     if (!registry) return 1;
 
@@ -37,7 +47,8 @@ int main() {
     const ValidationContext context{{"inspect-item"}};
     PlaceholderTextShaper text;
     std::uint64_t sequence = 0;
-    std::optional<std::string> inspected_item; // Application state stays in the host.
+    InspectionHost command_host; // Application state stays in the host.
+    CommandExecutor executor;
 
     std::optional<std::string> host_selection;
     ReactiveRuntime runtime;
@@ -109,9 +120,12 @@ int main() {
         for (const auto& action : activated.value->actions) {
             const auto invocation = commands.value->resolve_action(ui, action, generation,
                 {{"item", CommandObjectId{*observation.selection}}}, CommandSource::keyboard, ++sequence);
-            if (!invocation || !commands.value->recheck(*invocation.value, &ui).empty()) return 9;
-            // Dispatch and validation have returned. Execute the non-editing host command here.
-            inspected_item = std::get<CommandObjectId>(invocation.value->record().arguments.at("item")).value;
+            if (!invocation) return 9;
+            // Dispatch has returned. The adapter rechecks, consumes the request once,
+            // and validates the declared result from this non-editing host command.
+            const auto executed = executor.execute(*commands.value, *invocation.value, command_host, &ui);
+            if (!executed || executed.value->outcome.status != CommandOutcomeStatus::success ||
+                executed.value->outcome.values.at("item") != invocation.value->record().arguments.at("item")) return 9;
         }
         const auto info = commands.value->lookup(inspect.id);
         std::cout << "Generation " << generation << ": " << info.value->descriptor.label << " enabled=" << selected;
@@ -199,10 +213,10 @@ int main() {
     if (!lantern_row || rows.current("item-7", lantern) || row_state[lantern_row->lifetime].pinned.read() ||
         unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6) return 20;
 
-    if (inspected_item != "item-7" || evaluations != 3 || status_detached != 2) return 10;
+    if (command_host.inspected_item != "item-7" || evaluations != 3 || status_detached != 2) return 10;
     panel_owner.dispose();
     runtime.flush();
     if (!selection_observer_connected || !runtime.deliver_cleanups().empty() || selection_observer_connected ||
         status_detached != 3 || unsubscribed.size() != 4) return 11;
-    std::cout << "Host inspected " << *inspected_item << ". Synthetic core-only panel; placeholder text, no native window.\n";
+    std::cout << "Host inspected " << *command_host.inspected_item << ". Synthetic core-only panel; placeholder text, no native window.\n";
 }
