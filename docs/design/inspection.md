@@ -122,6 +122,33 @@ layout_time < budget      draw_calls <= budget      glyph_atlas_pages <= budget
 
 Selectors use [target resolution](#proposed-target-resolution-and-operations), so an ambiguous or missing target is a diagnosed failure, not a vacuous pass. Structural predicates read semantic, layout, and focus observations; performance predicates read the metrics above under declared measurement conditions and stay separate from deterministic predicates. A failure reports the predicate, the resolved targets, the generation, and the observed values in the diagnostics envelope. Invariants are evaluated by tooling and never change runtime behavior. Predicate spelling and the scenario format are open decisions.
 
+## Implemented in-process UI invariant boundary
+
+[invariants.hpp](../../include/tessera/inspection/invariants.hpp) defines host-built `UiInvariant` declarations and `evaluate_invariants(InvariantInput)`; [invariants.cpp](../../src/inspection/invariants.cpp) evaluates them against one owned [inspection snapshot](#implemented-prototype-capture-and-target-resolution). This is read-only tooling with no callback, reactive evaluation, input dispatch, renderer, transport, or serialized scenario schema.
+
+An input borrows the snapshot and at most 256 ordered declarations. Each declaration has a unique report name of 1–256 UTF-8 bytes without ASCII controls, a typed predicate, and an optional ordinary inspection subtree scope. Author-ID targets use the same name bound; semantic target names and expected names allow empty UTF-8 strings of at most 4,096 bytes. Paths have at most 63 child steps. Point coordinates and geometric tolerances must be finite; tolerances are nonnegative logical units. A supplied viewport has positive finite dimensions and origin `(0,0)`; the host declares the viewport of this generation rather than deriving it from the root box. A viewport is required for containment predicates.
+
+Malformed declarations and malformed snapshot structure return no report. Snapshot checks enforce a nonzero generation, document node/depth bounds, complete canonical preorder with matching parents, valid observed border/clip rectangles, reciprocal semantic links/handles from this generation, and the [semantic snapshot schema](semantics.md#implemented-semantic-snapshot-contract)'s identity/state rules. These checks protect observation reads; they cannot prove that caller-modified values came from a real capture or that the declared viewport matches the host. The host supplies an unmodified coherent capture and its conditions.
+
+Supported predicates:
+
+| Declaration | Observation and rule |
+| --- | --- |
+| `VisibleInvariant` | Compare the observed Boolean with `expected`. A target is visible when it has locally visible geometry and its border box has positive area after intersection with the recorded ancestor clip. Display-none, hidden, zero-area, and fully clipped targets observe false. No viewport clipping or paint-transform inference is added. |
+| `EnabledInvariant` | Compare the exposed semantic entry's inherited `enabled` with `expected`. |
+| `FocusableInvariant` | Compare the exposed semantic entry's ordinary focus eligibility with `expected`. |
+| `SemanticNameInvariant` | Compare the exposed semantic name exactly with the UTF-8 `expected` string. |
+| `InsideViewportInvariant` | Every full border-box edge must lie within the declared viewport, allowing `tolerance` outward on each edge. |
+| `NoOverlapInvariant` | Two distinct targets pass when either full border-box intersection axis is at most `tolerance`. Touching edges and zero-area boxes pass. |
+
+Semantic predicates require an exposed entry: a presentational Text descendant or flattened Box has no inferred semantic value. Geometry predicates require displayed geometry; hidden boxes retain geometry and can be compared. Containment and overlap compare full logical border boxes without applying clips, viewport intersection, paint transforms, margins, or resource pixels. This explicit policy exposes intentional scrolling/overflow as a condition the caller chooses to test. Edge sums/intersections use binary64 arithmetic on observed binary32 coordinates. The API supplies no class/group selector, pairwise set predicate, or performance/timing predicate.
+
+Each target resolves through `resolve_target` with the declaration's scope, preserving ID/role-name/path/point semantics. Missing/ambiguous targets and stale scopes produce `InvariantStatus::error`, including for a negated visible predicate; unavailable semantic/geometry observations use `invariant_unavailable`, and comparing the same target uses `invariant_same_target`. Resolution codes are preserved and relocated under `/invariants/<index>/target`, `/other`, or `/scope`. A resolved mismatch has status `failed` and `invariant_failed` at `/invariants/<index>`. Evaluation continues in declaration order after either failure or error.
+
+A valid evaluation returns an owned `InvariantReport` even when assertions fail. `Result` success means evaluation was valid; `report.passed()` means every result passed. The report owns the captured generation, declared viewport, declaration copies, resolved handles, observed state/name/bounds/clip, optional source records/file, and located diagnostics. Available source spans supply diagnostic byte offsets; missing sources stay absent. An empty declaration list produces an explicit zero-result report. The report survives destruction of all input data and confers no action authority.
+
+[Invariant checks](../../tests/inspection/invariants_tests.cpp) cover deterministic owned reports, semantic eligibility/name agreement, explicit visibility/geometry policies and tolerances, shared target resolution, source absence, stale scopes, and declaration/snapshot rejection. The [tool panel](../../examples/tool-panel/main.cpp) verifies its inspection button's visibility, selection-dependent enabled/focusable state, name, and viewport containment before publishing each full-tree selection generation.
+
 ## Proposed agent capability manifest
 
 Agents operate UI through meaning rather than screen scraping. A capability manifest describes, for one generation and one adapter's permissions, the [commands](commands.md) with their eligibility and argument schemas, the inspectable surfaces (document, hierarchy, selection, properties), and the semantic actions (activate, select, focus, set value). It is a projection of the semantic tree, the command registry, and inspection records, not an agent-specific runtime API. Development-only commands and private state stay out of production manifests, and the manifest version is independent of document, replay, and bundle versions.
