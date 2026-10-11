@@ -12,7 +12,7 @@ Consumer fixture: an inventory/tool panel driven by host-owned selection and ite
 
 Remaining work:
 
-- Props/local state/bindings and conditional children over the [reactive runtime](../design/reactive-runtime.md) and its [fault boundaries](../design/reactive-runtime.md#implemented-subtree-fault-boundary); [keyed reconciliation](../design/ui-model.md#state-and-reconciliation), cleanup and completion-safe resource retirement. Use full-tree style/layout/semantic/paint evaluation as the presentation reference, with affected-stage metadata for later incremental work.
+- Typed props/bindings and component descriptions over the [reactive runtime](../design/reactive-runtime.md), its [fault boundaries](../design/reactive-runtime.md#implemented-subtree-fault-boundary), and [keyed instance owners](../design/ui-model.md#implemented-keyed-instance-reconciliation); completion-safe resource retirement. Use full-tree style/layout/semantic/paint evaluation as the presentation reference, with affected-stage metadata for later incremental work.
 - Extend the [command boundary](../design/commands.md#implemented-in-process-command-boundary) with shortcut scopes/conflict diagnostics and host execution/result adapters; integrate the [transaction boundary](../design/commands.md#proposed-transaction-boundary) and build a [command palette](../design/commands.md#proposed-command-palette) from ordinary components.
 - [Error boundaries](../design/ui-model.md#proposed-error-boundaries) and [async state](../design/ui-model.md#proposed-async-state) primitives.
 - Image assets and theme variables.

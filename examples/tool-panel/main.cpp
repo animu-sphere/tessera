@@ -1,6 +1,7 @@
 #include <tessera/commands/commands.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
+#include <tessera/ui/keyed.hpp>
 #include <iostream>
 #include <map>
 
@@ -118,10 +119,74 @@ int main() {
         for (const auto& fault : faults) std::cout << " fault=" << fault.code << '@' << fault.path;
         std::cout << '\n';
     }
+    // Inventory rows: keys keep each row's owner, local state, bindings, and focus
+    // across host reorders; removal closes the row and reinsertion starts fresh.
+    struct Row { Signal<std::string> name; Signal<bool> pinned; Computed<std::string> label; };
+    KeyedCollection rows(runtime.owner(panel_owner, "rows"));
+    std::map<std::uint64_t, Row> row_state; // By instance lifetime.
+    int label_evaluations = 0;
+    std::vector<std::string> unsubscribed;
+    FocusDispatcher row_focus;
+    std::uint64_t lantern = 0;
+    using Items = std::vector<std::pair<std::string, std::string>>;
+    const std::vector<Items> inventory{{{"item-3", "Rope"}, {"item-7", "Lantern"}, {"item-9", "Map"}},
+        {{"item-9", "Map"}, {"item-7", "Lantern"}, {"item-3", "Rope"}}, {{"item-9", "Map"}, {"item-3", "Rope"}},
+        {{"item-7", "Lantern"}, {"item-9", "Map"}, {"item-3", "Coiled rope"}}};
+    for (const auto& items : inventory) {
+        std::vector<KeyedChild> children;
+        for (const auto& [id, name] : items) children.push_back({id, "item-row"});
+        const auto update = rows.reconcile(runtime, children);
+        if (!update) return 14;
+        for (const auto i : update.value->created) {
+            const auto& row = update.value->instances[i];
+            const auto name = runtime.signal(row.owner, "name", items[i].second);
+            const auto pinned = runtime.signal(row.owner, "pinned", false); // Local view state.
+            const auto label = runtime.computed<std::string>(row.owner, "label", [&label_evaluations, name, pinned] {
+                ++label_evaluations;
+                return name.read() + (pinned.read() ? " (pinned)" : "");
+            });
+            row_state[row.lifetime] = {name, pinned, label};
+            runtime.on_cleanup(row.owner, "thumbnail", [&unsubscribed, key = row.key] { unsubscribed.push_back(key); });
+        }
+        runtime.batch([&] { // Host item data reaches each row as a prop.
+            for (std::size_t i = 0; i < items.size(); ++i) row_state[rows.instances()[i].lifetime].name.write(items[i].second);
+        });
+        if (!runtime.flush().empty()) return 15;
+        UiDocument list;
+        list.root.id = "inventory";
+        for (const auto& row : rows.instances()) {
+            UiNode node;
+            node.kind = NodeKind::text; node.id = row.key; node.properties["focusable"] = true;
+            node.properties["text"] = row_state[row.lifetime].label.read();
+            list.root.children.push_back(node);
+        }
+        auto tree = UiTree::create(list);
+        if (!tree) return 16;
+        const std::vector<ResolvedStyle> styles((*tree.value)->size());
+        const auto layout = compute_layout({tree.value->get(), styles, {240, 120}, &text});
+        if (!layout) return 17;
+        const HitTestInput hit{tree.value->get(), styles, &*layout.value};
+        const auto focused = lantern == 0 ? row_focus.focus(hit, *(*tree.value)->find("item-7")) : row_focus.refresh(hit);
+        if (!focused || !focused.value->focused || runtime.publish() != 0) return 18;
+        if (!runtime.deliver_effects(EffectPhase::notify).empty() || !runtime.deliver_cleanups().empty()) return 19;
+        if (lantern == 0) {
+            lantern = rows.find("item-7")->lifetime;
+            row_state[lantern].pinned.write(true); // A user toggle on this row, flushed next generation.
+        }
+        std::cout << "Rows:";
+        for (const auto& node : list.root.children) std::cout << ' ' << *node.id << "=\"" << std::get<std::string>(node.properties.at("text")) << '"';
+        std::cout << " focus=" << *(*tree.value)->get(*focused.value->focused)->id << '\n';
+    }
+    // Reorder kept the pinned Lantern row and its focus; removal unsubscribed it,
+    // and reinsertion created a new lifetime, so a late result for the old row is stale.
+    const auto* lantern_row = rows.find("item-7");
+    if (!lantern_row || rows.current("item-7", lantern) || row_state[lantern_row->lifetime].pinned.read() ||
+        unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6) return 20;
+
     if (inspected_item != "item-7" || evaluations != 3 || status_detached != 2) return 10;
     panel_owner.dispose();
     runtime.flush();
     if (!selection_observer_connected || !runtime.deliver_cleanups().empty() || selection_observer_connected ||
-        status_detached != 3) return 11;
+        status_detached != 3 || unsubscribed.size() != 4) return 11;
     std::cout << "Host inspected " << *inspected_item << ". Synthetic core-only panel; placeholder text, no native window.\n";
 }
