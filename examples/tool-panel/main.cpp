@@ -1,4 +1,5 @@
 #include <tessera/commands/commands.hpp>
+#include <tessera/commands/transactions.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
 #include <tessera/ui/keyed.hpp>
@@ -37,6 +38,7 @@ int main() {
     PlaceholderTextShaper text;
     std::uint64_t sequence = 0;
     std::optional<std::string> inspected_item; // Application state stays in the host.
+    TransactionSession transactions; // Non-editing commands open no token.
 
     std::optional<std::string> host_selection;
     ReactiveRuntime runtime;
@@ -182,6 +184,46 @@ int main() {
     const auto* lantern_row = rows.find("item-7");
     if (!lantern_row || rows.current("item-7", lantern) || row_state[lantern_row->lifetime].pinned.read() ||
         unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6) return 20;
+
+    // Application edits: the host owns quantities and history. A continuous scrub
+    // spans several update batches with one transaction; a cancelled scrub rolls
+    // back once. The earlier inspection opened no token.
+    if (transactions.open()) return 21;
+    std::map<std::string, int> quantity{{"item-3", 1}};
+    std::vector<std::string> history;
+    int before = 0;
+    const auto apply = [&](const TransactionRecord& record) { // Host application adapter.
+        if (record.phase == TransactionPhase::begin) before = quantity["item-3"];
+        else if (record.phase == TransactionPhase::commit) history.push_back(record.metadata.label);
+        else quantity["item-3"] = before;
+    };
+    auto stock = runtime.signal(panel_owner, "stock", quantity["item-3"]);
+    TransactionMetadata scrub;
+    scrub.label = "Adjust quantity"; scrub.source = CommandSource::pointer; scrub.objects = {"item-3"};
+    for (const int steps : {3, 2}) {
+        const auto begun = transactions.begin(scrub, ++sequence);
+        if (!begun || begun.value->token.id != (steps == 3 ? 1u : 2u)) return 22;
+        apply(*begun.value);
+        for (int step = 0; step < steps; ++step) { // One update batch per pointer move.
+            if (!transactions.edit(begun.value->token, ++sequence).empty()) return 23;
+            runtime.batch([&] { stock.write(++quantity["item-3"]); });
+            if (!runtime.flush().empty() || runtime.publish() != 0) return 24;
+        }
+        if (steps == 3) {
+            const auto committed = transactions.commit(begun.value->token, ++sequence);
+            if (!committed || committed.value->edits != 3) return 25;
+            apply(*committed.value);
+        } else { // Escape, then capture loss: one rollback.
+            const auto escape = transactions.rollback(begun.value->token, ++sequence, RollbackReason::cancelled);
+            const auto lost = transactions.rollback(begun.value->token, ++sequence, RollbackReason::capture_lost);
+            if (!escape || !*escape.value || !lost || *lost.value) return 26;
+            apply(**escape.value);
+        }
+        runtime.batch([&] { stock.write(quantity["item-3"]); }); // Settles before the next generation.
+        if (!runtime.flush().empty() || runtime.publish() != 0) return 27;
+    }
+    if (quantity["item-3"] != 4 || stock.read() != 4 || history != std::vector<std::string>{"Adjust quantity"}) return 28;
+    std::cout << "Transactions: committed \"" << history.front() << "\" (3 edits), rolled back 1; quantity=" << quantity["item-3"] << '\n';
 
     if (inspected_item != "item-7" || evaluations != 3 || status_detached != 2) return 10;
     panel_owner.dispose();
