@@ -237,6 +237,12 @@ std::vector<CommandInfo> CommandSnapshot::discover() const {
         if (available(d, data_->mode)) out.push_back({d, state(*data_, id)});
     return out;
 }
+Result<CommandInfo> CommandSnapshot::lookup_action(std::string_view action) const {
+    const auto binding = data_->registry->bindings.find(action);
+    if (binding == data_->registry->bindings.end())
+        return {std::nullopt, {{"unmapped_action", Severity::error, "/action", "Register an explicit action-to-command mapping.", {}}}};
+    return lookup(binding->second);
+}
 Result<UiDocument> CommandSnapshot::apply_eligibility(const UiDocument& authored, const ValidationContext& context) const {
     auto errors = validate(authored, context);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
