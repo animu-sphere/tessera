@@ -251,6 +251,20 @@ std::any reactive_read(const ReactiveRef& ref) {
     }
     return value;
 }
+std::any reactive_snapshot_read(const ReactiveRef& ref, const std::shared_ptr<ReactiveState>& expected) {
+    expected->structural();
+    if (expected->batches)
+        fail("reactive_open_batch", "/reactive", "Close the outer batch before capturing presentation values.");
+    const auto state = lock(ref);
+    if (state != expected)
+        fail("foreign_reactive_runtime", "/reactive", "Bind values from the presentation runtime only.");
+    auto& n = state->node(ref.id);
+    if (state->held(n.owner))
+        fail("reactive_faulted_snapshot", n.path, "Map the faulted subtree to explicit host fallback content.");
+    if (n.calculate && (n.dirty || n.failed))
+        fail("reactive_unsettled", n.path, "Flush successfully before capturing this presentation value.");
+    return n.value;
+}
 std::uint64_t reactive_revision(const ReactiveRef& ref) {
     auto state = lock(ref);
     state->refresh(ref.id);
@@ -506,7 +520,7 @@ std::vector<Diagnostic> ReactiveRuntime::flush() {
     } catch (...) { state.flushing = false; state.flush_failures.clear(); throw; }
     return contained;
 }
-std::size_t ReactiveRuntime::publish() {
+void ReactiveRuntime::check_settled() const {
     auto& state = *state_;
     state.structural();
     if (state.batches)
@@ -519,6 +533,10 @@ std::size_t ReactiveRuntime::publish() {
             detail::fail("reactive_unsettled", n.path,
                 "Flush successfully before publishing; failed or stale calculations outside faulted boundaries keep the last published values.");
     }
+}
+std::size_t ReactiveRuntime::publish() {
+    check_settled();
+    auto& state = *state_;
     if (!state.induced.empty()) {
         if (++state.feedback_rounds > max_reactive_effect_rounds) {
             const auto path = std::exchange(state.induced, {});

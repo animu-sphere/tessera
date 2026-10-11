@@ -2,6 +2,7 @@
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
 #include <tessera/ui/keyed.hpp>
+#include <tessera/ui/bindings.hpp>
 #include <iostream>
 #include <map>
 
@@ -154,12 +155,17 @@ int main() {
         if (!runtime.flush().empty()) return 15;
         UiDocument list;
         list.root.id = "inventory";
+        PropertyBindings bindings;
         for (const auto& row : rows.instances()) {
             UiNode node;
             node.kind = NodeKind::text; node.id = row.key; node.properties["focusable"] = true;
-            node.properties["text"] = row_state[row.lifetime].label.read();
+            node.properties["text"] = std::string{}; // Valid authored placeholder.
+            if (!bindings.bind<BoundProperty::text>(row.key, row_state[row.lifetime].label)) return 21;
             list.root.children.push_back(node);
         }
+        const auto bound = bindings.apply(runtime, list);
+        if (!bound) return 22;
+        list = bound.value->document;
         auto tree = UiTree::create(list);
         if (!tree) return 16;
         const std::vector<ResolvedStyle> styles((*tree.value)->size());

@@ -39,6 +39,7 @@ struct ReactiveRef {
 using ReactiveEqual = std::function<bool(const std::any&, const std::any&)>;
 using ReactiveApply = std::function<std::function<void()>(const std::any&)>;
 std::any reactive_read(const ReactiveRef&);
+std::any reactive_snapshot_read(const ReactiveRef&, const std::shared_ptr<ReactiveState>&);
 std::uint64_t reactive_revision(const ReactiveRef&);
 bool reactive_write(const ReactiveRef&, std::any);
 void reactive_dispose(const ReactiveRef&);
@@ -155,6 +156,19 @@ public:
     // stops draining and throws. Accepted caches survive and failed/pending
     // calculations can retry.
     std::vector<Diagnostic> flush();
+    // Host presentation boundary: checks publication eligibility without
+    // evaluating values, capturing effects, or accepting a publication.
+    void check_settled() const;
+    // Copies an already settled value from this runtime without tracking or
+    // demand evaluation. Faulted subtrees must be mapped to fallback by the host.
+    template<class T>
+    T snapshot(const Signal<T>& value) const {
+        return std::any_cast<T>(detail::reactive_snapshot_read(value.ref_, state_));
+    }
+    template<class T>
+    T snapshot(const Computed<T>& value) const {
+        return std::any_cast<T>(detail::reactive_snapshot_read(value.ref_, state_));
+    }
     // Accepts the settled graph as the published candidate after the host has
     // built its presentation. Captures changed effect values and returns how
     // many deliveries were queued; failure queues nothing.
