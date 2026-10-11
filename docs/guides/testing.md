@@ -40,6 +40,7 @@ Each milestone should retain the artifacts relevant to its capability: unit/boun
 - Text: fixed fonts and representative Latin/Japanese fixtures with measurement and image agreement.
 - Reference rendering: CPU reference images, identical across runs and thread counts in deterministic mode, with GPU agreement within declared tolerances.
 - Components and reload: identity, cleanup, resource retirement, error containment, and repeated reload behavior.
+- Source consumption: configure a separate host through each import path, build/link only public target aliases, and execute a compact API fixture. Check transitive language/include/link requirements, host testing ownership, embedded defaults, and core-only exclusion of optional discovery. Optional backend linkage checks do not establish GPU execution.
 
 The [roadmap](../roadmap/README.md) decides when each capability is scheduled; this list only states what kind of evidence it needs.
 

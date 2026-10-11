@@ -42,6 +42,43 @@ cmake --build build-paint-core --config Debug
 
 These are procedures, not claims that this edit reran them. Consult support for their recorded outcomes and limits.
 
+## Source-consumption workflow
+
+Use an existing checkout from an independent CMake project under the [source-consumption boundary](../design/path-finder-integration.md#implemented-source-consumption-boundary). For direct inclusion:
+
+```cmake
+cmake_minimum_required(VERSION 3.20)
+project(MyHost LANGUAGES CXX)
+add_subdirectory("${TESSERA_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/tessera")
+add_executable(my_host main.cpp)
+target_link_libraries(my_host PRIVATE tessera::core)
+```
+
+Set `TESSERA_SOURCE_DIR` to the checkout's absolute path at configure time. For FetchContent, replace `add_subdirectory` with:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(tessera SOURCE_DIR "${TESSERA_SOURCE_DIR}")
+FetchContent_MakeAvailable(tessera)
+```
+
+These forms use local source without a network fetch. Consumers can acquire and pin a source revision under their own policy. Enable `TESSERA_BUILD_VULKAN=ON` before inclusion to link `tessera::vulkan`, using the installed [optional backend prerequisites](#optional-vulkan-workflow). The backend target builds its shader artifacts; the host supplies shader words and Vulkan objects under the [renderer contract](../design/rendering.md#implemented-vulkan-primitive-boundary).
+
+`TESSERA_BUILD_TESTING` and `TESSERA_BUILD_EXAMPLES` default ON in a standalone configure and OFF when embedded. Host cache values set before inclusion override these defaults. Tessera tests require both `BUILD_TESTING` and `TESSERA_BUILD_TESTING`; an embedded host opting into them enables CTest in its own root. `BUILD_TESTING=OFF` continues to exclude all Tessera checks in standalone library-only builds. Fonts and Vulkan retain their explicit OFF defaults in either mode. [CMakeLists.txt](../../CMakeLists.txt) owns these controls; they do not modify the host's testing option.
+
+The [minimal consumer fixture](../../tests/cmake/consumer/CMakeLists.txt) has no manually supplied public include paths, C++ language settings or transitive dependencies. To run it separately:
+
+```powershell
+cmake -S tests/cmake/consumer -B build-source-consumer -G "Visual Studio 18 2026" -A x64 `
+    -DTESSERA_SOURCE_DIR=C:/dev/tessera -DTESSERA_IMPORT_MODE=add_subdirectory
+cmake --build build-source-consumer --config Debug --parallel 2
+ctest --test-dir build-source-consumer -C Debug --output-on-failure
+```
+
+Use `-DTESSERA_IMPORT_MODE=FetchContent` in a separate build directory for the other import. To exercise optional backend linkage, add `-DCONSUMER_WITH_VULKAN=ON` and the explicit SDK/Slang cache overrides from the optional workflow below. The backend fixture rejects an empty host context and requires no GPU or native window. Use the same build and CTest commands with `Release` for that configuration.
+
+Standalone CTest invokes both imports automatically; enabling Vulkan adds backend consumer checks. The [driver](../../tests/cmake/run-consumer.cmake) forwards the configured generator, platform, toolset, toolchain and optional SDK paths into isolated host builds. Per-phase logs, executables and libraries are under `<build>/source-consumers/<import>[-vulkan]/<configuration>`; fixture tests are separate from runtime GPU tests. Configuration evidence and limits belong to [support](../reference/support-matrix.md#source-consumption-evidence--2026-10-11).
+
 ## Optional Vulkan workflow
 
 Install the [adopted tools](../reference/dependencies.md#adopted-vulkan-choices) first. The option defaults OFF. To reproduce the explicit SDK/compiler selection on Windows:

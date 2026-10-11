@@ -10,6 +10,14 @@ Path-finder owns hierarchy/property editing, visual authoring, drag/drop, previe
 
 The foundation uses namespaced document/node `extensions` objects for design metadata; [JSON v1](../../formats/tessera-ui/README.md) defines their semantic preservation policy. A sidecar remains an optional later editor choice. Runtime behavior does not interpret editor-only fields. This storage boundary does not implement an editor bridge or reload.
 
+## Implemented source-consumption boundary
+
+[CMakeLists.txt](../../CMakeLists.txt) exposes `tessera::core` for an existing source checkout consumed with `add_subdirectory` or `FetchContent`. The target propagates public headers and the C++20 requirement; consumers link the alias without duplicating include paths or language settings. Optional `tessera::vulkan` propagates core and Vulkan SDK requirements when the host explicitly enables the backend. Source acquisition and SDK installation belong to the host; Tessera configuration downloads nothing.
+
+An embedded Tessera project defaults its tests and examples off independently of the host's testing setting. Standalone builds retain their development defaults. Option controls and concrete source-build procedures belong to [development](../guides/development.md#source-consumption-workflow). The host owns application state, windows/devices and scheduling under [architecture](architecture.md#ecosystem-ownership); linking a source target supplies no preview bridge, reload transaction, installed package or ABI guarantee.
+
+The [consumer fixture](../../tests/cmake/consumer/CMakeLists.txt) imports the source in both modes beneath a separately named host project with its own tests enabled. Its core executable exercises ordinary document serialization and tree creation. Its optional backend executable checks linkage and empty-context rejection without creating a device or window; GPU behavior follows [rendering](rendering.md#implemented-vulkan-primitive-boundary). The [driver](../../tests/cmake/run-consumer.cmake) keeps configure/build/test logs in isolated build directories and uses an existing local source path for FetchContent.
+
 ## Proposed editor bridge
 
 Expose narrow operations for document/schema inspection, validation diagnostics, reload requests, and preview results. Source locations allow Path-finder to link runtime/validation errors back to authored text. Avoid adding editor SDKs or reflection frameworks to the core.
