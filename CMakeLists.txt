@@ -7,6 +7,16 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/VERSION)
 project(Tessera VERSION ${TESSERA_VERSION} LANGUAGES CXX)
 
+# Embedded consumers opt into Tessera's development targets independently of
+# their own BUILD_TESTING setting. Standalone workflows retain their defaults.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(tessera_development_defaults ON)
+    include(CTest)
+else()
+    set(tessera_development_defaults OFF)
+endif()
+option(TESSERA_BUILD_TESTING "Build Tessera checks when BUILD_TESTING is enabled" ${tessera_development_defaults})
+
 add_library(tessera_core
     src/ui/document.cpp
     src/ui/tree.cpp
@@ -49,7 +59,7 @@ else()
     target_compile_options(tessera_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-option(TESSERA_BUILD_EXAMPLES "Build the core-only examples" ON)
+option(TESSERA_BUILD_EXAMPLES "Build the core-only examples" ${tessera_development_defaults})
 if(TESSERA_BUILD_EXAMPLES)
     add_executable(tessera_hello_ui examples/hello-ui/main.cpp)
     target_link_libraries(tessera_hello_ui PRIVATE tessera::core)
@@ -61,7 +71,6 @@ if(TESSERA_BUILD_EXAMPLES)
     target_link_libraries(tessera_tool_panel PRIVATE tessera::core)
 endif()
 
-include(CTest)
 option(TESSERA_BUILD_VULKAN "Build the optional Vulkan renderer and GPU fixtures" OFF)
 if(TESSERA_BUILD_VULKAN)
     add_subdirectory(backends/vulkan)
@@ -70,7 +79,7 @@ option(TESSERA_BUILD_FONTS "Build the optional HarfBuzz/FreeType text services a
 if(TESSERA_BUILD_FONTS)
     add_subdirectory(modules/fonts)
 endif()
-if(BUILD_TESTING)
+if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
     add_executable(tessera_document_tests tests/serialization/document_tests.cpp)
     target_link_libraries(tessera_document_tests PRIVATE tessera::core)
     target_compile_definitions(tessera_document_tests PRIVATE
@@ -88,4 +97,5 @@ if(BUILD_TESTING)
         add_test(NAME pointer_menu COMMAND tessera_pointer_menu)
         add_test(NAME tool_panel COMMAND tessera_tool_panel)
     endif()
+    include(tests/cmake/register.cmake)
 endif()

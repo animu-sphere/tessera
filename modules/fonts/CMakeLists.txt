@@ -26,7 +26,7 @@ endif()
 if(TARGET tessera_vulkan_menu)
     target_link_libraries(tessera_vulkan_menu PRIVATE tessera::fonts)
     target_compile_definitions(tessera_vulkan_menu PRIVATE TESSERA_MENU_FONTS=1)
-    if(BUILD_TESTING)
+    if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         add_test(NAME vulkan_menu_fonts_smoke COMMAND tessera_vulkan_menu --smoke --fonts
             "${PROJECT_SOURCE_DIR}/tests/fixtures/fonts/NotoSans-Regular.ttf"
             "${PROJECT_SOURCE_DIR}/tests/fixtures/fonts/NotoSansJP-Regular.otf")
@@ -34,7 +34,7 @@ if(TARGET tessera_vulkan_menu)
         set_tests_properties(vulkan_menu_fonts_smoke PROPERTIES RESOURCE_LOCK native_menu)
     endif()
 endif()
-if(BUILD_TESTING)
+if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
     if(TARGET tessera_vulkan_tests)
         target_link_libraries(tessera_vulkan_tests PRIVATE tessera::fonts)
         target_compile_definitions(tessera_vulkan_tests PRIVATE

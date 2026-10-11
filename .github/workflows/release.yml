@@ -16,6 +16,7 @@ on:
       - CHANGELOG.md
       - CMakeLists.txt
       - cmake/**
+      - tests/cmake/**
       - .github/workflows/release.yml
   workflow_dispatch:
 
@@ -61,7 +62,11 @@ jobs:
         with:
           name: core-windows-x64-${{ matrix.config }}
           if-no-files-found: warn
-          path: build/Testing/Temporary/LastTest.log
+          path: |
+            build/Testing/Temporary/LastTest.log
+            build/source-consumers/**/configure.log
+            build/source-consumers/**/build.log
+            build/source-consumers/**/test.log
 
   publish:
     name: Publish GitHub Release
