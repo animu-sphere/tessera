@@ -1,6 +1,7 @@
 #include <tessera/ui/component.hpp>
 #include <tessera/ui/keyed.hpp>
 #include <tessera/ui/serialization.hpp>
+#include <tessera/input/pointer.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/semantics/semantic_snapshot.hpp>
 #include "../check.hpp"
@@ -134,6 +135,118 @@ void declarations_arguments_and_bounds() {
               "conflicting_constraints", "/nodes/3/min_height"), "Cascade conflicts reject full presentation");
 }
 
+void nested_slot_style_composition() {
+    ReactiveRuntime r;
+    auto c = panel(); auto a = arguments();
+    ComponentDescription leaf; leaf.kind = "leaf";
+    leaf.document.root = a.slots.at("body")[0];
+    leaf.document.root.events["activate"] = "inspect";
+    StyleDeclarations blue; blue.color = Color{0, 0, 1, 1}; blue.height = Dimension::points(24);
+    leaf.styles = {{"row", blue}}; leaf.style_bindings = {{"row", "row"}};
+    const ValidationContext context{{"inspect"}};
+    auto child = lower_component(r, leaf, {}, context);
+    check(bool(child), "Styled child lowers independently");
+    // The parent can supply the reference target after child lowering. Anonymous
+    // roots and descendants must not require IDs for override composition.
+    child.value->document.root.properties["labelled_by"] = NodeReference{"caption"};
+    a.slots.clear(); a.composed_slots["body"] = {*child.value};
+    auto parent = lower_component(r, c, a, context);
+    check(parent && parent.value->overrides.size() == 4 && parent.value->overrides[2] == blue &&
+          parent.value->overrides[3] == std::get<StyleDeclarations>(a.styles.at("caption")),
+          "Child overrides retain preorder before later parent mappings");
+    check(parent.value->document.root.children[0].children[0] == child.value->document.root,
+          "Child reference, event and node metadata survive composition");
+    auto tree = UiTree::create(parent.value->document, context);
+    check(bool(tree), "Cross-boundary reference validates in the composed document");
+    StyleDeclarations green; green.color = Color{0, 1, 0, 1};
+    const StyleSheet sheet{{{StyleSelector::of_id("row"), green}}};
+    auto expected = std::vector<StyleDeclarations>(4);
+    expected[0] = *c.styles[0].default_value; expected[2] = blue;
+    expected[3] = std::get<StyleDeclarations>(a.styles.at("caption"));
+    auto styles = resolve_styles({tree.value->get(), &sheet, {}, parent.value->overrides});
+    auto reference = resolve_styles({tree.value->get(), &sheet, {}, expected});
+    check(styles && reference && *styles.value == *reference.value && styles.value->at(2).color == *blue.color &&
+          styles.value->at(2).text.size == 18, "Nested overrides win ordinary rules and retain parent text inheritance");
+    PlaceholderTextShaper text;
+    auto layout = compute_layout({tree.value->get(), *styles.value, {240, 120}, &text});
+    auto reference_layout = compute_layout({tree.value->get(), *reference.value, {240, 120}, &text});
+    check(layout && reference_layout && layout.value->boxes == reference_layout.value->boxes &&
+          layout.value->boxes[2].border_box.size.height == 24, "Composed styles match the authored full-tree layout");
+    auto paint = build_paint_list({tree.value->get(), *styles.value, &*layout.value, &text});
+    auto reference_paint = build_paint_list({tree.value->get(), *reference.value, &*reference_layout.value, &text});
+    auto semantics = capture_semantics({tree.value->get(), *styles.value, &*layout.value}, 1);
+    auto reference_semantics = capture_semantics({tree.value->get(), *reference.value, &*reference_layout.value}, 1);
+    check(paint && reference_paint && *paint.value == *reference_paint.value && semantics && reference_semantics &&
+          *semantics.value == *reference_semantics.value, "Nested paint and semantics match the authored reference");
+    const auto position = layout.value->boxes[2].border_box.origin;
+    auto hit = hit_test({tree.value->get(), *styles.value, &*layout.value}, {position.x + 1, position.y + 1});
+    check(hit && hit.value->target == (*tree.value)->find("row"), "Hit testing uses the same child geometry");
+    const auto saved = save_document(parent.value->document, context);
+    check(saved && load_document(*saved.value, context).value == std::optional<UiDocument>{parent.value->document},
+          "Composed roots serialize as ordinary documents without style fields");
+
+    ComponentDescription outer; outer.kind = "outer"; outer.document.root.id = "outer";
+    outer.slots = {{"nested", "outer", NodeKinds::box, 1, 3}};
+    ComponentArguments oa; oa.composed_slots["nested"] = {*parent.value};
+    BoundComponent anonymous; anonymous.document.root.kind = NodeKind::text;
+    anonymous.document.root.properties["text"] = std::string("Anonymous");
+    anonymous.overrides = {blue}; oa.composed_slots["nested"].push_back(anonymous);
+    outer.slots[0].accepted = NodeKinds::all;
+    auto nested = lower_component(r, outer, oa, context);
+    expected.insert(expected.begin(), StyleDeclarations{}); expected.push_back(blue);
+    check(nested && nested.value->overrides == expected && nested.value->document.root.children.size() == 2,
+          "Several levels and anonymous sibling roots preserve override order without parent mappings");
+    oa.composed_slots["nested"][1].overrides.clear();
+    nested = lower_component(r, outer, oa, context); expected.back() = {};
+    check(nested && nested.value->overrides == expected, "Unstyled sibling roots receive empty aligned overrides");
+    oa.composed_slots["nested"] = {anonymous}; oa.composed_slots["nested"][0].overrides.clear();
+    check(lower_component(r, outer, oa).value->overrides.empty(), "Entirely unstyled composition retains the empty span");
+}
+
+void nested_slot_rejection_and_bounds() {
+    ReactiveRuntime r; auto c = panel(); auto a = arguments();
+    BoundComponent child; child.document.root = a.slots.at("body")[0];
+    a.slots.clear(); a.composed_slots["body"] = {child};
+    r.begin_batch(); // Candidate data must fail before settled reactive entry.
+    a.composed_slots["body"][0].overrides.resize(2);
+    check(has(lower_component(r, c, a).diagnostics, "override_count", "/slots/body/0/overrides"), "Child override count validates before graph entry");
+    auto& bound = a.composed_slots["body"][0]; bound.overrides.resize(1); bound.overrides[0].opacity = 2.0f;
+    check(has(lower_component(r, c, a).diagnostics, "out_of_range", "/slots/body/0/overrides/0/opacity"), "Child declarations are validated with located diagnostics");
+    bound.overrides.clear(); a.slots["body"] = {};
+    check(has(lower_component(r, c, a).diagnostics, "component_duplicate_slot_argument", "/slots/body"), "A slot cannot have raw and composed writers even if one is empty");
+    a.slots.clear(); a.composed_slots["unknown/~"] = {};
+    check(has(lower_component(r, c, a).diagnostics, "component_unknown_slot", "/slots/unknown~1~0"), "Composed slot names are exact and escaped");
+    a.composed_slots.erase("unknown/~"); bound.document.version = 42;
+    check(has(lower_component(r, c, a).diagnostics, "unsupported_version", "/slots/body/0/version"), "Child document versions validate");
+    bound.document.version = 1; bound.document.root.events["activate"] = "missing";
+    check(has(lower_component(r, c, a).diagnostics, "unknown_action", "/slots/body/0/events/activate"), "Child actions must be registered in the parent context");
+    bound.document.root.events.clear(); bound.document.root.kind = NodeKind::box; bound.document.root.properties.clear();
+    check(has(lower_component(r, c, a).diagnostics, "component_slot_kind", "/slots/body/0/type"), "Composed root kinds obey slot constraints");
+    c.slots[0].accepted = NodeKinds::all;
+    auto* deep = &bound.document.root;
+    for (std::size_t i = 1; i < max_document_depth; ++i) { deep->children.resize(1); deep = &deep->children[0]; }
+    check(has(lower_component(r, c, a).diagnostics, "component_document_limit", "/slots/body/0"), "Projected depth validates before copying composed children");
+    bound.document.root = {}; bound.document.root.children.resize(max_document_nodes - 1);
+    check(has(lower_component(r, c, a).diagnostics, "component_document_limit", "/slots/body/0"), "Parent and child share the document node budget");
+    a.composed_slots.clear(); a.composed_slots["body"] = {child, child, child, child};
+    check(has(lower_component(r, c, a).diagnostics, "component_slot_count", "/slots/body"), "Composed child cardinality is bounded");
+    a.composed_slots.clear();
+    for (std::size_t i = 0; i < max_component_slots; ++i) a.slots[std::to_string(i)] = {};
+    a.composed_slots["body"] = {};
+    check(has(lower_component(r, c, a).diagnostics, "component_limit", "/component"), "Raw and composed slots share one declaration budget");
+    a.slots.clear(); a.composed_slots["body"] = {child};
+    check(has(lower_component(r, c, a).diagnostics, "reactive_open_batch", "/reactive"), "Valid composed children still require settled parent entry");
+    r.end_batch();
+    auto accepted = lower_component(r, c, a); check(bool(accepted), "A valid child candidate can be accepted after rejection");
+    a.composed_slots["body"][0].document.root.id = "caption";
+    check(has(lower_component(r, c, a).diagnostics, "duplicate_id", "/root/children/1/id") && accepted.value->document.root.children[0].children[0].id == "row",
+          "Composed IDs share the final namespace and rejection leaves the accepted candidate owned");
+    a.composed_slots["body"][0] = child;
+    a.composed_slots["body"][0].document.root.properties["labelled_by"] = NodeReference{"missing"};
+    check(has(lower_component(r, c, a).diagnostics, "invalid_reference", "/root/children/0/children/0/properties/labelled_by/ref"),
+          "Unresolved child references fail final document validation");
+}
+
 void weak_lifetimes_faults_and_publication() {
     ReactiveRuntime r; KeyedCollection rows(r.owner(r.root(), "rows"));
     const auto first = rows.reconcile(r, {{"item", "styled-panel"}});
@@ -177,6 +290,7 @@ void weak_lifetimes_faults_and_publication() {
 int main() {
     try {
         full_tree_parity_and_alignment(); declarations_arguments_and_bounds(); weak_lifetimes_faults_and_publication();
+        nested_slot_style_composition(); nested_slot_rejection_and_bounds();
         std::cout << "Component style checks passed.\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }
