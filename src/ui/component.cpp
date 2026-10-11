@@ -51,6 +51,12 @@ bool fits(const UiNode& node, std::size_t depth, std::size_t& count) {
         if (!fits(child, depth + 1, count)) return false;
     return true;
 }
+void style_overrides(const UiNode& node, const std::map<std::string, StyleDeclarations, std::less<>>& targets,
+                     std::vector<StyleDeclarations>& overrides) {
+    const auto found = node.id ? targets.find(*node.id) : targets.end();
+    overrides.push_back(found == targets.end() ? StyleDeclarations{} : found->second);
+    for (const auto& child : node.children) style_overrides(child, targets, overrides);
+}
 void lower(UiNode& node, const ComponentDescription& description, const ComponentArguments& arguments,
            const std::map<std::string, Property, std::less<>>& values,
            const std::map<std::string, std::string, std::less<>>& actions, PropertyStages& stages) {
@@ -86,15 +92,17 @@ void lower(UiNode& node, const ComponentDescription& description, const Componen
 }
 } // namespace
 
-Result<BoundDocument> lower_component(const ReactiveRuntime& runtime, const ComponentDescription& description,
+Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const ComponentDescription& description,
                                      const ComponentArguments& arguments, const ValidationContext& context) {
     Errors errors;
     if (description.props.size() > max_component_props || arguments.props.size() > max_component_props ||
         description.slots.size() > max_component_slots || arguments.slots.size() > max_component_slots ||
         description.actions.size() > max_component_actions || arguments.actions.size() > max_component_actions ||
+        description.styles.size() > max_component_styles || arguments.styles.size() > max_component_styles ||
         description.properties.size() > max_property_bindings ||
-        description.events.size() > max_property_bindings - description.properties.size()) {
-        error(errors, "component_limit", "/component", "Supply at most 256 props, 256 slots, 256 actions and 4096 combined property/event mappings.");
+        description.events.size() > max_property_bindings - description.properties.size() ||
+        description.style_bindings.size() > max_property_bindings - description.properties.size() - description.events.size()) {
+        error(errors, "component_limit", "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined property/event/style mappings.");
         return {{}, std::move(errors)};
     }
     name(errors, description.kind, "/component/kind");
@@ -163,6 +171,29 @@ Result<BoundDocument> lower_component(const ReactiveRuntime& runtime, const Comp
         if (!event_writers.emplace(binding.target, binding.event).second)
             error(errors, "component_duplicate_event", path + "/event", "Give each target event one action writer.");
     }
+    std::map<std::string, const ComponentStyle*, std::less<>> styles;
+    for (std::size_t i = 0; i < description.styles.size(); ++i) {
+        const auto& style = description.styles[i];
+        const auto path = "/component/styles/" + std::to_string(i);
+        name(errors, style.name, path + "/name");
+        if (!styles.emplace(style.name, &style).second)
+            error(errors, "component_duplicate_style", path + "/name", "Declare each style name once.");
+        if (style.default_value) {
+            auto diagnostics = validate(*style.default_value, path + "/default");
+            errors.insert(errors.end(), diagnostics.begin(), diagnostics.end());
+        }
+    }
+    std::set<std::string, std::less<>> style_targets;
+    for (std::size_t i = 0; i < description.style_bindings.size(); ++i) {
+        const auto& binding = description.style_bindings[i];
+        const auto path = "/component/style_bindings/" + std::to_string(i);
+        if (!styles.contains(binding.style))
+            error(errors, "component_unknown_style", path + "/style", "Map a declared style name.");
+        if (!targets.contains(binding.target))
+            error(errors, "component_target", path + "/target", "Map an author ID in the component template.");
+        if (!style_targets.insert(binding.target).second)
+            error(errors, "component_duplicate_style_target", path + "/target", "Give each target one style writer.");
+    }
     std::map<std::string, const ComponentSlot*, std::less<>> slots;
     std::set<std::string, std::less<>> slot_targets;
     for (std::size_t i = 0; i < description.slots.size(); ++i) {
@@ -203,6 +234,19 @@ Result<BoundDocument> lower_component(const ReactiveRuntime& runtime, const Comp
         if (!arguments.actions.contains(action.name) && !action.default_action)
             error(errors, "component_missing_action", "/actions/" + detail::pointer_token(action.name),
                   "Supply this required action or declare a registered default.");
+    for (const auto& [key, value] : arguments.styles) {
+        const auto path = "/styles/" + detail::pointer_token(key);
+        if (!styles.contains(key))
+            error(errors, "component_unknown_style", path, "Supply only declared component styles.");
+        if (const auto* declarations = std::get_if<StyleDeclarations>(&value)) {
+            auto diagnostics = validate(*declarations, path);
+            errors.insert(errors.end(), diagnostics.begin(), diagnostics.end());
+        }
+    }
+    for (const auto& style : description.styles)
+        if (!arguments.styles.contains(style.name) && !style.default_value)
+            error(errors, "component_missing_style", "/styles/" + detail::pointer_token(style.name),
+                  "Supply this required style or declare a default.");
     for (const auto& [key, children] : arguments.slots) {
         if (!slots.contains(key))
             error(errors, "component_unknown_slot", "/slots/" + detail::pointer_token(key), "Supply only declared slots.");
@@ -279,10 +323,42 @@ Result<BoundDocument> lower_component(const ReactiveRuntime& runtime, const Comp
         }
     }
     if (!errors.empty()) return {{}, std::move(errors)};
-    BoundDocument candidate{description.document};
+    std::map<std::string, StyleDeclarations, std::less<>> style_values;
+    for (const auto& style : description.styles) {
+        const auto path = "/styles/" + detail::pointer_token(style.name);
+        const auto found = arguments.styles.find(style.name);
+        try {
+            auto value = found == arguments.styles.end() ? *style.default_value : std::visit([&](const auto& data) -> StyleDeclarations {
+                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, StyleDeclarations>) return data;
+                else return runtime.snapshot(data);
+            }, found->second);
+            auto diagnostics = validate(value, path);
+            errors.insert(errors.end(), diagnostics.begin(), diagnostics.end());
+            style_values.emplace(style.name, std::move(value));
+        } catch (const ReactiveError& e) {
+            auto cause = e.diagnostic();
+            cause.message += " Reactive location: " + cause.path + ".";
+            cause.path = path;
+            errors.push_back(std::move(cause));
+        }
+    }
+    if (!errors.empty()) return {{}, std::move(errors)};
+    BoundComponent candidate;
+    candidate.document = description.document;
     lower(candidate.document.root, description, arguments, values, action_values, candidate.stages);
     errors = validate(candidate.document, context);
     if (!errors.empty()) return {{}, std::move(errors)};
+    if (!description.style_bindings.empty()) {
+        std::map<std::string, StyleDeclarations, std::less<>> mapped_styles;
+        for (const auto& binding : description.style_bindings) {
+            const auto& declarations = style_values.at(binding.style);
+            mapped_styles.emplace(binding.target, declarations);
+            if (declarations != StyleDeclarations{})
+                candidate.stages = candidate.stages | PropertyStages::style | PropertyStages::layout |
+                    PropertyStages::paint | PropertyStages::input | PropertyStages::semantics;
+        }
+        style_overrides(candidate.document.root, mapped_styles, candidate.overrides);
+    }
     return {std::move(candidate), {}};
 }
 } // namespace tessera
