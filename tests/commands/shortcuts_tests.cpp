@@ -294,10 +294,138 @@ void input_parity() {
     check(replay && replay.value->record().arguments == reference.arguments && bool(executor.execute(s, *replay.value, host, &ui)) && host.calls == 5,
         "Replay observation resolves against current owner with same execution/result boundary");
 }
+
+void gamepad_chords() {
+    auto r = registry(); auto s = snapshot(r); Panel panel;
+    const GamepadShortcutChord chord{GamepadButton::west, gamepad_button_bit(GamepadButton::left_shoulder)};
+    auto declarations = scopes(panel);
+    for (auto& scope : declarations) {
+        const auto& keyboard = scope.bindings.front();
+        scope.gamepad_bindings.push_back({chord, keyboard.command, keyboard.owner});
+    }
+    auto shortcuts = map(s, panel, declarations);
+    auto event = GamepadShortcutRequest{chord, s.generation(), 1};
+    auto ui = panel.ui(panel.node("inner"));
+    for (const auto& [focus, expected] : std::vector<std::pair<std::optional<NodeHandle>, std::string>>{
+            {{}, "app.global"}, {panel.node("outer"), "app.outer"}, {panel.node("inner"), "app.inner"}}) {
+        const auto result = shortcuts.dispatch(s, panel.ui(focus), event);
+        check(result && result.value->consumed && result.value->invocation &&
+            result.value->invocation->record().command == expected &&
+            result.value->invocation->record().source == CommandSource::gamepad,
+            "Gamepad chords use nearest scope and gamepad source");
+    }
+    const auto keyboard = shortcuts.dispatch(s, ui, request(s));
+    const auto gamepad = shortcuts.dispatch(s, ui, event);
+    check(keyboard && gamepad && keyboard.value->invocation && gamepad.value->invocation &&
+        keyboard.value->invocation->record().arguments == gamepad.value->invocation->record().arguments &&
+        keyboard.value->invocation->record().owner == gamepad.value->invocation->record().owner,
+        "Keyboard/gamepad share command defaults and ordinary owner");
+    Host host; CommandExecutor executor;
+    check(bool(executor.execute(s, *keyboard.value->invocation, host, &ui)), "Execute keyboard request");
+    check(!executor.execute(s, *gamepad.value->invocation, host, &ui) && host.calls == 1,
+        "Keyboard/gamepad share execution sequence deduplication");
+    event.sequence = 2;
+    const auto next = shortcuts.dispatch(s, ui, event);
+    check(next && bool(executor.execute(s, *next.value->invocation, host, &ui)) && host.calls == 2,
+        "Gamepad request executes after dispatch with fresh sequence");
+    event.sequence = 3;
+    const auto pending = shortcuts.dispatch(s, ui, event);
+    auto replacement = snapshot(r, 2);
+    check(pending && !executor.execute(replacement, *pending.value->invocation, host, &ui) && host.calls == 2,
+        "Pending gamepad request cannot execute across generation replacement");
+    check(bool(executor.execute(s, *pending.value->invocation, host, &ui)) && host.calls == 3,
+        "Rejected stale gamepad execution leaves the sequence available");
+    event.repeat = true;
+    auto result = shortcuts.dispatch(s, ui, event);
+    check(result && result.value->consumed && !result.value->invocation, "Gamepad repeat suppression shadows outer scope");
+    auto input = declarations; input.back().gamepad_bindings.front().repeat = true;
+    check(map(s, panel, input).dispatch(s, ui, event).value->invocation.has_value(), "Gamepad repeat opt-in resolves");
+    event.repeat = false; event.consumed = true;
+    result = shortcuts.dispatch(s, ui, event);
+    check(result && result.value->consumed && !result.value->invocation, "Host-consumed gamepad press stays consumed");
+    event.consumed = false; event.chord.held = 0;
+    check(!shortcuts.dispatch(s, ui, event).value->consumed, "Missing held button cannot match");
+    event.chord.held = chord.held | gamepad_button_bit(GamepadButton::right_shoulder);
+    check(!shortcuts.dispatch(s, ui, event).value->consumed, "Extra held button cannot match");
+    event.chord = chord; event.chord.button = GamepadButton::east;
+    check(!shortcuts.dispatch(s, ui, event).value->consumed, "Different pressed button cannot match");
+    event.chord = chord;
+    input = declarations; input.back().gamepad_bindings.front().chord.button = GamepadButton::east;
+    check(map(s, panel, input).dispatch(s, ui, event).value->invocation->record().command == "app.outer",
+        "Absent gamepad chord permits outer match");
+    std::reverse(input.begin(), input.end());
+    check(map(s, panel, input).dispatch(s, ui, event).value->invocation->record().command == "app.outer",
+        "Gamepad precedence is independent of declaration order");
+    input.clear();
+    check(shortcuts.dispatch(s, ui, event).value->invocation->record().command == "app.inner", "Map owns gamepad declarations");
+    auto disabled = snapshot(r, 2, false);
+    auto disabled_event = event; disabled_event.generation = 2;
+    check(has(shortcuts.dispatch(disabled, ui, disabled_event).diagnostics, "disabled_command", "/command"),
+        "Disabled gamepad command fails closed without outer fallback");
+    event.arguments = {{"amount", true}};
+    check(has(shortcuts.dispatch(s, ui, event).diagnostics, "argument_type", "/arguments/amount"), "Gamepad argument types use ordinary schema");
+    event.arguments = {{"item", CommandObjectId{"unavailable"}}};
+    check(has(shortcuts.dispatch(s, ui, event).diagnostics, "invalid_reference", "/arguments/item"), "Gamepad object permissions use ordinary resolver");
+    event.arguments.clear(); event.generation = 99;
+    check(has(shortcuts.dispatch(s, ui, event).diagnostics, "stale_generation", "/generation"), "Stale gamepad generation rejects");
+    event.generation = s.generation(); event.sequence = 0;
+    check(has(shortcuts.dispatch(s, ui, event).diagnostics, "invalid_sequence", "/sequence"), "Zero gamepad sequence rejects");
+    event.sequence = 3;
+    Panel other;
+    check(has(shortcuts.dispatch(s, other.ui(), event).diagnostics, "stale_target", "/scopes"), "Replacement tree rejects gamepad map");
+    auto r2 = registry(); auto s2 = snapshot(r2);
+    check(has(shortcuts.dispatch(s2, ui, event).diagnostics, "stale_registry", "/registry_revision"), "Replacement registry rejects gamepad map");
+    panel.styles[panel.node("inner").index].visibility = Visibility::hidden; panel.relayout();
+    check(has(shortcuts.dispatch(s, panel.ui(panel.node("inner-scope")), event).diagnostics, "hidden_target", "/target"),
+        "Hidden gamepad owner fails closed");
+    check(shortcuts.dispatch(s, panel.ui(panel.node("inner")), event).value->invocation->record().command == "app.global",
+        "Ineligible gamepad focus activates only global scope");
+    for (const auto bad : {GamepadShortcutChord{static_cast<GamepadButton>(255), 0},
+            GamepadShortcutChord{GamepadButton::west, 1u << 16},
+            GamepadShortcutChord{GamepadButton::west, gamepad_button_bit(GamepadButton::west)}}) {
+        event.chord = bad; event.consumed = true;
+        const auto code = bad.held == gamepad_button_bit(GamepadButton::west) ? "invalid_chord" : "unknown_value";
+        const auto field = bad.button == static_cast<GamepadButton>(255) ? "/button" : "/held";
+        check(has(shortcuts.dispatch(s, panel.ui(), event).diagnostics, code, std::string("/chord") + field),
+            "Validate gamepad chord even when consumed");
+        input = declarations; input.back().gamepad_bindings.front().chord = bad;
+        check(has(CommandShortcuts::create(s, *panel.tree, input).diagnostics, code,
+            std::string("/scopes/2/gamepad_bindings/0/chord") + field), "Reject malformed gamepad declarations");
+    }
+    check(gamepad_button_bit(static_cast<GamepadButton>(255)) == 0 &&
+        gamepad_button_bit(GamepadButton::start) == (1u << 15), "Button bits are bounded without invalid shifts");
+    input = declarations;
+    input.front().gamepad_bindings = {{{GamepadButton::start, 0}, "app.global"},
+        {{GamepadButton::start, gamepad_button_bit(GamepadButton::select)}, "app.global"}};
+    auto singles = map(s, panel, input);
+    event.consumed = false; event.chord = {GamepadButton::start, 0};
+    check(singles.dispatch(s, panel.ui(), event).value->invocation.has_value(), "Single button and last declared position are valid");
+    event.chord.held = gamepad_button_bit(GamepadButton::select);
+    check(singles.dispatch(s, panel.ui(), event).value->invocation.has_value(), "Same pressed button with different held mask is a distinct chord");
+    event.chord.held = 0x7fff;
+    check(!singles.dispatch(s, panel.ui(), event).value->consumed, "All other declared bits are valid but match exactly");
+    input = declarations; input.back().gamepad_bindings.push_back(input.back().gamepad_bindings.front());
+    const auto conflict = CommandShortcuts::create(s, *panel.tree, input);
+    check(has(conflict.diagnostics, "shortcut_conflict", "/scopes/2/gamepad_bindings/1/chord") &&
+        conflict.diagnostics.front().message.find("/scopes/2/gamepad_bindings/0/chord") != std::string::npos,
+        "Locate both duplicate gamepad chords");
+    input = declarations; input.back().gamepad_bindings.front().owner.reset();
+    check(has(CommandShortcuts::create(s, *panel.tree, input).diagnostics, "missing_owner", "/scopes/2/gamepad_bindings/0/owner"),
+        "Gamepad subtree bindings require ordinary owners");
+    input = declarations; input.back().gamepad_bindings.front().owner = panel.action("outer");
+    check(has(CommandShortcuts::create(s, *panel.tree, input).diagnostics, "outside_scope", "/scopes/2/gamepad_bindings/0/owner/target"),
+        "Gamepad owner must be inside its subtree");
+    input = declarations; input.back().gamepad_bindings.front().command = "app.outer";
+    check(has(CommandShortcuts::create(s, *panel.tree, input).diagnostics, "unmapped_action", "/scopes/2/gamepad_bindings/0/owner/action"),
+        "Gamepad owner requires exact action mapping");
+    input = declarations; input.front().gamepad_bindings.resize(max_shortcut_bindings);
+    check(has(CommandShortcuts::create(s, *panel.tree, input).diagnostics, "out_of_range", "/scopes"),
+        "Keyboard and gamepad bindings share one total bound");
+}
 } // namespace
 
 int main() {
-    try { routing(); registration(); rejection_and_lifetime(); input_parity(); }
+    try { routing(); registration(); rejection_and_lifetime(); input_parity(); gamepad_chords(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "Shortcut scope, conflict, eligibility, lifetime and input parity checks passed\n";
 }

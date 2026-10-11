@@ -26,6 +26,8 @@ The tool panel also exercises the [transaction boundary](../design/commands.md#i
 
 Its panel-scoped [keyboard shortcut](../design/commands.md#implemented-keyboard-shortcut-boundary) routes a synthetic logical Control+I `KeyDown` to the same live inspection activation owner, with the current selection arguments and shared execution sequence. The host rebuilds the shortcut map with each replacement tree and executes its returned invocation after routing. Native key conventions are a host policy.
 
+The same scope declares a synthetic [gamepad shortcut](../design/commands.md#implemented-gamepad-shortcut-boundary): left shoulder held while pressing west. Its normalized request resolves the same inspection command, owner and arguments as Control+I, then executes with a fresh sequence. Physical button mapping and polling belong to the host.
+
 ## Library-only workflow
 
 Use a fresh build directory for a clean library-only check:
