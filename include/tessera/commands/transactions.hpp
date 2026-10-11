@@ -72,6 +72,10 @@ public:
     // invalidation closes via rollback, returning the invalidation as an error.
     Result<CommandOutcome> commit(const CommandSnapshot&, const TransactionToken&,
         TransactionHost&, const SemanticInput* current_ui = nullptr);
+    // Update-point lifecycle check without editing or committing. Invalidation
+    // rolls back once; token/host/entry rejection leaves the active edit alone.
+    Result<bool> recheck(const CommandSnapshot&, const TransactionToken&,
+        TransactionHost&, const SemanticInput* current_ui = nullptr);
     Result<CommandOutcome> rollback(const TransactionToken&, TransactionCancel, TransactionHost&);
 private:
     std::vector<Diagnostic> entry() const;

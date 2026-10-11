@@ -88,6 +88,10 @@ Normalized device events describe interaction; application-facing actions descri
 
 [Inspection operations](inspection.md#proposed-target-resolution-and-operations) resolve targets before entering this path. Semantic activate/set-value and raw pointer/key injection are distinct operations with the same eligibility constraints. Automation must not turn unsupported text editing or value actions into direct property mutation.
 
+### Implemented edit gesture host boundary
+
+The [command gesture adapter](commands.md#implemented-edit-gesture-boundary) consumes normalized completion/cancellation input after ordinary traversal and before host publication. Hosts route its consumed result or error before requesting shortcut/navigation/activation actions, translate capture loss to `PointerCancel`, and call its update-point refresh or explicit owner-change cancellation before reload/disposal. Gesture identity, transaction ownership, exact terminal matching and closure diagnostics are owned by commands. This adapter does not add value-editing actions to document nodes.
+
 ## Interaction state
 
 Input owns interaction behavior. Pointer hover/active, inherited disabled filtering, and prototype focus are implemented in this page. The host passes the resulting states to the [prototype style resolver](styling.md#implemented-prototype-style-resolution) for `:hover`, `:active`, `:focus`, and `:disabled` rules. Host updates must resolve styles/layout and call `refresh` or dispatch with the new snapshot. Disabled focus policy and automatic style/layout/paint invalidation remain to be defined.
