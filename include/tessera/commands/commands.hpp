@@ -108,6 +108,7 @@ public:
         CommandMode, CommandStates, CommandObjectIds = {});
     std::uint64_t generation() const noexcept;
     std::uint64_t registry_revision() const noexcept;
+    bool permits_object(std::string_view id) const; // Settled host-ID permission, no callback.
     std::vector<CommandInfo> discover() const; // Available descriptors, sorted by ID.
     Result<CommandInfo> lookup(std::string_view id) const;
     // Copy the authored document and compose command eligibility into activate owners' disabled property.

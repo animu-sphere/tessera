@@ -49,6 +49,7 @@ private:
     const std::thread::id thread_;
     std::uint64_t last_sequence_ = 0;
     bool executing_ = false;
+    friend class CommandTransactions;
 };
 
 } // namespace tessera
