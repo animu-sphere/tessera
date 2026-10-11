@@ -68,17 +68,20 @@ using ComponentValue = std::variant<Property,
     Signal<std::string>, Computed<std::string>, Signal<NodeReference>, Computed<NodeReference>>;
 using ComponentActionValue = std::variant<std::string, Signal<std::string>, Computed<std::string>>;
 using ComponentStyleValue = std::variant<StyleDeclarations, Signal<StyleDeclarations>, Computed<StyleDeclarations>>;
+struct BoundComponent : BoundDocument {
+    // Empty without template mappings or child override arrays; otherwise one
+    // entry per composed node, directly usable as StyleInput::overrides.
+    std::vector<StyleDeclarations> overrides;
+};
 struct ComponentArguments {
     std::map<std::string, ComponentValue, std::less<>> props;
     std::map<std::string, std::vector<UiNode>, std::less<>> slots;
     std::map<std::string, ComponentActionValue, std::less<>> actions;
     std::map<std::string, ComponentStyleValue, std::less<>> styles;
-};
-
-struct BoundComponent : BoundDocument {
-    // Empty when there are no style mappings; otherwise one entry per composed
-    // node in preorder, directly usable as StyleInput::overrides for this document.
-    std::vector<StyleDeclarations> overrides;
+    // Already-lowered children, preserving their root and preorder overrides.
+    // Each slot uses either slots or composed_slots, never both. Child document
+    // extensions belong to that document and are not merged into the parent.
+    std::map<std::string, std::vector<BoundComponent>, std::less<>> composed_slots;
 };
 
 // Validates schema/arguments before reading settled values or copying subtrees.

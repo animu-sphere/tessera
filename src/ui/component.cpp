@@ -52,10 +52,33 @@ bool fits(const UiNode& node, std::size_t depth, std::size_t& count) {
     return true;
 }
 void style_overrides(const UiNode& node, const std::map<std::string, StyleDeclarations, std::less<>>& targets,
+                     const ComponentDescription& description, const ComponentArguments& arguments,
                      std::vector<StyleDeclarations>& overrides) {
     const auto found = node.id ? targets.find(*node.id) : targets.end();
     overrides.push_back(found == targets.end() ? StyleDeclarations{} : found->second);
-    for (const auto& child : node.children) style_overrides(child, targets, overrides);
+    if (node.id) for (const auto& slot : description.slots) {
+        if (slot.target != *node.id) continue;
+        const auto composed = arguments.composed_slots.find(slot.name);
+        if (composed != arguments.composed_slots.end()) {
+            for (const auto& child : composed->second) {
+                if (!child.overrides.empty()) overrides.insert(overrides.end(), child.overrides.begin(), child.overrides.end());
+                else {
+                    std::size_t count = 0;
+                    fits(child.document.root, 1, count);
+                    overrides.resize(overrides.size() + count);
+                }
+            }
+        } else {
+            const auto raw = arguments.slots.find(slot.name);
+            if (raw != arguments.slots.end()) for (const auto& child : raw->second) {
+                std::size_t count = 0;
+                fits(child, 1, count);
+                overrides.resize(overrides.size() + count);
+            }
+        }
+        return; // Parent mappings never address child component content.
+    }
+    for (const auto& child : node.children) style_overrides(child, targets, description, arguments, overrides);
 }
 void lower(UiNode& node, const ComponentDescription& description, const ComponentArguments& arguments,
            const std::map<std::string, Property, std::less<>>& values,
@@ -80,8 +103,13 @@ void lower(UiNode& node, const ComponentDescription& description, const Componen
         for (const auto& slot : description.slots) {
             if (slot.target != *node.id) continue;
             const auto found = arguments.slots.find(slot.name);
+            const auto composed = arguments.composed_slots.find(slot.name);
             if (found != arguments.slots.end() && !found->second.empty()) {
                 node.children = found->second;
+            } else if (composed != arguments.composed_slots.end()) {
+                for (const auto& child : composed->second) node.children.push_back(child.document.root);
+            }
+            if (!node.children.empty()) {
                 stages = stages | PropertyStages::style | PropertyStages::layout | PropertyStages::paint |
                     PropertyStages::input | PropertyStages::semantics;
             }
@@ -97,6 +125,7 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
     Errors errors;
     if (description.props.size() > max_component_props || arguments.props.size() > max_component_props ||
         description.slots.size() > max_component_slots || arguments.slots.size() > max_component_slots ||
+        arguments.composed_slots.size() > max_component_slots - arguments.slots.size() ||
         description.actions.size() > max_component_actions || arguments.actions.size() > max_component_actions ||
         description.styles.size() > max_component_styles || arguments.styles.size() > max_component_styles ||
         description.properties.size() > max_property_bindings ||
@@ -251,34 +280,56 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
         if (!slots.contains(key))
             error(errors, "component_unknown_slot", "/slots/" + detail::pointer_token(key), "Supply only declared slots.");
     }
+    for (const auto& [key, children] : arguments.composed_slots) {
+        const auto path = "/slots/" + detail::pointer_token(key);
+        if (!slots.contains(key))
+            error(errors, "component_unknown_slot", path, "Supply only declared slots.");
+        if (arguments.slots.contains(key))
+            error(errors, "component_duplicate_slot_argument", path, "Supply raw or composed children for this slot, not both.");
+    }
     for (const auto& slot : description.slots) {
         const auto path = "/slots/" + detail::pointer_token(slot.name);
         const auto found = arguments.slots.find(slot.name);
-        const auto size = found == arguments.slots.end() ? 0 : found->second.size();
+        const auto composed = arguments.composed_slots.find(slot.name);
+        const auto size = found != arguments.slots.end() ? found->second.size() :
+            composed != arguments.composed_slots.end() ? composed->second.size() : 0;
         if (size < slot.minimum || size > slot.maximum) {
             error(errors, "component_slot_count", path, "Supply between " + std::to_string(slot.minimum) + " and " +
                 std::to_string(slot.maximum) + " children in this slot.");
             continue;
         }
-        if (found == arguments.slots.end()) continue;
+        if (found == arguments.slots.end() && composed == arguments.composed_slots.end()) continue;
         for (std::size_t i = 0; i < size; ++i) {
-            const auto& child = found->second[i];
+            const auto* bound = found == arguments.slots.end() ? &composed->second[i] : nullptr;
+            const auto& child = bound ? bound->document.root : found->second[i];
             const auto child_path = path + "/" + std::to_string(i);
             if (!contains(slot.accepted, child.kind))
                 error(errors, "component_slot_kind", child_path + "/type", "Supply a root node kind accepted by this slot.");
-            auto diagnostics = detail::validate_document_parts(1, child, {}, context);
+            const JsonValue::Object empty_extensions;
+            auto diagnostics = detail::validate_document_parts(bound ? bound->document.version : 1, child,
+                bound ? bound->document.extensions : empty_extensions, context);
             bool valid = true;
             for (auto& diagnostic : diagnostics) {
                 // References can cross from slot content into the enclosing
                 // component. The final document validates their existence.
                 if (diagnostic.code == "invalid_reference") continue;
                 valid = false;
-                diagnostic.path = child_path + diagnostic.path.substr(5); // Replace /root.
+                diagnostic.path = child_path + (diagnostic.path.starts_with("/root") ? diagnostic.path.substr(5) : diagnostic.path);
                 errors.push_back(std::move(diagnostic));
             }
-            if (valid && !fits(child, targets.at(slot.target).depth + 1, count)) {
+            const auto target = targets.find(slot.target);
+            const auto previous_count = count;
+            if (valid && target != targets.end() && !fits(child, target->second.depth + 1, count)) {
                 error(errors, "component_document_limit", child_path, "Keep the composed document within 64 levels and 10000 nodes.");
                 return {{}, std::move(errors)};
+            }
+            if (bound && valid && target != targets.end()) {
+                if (!bound->overrides.empty() && bound->overrides.size() != count - previous_count)
+                    error(errors, "override_count", child_path + "/overrides", "Supply no overrides or one declaration per child document node in preorder.");
+                else for (std::size_t j = 0; j < bound->overrides.size(); ++j) {
+                    auto style_errors = validate(bound->overrides[j], child_path + "/overrides/" + std::to_string(j));
+                    errors.insert(errors.end(), style_errors.begin(), style_errors.end());
+                }
             }
         }
     }
@@ -348,7 +399,10 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
     lower(candidate.document.root, description, arguments, values, action_values, candidate.stages);
     errors = validate(candidate.document, context);
     if (!errors.empty()) return {{}, std::move(errors)};
-    if (!description.style_bindings.empty()) {
+    const bool child_styles = std::any_of(arguments.composed_slots.begin(), arguments.composed_slots.end(), [](const auto& slot) {
+        return std::any_of(slot.second.begin(), slot.second.end(), [](const auto& child) { return !child.overrides.empty(); });
+    });
+    if (!description.style_bindings.empty() || child_styles) {
         std::map<std::string, StyleDeclarations, std::less<>> mapped_styles;
         for (const auto& binding : description.style_bindings) {
             const auto& declarations = style_values.at(binding.style);
@@ -357,7 +411,7 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
                 candidate.stages = candidate.stages | PropertyStages::style | PropertyStages::layout |
                     PropertyStages::paint | PropertyStages::input | PropertyStages::semantics;
         }
-        style_overrides(candidate.document.root, mapped_styles, candidate.overrides);
+        style_overrides(description.document.root, mapped_styles, description, arguments, candidate.overrides);
     }
     return {std::move(candidate), {}};
 }

@@ -264,18 +264,24 @@ int main() {
             item_component.props = {{"caption", PropertyType::string, {}},
                 {"focusable", PropertyType::boolean, Property{true}}};
             item_component.properties = {{"caption", row.key, "text"}, {"focusable", row.key, "focusable"}};
+            StyleDeclarations row_style; row_style.height = Dimension::points(24);
+            item_component.styles = {{"row", row_style}};
+            item_component.style_bindings = {{"row", row.key}};
             ComponentArguments item_arguments;
             item_arguments.props["caption"] = row_state[row.lifetime].label;
             const auto item = lower_component(runtime, item_component, item_arguments);
             if (!item) return 21;
-            list_arguments.slots["rows"].push_back(item.value->document.root);
+            list_arguments.composed_slots["rows"].push_back(*item.value);
         }
         const auto bound = lower_component(runtime, list_component, list_arguments);
         if (!bound) return 22;
         const auto& list = bound.value->document;
         auto tree = UiTree::create(list);
         if (!tree) return 16;
-        const std::vector<ResolvedStyle> styles((*tree.value)->size());
+        const StyleSheet row_sheet;
+        const auto row_styles = resolve_styles({tree.value->get(), &row_sheet, {}, bound.value->overrides});
+        if (!row_styles) return 23;
+        const auto& styles = *row_styles.value;
         const auto layout = compute_layout({tree.value->get(), styles, {240, 120}, &text});
         if (!layout) return 17;
         const HitTestInput hit{tree.value->get(), styles, &*layout.value};
