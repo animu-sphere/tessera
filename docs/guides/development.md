@@ -24,6 +24,8 @@ MSVC uses the ordinary Windows SDK C++ toolchain. A core-only workflow requires 
 
 The tool panel also exercises the [transaction boundary](../design/commands.md#implemented-synchronous-transaction-boundary) with host-owned item amounts and history. Three edits lower a caption through ordinary components and the full presentation pipeline before one explicit commit; a subsequent cancelled edit restores the amount before publishing its restoration. Inspection and editing share one command sequence stream. Input gesture wiring is defined by the [transaction proposal](../design/commands.md#proposed-transaction-boundary).
 
+Its panel-scoped [keyboard shortcut](../design/commands.md#implemented-keyboard-shortcut-boundary) routes a synthetic logical Control+I `KeyDown` to the same live inspection activation owner, with the current selection arguments and shared execution sequence. The host rebuilds the shortcut map with each replacement tree and executes its returned invocation after routing. Native key conventions are a host policy.
+
 ## Library-only workflow
 
 Use a fresh build directory for a clean library-only check:

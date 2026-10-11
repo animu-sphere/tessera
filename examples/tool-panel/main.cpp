@@ -1,6 +1,7 @@
 #include <tessera/commands/commands.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/commands/transactions.hpp>
+#include <tessera/commands/shortcuts.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
 #include <tessera/render/paint.hpp>
@@ -143,9 +144,24 @@ int main() {
             if (!executed || executed.value->outcome.status != CommandOutcomeStatus::success ||
                 executed.value->outcome.values.at("item") != invocation.value->record().arguments.at("item")) return 9;
         }
+        const std::vector<ShortcutScope> shortcut_scopes{{(*tree.value)->root(), {
+            {{Key::i, {false, true}}, inspect.id, ActionRequest{"activate", "inspect-item", *(*tree.value)->find("inspect")}}
+        }}};
+        const auto shortcuts = CommandShortcuts::create(*commands.value, **tree.value, shortcut_scopes);
+        if (!shortcuts) return 25;
+        const SemanticInput shortcut_ui{tree.value->get(), styles, &*layout.value, activated.value->focused};
+        const auto shortcut = shortcuts.value->dispatch(*commands.value, shortcut_ui,
+            {{3us, KeyDown{Key::i, {false, true}}}, generation, ++sequence,
+                observation.selection ? CommandArguments{{"item", CommandObjectId{*observation.selection}}} : CommandArguments{}});
+        if (!shortcut || shortcut.value->invocation.has_value() != selected) return 25;
+        if (shortcut.value->invocation) {
+            const auto executed = executor.execute(*commands.value, *shortcut.value->invocation, command_host, &shortcut_ui);
+            if (!executed || executed.value->outcome.status != CommandOutcomeStatus::success) return 25;
+        }
         const auto info = commands.value->lookup(inspect.id);
         std::cout << "Generation " << generation << ": " << info.value->descriptor.label << " enabled=" << selected;
         if (!selected) std::cout << " (" << info.value->state.disabled_reason << ')';
+        std::cout << " shortcut=" << shortcut.value->consumed;
         std::cout << " status=\"" << status_line << "\" details=\"" << details_text << '"';
         for (const auto& fault : faults) std::cout << " fault=" << fault.code << '@' << fault.path;
         std::cout << '\n';

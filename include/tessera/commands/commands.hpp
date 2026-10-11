@@ -111,6 +111,7 @@ public:
     bool permits_object(std::string_view id) const; // Settled host-ID permission, no callback.
     std::vector<CommandInfo> discover() const; // Available descriptors, sorted by ID.
     Result<CommandInfo> lookup(std::string_view id) const;
+    Result<CommandInfo> lookup_action(std::string_view action) const; // Exact explicit action mapping.
     // Copy the authored document and compose command eligibility into activate owners' disabled property.
     // Unmapped actions are unchanged. Always lower from the authored document, not an earlier lowered copy.
     Result<UiDocument> apply_eligibility(const UiDocument&, const ValidationContext&) const;

@@ -34,6 +34,8 @@ Proposed baseline: a host delivers a given key press either as a logical command
 
 Key events and text input are separate operations. The presence of `TextInput` does not imply a text editor or full IME composition support; composition, clipboard, and editable-text semantics need a later contract.
 
+The host can route normalized `KeyDown` through the [keyboard shortcut boundary](commands.md#implemented-keyboard-shortcut-boundary) before translating unconsumed input into logical focus commands. Pass editing/IME consumption explicitly, stop routing on resolution errors, and execute returned invocations after dispatch. Chord scopes, conflict rules and command resolution are owned by that boundary; platform key normalization and input stream ordering stay with the host.
+
 ## Hit testing and propagation
 
 ### Implemented rectangular hit testing
