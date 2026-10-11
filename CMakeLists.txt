@@ -37,6 +37,7 @@ add_library(tessera_core
     src/input/focus.cpp
     src/input/scroll.cpp
     src/commands/commands.cpp
+    src/commands/execution.cpp
     src/reactive/runtime.cpp
     src/render/draw_list.cpp
     src/render/paint.cpp

@@ -78,6 +78,67 @@ bool available(const CommandDescriptor& d, CommandMode mode) {
         (d.availability == CommandAvailability::development && mode == CommandMode::development) ||
         (d.availability == CommandAvailability::production && mode == CommandMode::production);
 }
+void schema(Checker& check, const std::vector<CommandParameter>& fields, const std::string& path) {
+    if (fields.size() > max_command_parameters) {
+        check.error("out_of_range", path, "Declare at most 64 fields.");
+        return;
+    }
+    std::set<std::string> names;
+    for (std::size_t j = 0; j < fields.size(); ++j) {
+        const auto& p = fields[j];
+        const auto pp = path + "/" + std::to_string(j);
+        if (p.name.size() > 128 || !segment(p.name)) check.error("invalid_identifier", pp + "/name", "Use a lower-case identifier segment within 128 bytes.");
+        if (!names.insert(p.name).second) check.error("duplicate_parameter", pp + "/name", "Declare each field name once.");
+        check.enumeration(p.type, CommandParameterType::object_id, pp + "/type");
+        if ((p.minimum && !std::isfinite(*p.minimum)) || (p.maximum && !std::isfinite(*p.maximum)) ||
+            (p.minimum && p.maximum && *p.minimum > *p.maximum))
+            check.error("invalid_bounds", pp, "Use ordered finite inclusive number bounds.");
+        if (p.type != CommandParameterType::number && (p.minimum || p.maximum))
+            check.error("invalid_schema", pp, "Number bounds apply only to number fields.");
+        if (p.max_bytes > max_command_string_bytes) check.error("out_of_range", pp + "/max_bytes", "Use a byte bound at most 4096.");
+        if (p.type == CommandParameterType::object_id && p.max_bytes == 0)
+            check.error("invalid_bounds", pp + "/max_bytes", "Object IDs require a nonzero byte bound.");
+        if (p.type == CommandParameterType::enumeration) {
+            if (p.choices.empty() || p.choices.size() > max_command_parameters)
+                check.error("out_of_range", pp + "/choices", "Declare between 1 and 64 enumeration choices.");
+            else {
+                std::set<std::string> choices;
+                for (std::size_t k = 0; k < p.choices.size(); ++k) {
+                    const auto cp = pp + "/choices/" + std::to_string(k);
+                    text(check, p.choices[k], cp, false, p.max_bytes);
+                    if (!choices.insert(p.choices[k]).second) check.error("duplicate_choice", cp, "Declare each choice once.");
+                }
+            }
+        } else if (!p.choices.empty()) check.error("invalid_schema", pp + "/choices", "Choices apply only to enumeration fields.");
+        if (p.default_value) value(check, p, *p.default_value, pp + "/default", nullptr);
+    }
+}
+Result<CommandArguments> normalize(const std::vector<CommandParameter>& fields, const CommandArguments& input,
+    const std::string& path, const CommandObjectIds* objects) {
+    std::vector<Diagnostic> errors;
+    Checker check(errors);
+    if (input.size() > max_command_parameters) {
+        check.error("out_of_range", path, "Supply at most 64 fields.");
+        return {std::nullopt, std::move(errors)};
+    }
+    // Inspect caller-controlled values before copying; unknown names are bounded
+    // by schema identity and are reported without echoing an unbounded key.
+    for (const auto& [name, v] : input) {
+        const auto field_path = path + "/" + (name.size() <= 128 ? detail::pointer_token(name) : std::string("<oversized>"));
+        const auto p = std::find_if(fields.begin(), fields.end(), [&](const auto& f) { return f.name == name; });
+        if (p == fields.end()) check.error("unknown_argument", field_path, "Use a declared field name.");
+        else value(check, *p, v, field_path, objects);
+    }
+    for (const auto& p : fields) {
+        if (input.contains(p.name)) continue;
+        if (p.default_value) value(check, p, *p.default_value, path + "/" + p.name, objects);
+        else if (p.required) check.error("missing_argument", path + "/" + p.name, "Supply this required field.");
+    }
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    auto out = input;
+    for (const auto& p : fields) if (p.default_value) out.try_emplace(p.name, *p.default_value);
+    return {std::move(out), {}};
+}
 CommandState state(const detail::CommandSnapshotData& data, const std::string& id) {
     const auto found = data.states.find(id);
     if (found == data.states.end()) return {false, false, "Eligibility observation is unavailable.", {}};
@@ -121,39 +182,8 @@ Result<CommandRegistry> CommandRegistry::create(std::vector<CommandDescriptor> d
         text(check, d.description, path + "/description");
         text(check, d.category, path + "/category");
         check.enumeration(d.availability, CommandAvailability::production, path + "/availability");
-        if (d.parameters.size() > max_command_parameters) {
-            check.error("out_of_range", path + "/parameters", "Declare at most 64 parameters.");
-            continue;
-        }
-        std::set<std::string> names;
-        for (std::size_t j = 0; j < d.parameters.size(); ++j) {
-            const auto& p = d.parameters[j];
-            const auto pp = path + "/parameters/" + std::to_string(j);
-            if (p.name.size() > 128 || !segment(p.name)) check.error("invalid_identifier", pp + "/name", "Use a lower-case identifier segment within 128 bytes.");
-            if (!names.insert(p.name).second) check.error("duplicate_parameter", pp + "/name", "Declare each parameter name once.");
-            check.enumeration(p.type, CommandParameterType::object_id, pp + "/type");
-            if ((p.minimum && !std::isfinite(*p.minimum)) || (p.maximum && !std::isfinite(*p.maximum)) ||
-                (p.minimum && p.maximum && *p.minimum > *p.maximum))
-                check.error("invalid_bounds", pp, "Use ordered finite inclusive number bounds.");
-            if (p.type != CommandParameterType::number && (p.minimum || p.maximum))
-                check.error("invalid_schema", pp, "Number bounds apply only to number parameters.");
-            if (p.max_bytes > max_command_string_bytes) check.error("out_of_range", pp + "/max_bytes", "Use a byte bound at most 4096.");
-            if (p.type == CommandParameterType::object_id && p.max_bytes == 0)
-                check.error("invalid_bounds", pp + "/max_bytes", "Object IDs require a nonzero byte bound.");
-            if (p.type == CommandParameterType::enumeration) {
-                if (p.choices.empty() || p.choices.size() > max_command_parameters)
-                    check.error("out_of_range", pp + "/choices", "Declare between 1 and 64 enumeration choices.");
-                else {
-                    std::set<std::string> choices;
-                    for (std::size_t k = 0; k < p.choices.size(); ++k) {
-                        const auto cp = pp + "/choices/" + std::to_string(k);
-                        text(check, p.choices[k], cp, false, p.max_bytes);
-                        if (!choices.insert(p.choices[k]).second) check.error("duplicate_choice", cp, "Declare each choice once.");
-                    }
-                }
-            } else if (!p.choices.empty()) check.error("invalid_schema", pp + "/choices", "Choices apply only to enumeration parameters.");
-            if (p.default_value) value(check, p, *p.default_value, pp + "/default", nullptr);
-        }
+        schema(check, d.parameters, path + "/parameters");
+        schema(check, d.results, path + "/results");
         if (!data->descriptors.emplace(d.id, d).second)
             check.error("duplicate_command", path + "/id", "Register each command ID once.");
     }
@@ -239,22 +269,9 @@ Result<CommandInvocation> CommandSnapshot::resolve(const CommandRequest& request
             "The command is disabled in this generation." : info.value->state.disabled_reason);
         return {std::nullopt, std::move(errors)};
     }
-    auto args = request.arguments;
-    const auto& parameters = info.value->descriptor.parameters;
-    for (const auto& [name, v] : args) {
-        (void)v;
-        if (std::none_of(parameters.begin(), parameters.end(), [&](const auto& p) { return p.name == name; }))
-            check.error("unknown_argument", "/arguments/" + detail::pointer_token(name), "Use a declared parameter name.");
-    }
-    for (const auto& p : parameters) {
-        auto found = args.find(p.name);
-        if (found == args.end() && p.default_value) found = args.emplace(p.name, *p.default_value).first;
-        const auto path = "/arguments/" + p.name;
-        if (found != args.end()) value(check, p, found->second, path, &data_->objects);
-        else if (p.required) check.error("missing_argument", path, "Supply this required parameter.");
-    }
-    if (!errors.empty()) return {std::nullopt, std::move(errors)};
-    return {CommandInvocation{{generation(), registry_revision(), request.command, std::move(args),
+    auto args = normalize(info.value->descriptor.parameters, request.arguments, "/arguments", &data_->objects);
+    if (!args) return {std::nullopt, std::move(args.diagnostics)};
+    return {CommandInvocation{{generation(), registry_revision(), request.command, std::move(*args.value),
         request.source, request.sequence, {}}, data_}, {}};
 }
 Result<CommandInvocation> CommandSnapshot::resolve_action(const SemanticInput& ui, const ActionRequest& action,
@@ -280,6 +297,10 @@ std::vector<Diagnostic> CommandSnapshot::recheck(const CommandInvocation& invoca
         return check_owner(*ui, *invocation.record_.owner);
     }
     return {};
+}
+Result<CommandArguments> CommandSnapshot::normalize_results(std::string_view id, const CommandArguments& values) const {
+    // The executor has rechecked this invocation against this retained snapshot.
+    return normalize(data_->registry->descriptors.find(id)->second.results, values, "/result/values", nullptr);
 }
 
 } // namespace tessera
