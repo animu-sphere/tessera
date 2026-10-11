@@ -5,6 +5,7 @@
 namespace tessera {
 inline constexpr std::size_t max_component_props = 256;
 inline constexpr std::size_t max_component_slots = 256;
+inline constexpr std::size_t max_component_actions = 256;
 
 // Required unless a literal default is supplied. Types are never coerced.
 struct ComponentProp {
@@ -26,6 +27,17 @@ struct ComponentSlot {
     std::size_t minimum = 0;
     std::size_t maximum = max_document_nodes;
 };
+// Names a host action argument, required unless a registered default is supplied.
+// This declaration contains no callback or command implementation.
+struct ComponentAction {
+    std::string name;
+    std::optional<std::string> default_action;
+};
+struct ComponentEvent {
+    std::string action; // A declared component action, not a host action name.
+    std::string target; // Author ID in the template, not in slot content.
+    std::string event;  // activate or cancel.
+};
 // Data-only composition IR. The host supplies document-unique author IDs and
 // uses `kind` with KeyedCollection for instance ownership/local state.
 struct ComponentDescription {
@@ -34,14 +46,18 @@ struct ComponentDescription {
     std::vector<ComponentProp> props;
     std::vector<ComponentProperty> properties;
     std::vector<ComponentSlot> slots;
+    std::vector<ComponentAction> actions;
+    std::vector<ComponentEvent> events;
 };
 // Reactive alternatives are weak references to the host's instance owner.
 using ComponentValue = std::variant<Property,
     Signal<bool>, Computed<bool>, Signal<double>, Computed<double>,
     Signal<std::string>, Computed<std::string>, Signal<NodeReference>, Computed<NodeReference>>;
+using ComponentActionValue = std::variant<std::string, Signal<std::string>, Computed<std::string>>;
 struct ComponentArguments {
     std::map<std::string, ComponentValue, std::less<>> props;
     std::map<std::string, std::vector<UiNode>, std::less<>> slots;
+    std::map<std::string, ComponentActionValue, std::less<>> actions;
 };
 
 // Validates schema/arguments before reading settled values or copying subtrees.

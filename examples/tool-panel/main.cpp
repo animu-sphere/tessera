@@ -55,13 +55,16 @@ int main() {
     const auto registry = CommandRegistry::create({inspect, edit}, {{"inspect-item", inspect.id}});
     if (!registry) return 1;
 
-    UiDocument authored;
-    authored.root.id = "tool-panel";
+    ComponentDescription panel_component;
+    panel_component.kind = "tool-panel";
+    panel_component.document.root.id = "tool-panel";
     UiNode button;
-    button.id = "inspect"; button.properties["focusable"] = true; button.events["activate"] = "inspect-item";
+    button.id = "inspect"; button.properties["focusable"] = true;
     UiNode label;
     label.kind = NodeKind::text; label.properties["text"] = inspect.label;
-    button.children.push_back(label); authored.root.children.push_back(button);
+    button.children.push_back(label); panel_component.document.root.children.push_back(button);
+    panel_component.actions = {{"inspect", {}}};
+    panel_component.events = {{"inspect", "inspect", "activate"}};
     const ValidationContext context{{"inspect-item"}};
     PlaceholderTextShaper text;
     std::uint64_t sequence = 0;
@@ -72,6 +75,9 @@ int main() {
     ReactiveRuntime runtime;
     auto selected_item = runtime.signal(runtime.root(), "selection", host_selection);
     auto panel_owner = runtime.owner(runtime.root(), "panel");
+    auto inspect_action = runtime.signal(panel_owner, "inspect-action", std::string("inspect-item"));
+    ComponentArguments panel_arguments;
+    panel_arguments.actions["inspect"] = inspect_action;
     bool selection_observer_connected = true; // Synthetic host subscription lifetime.
     runtime.on_cleanup(panel_owner, "selection-observer", [&] { selection_observer_connected = false; });
     int evaluations = 0;
@@ -116,7 +122,9 @@ int main() {
         const auto commands = CommandSnapshot::publish(*registry.value, generation, CommandMode::production,
             {{inspect.id, observation.command}}, observation.objects);
         if (!commands) return 2;
-        const auto document = commands.value->apply_eligibility(authored, context);
+        const auto composed = lower_component(runtime, panel_component, panel_arguments, context);
+        if (!composed) return 27;
+        const auto document = commands.value->apply_eligibility(composed.value->document, context);
         if (!document) return 3;
         auto tree = UiTree::create(*document.value, context);
         if (!tree) return 4;

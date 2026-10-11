@@ -14,8 +14,8 @@ using BoundPropertyValue = std::conditional_t<P == BoundProperty::text, std::str
 
 struct BoundDocument {
     UiDocument document;
-    // Conservative union of changed properties' metadata, relative to the
-    // supplied authored document, not relative to a prior published generation.
+    // Conservative affected stages from lowering, relative to the supplied
+    // authored document, not relative to a prior published generation.
     PropertyStages stages = PropertyStages::none;
 };
 

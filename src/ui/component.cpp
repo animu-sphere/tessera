@@ -21,6 +21,12 @@ void literal(Errors& errors, const Property& value, const std::string& path) {
         error(errors, "invalid_number", path, "Numbers must be finite.");
     if (const auto* ref = std::get_if<NodeReference>(&value)) name(errors, ref->id, path + "/ref");
 }
+void host_action(Errors& errors, const std::string& value, const std::string& path,
+                 const ValidationContext& context) {
+    name(errors, value, path);
+    if (!context.actions.contains(value))
+        error(errors, "unknown_action", path, "Register host action '" + value + "' in ValidationContext before lowering.");
+}
 PropertyType type(const ComponentValue& value) {
     return std::visit([](const auto& data) {
         using T = std::decay_t<decltype(data)>;
@@ -46,7 +52,8 @@ bool fits(const UiNode& node, std::size_t depth, std::size_t& count) {
     return true;
 }
 void lower(UiNode& node, const ComponentDescription& description, const ComponentArguments& arguments,
-           const std::map<std::string, Property, std::less<>>& values, PropertyStages& stages) {
+           const std::map<std::string, Property, std::less<>>& values,
+           const std::map<std::string, std::string, std::less<>>& actions, PropertyStages& stages) {
     if (node.id) {
         for (const auto& binding : description.properties) {
             if (binding.target != *node.id) continue;
@@ -55,6 +62,14 @@ void lower(UiNode& node, const ComponentDescription& description, const Componen
             if (previous == node.properties.end() || previous->second != value)
                 stages = stages | find_property_descriptor(binding.property)->stages;
             node.properties.insert_or_assign(binding.property, value);
+        }
+        for (const auto& binding : description.events) {
+            if (binding.target != *node.id) continue;
+            const auto& action = actions.at(binding.action);
+            const auto previous = node.events.find(binding.event);
+            if (previous == node.events.end() || previous->second != action)
+                stages = stages | PropertyStages::input | PropertyStages::semantics;
+            node.events.insert_or_assign(binding.event, action);
         }
         for (const auto& slot : description.slots) {
             if (slot.target != *node.id) continue;
@@ -67,7 +82,7 @@ void lower(UiNode& node, const ComponentDescription& description, const Componen
             return; // Slot content is opaque to this component's mappings.
         }
     }
-    for (auto& child : node.children) lower(child, description, arguments, values, stages);
+    for (auto& child : node.children) lower(child, description, arguments, values, actions, stages);
 }
 } // namespace
 
@@ -76,8 +91,10 @@ Result<BoundDocument> lower_component(const ReactiveRuntime& runtime, const Comp
     Errors errors;
     if (description.props.size() > max_component_props || arguments.props.size() > max_component_props ||
         description.slots.size() > max_component_slots || arguments.slots.size() > max_component_slots ||
-        description.properties.size() > max_property_bindings) {
-        error(errors, "component_limit", "/component", "Supply at most 256 props, 256 slots and 4096 property mappings.");
+        description.actions.size() > max_component_actions || arguments.actions.size() > max_component_actions ||
+        description.properties.size() > max_property_bindings ||
+        description.events.size() > max_property_bindings - description.properties.size()) {
+        error(errors, "component_limit", "/component", "Supply at most 256 props, 256 slots, 256 actions and 4096 combined property/event mappings.");
         return {{}, std::move(errors)};
     }
     name(errors, description.kind, "/component/kind");
@@ -124,6 +141,28 @@ Result<BoundDocument> lower_component(const ReactiveRuntime& runtime, const Comp
         if (!writers.emplace(binding.target, binding.property).second)
             error(errors, "component_duplicate_property", path + "/property", "Give each target property one prop writer.");
     }
+    std::map<std::string, const ComponentAction*, std::less<>> actions;
+    for (std::size_t i = 0; i < description.actions.size(); ++i) {
+        const auto& action = description.actions[i];
+        const auto path = "/component/actions/" + std::to_string(i);
+        name(errors, action.name, path + "/name");
+        if (!actions.emplace(action.name, &action).second)
+            error(errors, "component_duplicate_action", path + "/name", "Declare each action name once.");
+        if (action.default_action) host_action(errors, *action.default_action, path + "/default", context);
+    }
+    std::set<std::pair<std::string, std::string>> event_writers;
+    for (std::size_t i = 0; i < description.events.size(); ++i) {
+        const auto& binding = description.events[i];
+        const auto path = "/component/events/" + std::to_string(i);
+        if (!actions.contains(binding.action))
+            error(errors, "component_unknown_action", path + "/action", "Map a declared component action name.");
+        if (!targets.contains(binding.target))
+            error(errors, "component_target", path + "/target", "Map an author ID in the component template.");
+        if (binding.event != "activate" && binding.event != "cancel")
+            error(errors, "unknown_event", path + "/event", "Supported binding names are activate and cancel.");
+        if (!event_writers.emplace(binding.target, binding.event).second)
+            error(errors, "component_duplicate_event", path + "/event", "Give each target event one action writer.");
+    }
     std::map<std::string, const ComponentSlot*, std::less<>> slots;
     std::set<std::string, std::less<>> slot_targets;
     for (std::size_t i = 0; i < description.slots.size(); ++i) {
@@ -154,6 +193,16 @@ Result<BoundDocument> lower_component(const ReactiveRuntime& runtime, const Comp
     for (const auto& prop : description.props)
         if (!arguments.props.contains(prop.name) && !prop.default_value)
             error(errors, "component_missing_prop", "/props/" + detail::pointer_token(prop.name), "Supply this required prop or declare a default.");
+    for (const auto& [key, value] : arguments.actions) {
+        const auto path = "/actions/" + detail::pointer_token(key);
+        if (!actions.contains(key))
+            error(errors, "component_unknown_action", path, "Supply only declared component actions.");
+        if (const auto* action = std::get_if<std::string>(&value)) host_action(errors, *action, path, context);
+    }
+    for (const auto& action : description.actions)
+        if (!arguments.actions.contains(action.name) && !action.default_action)
+            error(errors, "component_missing_action", "/actions/" + detail::pointer_token(action.name),
+                  "Supply this required action or declare a registered default.");
     for (const auto& [key, children] : arguments.slots) {
         if (!slots.contains(key))
             error(errors, "component_unknown_slot", "/slots/" + detail::pointer_token(key), "Supply only declared slots.");
@@ -211,8 +260,27 @@ Result<BoundDocument> lower_component(const ReactiveRuntime& runtime, const Comp
         }
     }
     if (!errors.empty()) return {{}, std::move(errors)};
+    std::map<std::string, std::string, std::less<>> action_values;
+    for (const auto& action : description.actions) {
+        const auto path = "/actions/" + detail::pointer_token(action.name);
+        const auto found = arguments.actions.find(action.name);
+        try {
+            auto value = found == arguments.actions.end() ? *action.default_action : std::visit([&](const auto& data) -> std::string {
+                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, std::string>) return data;
+                else return runtime.snapshot(data);
+            }, found->second);
+            host_action(errors, value, path, context);
+            action_values.emplace(action.name, std::move(value));
+        } catch (const ReactiveError& e) {
+            auto cause = e.diagnostic();
+            cause.message += " Reactive location: " + cause.path + ".";
+            cause.path = path;
+            errors.push_back(std::move(cause));
+        }
+    }
+    if (!errors.empty()) return {{}, std::move(errors)};
     BoundDocument candidate{description.document};
-    lower(candidate.document.root, description, arguments, values, candidate.stages);
+    lower(candidate.document.root, description, arguments, values, action_values, candidate.stages);
     errors = validate(candidate.document, context);
     if (!errors.empty()) return {{}, std::move(errors)};
     return {std::move(candidate), {}};
