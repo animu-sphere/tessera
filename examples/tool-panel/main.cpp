@@ -4,6 +4,7 @@
 #include <tessera/commands/gestures.hpp>
 #include <tessera/commands/shortcuts.hpp>
 #include <tessera/input/focus.hpp>
+#include <tessera/inspection/invariants.hpp>
 #include <tessera/reactive/runtime.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/keyed.hpp>
@@ -135,6 +136,18 @@ int main() {
         const SemanticInput ui{tree.value->get(), styles, &*layout.value};
         const auto semantics = build_semantic_tree(ui);
         if (!semantics || semantics.value->nodes[1].enabled != selected) return 6;
+        const auto inspection = capture_inspection({tree.value->get(), styles, &*layout.value});
+        if (!inspection) return 28;
+        const AuthorIdTarget inspect_target{"inspect"};
+        const std::vector<UiInvariant> invariants{
+            {"inspection-visible", VisibleInvariant{inspect_target}},
+            {"inspection-enabled", EnabledInvariant{inspect_target, selected}},
+            {"inspection-focusable", FocusableInvariant{inspect_target, selected}},
+            {"inspection-name", SemanticNameInvariant{inspect_target, inspect.label}},
+            {"inspection-inside", InsideViewportInvariant{inspect_target}}
+        };
+        const auto verified = evaluate_invariants({&*inspection.value, invariants, Size{240, 80}});
+        if (!verified || !verified.value->passed()) return 28;
         // The full candidate is valid: publish it, then deliver post-publication effects.
         if (runtime.publish() != 1 || !runtime.deliver_effects(EffectPhase::notify).empty()) return 12;
 
@@ -188,6 +201,7 @@ int main() {
         if (!selected) std::cout << " (" << info.value->state.disabled_reason << ')';
         std::cout << " shortcut=" << shortcut.value->consumed;
         std::cout << " gamepad-shortcut=" << gamepad_shortcut.value->consumed;
+        std::cout << " invariants=" << verified.value->results.size();
         std::cout << " status=\"" << status_line << "\" details=\"" << details_text << '"';
         for (const auto& fault : faults) std::cout << " fault=" << fault.code << '@' << fault.path;
         std::cout << '\n';

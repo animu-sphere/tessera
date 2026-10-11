@@ -52,6 +52,7 @@ add_library(tessera_core
     src/semantics/semantics.cpp
     src/semantics/semantic_snapshot.cpp
     src/inspection/inspection.cpp
+    src/inspection/invariants.cpp
     src/inspection/offscreen_runner.cpp
 )
 add_library(tessera::core ALIAS tessera_core)
@@ -90,7 +91,7 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
     target_compile_definitions(tessera_document_tests PRIVATE
         TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")
     add_test(NAME document COMMAND tessera_document_tests)
-    foreach(contract IN ITEMS reactive/reactive ui/keyed ui/bindings ui/component ui/component_event ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll commands/commands commands/transactions commands/gestures commands/shortcuts render/draw_list render/paint render/glyph_atlas replay/replay replay/replay_serialization replay/replay_host semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/offscreen_runner)
+    foreach(contract IN ITEMS reactive/reactive ui/keyed ui/bindings ui/component ui/component_event ui/property_metadata style/style_sheet layout/layout_contract layout/layout text/text text/glyph_cache input/event input/pointer input/focus input/scroll commands/commands commands/transactions commands/gestures commands/shortcuts render/draw_list render/paint render/glyph_atlas replay/replay replay/replay_serialization replay/replay_host semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/invariants inspection/offscreen_runner)
         get_filename_component(name ${contract} NAME)
         add_executable(tessera_${name}_tests tests/${contract}_tests.cpp)
         target_link_libraries(tessera_${name}_tests PRIVATE tessera::core)
