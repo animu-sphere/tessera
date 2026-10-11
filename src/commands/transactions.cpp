@@ -228,4 +228,18 @@ Result<CommandOutcome> CommandTransactions::rollback(const TransactionToken& tok
     EntryGuard guard(entering_);
     return {close(host, false, reason), {}};
 }
+Result<bool> CommandTransactions::recheck(const CommandSnapshot& snapshot, const TransactionToken& token,
+    TransactionHost& host, const SemanticInput* ui) {
+    auto errors = entry();
+    if (errors.empty()) errors = token_check(token, host);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    EntryGuard guard(entering_);
+    errors = refresh(snapshot, ui);
+    if (!errors.empty()) {
+        const auto rolled_back = close(host, false, TransactionCancel::owner_changed);
+        append(errors, rolled_back.diagnostics);
+        return {std::nullopt, std::move(errors)};
+    }
+    return {true, {}};
+}
 } // namespace tessera

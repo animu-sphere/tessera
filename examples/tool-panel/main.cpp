@@ -1,6 +1,7 @@
 #include <tessera/commands/commands.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/commands/transactions.hpp>
+#include <tessera/commands/gestures.hpp>
 #include <tessera/commands/shortcuts.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
@@ -275,7 +276,7 @@ int main() {
     };
     const auto edit_request = [&](const CommandSnapshot& commands, double value) {
         return *commands.resolve({commands.generation(), edit.id,
-            {{"item", CommandObjectId{"item-7"}}, {"amount", value}}, CommandSource::keyboard, ++sequence}).value;
+            {{"item", CommandObjectId{"item-7"}}, {"amount", value}}, CommandSource::pointer, ++sequence}).value;
     };
     const auto present_amount = [&] {
         runtime.batch([&] { amount_view.write(command_host.amount); });
@@ -298,23 +299,24 @@ int main() {
         return true;
     };
     auto commands = edit_snapshot(); auto command = edit_request(commands, 2);
-    auto transaction = executor.begin(commands, command, {"Change item amount", "amount", {"item-7"}, {}}, command_host);
-    if (!transaction) return 23;
+    CommandGestures gestures(executor);
+    EditGesture gesture{1, PointerId{7}, PointerButton::primary, {"Change item amount", "amount", {"item-7"}, {}}};
     for (const double value : {2.0, 3.0, 4.0}) {
         if (value != 2) { commands = edit_snapshot(); command = edit_request(commands, value); }
-        const auto result = executor.execute_edit(commands, command, *transaction.value, command_host);
+        const auto result = gestures.edit(gesture, commands, command, command_host);
         if (!result || result.value->outcome.status != CommandOutcomeStatus::success || !present_amount()) return 24;
     }
-    const auto committed = executor.commit(commands, *transaction.value, command_host);
-    if (!committed || committed.value->status != CommandOutcomeStatus::success || command_host.history_entries != 1) return 25;
+    const auto committed = gestures.handle_input(commands, {std::chrono::microseconds{1}, PointerUp{{7}, {10, 10}}}, command_host);
+    if (!committed || !committed.value->consumed || !committed.value->closure ||
+        committed.value->closure->status != CommandOutcomeStatus::success || command_host.history_entries != 1) return 25;
     commands = edit_snapshot(); command = edit_request(commands, 99);
-    transaction = executor.begin(commands, command, {"Change item amount", "amount", {"item-7"}, {}}, command_host);
-    if (!transaction) return 26;
-    const auto changed = executor.execute_edit(commands, command, *transaction.value, command_host);
+    gesture.id = 2;
+    const auto changed = gestures.edit(gesture, commands, command, command_host);
     if (!changed || changed.value->outcome.status != CommandOutcomeStatus::success || !present_amount()) return 26;
-    const auto cancelled = executor.rollback(*transaction.value, TransactionCancel::user, command_host);
+    const auto cancelled = gestures.handle_input(commands, {std::chrono::microseconds{2}, KeyDown{Key::escape}}, command_host);
     ++generation; // Rollback settles before the restoration's later presentation.
-    if (!cancelled || cancelled.value->status != CommandOutcomeStatus::success || command_host.amount != 4 ||
+    if (!cancelled || !cancelled.value->consumed || !cancelled.value->closure ||
+        cancelled.value->closure->status != CommandOutcomeStatus::success || command_host.amount != 4 ||
         command_host.history_entries != 1 || command_host.rollbacks != 1 || !present_amount()) return 27;
     std::cout << "One committed edit gesture; cancelled edit restored amount without another history entry.\n";
 
