@@ -36,6 +36,8 @@ Key events and text input are separate operations. The presence of `TextInput` d
 
 The host can route normalized `KeyDown` through the [keyboard shortcut boundary](commands.md#implemented-keyboard-shortcut-boundary) before translating unconsumed input into logical focus commands. Pass editing/IME consumption explicitly, stop routing on resolution errors, and execute returned invocations after dispatch. Chord scopes, conflict rules and command resolution are owned by that boundary; platform key normalization and input stream ordering stay with the host.
 
+For gamepad shortcut routing, the host sends a normalized pressed button and exact other-held-button mask through the separate [gamepad shortcut request](commands.md#implemented-gamepad-shortcut-boundary). It handles device selection, physical button positions, trigger thresholds, press edges, repeats and held-input reset/suppression. An unconsumed request can then become an ordinary logical focus command. `InputEvent` and its logical navigation/activation events are separate from this in-process shortcut request; one physical press must produce at most one command invocation.
+
 ## Hit testing and propagation
 
 ### Implemented rectangular hit testing

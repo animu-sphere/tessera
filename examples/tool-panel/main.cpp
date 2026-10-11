@@ -146,6 +146,9 @@ int main() {
         }
         const std::vector<ShortcutScope> shortcut_scopes{{(*tree.value)->root(), {
             {{Key::i, {false, true}}, inspect.id, ActionRequest{"activate", "inspect-item", *(*tree.value)->find("inspect")}}
+        }, {
+            {{GamepadButton::west, gamepad_button_bit(GamepadButton::left_shoulder)}, inspect.id,
+                ActionRequest{"activate", "inspect-item", *(*tree.value)->find("inspect")}}
         }}};
         const auto shortcuts = CommandShortcuts::create(*commands.value, **tree.value, shortcut_scopes);
         if (!shortcuts) return 25;
@@ -158,10 +161,24 @@ int main() {
             const auto executed = executor.execute(*commands.value, *shortcut.value->invocation, command_host, &shortcut_ui);
             if (!executed || executed.value->outcome.status != CommandOutcomeStatus::success) return 25;
         }
+        const auto gamepad_shortcut = shortcuts.value->dispatch(*commands.value, shortcut_ui,
+            GamepadShortcutRequest{{GamepadButton::west, gamepad_button_bit(GamepadButton::left_shoulder)},
+                generation, ++sequence,
+                observation.selection ? CommandArguments{{"item", CommandObjectId{*observation.selection}}} : CommandArguments{}});
+        if (!gamepad_shortcut || gamepad_shortcut.value->invocation.has_value() != selected) return 26;
+        if (gamepad_shortcut.value->invocation) {
+            const auto& record = gamepad_shortcut.value->invocation->record();
+            if (record.source != CommandSource::gamepad || record.command != shortcut.value->invocation->record().command ||
+                record.arguments != shortcut.value->invocation->record().arguments ||
+                record.owner != shortcut.value->invocation->record().owner) return 26;
+            const auto executed = executor.execute(*commands.value, *gamepad_shortcut.value->invocation, command_host, &shortcut_ui);
+            if (!executed || executed.value->outcome.status != CommandOutcomeStatus::success) return 26;
+        }
         const auto info = commands.value->lookup(inspect.id);
         std::cout << "Generation " << generation << ": " << info.value->descriptor.label << " enabled=" << selected;
         if (!selected) std::cout << " (" << info.value->state.disabled_reason << ')';
         std::cout << " shortcut=" << shortcut.value->consumed;
+        std::cout << " gamepad-shortcut=" << gamepad_shortcut.value->consumed;
         std::cout << " status=\"" << status_line << "\" details=\"" << details_text << '"';
         for (const auto& fault : faults) std::cout << " fault=" << fault.code << '@' << fault.path;
         std::cout << '\n';
