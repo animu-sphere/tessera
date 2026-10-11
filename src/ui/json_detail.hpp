@@ -5,6 +5,8 @@
 
 namespace tessera::detail {
 bool valid_utf8(std::string_view);
+std::vector<Diagnostic> validate_document_parts(std::uint32_t, const UiNode&,
+    const JsonValue::Object&, const ValidationContext&);
 std::string pointer_token(std::string_view);
 
 // Shared private JSON machinery. Each format supplies its own byte bound and schema.

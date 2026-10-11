@@ -2,7 +2,7 @@
 #include <tessera/input/focus.hpp>
 #include <tessera/reactive/runtime.hpp>
 #include <tessera/ui/keyed.hpp>
-#include <tessera/ui/bindings.hpp>
+#include <tessera/ui/component.hpp>
 #include <iostream>
 #include <map>
 
@@ -153,19 +153,29 @@ int main() {
             for (std::size_t i = 0; i < items.size(); ++i) row_state[rows.instances()[i].lifetime].name.write(items[i].second);
         });
         if (!runtime.flush().empty()) return 15;
-        UiDocument list;
-        list.root.id = "inventory";
-        PropertyBindings bindings;
+        ComponentDescription list_component;
+        list_component.kind = "inventory";
+        list_component.document.root.id = "inventory";
+        list_component.slots = {{"rows", "inventory", NodeKinds::text}};
+        ComponentArguments list_arguments;
         for (const auto& row : rows.instances()) {
-            UiNode node;
-            node.kind = NodeKind::text; node.id = row.key; node.properties["focusable"] = true;
-            node.properties["text"] = std::string{}; // Valid authored placeholder.
-            if (!bindings.bind<BoundProperty::text>(row.key, row_state[row.lifetime].label)) return 21;
-            list.root.children.push_back(node);
+            ComponentDescription item_component;
+            item_component.kind = row.kind;
+            auto& node = item_component.document.root;
+            node.kind = NodeKind::text; node.id = row.key;
+            node.properties["text"] = std::string{}; // Valid template placeholder.
+            item_component.props = {{"caption", PropertyType::string, {}},
+                {"focusable", PropertyType::boolean, Property{true}}};
+            item_component.properties = {{"caption", row.key, "text"}, {"focusable", row.key, "focusable"}};
+            ComponentArguments item_arguments;
+            item_arguments.props["caption"] = row_state[row.lifetime].label;
+            const auto item = lower_component(runtime, item_component, item_arguments);
+            if (!item) return 21;
+            list_arguments.slots["rows"].push_back(item.value->document.root);
         }
-        const auto bound = bindings.apply(runtime, list);
+        const auto bound = lower_component(runtime, list_component, list_arguments);
         if (!bound) return 22;
-        list = bound.value->document;
+        const auto& list = bound.value->document;
         auto tree = UiTree::create(list);
         if (!tree) return 16;
         const std::vector<ResolvedStyle> styles((*tree.value)->size());
