@@ -304,6 +304,15 @@ int main() {
             item_component.style_bindings = {{"row", row.key}};
             ComponentArguments item_arguments;
             item_arguments.props["caption"] = row_state.at(row.lifetime).label;
+            item_arguments.styles["row"] = row_style;
+            // Opaque embedded authoring fixture; these are expression locations,
+            // independent of the row template and its settled label value.
+            constexpr std::string_view call = "ItemRow(caption: item.label, row: height(24))";
+            const std::string call_file = "fixture:inventory-invocation";
+            item_arguments.sources = ComponentArgumentSources{
+                SourceLocation{call_file, {0, call.size()}},
+                {{"caption", {call_file, {call.find("item.label"), call.find("item.label") + 10}}}}, {},
+                {{"row", {call_file, {call.find("height(24)"), call.find("height(24)") + 10}}}}};
             invocations[0].invocation_slots["rows"].push_back(invocations.size());
             invocations.push_back({std::move(item_component), std::move(item_arguments), {}});
         }
@@ -322,7 +331,10 @@ int main() {
         if (!row_inspection || row_inspection.value->elements[0].source->file != "fixture:inventory") return 30;
         for (std::size_t i = 1; i < row_inspection.value->elements.size(); ++i) {
             const auto& origin = row_inspection.value->elements[i].source;
-            if (!origin || origin->file != "fixture:inventory-row" || !origin->unmapped_properties.contains("text")) return 30;
+            if (!origin || origin->file != "fixture:inventory-row" || !origin->unmapped_properties.contains("text") ||
+                !origin->invocation || origin->invocation->file != "fixture:inventory-invocation" ||
+                origin->property_arguments.at("text").file != origin->invocation->file ||
+                !origin->style_argument || origin->style_argument->file != origin->invocation->file) return 30;
         }
         if (!build_paint_list({tree.value->get(), styles, &*layout.value, &text}) ||
             !build_semantic_tree({tree.value->get(), styles, &*layout.value})) return 29;

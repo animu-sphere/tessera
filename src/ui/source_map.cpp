@@ -34,6 +34,30 @@ bool check_node(const UiNode& node, const std::string& pointer, std::size_t dept
               "Match the node pointer and every present property exactly once, with a span or an explicit unmapped declaration.");
         return false;
     }
+    // Bound containers before examining caller-controlled names/locations.
+    if (source.property_arguments.size() > node.properties.size() || source.event_arguments.size() > node.events.size()) {
+        error(errors, "source_map_mismatch", location, "Argument origins must name present properties or events.");
+        return false;
+    }
+    auto origin = [&](const SourceLocation& value, const std::string& field) {
+        auto diagnostics = validate_source_location(value, field);
+        errors.insert(errors.end(), diagnostics.begin(), diagnostics.end());
+    };
+    if (source.invocation) origin(*source.invocation, location + "/invocation");
+    if (source.style_argument) origin(*source.style_argument, location + "/style_argument");
+    for (const auto& [key, value] : source.property_arguments) {
+        const auto field = location + "/property_arguments/" + detail::pointer_token(key);
+        if (!source.unmapped_properties.contains(key))
+            error(errors, "source_map_mismatch", field, "Argument origins name instance properties without template value spans.");
+        origin(value, field);
+    }
+    for (const auto& [key, value] : source.event_arguments) {
+        const auto field = location + "/event_arguments/" + detail::pointer_token(key);
+        if (!node.events.contains(key))
+            error(errors, "source_map_mismatch", field, "Argument origins name present event bindings.");
+        origin(value, field);
+    }
+    if (!errors.empty()) return false;
     if (source.file && !file_valid(*source.file)) {
         error(errors, "source_map_file", location + "/file", "Use an opaque file identity of at most 4096 valid UTF-8 bytes.");
         return false;
@@ -61,6 +85,16 @@ bool check_node(const UiNode& node, const std::string& pointer, std::size_t dept
     return true;
 }
 } // namespace
+
+std::vector<Diagnostic> validate_source_location(const SourceLocation& source, std::string_view path) {
+    std::vector<Diagnostic> errors;
+    const std::string base(path);
+    if (!file_valid(source.file))
+        error(errors, "source_map_file", base + "/file", "Use an opaque file identity of at most 4096 valid UTF-8 bytes.");
+    if (source.span.begin > source.span.end)
+        error(errors, "source_map_span", base + "/span", "Use an ordered half-open UTF-8 byte range.");
+    return errors;
+}
 
 std::vector<Diagnostic> validate_sources(const UiDocument& document, const DocumentSourceMap& map, std::string_view path) {
     std::vector<Diagnostic> errors;

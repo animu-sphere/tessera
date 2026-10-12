@@ -48,7 +48,7 @@ struct InspectionElement {
     ResolvedStyle style;
     std::optional<GeometryObservation> geometry; // Absent for display-none nodes and their subtrees.
     std::optional<std::uint32_t> semantic;       // Index into InspectionSnapshot::semantics.nodes.
-    std::optional<NodeSource> source; // Absent for unmapped nodes; file is the resolved opaque identity.
+    std::optional<NodeSource> source; // Absent without template spans or instance provenance; mapped files are resolved.
     bool operator==(const InspectionElement&) const = default;
 };
 

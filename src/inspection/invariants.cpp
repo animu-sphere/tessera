@@ -110,7 +110,8 @@ bool visible(const std::optional<GeometryObservation>& geometry) {
 void diagnostic(InvariantResult& result, std::string code, const std::string& path, std::string message,
                 std::size_t observation = 0) {
     std::optional<std::size_t> offset;
-    if (observation < result.observations.size() && result.observations[observation].source)
+    if (observation < result.observations.size() && result.observations[observation].source &&
+        result.observations[observation].source->mapped)
         offset = result.observations[observation].source->span.begin;
     result.diagnostics.push_back({std::move(code), Severity::error, path, std::move(message), offset});
 }
