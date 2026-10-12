@@ -21,7 +21,6 @@ Remaining work:
 - Full property reflection/introspection v1 and a schema-driven Inspector.
 - OverlayRoot/Portal and bounded Tooltip/Dropdown/Modal primitives.
 - TextInput contract and VirtualList prototype based on stable item keys.
-- Scalar [CPU reference backend](../design/rendering.md#proposed-cpu-reference-backend) for the existing draw-list vocabulary and grayscale glyphs, with deterministic window- and GPU-free capture; Vulkan fixtures compared with it under declared tolerances.
 - A small inspection/render CLI consumer and versioned snapshot bundle prototype; semantic/layout/counter comparisons and selective visual regression artifacts across declared viewport fixtures, captured with the CPU reference backend by default.
 - Reload-to-snapshot linkage and source-edit-to-verification instrumentation shared with Path-finder.
 - Integrate [UI invariants](../design/inspection.md#implemented-in-process-ui-invariant-boundary) with coherent runner/reload captures and the snapshot bundle; build an [agent capability manifest](../design/inspection.md#proposed-agent-capability-manifest) v0.

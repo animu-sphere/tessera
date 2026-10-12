@@ -94,7 +94,7 @@ The immutable tree and per-call contracts do not constitute a scheduler. [Reacti
 
 ## Determinism
 
-For identical document/state, normalized input, time, viewport/scale, styles, locale, font/asset configuration, random seed when used, and resource readiness, require reproducible style results, layout geometry, semantic output, action order, and paint commands. Use declared numeric tolerances where exact geometry is inappropriate. The [CPU reference backend](rendering.md#proposed-cpu-reference-backend) in deterministic mode is the image reference for a declared configuration; GPU images are compared with it under backend/device tolerances. [Replay](replay.md) owns recording these inputs and observing outputs; [inspection](inspection.md#proposed-runner-and-snapshot-bundle) owns coherent observation bundles.
+For identical document/state, normalized input, time, viewport/scale, styles, locale, font/asset configuration, random seed when used, and resource readiness, require reproducible style results, layout geometry, semantic output, action order, and paint commands. Use declared numeric tolerances where exact geometry is inappropriate. The [CPU reference backend](rendering.md#implemented-scalar-cpu-reference-backend) in deterministic mode is the image reference for a declared configuration; GPU images are compared with it under backend/device tolerances. [Replay](replay.md) owns recording these inputs and observing outputs; [inspection](inspection.md#proposed-runner-and-snapshot-bundle) owns coherent observation bundles.
 
 ## Module organization
 
