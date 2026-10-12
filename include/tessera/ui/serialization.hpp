@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <map>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,20 +14,6 @@ namespace tessera {
 // Load and save validate fully; failure never returns a partially usable value.
 Result<UiDocument> load_document(std::string_view json, const ValidationContext& = {});
 Result<std::string> save_document(const UiDocument&, const ValidationContext& = {});
-
-// Half-open UTF-8 byte range in the loaded source.
-struct SourceSpan {
-    std::size_t begin = 0;
-    std::size_t end = 0;
-    bool operator==(const SourceSpan&) const = default;
-};
-
-// Independent caller-declared origin, possibly outside the template file/range.
-struct SourceLocation {
-    std::string file;
-    SourceSpan span;
-    bool operator==(const SourceLocation&) const = default;
-};
 
 // Tooling metadata for one resulting node; never encoded as JSON v1 fields.
 struct NodeSource {
@@ -65,13 +52,20 @@ std::vector<Diagnostic> validate_source_location(const SourceLocation&, std::str
 std::vector<Diagnostic> validate_sources(const UiDocument&, const DocumentSourceMap&,
                                          std::string_view path = "/sources");
 
+inline constexpr std::size_t max_source_diagnostics = 4096;
+// Atomically replaces tooling origins using document-local diagnostic pointers.
+// Validates metadata, not document semantics; accepts rejected document candidates.
+// Failure returns errors and leaves diagnostics unchanged. Opens no source file.
+std::vector<Diagnostic> locate_diagnostics(const UiDocument&, const DocumentSourceMap&,
+                                          std::span<Diagnostic>);
+
 struct SourcedDocument {
     UiDocument document;
     DocumentSourceMap sources;
 };
 
-// load_document plus node/property spans. Document diagnostics are identical;
-// the caller's opaque file identity must also satisfy the source-map bound.
+// load_document plus node/property spans and owned diagnostic source ranges.
+// Codes/paths/offsets are preserved; file identities satisfy the source-map bound.
 Result<SourcedDocument> load_document_with_sources(std::string_view json, std::string file,
                                                    const ValidationContext& = {});
 

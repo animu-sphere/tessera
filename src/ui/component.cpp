@@ -1,6 +1,7 @@
 #include <tessera/ui/component.hpp>
 #include "json_detail.hpp"
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 
 namespace tessera {
@@ -235,7 +236,36 @@ void lower(UiNode& node, const ComponentDescription& description, const Componen
     for (auto& child : node.children) lower(child, description, arguments, composed_slots, values, actions, stages);
 }
 
-Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, const ComponentDescription& description,
+// Enrichment never substitutes metadata errors for the underlying rejection.
+// The public locator validates the map even for a semantically invalid candidate.
+void document_origins(Errors& errors, const UiDocument& document, const std::optional<DocumentSourceMap>& sources) {
+    if (!errors.empty() && sources) (void)locate_diagnostics(document, *sources, errors);
+}
+void argument_origin(Diagnostic& diagnostic, std::string_view path, const ComponentArguments& arguments) {
+    if (diagnostic.source || !arguments.sources || path.starts_with("/reactive") ||
+        path.starts_with("/sources") || path.starts_with("/component/sources") ||
+        path.starts_with("/component/document")) return;
+    const bool argument_path = path.starts_with("/props/") || path.starts_with("/actions/") || path.starts_with("/styles/");
+    const bool slot_path = path.starts_with("/slots/") && path.find('/', 7) == std::string_view::npos;
+    if (!argument_path && !slot_path && path != "/component" && !path.starts_with("/component/")) return;
+    const auto& sources = *arguments.sources;
+    auto find = [&](const auto& origins, std::string_view prefix) {
+        if (!path.starts_with(prefix)) return;
+        const auto token = path.substr(prefix.size(), path.find('/', prefix.size()) - prefix.size());
+        for (const auto& [name, source] : origins)
+            if (detail::pointer_token(name) == token) {
+                diagnostic.source = DiagnosticSource{source, DiagnosticOrigin::argument};
+                break;
+            }
+    };
+    find(sources.props, "/props/");
+    find(sources.actions, "/actions/");
+    find(sources.styles, "/styles/");
+    if (!diagnostic.source && sources.invocation)
+        diagnostic.source = DiagnosticSource{*sources.invocation, DiagnosticOrigin::invocation};
+}
+
+Result<BoundComponent> lower_component_candidate(const ReactiveRuntime& runtime, const ComponentDescription& description,
     const ComponentArguments& arguments, const ComposedSlots& composed_slots, const ValidationContext& context) {
     Errors errors;
     if (input_limit(description, arguments, composed_slots.size())) {
@@ -246,6 +276,7 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
     if (!errors.empty()) return {{}, std::move(errors)};
     name(errors, description.kind, "/component/kind");
     auto template_errors = validate(description.document, context);
+    document_origins(template_errors, description.document, description.sources);
     for (auto& diagnostic : template_errors) {
         diagnostic.path = "/component/document" + diagnostic.path;
         errors.push_back(std::move(diagnostic));
@@ -422,6 +453,7 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
             const JsonValue::Object empty_extensions;
             auto diagnostics = detail::validate_document_parts(bound ? bound->document.version : 1, child,
                 bound ? bound->document.extensions : empty_extensions, context);
+            if (bound) document_origins(diagnostics, bound->document, bound->sources);
             bool valid = true;
             for (auto& diagnostic : diagnostics) {
                 // References can cross from slot content into the enclosing
@@ -515,8 +547,6 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
     BoundComponent candidate;
     candidate.document = description.document;
     lower(candidate.document.root, description, arguments, composed_slots, values, action_values, candidate.stages);
-    errors = validate(candidate.document, context);
-    if (!errors.empty()) return {{}, std::move(errors)};
     const bool child_styles = std::any_of(composed_slots.begin(), composed_slots.end(), [](const auto& slot) {
         return std::any_of(slot.second.begin(), slot.second.end(), [](const auto& child) { return !child.overrides.empty(); });
     });
@@ -542,7 +572,18 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
         errors = validate_sources(candidate.document, *candidate.sources);
         if (!errors.empty()) return {{}, std::move(errors)};
     }
+    errors = validate(candidate.document, context);
+    document_origins(errors, candidate.document, candidate.sources);
+    if (!errors.empty()) return {{}, std::move(errors)};
     return {std::move(candidate), {}};
+}
+
+Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, const ComponentDescription& description,
+    const ComponentArguments& arguments, const ComposedSlots& composed_slots, const ValidationContext& context) {
+    auto result = lower_component_candidate(runtime, description, arguments, composed_slots, context);
+    if (!result && !input_limit(description, arguments, composed_slots.size()) && argument_sources(arguments).empty())
+        for (auto& diagnostic : result.diagnostics) argument_origin(diagnostic, diagnostic.path, arguments);
+    return result;
 }
 } // namespace
 
@@ -555,7 +596,7 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
     return lower_component_impl(runtime, description, arguments, slots, context);
 }
 
-Result<BoundComponent> lower_component_tree(const ReactiveRuntime& runtime, std::span<const ComponentInvocation> invocations,
+static Result<BoundComponent> lower_component_tree_candidate(const ReactiveRuntime& runtime, std::span<const ComponentInvocation> invocations,
                                           std::size_t root, const ValidationContext& context) {
     Errors errors;
     if (invocations.empty() || invocations.size() > max_component_invocations) {
@@ -715,5 +756,26 @@ Result<BoundComponent> lower_component_tree(const ReactiveRuntime& runtime, std:
         results[i] = std::move(*lowered.value);
     }
     return {std::move(results[root]), {}};
+}
+
+Result<BoundComponent> lower_component_tree(const ReactiveRuntime& runtime, std::span<const ComponentInvocation> invocations,
+                                          std::size_t root, const ValidationContext& context) {
+    auto result = lower_component_tree_candidate(runtime, invocations, root, context);
+    if (!result && invocations.size() <= max_component_invocations) {
+        for (auto& diagnostic : result.diagnostics) {
+            const std::string_view path = diagnostic.path;
+            if (!path.starts_with("/invocations/")) continue;
+            const auto end = path.find('/', 13);
+            const auto token = path.substr(13, end - 13);
+            std::size_t index = 0;
+            const auto parsed = std::from_chars(token.data(), token.data() + token.size(), index);
+            if (parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() || index >= invocations.size()) continue;
+            const auto& invocation = invocations[index];
+            if (!input_limit(invocation.component, invocation.arguments, invocation.arguments.composed_slots.size()) &&
+                argument_sources(invocation.arguments).empty())
+                argument_origin(diagnostic, end == std::string_view::npos ? std::string_view{} : path.substr(end), invocation.arguments);
+        }
+    }
+    return result;
 }
 } // namespace tessera

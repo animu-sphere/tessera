@@ -19,6 +19,24 @@ struct JsonValue {
     bool operator==(const JsonValue&) const = default;
 };
 
+// Half-open UTF-8 byte range and an opaque caller-declared file identity.
+struct SourceSpan {
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    bool operator==(const SourceSpan&) const = default;
+};
+struct SourceLocation {
+    std::string file;
+    SourceSpan span;
+    bool operator==(const SourceLocation&) const = default;
+};
+enum class DiagnosticOrigin { value, point, node, argument, invocation };
+struct DiagnosticSource {
+    SourceLocation location;
+    DiagnosticOrigin origin = DiagnosticOrigin::node;
+    bool operator==(const DiagnosticSource&) const = default;
+};
+
 enum class Severity { warning, error };
 struct Diagnostic {
     std::string code;
@@ -26,6 +44,7 @@ struct Diagnostic {
     std::string path; // JSON-pointer location; empty means the document root.
     std::string message;
     std::optional<std::size_t> byte_offset; // Zero-based UTF-8 offset, when parsed.
+    std::optional<DiagnosticSource> source; // Owned tooling origin; absent when unavailable.
     bool operator==(const Diagnostic&) const = default;
 };
 

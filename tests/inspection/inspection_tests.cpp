@@ -302,9 +302,13 @@ void sourced_loading_matches_plain_loading() {
     };
     for (const auto json : invalid) {
         const auto plain = tessera::load_document(json);
-        const auto sourced = tessera::load_document_with_sources(json, "x.json");
-        check(!plain && !sourced && !plain.diagnostics.empty() && plain.diagnostics == sourced.diagnostics,
-              "Sourced loading rejects with the same diagnostics and offsets");
+        auto sourced = tessera::load_document_with_sources(json, "x.json");
+        check(!plain && !sourced && !plain.diagnostics.empty(), "Both loaders reject invalid input");
+        for (auto& diagnostic : sourced.diagnostics) {
+            check(diagnostic.source && diagnostic.source->location.file == "x.json", "Sourced failures own their file identity");
+            diagnostic.source.reset();
+        }
+        check(plain.diagnostics == sourced.diagnostics, "Sourced loading preserves codes, messages, paths, severities and offsets");
     }
     const auto sourced = load();
     check(sourced.document == *tessera::load_document(menu_json, actions).value && sourced.sources.nodes.size() == 13,

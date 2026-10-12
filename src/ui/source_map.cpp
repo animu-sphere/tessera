@@ -117,4 +117,78 @@ std::vector<Diagnostic> validate_sources(const UiDocument& document, const Docum
         error(errors, "source_map_mismatch", base + "/nodes", "Supply one source record per bounded document node in preorder.");
     return errors;
 }
+
+std::vector<Diagnostic> locate_diagnostics(const UiDocument& document, const DocumentSourceMap& map,
+                                          std::span<Diagnostic> diagnostics) {
+    std::vector<Diagnostic> errors;
+    std::size_t bytes = 0;
+    if (diagnostics.size() > max_source_diagnostics) {
+        error(errors, "diagnostic_limit", "/diagnostics", "Locate at most 4096 diagnostics per call.");
+        return errors;
+    }
+    for (const auto& diagnostic : diagnostics) {
+        if (diagnostic.path.size() > max_serialized_bytes - bytes) {
+            error(errors, "diagnostic_limit", "/diagnostics", "Keep diagnostic pointers within a shared 4 MiB byte budget.");
+            return errors;
+        }
+        bytes += diagnostic.path.size();
+    }
+    errors = validate_sources(document, map);
+    if (!errors.empty()) return errors;
+    std::map<std::string_view, const NodeSource*, std::less<>> nodes;
+    for (const auto& node : map.nodes) nodes.emplace(node.pointer, &node);
+    std::vector<std::optional<DiagnosticSource>> locations;
+    locations.reserve(diagnostics.size());
+    for (const auto& diagnostic : diagnostics) {
+        const std::string_view path = diagnostic.path;
+        std::optional<DiagnosticSource> location;
+        if (path == "/root" || path.starts_with("/root/")) {
+            std::size_t end = 5;
+            // Select the addressed node, never an existing ancestor of a
+            // missing child. Token spelling must match the canonical pointer.
+            while (path.substr(end).starts_with("/children/")) {
+                end += 10;
+                const auto next = path.find('/', end);
+                end = next == std::string_view::npos ? path.size() : next;
+            }
+            const auto found = nodes.find(path.substr(0, end));
+            if (found != nodes.end()) {
+                const auto& node = *found->second;
+                const auto field = path.substr(end);
+                auto argument = [&](const auto& origins, std::string_view prefix) {
+                    if (!field.starts_with(prefix)) return;
+                    const auto token = field.substr(prefix.size(), field.find('/', prefix.size()) - prefix.size());
+                    for (const auto& [name, source] : origins)
+                        if (detail::pointer_token(name) == token) {
+                            location = DiagnosticSource{source, DiagnosticOrigin::argument};
+                            break;
+                        }
+                };
+                argument(node.property_arguments, "/properties/");
+                argument(node.event_arguments, "/events/");
+                if ((field == "/style" || field.starts_with("/style/")) && node.style_argument)
+                    location = DiagnosticSource{*node.style_argument, DiagnosticOrigin::argument};
+                if (!location && field.starts_with("/properties/")) {
+                    const auto token = field.substr(12, field.find('/', 12) - 12);
+                    for (const auto& [name, span] : node.properties)
+                        if (detail::pointer_token(name) == token) {
+                            location = DiagnosticSource{{node.file.value_or(map.file), span}, DiagnosticOrigin::value};
+                            break;
+                        }
+                }
+                const bool instance_field = field.starts_with("/properties/") || field.starts_with("/events/") ||
+                    field == "/style" || field.starts_with("/style/");
+                if (!location && instance_field && node.invocation)
+                    location = DiagnosticSource{*node.invocation, DiagnosticOrigin::invocation};
+                if (!location && node.mapped)
+                    location = DiagnosticSource{{node.file.value_or(map.file), node.span}, DiagnosticOrigin::node};
+                if (!location && node.invocation)
+                    location = DiagnosticSource{*node.invocation, DiagnosticOrigin::invocation};
+            }
+        }
+        locations.push_back(std::move(location));
+    }
+    for (std::size_t i = 0; i < diagnostics.size(); ++i) diagnostics[i].source = std::move(locations[i]);
+    return {};
+}
 } // namespace tessera
