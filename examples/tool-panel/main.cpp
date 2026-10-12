@@ -254,7 +254,8 @@ int main() {
         list_component.kind = "inventory";
         list_component.document.root.id = "inventory";
         list_component.slots = {{"rows", "inventory", NodeKinds::text}};
-        ComponentArguments list_arguments;
+        std::vector<ComponentInvocation> invocations;
+        invocations.push_back({std::move(list_component), {}, {}});
         for (const auto& row : rows.instances()) {
             ComponentDescription item_component;
             item_component.kind = row.kind;
@@ -269,11 +270,10 @@ int main() {
             item_component.style_bindings = {{"row", row.key}};
             ComponentArguments item_arguments;
             item_arguments.props["caption"] = row_state[row.lifetime].label;
-            const auto item = lower_component(runtime, item_component, item_arguments);
-            if (!item) return 21;
-            list_arguments.composed_slots["rows"].push_back(*item.value);
+            invocations[0].invocation_slots["rows"].push_back(invocations.size());
+            invocations.push_back({std::move(item_component), std::move(item_arguments), {}});
         }
-        const auto bound = lower_component(runtime, list_component, list_arguments);
+        const auto bound = lower_component_tree(runtime, invocations);
         if (!bound) return 22;
         const auto& list = bound.value->document;
         auto tree = UiTree::create(list);
