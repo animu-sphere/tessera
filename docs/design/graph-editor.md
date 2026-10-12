@@ -83,7 +83,7 @@ Graph snapshots declare viewport, scale, fonts, theme, and graph content. Struct
 
 ## Proposed theming, animation, and overlays
 
-Colors come from theme tokens such as `graph.canvas.background`, `graph.grid.major`, `graph.node.selected`, `graph.port.input`, and `graph.edge.invalid`, defined once [themes](styling.md#proposed-themes) exist. Animation (selection, connection feedback, collapse) stays restrained and can be limited automatically on large graphs.
+Colors use host-declared [theme variables](styling.md#implemented-theme-variable-boundary); candidate names include `graph.canvas.background`, `graph.grid.major`, `graph.node.selected`, `graph.port.input`, and `graph.edge.invalid`. Animation (selection, connection feedback, collapse) stays restrained and can be limited automatically on large graphs.
 
 Execution visualization overlays application-supplied runtime state on the same canvas: inactive/running/completed/failed nodes, value previews, timing, invocation counts, and errors.
 

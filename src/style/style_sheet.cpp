@@ -2,6 +2,7 @@
 #include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
 #include "../ui/json_detail.hpp"
+#include "theme_detail.hpp"
 #include <algorithm>
 #include <string>
 
@@ -73,7 +74,7 @@ std::vector<Diagnostic> validate(const StyleDeclarations& declarations, std::str
 }
 
 std::vector<Diagnostic> validate(const StyleSheet& sheet) {
-    std::vector<Diagnostic> errors;
+    auto errors = detail::validate_theme_bindings(sheet);
     detail::Checker check(errors);
     for (std::size_t i = 0; i < sheet.rules.size(); ++i) {
         const auto& rule = sheet.rules[i];
@@ -95,7 +96,8 @@ std::vector<Diagnostic> validate(const StyleSheet& sheet) {
     return errors;
 }
 
-std::vector<Diagnostic> validate(const StyleInput& input) {
+namespace {
+std::vector<Diagnostic> validate_input_shape(const StyleInput& input) {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     if (!input.tree) check.error("missing_input", "/tree", "Provide the UiTree to style.");
@@ -122,12 +124,21 @@ std::vector<Diagnostic> validate(const StyleInput& input) {
     }
     return errors;
 }
+} // namespace
+
+std::vector<Diagnostic> validate(const StyleInput& input) {
+    auto errors = validate_input_shape(input);
+    if (errors.empty()) errors = detail::prepare_theme(input.theme, *input.sheet).diagnostics;
+    return errors;
+}
 
 Result<std::vector<ResolvedStyle>> resolve_styles(const StyleInput& input) {
-    auto errors = validate(input);
+    auto errors = validate_input_shape(input);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     const auto& tree = *input.tree;
     const auto& rules = input.sheet->rules;
+    auto prepared = detail::prepare_theme(input.theme, *input.sheet);
+    if (!prepared) return {std::nullopt, std::move(prepared.diagnostics)};
 
     // Tree indices are preorder, so every parent precedes its children.
     std::vector<std::uint32_t> parents(tree.size(), 0);
@@ -162,12 +173,17 @@ Result<std::vector<ResolvedStyle>> resolve_styles(const StyleInput& input) {
             style.text = styles[parents[i]].text;
             style.color = styles[parents[i]].color;
         }
-        for (const bool stateful : {false, true}) {
-            for (const auto& rule : rules) {
-                if (rule.selector.states.any() == stateful && matches(rule.selector, node, states[i]))
-                    apply(rule.declarations, style);
+        const auto layer = [&](const auto& layer_rules, const auto& declarations) {
+            for (const bool stateful : {false, true}) {
+                for (std::size_t r = 0; r < layer_rules.size(); ++r) {
+                    const auto& rule = layer_rules[r];
+                    if (rule.selector.states.any() == stateful && matches(rule.selector, node, states[i]))
+                        apply(declarations[r], style);
+                }
             }
-        }
+        };
+        if (input.theme) layer(input.theme->defaults.rules, prepared.value->theme);
+        layer(rules, prepared.value->sheet);
         if (!input.overrides.empty()) apply(input.overrides[i], style);
         auto resolved = validate(style, index_path("/nodes", i));
         errors.insert(errors.end(), resolved.begin(), resolved.end());

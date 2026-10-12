@@ -21,7 +21,7 @@ Candidates:
 - [Generalized virtualization](../design/layout.md#proposed-virtualization-foundation) with production VirtualList and tree/hierarchy primitives, then DataGrid/TreeTable composed from primitives: resizable, sortable, pinned, and hideable columns; single and multi-selection; editable cells; keyboard navigation; row hierarchy; context menus.
 - Resizable split panels and a minimal docking subset.
 - Editable TextInput, IME implementation, clipboard, selection, and [typed drag and drop](../design/input.md#proposed-typed-drag-and-drop).
-- [Context](../design/ui-model.md#proposed-context) for subtree services; transaction/undo integration hardening.
+- [Context](../design/ui-model.md#proposed-context) for subtree services, including [theme scopes](../design/styling.md#proposed-theme-scopes); transaction/undo integration hardening.
 - Canvas/custom paint, [performance instrumentation](../design/inspection.md#proposed-performance-metrics), and a timeline/profiling primitive.
 - UI invariants in CI.
 - [Stage invalidation](../design/styling.md#proposed-stage-invalidation) and incremental style, measure/placement, [text](../design/text.md#proposed-incremental-text-invalidation), input, semantic, and paint evaluation over the active milestone's reactive kernel, verified against full-tree output.

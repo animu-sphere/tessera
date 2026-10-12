@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace tessera {
@@ -84,9 +85,26 @@ struct StyleSelector {
     bool operator==(const StyleSelector&) const = default;
 };
 
+// Exact style types; numeric conversions and string expressions are excluded.
+using ThemeValue = std::variant<float, Color, Dimension, Edges, FontId,
+    std::optional<float>, std::uint16_t, Display, FlexDirection, Justify,
+    Align, Overflow, Visibility>;
+struct ThemeReference {
+    std::string name;
+    std::optional<ThemeValue> fallback; // Used only when this name is absent.
+    bool operator==(const ThemeReference&) const = default;
+};
+struct ThemeBinding {
+    std::string property; // ResolvedStyle field; text fields use text/font, etc.
+    ThemeReference variable;
+    bool operator==(const ThemeBinding&) const = default;
+};
+
 struct StyleRule {
     StyleSelector selector;
     StyleDeclarations declarations;
+    // Literal declarations apply first; each variable then replaces its field.
+    std::vector<ThemeBinding> variables;
     bool operator==(const StyleRule&) const = default;
 };
 
@@ -98,6 +116,24 @@ struct StyleSheet {
 };
 
 std::vector<Diagnostic> validate(const StyleSheet&);
+
+inline constexpr std::size_t max_theme_variables = 256;
+inline constexpr std::size_t max_theme_name_bytes = 128;
+inline constexpr std::size_t max_theme_rules = 1024;
+inline constexpr std::size_t max_theme_bindings = 4096; // Shared by theme and explicit sheet.
+struct ThemeVariable {
+    std::string name;
+    std::variant<ThemeValue, ThemeReference> value;
+    bool operator==(const ThemeVariable&) const = default;
+};
+// One host-owned scope for a resolution pass; aliases resolve within this table.
+// Defaults are a lower rule layer, following inheritance and preceding the sheet.
+struct Theme {
+    std::vector<ThemeVariable> variables;
+    StyleSheet defaults;
+    bool operator==(const Theme&) const = default;
+};
+std::vector<Diagnostic> validate(const Theme&);
 
 // Host-supplied interaction state, e.g. from PointerState::hovered/active and FocusDispatchResult.
 // Hovered and active nodes match with their ancestors; focus matches the focused node only.
@@ -115,12 +151,13 @@ struct StyleInput {
     const StyleSheet* sheet = nullptr;
     InteractionState state;
     std::span<const StyleDeclarations> overrides; // Empty, or one instance override per node by NodeHandle::index.
+    const Theme* theme = nullptr; // Optional borrowed theme; no implicit global theme.
 };
 
 std::vector<Diagnostic> validate(const StyleInput&);
 
 // Full-tree resolution, one style per node by NodeHandle::index: primitive defaults, inherited
-// text and color from the parent's resolved style, matching rules, then the node's override.
+// text and color from the parent, theme rules, sheet rules, then the node's override.
 // Fails with validate() diagnostics, or with resolved-value conflicts under /nodes/<index>.
 Result<std::vector<ResolvedStyle>> resolve_styles(const StyleInput&);
 
