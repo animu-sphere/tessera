@@ -7,15 +7,6 @@
 namespace tessera {
 namespace {
 
-bool same_properties(const UiNode& node, const NodeSource& source) {
-    if (node.properties.size() != source.properties.size()) return false;
-    for (const auto& [name, value] : node.properties) {
-        (void)value;
-        if (!source.properties.contains(name)) return false;
-    }
-    return true;
-}
-
 // Half-open with double subtraction, matching hit testing.
 bool inside(const Rect& rect, Point point) noexcept {
     const double x = static_cast<double>(point.x) - rect.origin.x;
@@ -48,20 +39,7 @@ std::string node_list(const std::vector<std::uint32_t>& matches) {
 std::vector<Diagnostic> validate(const InspectionInput& input) {
     auto errors = validate(SemanticInput{input.tree, input.styles, input.layout, input.focused});
     if (!errors.empty() || !input.sources) return errors;
-    detail::Checker check(errors);
-    const auto& nodes = input.sources->nodes;
-    if (nodes.size() != input.tree->size()) {
-        check.error("source_map_mismatch", "/sources/nodes",
-                    "Supply the source map loaded with the document this tree was created from.");
-        return errors;
-    }
-    for (std::uint32_t i = 0; i < nodes.size(); ++i) {
-        if (same_properties(*input.tree->get({input.tree->root().tree, i}), nodes[i])) continue;
-        check.error("source_map_mismatch", "/sources/nodes/" + std::to_string(i),
-                    "Supply the source map loaded with the document this tree was created from.");
-        break;
-    }
-    return errors;
+    return validate_sources(input.tree->document(), *input.sources);
 }
 
 Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
@@ -94,7 +72,10 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
             element.children.push_back(child.index);
             snapshot.elements[child.index].parent = i;
         }
-        if (input.sources) element.source = input.sources->nodes[i];
+        if (input.sources && input.sources->nodes[i].mapped) {
+            element.source = input.sources->nodes[i];
+            if (!element.source->file) element.source->file = input.sources->file;
+        }
     }
     for (const auto& box : input.layout->boxes)
         snapshot.elements[box.node.index].geometry = {box.border_box, box.padding_box(), box.content_box(), box.visible,
@@ -107,7 +88,7 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
         snapshot.sources = SourceStatus::mapped;
         snapshot.source_file = input.sources->file;
         for (auto& diagnostic : snapshot.diagnostics) {
-            if (const auto index = node_index(diagnostic.path); index && *index < tree.size())
+            if (const auto index = node_index(diagnostic.path); index && *index < tree.size() && input.sources->nodes[*index].mapped)
                 diagnostic.byte_offset = input.sources->nodes[*index].span.begin;
         }
     }

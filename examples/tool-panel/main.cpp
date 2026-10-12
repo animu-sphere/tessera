@@ -278,16 +278,24 @@ int main() {
         if (!runtime.flush().empty()) return 15;
         ComponentDescription list_component;
         list_component.kind = "inventory";
-        list_component.document.root.id = "inventory";
+        auto list_template = load_document_with_sources(
+            R"({"version":1,"root":{"type":"Box","id":"inventory"}})", "fixture:inventory");
+        if (!list_template) return 30;
+        list_component.document = std::move(list_template.value->document);
+        list_component.sources = std::move(list_template.value->sources);
         list_component.slots = {{"rows", "inventory", NodeKinds::text}};
         std::vector<ComponentInvocation> invocations;
         invocations.push_back({std::move(list_component), {}, {}});
         for (const auto& row : rows.instances()) {
             ComponentDescription item_component;
             item_component.kind = row.kind;
+            auto item_template = load_document_with_sources(
+                R"({"version":1,"root":{"type":"Text","properties":{"text":""}}})", "fixture:inventory-row");
+            if (!item_template) return 30;
+            item_component.document = std::move(item_template.value->document);
+            item_component.sources = std::move(item_template.value->sources);
             auto& node = item_component.document.root;
-            node.kind = NodeKind::text; node.id = row.key;
-            node.properties["text"] = std::string{}; // Valid template placeholder.
+            node.id = row.key;
             item_component.props = {{"caption", PropertyType::string, {}},
                 {"focusable", PropertyType::boolean, Property{true}}};
             item_component.properties = {{"caption", row.key, "text"}, {"focusable", row.key, "focusable"}};
@@ -310,6 +318,12 @@ int main() {
         const auto& styles = *row_styles.value;
         const auto layout = compute_layout({tree.value->get(), styles, {240, 120}, &text});
         if (!layout) return 17;
+        const auto row_inspection = capture_inspection({tree.value->get(), styles, &*layout.value, &*bound.value->sources});
+        if (!row_inspection || row_inspection.value->elements[0].source->file != "fixture:inventory") return 30;
+        for (std::size_t i = 1; i < row_inspection.value->elements.size(); ++i) {
+            const auto& origin = row_inspection.value->elements[i].source;
+            if (!origin || origin->file != "fixture:inventory-row" || !origin->unmapped_properties.contains("text")) return 30;
+        }
         if (!build_paint_list({tree.value->get(), styles, &*layout.value, &text}) ||
             !build_semantic_tree({tree.value->get(), styles, &*layout.value})) return 29;
         if (inventory_generation == 2) {

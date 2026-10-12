@@ -62,6 +62,62 @@ bool fits(const UiNode& node, std::size_t depth, std::size_t& count) {
         if (!fits(child, depth + 1, count)) return false;
     return true;
 }
+NodeSource source_record(const UiNode& node, const std::string& path, const DocumentSourceMap* map, std::size_t& index) {
+    NodeSource source;
+    if (map) {
+        source = map->nodes[index++];
+        if (source.mapped && !source.file) source.file = map->file;
+    } else {
+        source.mapped = false;
+        for (const auto& [property, value] : node.properties) {
+            (void)value;
+            source.unmapped_properties.insert(property);
+        }
+    }
+    source.pointer = path;
+    return source;
+}
+void subtree_sources(const UiNode& node, const std::string& path, const DocumentSourceMap* map,
+                     std::size_t& index, std::vector<NodeSource>& out) {
+    out.push_back(source_record(node, path, map, index));
+    for (std::size_t i = 0; i < node.children.size(); ++i)
+        subtree_sources(node.children[i], path + "/children/" + std::to_string(i), map, index, out);
+}
+void component_sources(const UiNode& node, const std::string& path, const ComponentDescription& description,
+                       const ComponentArguments& arguments, const ComposedSlots& slots,
+                       std::size_t& template_index, std::vector<NodeSource>& out) {
+    auto source = source_record(node, path, description.sources ? &*description.sources : nullptr, template_index);
+    // A template placeholder is not the origin of an instance value, even when
+    // the value happens to equal it. Preserve the node declaration's span only.
+    if (node.id) for (const auto& binding : description.properties) {
+        if (binding.target != *node.id) continue;
+        source.properties.erase(binding.property);
+        source.unmapped_properties.insert(binding.property);
+    }
+    out.push_back(std::move(source));
+    if (node.id) for (const auto& slot : description.slots) {
+        if (slot.target != *node.id) continue;
+        const auto composed = slots.find(slot.name);
+        std::size_t child_index = 0;
+        if (composed != slots.end()) {
+            for (const auto& child : composed->second) {
+                std::size_t index = 0;
+                subtree_sources(child.document.root, path + "/children/" + std::to_string(child_index++),
+                    child.sources ? &*child.sources : nullptr, index, out);
+            }
+        } else {
+            const auto raw = arguments.slots.find(slot.name);
+            if (raw != arguments.slots.end()) for (const auto& child : raw->second) {
+                std::size_t index = 0;
+                subtree_sources(child, path + "/children/" + std::to_string(child_index++), nullptr, index, out);
+            }
+        }
+        return;
+    }
+    for (std::size_t i = 0; i < node.children.size(); ++i)
+        component_sources(node.children[i], path + "/children/" + std::to_string(i),
+                          description, arguments, slots, template_index, out);
+}
 void style_overrides(const UiNode& node, const std::map<std::string, StyleDeclarations, std::less<>>& targets,
                      const ComponentDescription& description, const ComponentArguments& arguments, const ComposedSlots& composed_slots,
                      std::vector<StyleDeclarations>& overrides) {
@@ -145,6 +201,10 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
         errors.push_back(std::move(diagnostic));
     }
     if (!errors.empty()) return {{}, std::move(errors)};
+    if (description.sources) {
+        errors = validate_sources(description.document, *description.sources, "/component/sources");
+        if (!errors.empty()) return {{}, std::move(errors)};
+    }
     std::map<std::string, Target, std::less<>> targets;
     std::size_t count = 0;
     index(description.document.root, "/root", 1, targets, count);
@@ -328,6 +388,10 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
                 return {{}, std::move(errors)};
             }
             if (bound && valid && target != targets.end()) {
+                if (bound->sources) {
+                    auto source_errors = validate_sources(bound->document, *bound->sources, child_path + "/sources");
+                    errors.insert(errors.end(), source_errors.begin(), source_errors.end());
+                }
                 if (!bound->overrides.empty() && bound->overrides.size() != count - previous_count)
                     error(errors, "override_count", child_path + "/overrides", "Supply no overrides or one declaration per child document node in preorder.");
                 else for (std::size_t j = 0; j < bound->overrides.size(); ++j) {
@@ -416,6 +480,15 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
                     PropertyStages::paint | PropertyStages::input | PropertyStages::semantics;
         }
         style_overrides(description.document.root, mapped_styles, description, arguments, composed_slots, candidate.overrides);
+    }
+    const bool child_sources = std::any_of(composed_slots.begin(), composed_slots.end(), [](const auto& slot) {
+        return std::any_of(slot.second.begin(), slot.second.end(), [](const auto& child) { return child.sources.has_value(); });
+    });
+    if (description.sources || child_sources) {
+        candidate.sources.emplace();
+        if (description.sources) candidate.sources->file = description.sources->file;
+        std::size_t index = 0;
+        component_sources(description.document.root, "/root", description, arguments, composed_slots, index, candidate.sources->nodes);
     }
     return {std::move(candidate), {}};
 }
