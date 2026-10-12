@@ -14,6 +14,8 @@ An element record should expose scoped author identity, component/type informati
 
 Source mappings associate authored nodes/properties with file identity and spans through frontend lowering and reload. Generated components may need both definition and instance origins. Report unavailable source information explicitly; never guess a source line from a preorder index. Source maps are tooling metadata, not runtime behavior or implicit new JSON v1 fields.
 
+Extend provenance to component prop/signal/local-state declarations and authored defaults, keeping declaration/default origins distinct from invocation and supplied expression origins. Observations identify whether a value came from an explicit argument, a default, inheritance, or resolution using [property reflection](ui-model.md#proposed-property-reflection). Dedicated origin fields and precedence need bounded validation before use; a default must not acquire a fabricated argument span. Reload carries the accepted source map with its generation and preserves source-located rejection diagnostics for the discarded candidate.
+
 Expose only host-declared serializable state slots. An application adapter validates typed values, owns capture/restore and any schema migration, and applies changes at update boundaries. No arbitrary memory access or enumeration of private application state is allowed. Fixture state can include host inputs that affect UI, but UI tooling does not become the owner of application state.
 
 ## Proposed target resolution and operations
@@ -64,13 +66,18 @@ Separate interactive application execution from deterministic one-shot observati
 | Manifest | Bundle version, generation, fixture/input references, viewport/scale, locale, theme, font/asset identities, capture capabilities and rendering environment |
 | Screenshot | Optional completed frame readback; [rendering](rendering.md) owns target/color/lifetime rules |
 | Tree | Semantic projection plus explicitly identified runtime inspection records |
+| UI | Backend-neutral accepted document, with explicit references to any component/state fixture inputs needed to reproduce it |
 | State | Host-declared reproducible input state, excluding private or sensitive slots |
 | Layout | Logical geometry and available clip/scroll information from [layout](layout.md) |
 | Render | Owned command summary and backend counters; no SDK objects, addresses, or GPU handles |
 | Diagnostics | Structured issues associated with the captured generation |
+| Invariants | Owned declarations, actual observations, outcomes, and located diagnostics from the same generation |
+| Sources | Owned source map and property/component provenance with explicit unavailable origins |
 | Metrics | Allocation/memory and render counters when available, plus optional CPU/GPU timing with measurement conditions |
 
 Capture CPU observations coherently, then associate completed readback with that same generation/frame. Do not combine a later semantic tree with an earlier image. Missing artifacts carry an explicit reason; a core-only snapshot needs no screenshot. Names and encoding of bundle members remain open until bounded validation, version rejection, and round trips are specified.
+
+A small inspection/render CLI consumer loads a fixture, replays declared interactions, captures one coherent generation, and emits versioned machine-readable artifacts for CI, Path-finder, and agents. Select the scalar CPU renderer explicitly as the deterministic reference by default; unavailable requested backends are diagnosed under the runner boundary. Compare Vulkan output against the same scene under declared device/format tolerances. Inspection, rendering, bundle verification, and bundle comparison are intended operations, without committing to executable names, switches, or artifact filenames.
 
 ## Implemented prototype offscreen runner
 
@@ -169,6 +176,8 @@ A valid evaluation returns an owned `InvariantReport` even when assertions fail.
 ## Proposed agent capability manifest
 
 Agents operate UI through meaning rather than screen scraping. A capability manifest describes, for one generation and one adapter's permissions, the [commands](commands.md) with their eligibility and argument schemas, the inspectable surfaces (document, hierarchy, selection, properties), and the semantic actions (activate, select, focus, set value). It is a projection of the semantic tree, the command registry, and inspection records, not an agent-specific runtime API. Development-only commands and private state stay out of production manifests, and the manifest version is independent of document, replay, and bundle versions.
+
+The manifest also declares adapter support for tree/property inspection, semantic action and command invocation, input replay, frame capture, invariant queries, source-target editing, reload, and snapshot comparison. Each entry identifies its request/result schema, availability, permission/development restrictions, and target/generation preconditions; unsupported operations are explicit. Editing resolves validated source mappings through a host-authorized source adapter, and runtime property edits use declared commands or edit operations. Capability discovery grants no bypass of eligibility, transactions, or lifetime checks.
 
 ## Proposed generation history
 

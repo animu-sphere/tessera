@@ -16,6 +16,8 @@ Derive enabled/focused/action availability from settled interaction state rather
 
 Semantic inclusion for hidden, display-none, virtualized, and modal content needs explicit fixtures. Do not infer eligibility solely from whether a paint command exists.
 
+Portal relocation preserves declared logical component relationships under the [portal model](ui-model.md#proposed-overlays-and-portals); presentation parentage alone cannot determine semantic ownership. Modal scope and background action availability reflect [input](input.md#proposed-overlay-interaction). Virtualized lists declare exposed logical item order, stable keys, and realization actions under [virtualization](layout.md#proposed-virtualization-foundation), rather than making visible indices into identities. Editable text exposes committed value, selection, read-only state, and declared editing actions from the [editing owner](input.md#proposed-editing-ime-and-clipboard-boundary). Relationship, value/selection, and virtualization encoding require explicit schema decisions before extending semantic snapshots.
+
 ## Implemented prototype projection
 
 [semantics.hpp](../../include/tessera/semantics/semantics.hpp) implements an in-process subset of this proposal. It is a prototype, not a serialized semantic schema or stable API, and it does not extend JSON v1. Roles are derived from the existing vocabulary because no authored role property exists.

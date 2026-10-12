@@ -4,7 +4,7 @@ Inactive milestone candidates live here; [current](current.md) owns the active s
 
 Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below. External strategy phase numbers do not replace these candidate scopes.
 
-Priority across candidates: the contracts that later work depends on (commands, transactions, async state, UI invariants, component identity and reconciliation), then error boundaries, the command palette, the agent capability manifest, generalized virtualization, typed drag and drop, data grids, and context, and only then generation history, timeline/plotting primitives, collaboration, Web/WASM, and world-space UI. Items within a candidate are listed in dependency order.
+Choose follow-up scope from the Path-finder mini prototype's measured application requirements and authoring friction. Candidate themes include richer layout, incremental stage evaluation, retained rendering, accessibility, animation, broader platform adapters, application bindings, and advanced agent authoring. Generalized virtualization, typed drag and drop, data grids, and context depend on the active application primitives; generation history, timeline/plotting, collaboration, Web/WASM, and world-space UI follow concrete consumers. Items within a candidate are listed in dependency order, without making every theme a committed next-release requirement.
 
 ## v0.3.0 — Active milestone
 
@@ -12,7 +12,7 @@ The dynamic UI/editor scope and exit criteria are owned by [current](current.md#
 
 ## v0.4.0 candidate — Productive tool UI
 
-Objective: add primitives required by real editor/utility consumers without growing a general widget catalog. Mimikuri, Path-finder, and utility applications become full consumers in this generation.
+Objective: extend primitives required by measured editor/utility workloads without growing a general widget catalog. Refine the candidate scope after the Path-finder prototype; Mimikuri and utility applications provide additional consumer requirements.
 
 Depends on component identity, text/editing boundaries, and the Path-finder prototype.
 
@@ -20,10 +20,10 @@ Candidates:
 
 - [Generalized virtualization](../design/layout.md#proposed-virtualization-foundation) with production VirtualList and tree/hierarchy primitives, then DataGrid/TreeTable composed from primitives: resizable, sortable, pinned, and hideable columns; single and multi-selection; editable cells; keyboard navigation; row hierarchy; context menus.
 - Resizable split panels and a minimal docking subset.
-- Editable TextInput, IME implementation, clipboard, selection, and [typed drag and drop](../design/input.md#proposed-typed-drag-and-drop).
+- Extend the [active string editor](current.md#remaining-work-in-priority-order) with platform IME/clipboard hardening and richer selection/multiline behavior where consumers require it; [typed drag and drop](../design/input.md#proposed-typed-drag-and-drop).
 - [Context](../design/ui-model.md#proposed-context) for subtree services, including [theme scopes](../design/styling.md#proposed-theme-scopes); transaction/undo integration hardening.
 - Canvas/custom paint, [performance instrumentation](../design/inspection.md#proposed-performance-metrics), and a timeline/profiling primitive.
-- UI invariants in CI.
+- Broader consumer-specific UI invariants and regression budgets over the active headless bundle/CI loop.
 - [Stage invalidation](../design/styling.md#proposed-stage-invalidation) and incremental style, measure/placement, [text](../design/text.md#proposed-incremental-text-invalidation), input, semantic, and paint evaluation over the active milestone's reactive kernel, verified against full-tree output.
 - Bounded [reactive observations](../design/inspection.md#proposed-reactive-observations), owner/dependency inspection and update-cause traces, plus graph/work-proportionality benchmarks without fixed illustrative scale targets.
 - Representative dense/high-frequency tool benchmarks, measured iteration latency, and consumer-specific regression budgets after recording a baseline; thin scenario tooling and compact CI reports/artifacts.
@@ -106,11 +106,12 @@ Owners: [text](../design/text.md), [rendering](../design/rendering.md), [depende
 
 ## Later — Reactive scheduling and retained render performance
 
-Prerequisites: the [active reactive kernel and keyed UI scope](current.md), incremental stage parity from v0.4.0, and representative measured tool workloads.
+Prerequisites: the [active application/editor verification loop](current.md), measured tool workloads, and full-tree parity for each proposed incremental stage. Aggressive evaluation/rendering optimization follows the integration proof rather than blocking it.
 
 Candidates, in dependency order:
 
 - [Retained display items and partial uploads](../design/rendering.md#proposed-retained-render-updates), with completion-safe buffer/atlas reuse and full paint/image agreement.
+- Bindless rendering, retained GPU scene caches, GPU-driven UI, and deeper batching only when profiling a real Tessera application justifies the complexity.
 - Host-driven animation integration, then priority/frame queues or visibility-aware evaluation only when needed without losing input, semantic, or lifetime work.
 - Selective parallel text/layout/resource preparation with owned inputs and ordered publication; general concurrent reactive mutation and compiler dependency hints require separate justification.
 - Optional immediate authoring facades or observable collection helpers over the common IR/kernel only when a consumer needs them.
@@ -178,6 +179,7 @@ Owners: [conversational UI](../design/conversational-ui.md), [layout](../design/
 - Finer dirty-subtree/reactive updates after measured need and full-tree parity.
 - TypeScript-inspired DSL, then optional JSX/TSX compilation after the IR stabilizes; no JavaScript VM requirement.
 - Broader editor bridge transport/process choices driven by actual consumers.
+- Python/application bindings after component/runtime lifecycle stabilization and a concrete scripting or tooling consumer.
 - Responsive viewport/container rules and general constraint/flow layout after the existing [layout extension order](../design/layout.md#extension-order), when a tool consumer requires them.
 - Gradients, paths (through a path rasterizer), richer composition, and retained/partial GPU updates after bounded paint/resource contracts and measured workloads; blur/complex filters stay outside early/mid scope. Simple shadows are in the analytic primitives candidate above.
 

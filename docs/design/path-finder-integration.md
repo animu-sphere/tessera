@@ -30,17 +30,27 @@ Bridge transport, protocol versioning, process boundaries, preview asset resolut
 
 Proposed sequence:
 
-1. Parse and validate a candidate document using the runtime schema.
-2. Resolve required references and report errors with source locations.
-3. Determine which existing node identities and local state remain compatible.
-4. Commit the replacement at a defined frame boundary.
-5. Recalculate style/layout/paint and recover focus/interaction state.
+1. Parse and validate the edited source using the runtime schema, preserving source origins.
+2. Lower components and resolve required references into a candidate using ordinary runtime boundaries.
+3. Analyze identity/type/state-schema compatibility and prepare declared state preservation or migration.
+4. Settle the candidate and calculate full-tree style/layout/semantics/paint, including focus/interaction recovery, before acceptance.
+5. Atomically publish one coherent generation at the host update boundary, then render and expose inspection, invariant evaluation, and capture for that generation.
 
 A rejected candidate leaves the last valid tree usable. Successful reload cleans up removed bindings/components and preserves only state declared compatible by identity, node/component type, and state schema. Author IDs and reconciliation keys must have explicit scopes before this can be reliable.
 
 Application state remains host-owned throughout reload. GPU resources replaced by a document follow completion-safe retirement; see [rendering](rendering.md). Initial atomic full-document reload can precede fine-grained patches.
 
-Compatible reload should preserve keyed component identity/local state, focus, and scroll anchors under their subsystem rules, and reuse still-valid resources. Type/state-schema changes, removed nodes, or incompatible bindings require declared reset/cleanup and recovery rather than forced preservation. A successful reload publishes a new generation before inspection/capture. Tooling may request a snapshot after that generation renders and measure edit-to-verified-snapshot latency under [inspection](inspection.md#proposed-diagnostics-and-comparisons).
+Compatible reload preserves declared keyed component identity/owner and local state, focus, compatible scroll offsets or anchors, selection by stable logical/semantic identity, accepted async values when resource identity is unchanged, and command ownership where valid. Generation-bound handles and action targets must be resolved again against the accepted generation. Compatibility must be checked under each owning subsystem's rules; matching an author ID alone is insufficient. Type/state-schema changes, removed nodes, or incompatible bindings require declared subtree recreation, reset/cleanup, and recovery rather than forced preservation. Migration failure rejects the candidate.
+
+Invalid parse, validation, lowering, or presentation candidates leave the previous valid generation visible and usable, with source-located diagnostics. Preparation must not dispose retained owners or deliver candidate effects before acceptance; rejected staging work is discarded and its resources cleaned up safely. Atomic publication is a UI-generation guarantee, not rollback of unrelated host application data. Reload reuses the ordinary generation/publication model rather than creating an editor-specific runtime. Tooling may request a snapshot after that generation renders and measure edit-to-verified-snapshot latency under [inspection](inspection.md#proposed-diagnostics-and-comparisons).
+
+## Proposed mini prototype
+
+A small editor built from ordinary Tessera components proves the shared runtime under application pressure. It contains a toolbar, keyed hierarchy/list panel, central preview, schema-driven Inspector, command palette, portal-based tooltip/dropdown/modal, string property editing, async thumbnail/resource, live reload, and an undoable edit gesture. Path-finder owns editor orchestration and host application history; these panels use Tessera's common component, input, command, inspection, and rendering contracts.
+
+The acceptance loop edits labels/styles/layout while preserving compatible state and keyed identity, rejects invalid edits while displaying the previous valid frame, and emits source diagnostics plus a coherent verified snapshot. Inspector edits use ordinary commands/transactions. Keyboard/gamepad operation, modal focus recovery, unrealized list identity, async owner removal, and repeated reload exercise the same boundaries as deployed applications.
+
+Headless replay/capture and an [agent capability manifest](inspection.md#proposed-agent-capability-manifest) expose the same prototype for inspection, declared operation, reload, invariant evaluation, and comparison. Measure component ergonomics, lifecycle/focus friction, reflection gaps, portal geometry, text composition, large-list behavior, async ownership, and edit-to-verification latency to inform later scope. The prototype is an integration consumer; it does not require a complete visual editor or a separate agent execution path.
 
 ## Verification and scope
 

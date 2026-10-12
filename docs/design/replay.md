@@ -16,6 +16,12 @@ A recording identifies:
 
 Use fixture-owned resources and explicit readiness timing instead of relying on live filesystem/network completion. Define schema versioning, unsupported-version diagnostics, bounds, and deterministic event ordering before freezing the format. Document, replay, and semantic schema versions are distinct.
 
+## Proposed editor workflow inputs
+
+Record logical text edits, selection/caret changes, composition start/update/commit/cancel, and owned clipboard results under the [editing boundary](input.md#proposed-editing-ime-and-clipboard-boundary). Each edit addresses a fixture-resolved owner lifetime and buffer revision; no replay event may read the live clipboard or redirect a stale completion to the new focus. Concrete event encoding, bounds, and schema versions must be specified before extending serialized recordings.
+
+Component mount/removal, compatible reload, portal open/close, and virtualized range changes are driven by declared source/state/input fixtures through ordinary runtime boundaries. Record resource identity and ordered readiness results for async rows, not wall-clock completion. Verify that rejected reloads preserve the previous generation and that accepted reload observations, semantic relationships, invariants, and capture refer to the same generation under [snapshot tooling](inspection.md#proposed-runner-and-snapshot-bundle).
+
 ## Proposed localization inputs
 
 Reproducing [localized UI](localization.md) requires initial subtree locale/formatting preferences and direction overrides, catalog identities and revisions, the configured message fallback/default policy, formatter/locale-data identity, and declared font/shaping inputs. Include explicit time-zone inputs for date/time formatting; do not consult the process locale or clock. Pseudo-locale transformations also need a declared configuration/identity.
