@@ -231,7 +231,17 @@ int main() {
     const std::vector<Items> inventory{{{"item-3", "Rope"}, {"item-7", "Lantern"}, {"item-9", "Map"}},
         {{"item-9", "Map"}, {"item-7", "Lantern"}, {"item-3", "Rope"}}, {{"item-9", "Map"}, {"item-3", "Rope"}},
         {{"item-7", "Lantern"}, {"item-9", "Map"}, {"item-3", "Coiled rope"}}};
+    Theme row_theme;
+    row_theme.variables = {{"ink", ThemeValue{Color{0.1f, 0.1f, 0.1f, 1}}}, {"size", ThemeValue{16.0f}},
+        {"row-ink", ThemeReference{"ink", {}}}};
+    row_theme.defaults.rules = {{StyleSelector::of_id("inventory"), {},
+        {{"color", {"row-ink", {}}}, {"text/size", {"size", {}}}}}};
+    std::size_t inventory_generation = 0;
     for (const auto& items : inventory) {
+        if (++inventory_generation == 2) {
+            row_theme.variables[0].value = ThemeValue{Color{0.2f, 0.4f, 0.8f, 1}};
+            row_theme.variables[1].value = ThemeValue{18.0f};
+        }
         std::vector<KeyedChild> children;
         for (const auto& [id, name] : items) children.push_back({id, "item-row"});
         const auto update = rows.reconcile(runtime, children);
@@ -295,11 +305,19 @@ int main() {
         auto tree = UiTree::create(list);
         if (!tree) return 16;
         const StyleSheet row_sheet;
-        const auto row_styles = resolve_styles({tree.value->get(), &row_sheet, {}, bound.value->overrides});
+        const auto row_styles = resolve_styles({tree.value->get(), &row_sheet, {}, bound.value->overrides, &row_theme});
         if (!row_styles) return 23;
         const auto& styles = *row_styles.value;
         const auto layout = compute_layout({tree.value->get(), styles, {240, 120}, &text});
         if (!layout) return 17;
+        if (!build_paint_list({tree.value->get(), styles, &*layout.value, &text}) ||
+            !build_semantic_tree({tree.value->get(), styles, &*layout.value})) return 29;
+        if (inventory_generation == 2) {
+            auto invalid_theme = row_theme;
+            invalid_theme.variables[1].value = ThemeValue{0.0f};
+            if (resolve_styles({tree.value->get(), &row_sheet, {}, bound.value->overrides, &invalid_theme}) ||
+                !rows.current("item-7", lantern)) return 29;
+        }
         const HitTestInput hit{tree.value->get(), styles, &*layout.value};
         const auto focused = lantern == 0 ? row_focus.focus(hit, *(*tree.value)->find("item-7")) : row_focus.refresh(hit);
         if (!focused || !focused.value->focused || runtime.publish() != 0) return 18;
@@ -310,7 +328,8 @@ int main() {
         }
         std::cout << "Rows:";
         for (const auto& node : list.root.children) std::cout << ' ' << *node.id << "=\"" << std::get<std::string>(node.properties.at("text")) << '"';
-        std::cout << " focus=" << *(*tree.value)->get(*focused.value->focused)->id << '\n';
+        std::cout << " focus=" << *(*tree.value)->get(*focused.value->focused)->id
+                  << " theme-size=" << styles[0].text.size << '\n';
     }
     // Reorder kept the pinned Lantern row and its focus; removal unsubscribed it,
     // and reinsertion created a new lifetime, so a late result for the old row is stale.

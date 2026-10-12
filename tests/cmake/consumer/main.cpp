@@ -2,6 +2,7 @@
 #include <tessera/ui/tree.hpp>
 #include <tessera/ui/async.hpp>
 #include <tessera/render/cpu_renderer.hpp>
+#include <tessera/style/style_sheet.hpp>
 #include <concepts>
 #include <iostream>
 
@@ -36,5 +37,12 @@ int main() {
     runtime.flush();
     const auto observed = asset.snapshot(runtime);
     if (observed.status != tessera::AsyncStatus::ready || std::get<std::string>(observed.value->value) != "Ready") return 7;
-    std::cout << "Source consumer: JSON round trip, owned tree, scalar CPU capture and async observation agree.\n";
+    tessera::Theme theme;
+    const tessera::Color ink{0.2f, 0.4f, 0.8f, 1};
+    theme.variables = {{"ink", tessera::ThemeValue{ink}}};
+    theme.defaults.rules = {{tessera::StyleSelector::of_id("panel"), {}, {{"color", {"ink", {}}}}}};
+    const tessera::StyleSheet sheet;
+    const auto styles = tessera::resolve_styles({tree.value->get(), &sheet, {}, {}, &theme});
+    if (!tessera::validate(theme).empty() || !styles || styles.value->at(target->index).color != ink) return 8;
+    std::cout << "Source consumer: JSON round trip, owned tree, scalar CPU capture, async observation and theme agree.\n";
 }
