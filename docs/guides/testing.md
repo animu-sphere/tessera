@@ -64,7 +64,7 @@ Text fixtures introduce real script/BiDi and language-aware fallback cases under
 
 ## Image regression and performance
 
-Keep a small reference set for overlapping rectangles, clips, transforms, borders, alpha, images, and glyphs as each capability arrives. Declare target size/scale, color format, font versions, pixel tolerances, and backend/GPU configuration. Once the [CPU reference backend](../design/rendering.md#proposed-cpu-reference-backend) exists, its deterministic output is the baseline: GPU candidates are compared with it under declared tolerances, and optimized CPU paths with its scalar result. Do not use images to prove behavior better established by geometry or event assertions.
+Keep a small reference set for overlapping rectangles, clips, transforms, borders, alpha, images, and glyphs as each capability arrives. Declare target size/scale, color format, font versions, pixel tolerances, edge/subpixel conditions, and backend/GPU configuration. The [CPU reference backend](../design/rendering.md#implemented-scalar-cpu-reference-backend) provides deterministic reference output: GPU candidates are compared with it under declared tolerances, and optimized CPU paths with its scalar result. Do not use images to prove behavior better established by geometry or event assertions.
 
 Performance checks follow a correct baseline. Record UI size, changed-node count, layout/paint CPU cost, uploads, batches/submissions, and GPU cost when useful. Hardware timing is an observation with conditions, not a universal pass threshold. Avoid premature optimization gates.
 

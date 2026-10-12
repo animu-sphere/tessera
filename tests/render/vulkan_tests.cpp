@@ -2,6 +2,7 @@
 #include <tessera/inspection/offscreen_runner.hpp>
 #include <tessera/render/glyph_atlas.hpp>
 #include <tessera/render/paint.hpp>
+#include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <tessera/ui/serialization.hpp>
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
@@ -1038,10 +1039,81 @@ void real_runner_fixtures(Host& host) {
 }
 #endif
 }
+// Both GPU paths consume the same primitive/atlas list as the scalar backend.
+void cpu_reference_fixtures(Host& host) {
+    struct Rasterizer : tessera::GlyphRasterizer {
+        std::uint64_t face_revision(tessera::FontId) const override { return 1; }
+        tessera::Result<tessera::GlyphBitmap> rasterize(const tessera::GlyphRasterRequest&) override {
+            return {tessera::GlyphBitmap{3,3,0,3,{0,64,0,128,255,128,0,64,0}},{}};
+        }
+    } rasterizer;
+    tessera::GlyphCache cache(rasterizer);
+    tessera::CpuFrameCapture cpu(&cache);
+    const std::array<std::uint8_t,16> texture{255,0,0,255,0,255,0,255,0,0,255,255,255,255,255,255};
+    check(cpu.bind_image({1},{{2,2},texture}).empty(),"CPU comparison image binding failed");
+    const auto vertex=shader("primitive.vertex.spv"),fragment=shader("primitive.fragment.spv"),image=shader("primitive.image.spv"),batch=shader("primitive.batch.spv");
+    VkSamplerCreateInfo info{}; info.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter=info.minFilter=VK_FILTER_LINEAR; info.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    info.addressModeU=info.addressModeV=info.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler sampler; require(vkCreateSampler(host.device,&info,nullptr,&sampler),"CPU comparison sampler");
+    struct Owner { VkDevice device; VkSampler sampler; ~Owner(){vkDestroySampler(device,sampler,nullptr);} } owner{host.device,sampler};
+    tessera::GlyphRun run{{0},16,{{1,0,{2,6},{0}},{1,1,{7,6},{0}}},{}};
+    const tessera::UiDrawList source{{
+        tessera::DrawRect{{{0,0},{32,32}},{0.15f,0.2f,0.3f,1}},
+        tessera::DrawRect{{{4,4},{24,24}},{0.7f,0.2f,0.1f,0.5f},4},
+        // Inner fragment-discard edges avoid pixel centers: interpolation at an
+        // exact inner boundary may round to either side on a GPU.
+        tessera::DrawBorder{{{4,4},{24,24}},{4,8,4,4},{0.1f,0.8f,0.4f,0.75f},4},
+        tessera::DrawImage{{{4,4},{12,12}},{1},{{0.125f,0},{0.75f,1}},{0.8f,1,1,0.5f}},
+        tessera::PushTransform{{-1,0,0,1,32,0}},
+        tessera::PushClip{{{2.25f,1.25f},{12.5f,22.5f}}},
+        tessera::DrawRect{{{0,0},{24,24}},{0.1f,0.2f,1,0.25f}},tessera::PopClip{},tessera::PopTransform{},
+        tessera::PushTransform{{0,1,-1,0,30,17}},
+        tessera::DrawRect{{{0,0},{6,4}},{1,1,0,0.75f}},tessera::PopTransform{},
+        // Keep bitmap quad edges away from pixel centers at these scales; GPU
+        // subpixel raster precision is a separate comparison condition.
+        tessera::DrawGlyphRun{{4.125f,18.125f},run,{1,1,1,0.75f}}
+    }};
+    for (bool batched : {false,true}) {
+        tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,32};
+        if (batched) context.batch_vertex_spirv=batch;
+        tessera::VulkanRenderer gpu(context);
+        check(gpu.bind_image({1},host.texture.view,sampler).empty(),"GPU comparison image binding failed");
+        std::uint64_t frame=1;
+        for (float scale : {1.0f,1.25f,1.5f,2.0f}) {
+            const auto extent=*tessera::capture_extent({32,32},scale).value;
+            const auto expected=cpu.capture({0,{32,32},scale,extent,&source});
+            check(bool(expected),"CPU comparison capture rejected");
+            check(expected.value==cpu.capture({0,{32,32},scale,extent,&source}).value,"Scalar capture is not deterministic");
+            const auto atlas=tessera::prepare_glyph_atlas(source,cache,scale,{10});
+            check(bool(atlas),"Comparison atlas failed"); host.upload_atlas(*atlas.value);
+            for (std::size_t i=0;i<atlas.value->pages.size();++i)
+                check(gpu.bind_image(atlas.value->pages[i].image,host.atlas_images[i].view,sampler).empty(),"Comparison atlas binding failed");
+            host.resize({extent.width,extent.height}); host.begin(gpu);
+            check(gpu.submit({frame,{32,32},scale},atlas.value->draw_list).empty(),"GPU comparison submission rejected");
+            const auto actual=host.finish(("cpu-compare-"+std::string(batched?"batch-":"reference-")+std::to_string(frame)+".ppm").c_str());
+            double error=0; std::size_t worst=0;
+            const auto decode=[](std::uint8_t byte) { const double c=byte/255.0; return c<=0.04045?c/12.92:std::pow((c+0.055)/1.055,2.4); };
+            for (std::size_t i=0;i<actual.size();++i) {
+                const auto a=i%4==3?actual[i]/255.0:decode(actual[i]);
+                const auto b=i%4==3?expected.value->pixels[i]/255.0:decode(expected.value->pixels[i]);
+                if (std::abs(a-b)>error) { error=std::abs(a-b); worst=i; }
+            }
+            std::cout<<"CPU comparison path="<<(batched?"batch":"reference")<<" scale="<<scale<<" max linear error="<<error
+                <<" at ("<<(worst/4)%extent.width<<','<<(worst/4)/extent.width<<") channel="<<worst%4
+                <<" gpu="<<int(actual[worst])<<" cpu="<<int(expected.value->pixels[worst])<<'\n';
+            check(error<=2.0/255,"GPU differs from CPU scalar reference (linear tolerance 2/255)");
+            gpu.retire(frame++);
+            for (const auto& page:atlas.value->pages) check(gpu.unbind_image(page.image).empty(),"Comparison atlas retirement failed");
+            host.clear_atlas();
+        }
+        check(gpu.unbind_image({1}).empty(),"Comparison texture retirement failed");
+    }
+}
 int main() {
     try {
         { Host host; host.initialize(); host.make_texture();
-          fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host); runner_fixtures(host);
+          fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host); runner_fixtures(host); cpu_reference_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
           real_glyph_fixtures(host); real_runner_fixtures(host);
 #endif

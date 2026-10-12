@@ -1,5 +1,6 @@
 #include <tessera/ui/serialization.hpp>
 #include <tessera/ui/tree.hpp>
+#include <tessera/render/cpu_renderer.hpp>
 #include <concepts>
 #include <iostream>
 
@@ -23,5 +24,9 @@ int main() {
     if (!tree || (*tree.value)->size() != 2) return 3;
     const auto target = (*tree.value)->find("title");
     if (!target || (*tree.value)->get(*target)->properties.at("text") != title.properties.at("text")) return 4;
-    std::cout << "Source consumer: JSON round trip and owned tree agree.\n";
+    tessera::CpuFrameCapture frames;
+    const tessera::UiDrawList paint{{tessera::DrawRect{{{0,0},{1,1}},{1,0,0,1}}}};
+    const auto capture = frames.capture({0,{1,1},1,{1,1},&paint});
+    if (!capture || capture.value->pixels != std::vector<std::uint8_t>{255,0,0,255}) return 5;
+    std::cout << "Source consumer: JSON round trip, owned tree and scalar CPU capture agree.\n";
 }

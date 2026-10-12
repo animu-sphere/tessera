@@ -32,6 +32,21 @@ Before publishing each selection generation, the tool panel captures its full-tr
 
 The same scope declares a synthetic [gamepad shortcut](../design/commands.md#implemented-gamepad-shortcut-boundary): left shoulder held while pressing west. Its normalized request resolves the same inspection command, owner and arguments as Control+I, then executes with a fresh sequence. Physical button mapping and polling belong to the host. The inspection button's event comes from a [declared component action](../design/ui-model.md#implemented-component-actions-and-events) supplied by a panel-owned string source; the host lowers the settled component before applying command eligibility and building the presentation.
 
+## Scalar CPU capture workflow
+
+The [CPU renderer and capture adapter](../design/rendering.md#implemented-scalar-cpu-reference-backend) are part of `tessera::core`, with no optional dependency discovery. Run their pixel/resource/runner checks through the ordinary core workflow, or isolate them:
+
+```powershell
+cmake -S . -B build-v030-cpu -G "Visual Studio 18 2026" -A x64 `
+    -DTESSERA_BUILD_VULKAN=OFF -DTESSERA_BUILD_FONTS=OFF
+cmake --build build-v030-cpu --config Debug --parallel 2
+ctest --test-dir build-v030-cpu -C Debug -R '^cpu_renderer$' --output-on-failure
+```
+
+Use `Release` for the other configuration. `CpuRenderer` borrows host target bytes; `CpuFrameCapture` returns owned RGBA8 images with an optional borrowed glyph cache. Supply `frames.backend()` and `&frames` to `run_offscreen` explicitly. A glyph list without an injected cache fails; applications choose the rasterizer and image assets.
+
+To compare both Vulkan paths with CPU output, use the [optional Vulkan workflow](#optional-vulkan-workflow) and its `vulkan` CTest check. `cpu-compare-{reference,batch}-{1,2,3,4}.ppm` appear in `<build>/backends/vulkan/artifacts`. The fixture fixes bilinear clamp sampling, target format, scales, glyph data and boundary conditions; it requires a real eligible GPU and does not replace a failing device with CPU rendering. Recorded configuration and tolerances are in [support](../reference/support-matrix.md#scalar-cpu-rendering-evidence--2026-10-12).
+
 ## Library-only workflow
 
 Use a fresh build directory for a clean library-only check:
