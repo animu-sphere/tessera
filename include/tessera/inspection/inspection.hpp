@@ -48,7 +48,7 @@ struct InspectionElement {
     ResolvedStyle style;
     std::optional<GeometryObservation> geometry; // Absent for display-none nodes and their subtrees.
     std::optional<std::uint32_t> semantic;       // Index into InspectionSnapshot::semantics.nodes.
-    std::optional<NodeSource> source;            // Absent when no source map was supplied.
+    std::optional<NodeSource> source; // Absent for unmapped nodes; file is the resolved opaque identity.
     bool operator==(const InspectionElement&) const = default;
 };
 
@@ -61,7 +61,7 @@ struct InspectionSnapshot {
     std::vector<InspectionElement> elements;
     SemanticTree semantics;
     SourceStatus sources = SourceStatus::not_supplied;
-    std::string source_file; // Empty unless sources are mapped.
+    std::string source_file; // Map's default file; element source files can differ after composition.
     std::vector<Diagnostic> diagnostics; // Warnings from the captured generation.
     bool operator==(const InspectionSnapshot&) const = default;
 };

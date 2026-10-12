@@ -492,6 +492,8 @@ Result<SourcedDocument> load_document_with_sources(std::string_view source, std:
     if (!loaded) return {std::nullopt, std::move(loaded.diagnostics)};
     SourcedDocument result{std::move(*loaded.value), {std::move(file), {}}};
     map_sources(result.document.root, "/root", parser, result.sources.nodes);
+    auto errors = validate_sources(result.document, result.sources);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
     return {std::move(result), {}};
 }
 

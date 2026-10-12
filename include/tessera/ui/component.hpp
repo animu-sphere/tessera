@@ -1,6 +1,7 @@
 #pragma once
 
 #include <tessera/ui/bindings.hpp>
+#include <tessera/ui/serialization.hpp>
 #include <tessera/style/style_sheet.hpp>
 #include <span>
 
@@ -63,6 +64,7 @@ struct ComponentDescription {
     std::vector<ComponentEvent> events;
     std::vector<ComponentStyle> styles;
     std::vector<ComponentStyleBinding> style_bindings;
+    std::optional<DocumentSourceMap> sources; // Template preorder, outside serialization.
 };
 // Reactive alternatives are weak references to the host's instance owner.
 using ComponentValue = std::variant<Property,
@@ -74,6 +76,7 @@ struct BoundComponent : BoundDocument {
     // Empty without template mappings or child override arrays; otherwise one
     // entry per composed node, directly usable as StyleInput::overrides.
     std::vector<StyleDeclarations> overrides;
+    std::optional<DocumentSourceMap> sources; // Composed preorder; missing origins stay explicit.
 };
 struct ComponentArguments {
     std::map<std::string, ComponentValue, std::less<>> props;
