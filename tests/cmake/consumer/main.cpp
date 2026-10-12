@@ -57,5 +57,13 @@ int main() {
     if (!tessera::validate_source_location(origin, "/origin").empty() || !bound || bound.value->document != document ||
         !bound.value->sources || !tessera::validate_sources(bound.value->document, *bound.value->sources).empty() ||
         bound.value->sources->nodes[1].property_arguments.at("text") != origin) return 9;
-    std::cout << "Source consumer: JSON round trip, owned tree, scalar CPU capture, async observation, theme and component origins agree.\n";
+    arguments.props["caption"] = tessera::Property{true};
+    const auto rejected = tessera::lower_component(runtime, component, arguments);
+    if (rejected || rejected.diagnostics.empty() || !rejected.diagnostics[0].source ||
+        rejected.diagnostics[0].source->location != origin ||
+        rejected.diagnostics[0].source->origin != tessera::DiagnosticOrigin::argument) return 10;
+    std::vector<tessera::Diagnostic> diagnostics{{"fixture", tessera::Severity::warning, "/root/children/0/properties/text", "Caption", {}}};
+    if (!tessera::locate_diagnostics(bound.value->document, *bound.value->sources, diagnostics).empty() ||
+        !diagnostics[0].source || diagnostics[0].source->location != origin) return 11;
+    std::cout << "Source consumer: JSON round trip, owned tree, scalar CPU capture, async observation, theme, component origins and diagnostics agree.\n";
 }

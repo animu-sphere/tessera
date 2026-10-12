@@ -17,7 +17,7 @@ Remaining work:
 - [Error boundaries](../design/ui-model.md#proposed-error-boundaries); extend [typed async view observations](../design/ui-model.md#implemented-typed-async-view-observations) with [resource payloads](../design/ui-model.md#proposed-async-state), component subscription/detachment, compatible reload, recording/inspection integration, and completion-safe resource retirement.
 - Image assets.
 - Validate transform agreement between native pointer mapping and rendering when a consumer uses transformed menu paint or hit testing, under [layout coordinates](../design/layout.md#coordinate-spaces) and [rendering conversion](../design/rendering.md#coordinate-conversion).
-- Source-aware diagnostics, atomic live reload, compatible-state preservation, Path-finder preview.
+- Extend the [source diagnostic boundary](../design/inspection.md#implemented-source-diagnostic-boundary) with declaration/default origins and typed diagnostic context; atomic live reload, compatible-state preservation, Path-finder preview.
 - Full property reflection/introspection v1 and a schema-driven Inspector.
 - OverlayRoot/Portal and bounded Tooltip/Dropdown/Modal primitives.
 - TextInput contract and VirtualList prototype based on stable item keys.

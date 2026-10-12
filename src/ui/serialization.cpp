@@ -487,9 +487,34 @@ Result<UiDocument> load_document(std::string_view source, const ValidationContex
 
 Result<SourcedDocument> load_document_with_sources(std::string_view source, std::string file,
                                                    const ValidationContext& context) {
+    // Reject invalid identities before parsing or copying them into diagnostics.
+    auto file_errors = validate_source_location({file, {}}, "/sources");
+    if (!file_errors.empty()) return {std::nullopt, std::move(file_errors)};
     Parser parser(source);
     auto loaded = load(source, context, parser);
-    if (!loaded) return {std::nullopt, std::move(loaded.diagnostics)};
+    if (!loaded) {
+        for (auto& diagnostic : loaded.diagnostics) {
+            if (!diagnostic.byte_offset) continue;
+            SourceSpan span{*diagnostic.byte_offset, *diagnostic.byte_offset};
+            auto origin = DiagnosticOrigin::point;
+            // Parser failures identify a point. Schema/semantic failures use
+            // the complete nearest parsed value at the existing byte offset.
+            auto path = diagnostic.path;
+            for (;;) {
+                const auto begin = parser.offsets.find(path);
+                const auto end = parser.ends.find(path);
+                if (begin != parser.offsets.end() && end != parser.ends.end() && begin->second == span.begin) {
+                    span.end = end->second;
+                    origin = DiagnosticOrigin::value;
+                    break;
+                }
+                if (path.empty()) break;
+                path.resize(path.rfind('/'));
+            }
+            diagnostic.source = DiagnosticSource{{file, span}, origin};
+        }
+        return {std::nullopt, std::move(loaded.diagnostics)};
+    }
     SourcedDocument result{std::move(*loaded.value), {std::move(file), {}}};
     map_sources(result.document.root, "/root", parser, result.sources.nodes);
     auto errors = validate_sources(result.document, result.sources);

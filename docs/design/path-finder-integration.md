@@ -20,7 +20,7 @@ The [consumer fixture](../../tests/cmake/consumer/CMakeLists.txt) imports the so
 
 ## Proposed editor bridge
 
-Expose narrow operations for document/schema inspection, validation diagnostics, reload requests, and preview results. Source locations allow Path-finder to link runtime/validation errors back to authored text. Avoid adding editor SDKs or reflection frameworks to the core.
+Expose narrow operations for document/schema inspection, validation diagnostics, reload requests, and preview results. The [source diagnostic boundary](inspection.md#implemented-source-diagnostic-boundary) allows Path-finder to link validation errors back to authored text using the runtime's owned records. Avoid adding editor SDKs or reflection frameworks to the core.
 
 Generate property inspectors from the runtime's [reflection metadata](ui-model.md#proposed-property-reflection), and consume [shared inspection](inspection.md) for semantic/property/layout/source observations. Editor categories are metadata, not a second validation/default table. Keep runtime and editor schema versions compatible and preserve source locations in diagnostics.
 
