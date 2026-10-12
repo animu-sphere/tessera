@@ -2,12 +2,14 @@
 
 #include <tessera/ui/bindings.hpp>
 #include <tessera/style/style_sheet.hpp>
+#include <span>
 
 namespace tessera {
 inline constexpr std::size_t max_component_props = 256;
 inline constexpr std::size_t max_component_slots = 256;
 inline constexpr std::size_t max_component_actions = 256;
 inline constexpr std::size_t max_component_styles = 256;
+inline constexpr std::size_t max_component_invocations = 4096;
 
 // Required unless a literal default is supplied. Types are never coerced.
 struct ComponentProp {
@@ -89,4 +91,20 @@ struct ComponentArguments {
 // evaluates calculations, publishes a generation, or invokes external code.
 Result<BoundComponent> lower_component(const ReactiveRuntime&, const ComponentDescription&,
                                      const ComponentArguments&, const ValidationContext& = {});
+
+// A flat, owned invocation tree: slot children are indices into the input span.
+// Indices are call-local identities, distinct from keys, author IDs and owners.
+// A slot supplies raw, composed or invocation children, with exactly one writer.
+struct ComponentInvocation {
+    ComponentDescription component;
+    ComponentArguments arguments;
+    std::map<std::string, std::vector<std::size_t>, std::less<>> invocation_slots;
+};
+
+// Borrows the tree for this call, lowers children before parents, and returns
+// only the root candidate. All entries must belong to one unshared, acyclic tree.
+// Topology and aggregate geometry bounds are checked before reactive reads or
+// subtree copies. Ordinary component validation applies to each invocation.
+Result<BoundComponent> lower_component_tree(const ReactiveRuntime&, std::span<const ComponentInvocation>,
+                                          std::size_t root = 0, const ValidationContext& = {});
 } // namespace tessera

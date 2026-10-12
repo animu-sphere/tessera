@@ -6,6 +6,17 @@
 namespace tessera {
 namespace {
 using Errors = std::vector<Diagnostic>;
+using ComposedSlots = std::map<std::string, std::span<const BoundComponent>, std::less<>>;
+bool input_limit(const ComponentDescription& description, const ComponentArguments& arguments, std::size_t composed_slots) {
+    return description.props.size() > max_component_props || arguments.props.size() > max_component_props ||
+        description.slots.size() > max_component_slots || arguments.slots.size() > max_component_slots ||
+        composed_slots > max_component_slots - arguments.slots.size() ||
+        description.actions.size() > max_component_actions || arguments.actions.size() > max_component_actions ||
+        description.styles.size() > max_component_styles || arguments.styles.size() > max_component_styles ||
+        description.properties.size() > max_property_bindings ||
+        description.events.size() > max_property_bindings - description.properties.size() ||
+        description.style_bindings.size() > max_property_bindings - description.properties.size() - description.events.size();
+}
 void error(Errors& errors, std::string code, std::string path, std::string message) {
     errors.push_back({std::move(code), Severity::error, std::move(path), std::move(message), {}});
 }
@@ -52,14 +63,14 @@ bool fits(const UiNode& node, std::size_t depth, std::size_t& count) {
     return true;
 }
 void style_overrides(const UiNode& node, const std::map<std::string, StyleDeclarations, std::less<>>& targets,
-                     const ComponentDescription& description, const ComponentArguments& arguments,
+                     const ComponentDescription& description, const ComponentArguments& arguments, const ComposedSlots& composed_slots,
                      std::vector<StyleDeclarations>& overrides) {
     const auto found = node.id ? targets.find(*node.id) : targets.end();
     overrides.push_back(found == targets.end() ? StyleDeclarations{} : found->second);
     if (node.id) for (const auto& slot : description.slots) {
         if (slot.target != *node.id) continue;
-        const auto composed = arguments.composed_slots.find(slot.name);
-        if (composed != arguments.composed_slots.end()) {
+        const auto composed = composed_slots.find(slot.name);
+        if (composed != composed_slots.end()) {
             for (const auto& child : composed->second) {
                 if (!child.overrides.empty()) overrides.insert(overrides.end(), child.overrides.begin(), child.overrides.end());
                 else {
@@ -78,9 +89,10 @@ void style_overrides(const UiNode& node, const std::map<std::string, StyleDeclar
         }
         return; // Parent mappings never address child component content.
     }
-    for (const auto& child : node.children) style_overrides(child, targets, description, arguments, overrides);
+    for (const auto& child : node.children) style_overrides(child, targets, description, arguments, composed_slots, overrides);
 }
 void lower(UiNode& node, const ComponentDescription& description, const ComponentArguments& arguments,
+           const ComposedSlots& composed_slots,
            const std::map<std::string, Property, std::less<>>& values,
            const std::map<std::string, std::string, std::less<>>& actions, PropertyStages& stages) {
     if (node.id) {
@@ -103,10 +115,10 @@ void lower(UiNode& node, const ComponentDescription& description, const Componen
         for (const auto& slot : description.slots) {
             if (slot.target != *node.id) continue;
             const auto found = arguments.slots.find(slot.name);
-            const auto composed = arguments.composed_slots.find(slot.name);
+            const auto composed = composed_slots.find(slot.name);
             if (found != arguments.slots.end() && !found->second.empty()) {
                 node.children = found->second;
-            } else if (composed != arguments.composed_slots.end()) {
+            } else if (composed != composed_slots.end()) {
                 for (const auto& child : composed->second) node.children.push_back(child.document.root);
             }
             if (!node.children.empty()) {
@@ -116,21 +128,13 @@ void lower(UiNode& node, const ComponentDescription& description, const Componen
             return; // Slot content is opaque to this component's mappings.
         }
     }
-    for (auto& child : node.children) lower(child, description, arguments, values, actions, stages);
+    for (auto& child : node.children) lower(child, description, arguments, composed_slots, values, actions, stages);
 }
-} // namespace
 
-Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const ComponentDescription& description,
-                                     const ComponentArguments& arguments, const ValidationContext& context) {
+Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, const ComponentDescription& description,
+    const ComponentArguments& arguments, const ComposedSlots& composed_slots, const ValidationContext& context) {
     Errors errors;
-    if (description.props.size() > max_component_props || arguments.props.size() > max_component_props ||
-        description.slots.size() > max_component_slots || arguments.slots.size() > max_component_slots ||
-        arguments.composed_slots.size() > max_component_slots - arguments.slots.size() ||
-        description.actions.size() > max_component_actions || arguments.actions.size() > max_component_actions ||
-        description.styles.size() > max_component_styles || arguments.styles.size() > max_component_styles ||
-        description.properties.size() > max_property_bindings ||
-        description.events.size() > max_property_bindings - description.properties.size() ||
-        description.style_bindings.size() > max_property_bindings - description.properties.size() - description.events.size()) {
+    if (input_limit(description, arguments, composed_slots.size())) {
         error(errors, "component_limit", "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined property/event/style mappings.");
         return {{}, std::move(errors)};
     }
@@ -280,7 +284,7 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
         if (!slots.contains(key))
             error(errors, "component_unknown_slot", "/slots/" + detail::pointer_token(key), "Supply only declared slots.");
     }
-    for (const auto& [key, children] : arguments.composed_slots) {
+    for (const auto& [key, children] : composed_slots) {
         const auto path = "/slots/" + detail::pointer_token(key);
         if (!slots.contains(key))
             error(errors, "component_unknown_slot", path, "Supply only declared slots.");
@@ -290,15 +294,15 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
     for (const auto& slot : description.slots) {
         const auto path = "/slots/" + detail::pointer_token(slot.name);
         const auto found = arguments.slots.find(slot.name);
-        const auto composed = arguments.composed_slots.find(slot.name);
+        const auto composed = composed_slots.find(slot.name);
         const auto size = found != arguments.slots.end() ? found->second.size() :
-            composed != arguments.composed_slots.end() ? composed->second.size() : 0;
+            composed != composed_slots.end() ? composed->second.size() : 0;
         if (size < slot.minimum || size > slot.maximum) {
             error(errors, "component_slot_count", path, "Supply between " + std::to_string(slot.minimum) + " and " +
                 std::to_string(slot.maximum) + " children in this slot.");
             continue;
         }
-        if (found == arguments.slots.end() && composed == arguments.composed_slots.end()) continue;
+        if (found == arguments.slots.end() && composed == composed_slots.end()) continue;
         for (std::size_t i = 0; i < size; ++i) {
             const auto* bound = found == arguments.slots.end() ? &composed->second[i] : nullptr;
             const auto& child = bound ? bound->document.root : found->second[i];
@@ -396,10 +400,10 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
     if (!errors.empty()) return {{}, std::move(errors)};
     BoundComponent candidate;
     candidate.document = description.document;
-    lower(candidate.document.root, description, arguments, values, action_values, candidate.stages);
+    lower(candidate.document.root, description, arguments, composed_slots, values, action_values, candidate.stages);
     errors = validate(candidate.document, context);
     if (!errors.empty()) return {{}, std::move(errors)};
-    const bool child_styles = std::any_of(arguments.composed_slots.begin(), arguments.composed_slots.end(), [](const auto& slot) {
+    const bool child_styles = std::any_of(composed_slots.begin(), composed_slots.end(), [](const auto& slot) {
         return std::any_of(slot.second.begin(), slot.second.end(), [](const auto& child) { return !child.overrides.empty(); });
     });
     if (!description.style_bindings.empty() || child_styles) {
@@ -411,8 +415,175 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
                 candidate.stages = candidate.stages | PropertyStages::style | PropertyStages::layout |
                     PropertyStages::paint | PropertyStages::input | PropertyStages::semantics;
         }
-        style_overrides(description.document.root, mapped_styles, description, arguments, candidate.overrides);
+        style_overrides(description.document.root, mapped_styles, description, arguments, composed_slots, candidate.overrides);
     }
     return {std::move(candidate), {}};
+}
+} // namespace
+
+Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const ComponentDescription& description,
+                                     const ComponentArguments& arguments, const ValidationContext& context) {
+    if (input_limit(description, arguments, arguments.composed_slots.size()))
+        return {{}, {{"component_limit", Severity::error, "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined property/event/style mappings.", {}}}};
+    ComposedSlots slots;
+    for (const auto& [key, children] : arguments.composed_slots) slots.emplace(key, children);
+    return lower_component_impl(runtime, description, arguments, slots, context);
+}
+
+Result<BoundComponent> lower_component_tree(const ReactiveRuntime& runtime, std::span<const ComponentInvocation> invocations,
+                                          std::size_t root, const ValidationContext& context) {
+    Errors errors;
+    if (invocations.empty() || invocations.size() > max_component_invocations) {
+        error(errors, "component_invocation_limit", "/invocations", "Supply between 1 and 4096 invocation records.");
+        return {{}, std::move(errors)};
+    }
+    if (root >= invocations.size()) {
+        error(errors, "component_invocation_index", "/root", "Select a root index within the invocation array.");
+        return {{}, std::move(errors)};
+    }
+    const auto location = [](std::size_t i) { return "/invocations/" + std::to_string(i); };
+    std::vector<unsigned char> visits(invocations.size());
+    std::vector<std::size_t> order;
+    auto visit = [&](auto&& self, std::size_t i, std::size_t depth, const std::string& path) -> bool {
+        if (i >= invocations.size()) {
+            error(errors, "component_invocation_index", path, "Use a child index within the invocation array.");
+            return false;
+        }
+        if (visits[i]) {
+            error(errors, visits[i] == 1 ? "component_invocation_cycle" : "component_invocation_reuse", path,
+                  "Each invocation must occur once in an acyclic tree; supply a separate record for each instance.");
+            return false;
+        }
+        if (depth > max_document_depth) {
+            error(errors, "component_document_limit", path, "Keep the invocation tree within 64 levels.");
+            return false;
+        }
+        visits[i] = 1;
+        const auto& invocation = invocations[i];
+        const auto& arguments = invocation.arguments;
+        if (input_limit(invocation.component, arguments, arguments.composed_slots.size()) ||
+            invocation.invocation_slots.size() > max_component_slots - arguments.slots.size() - arguments.composed_slots.size()) {
+            error(errors, "component_limit", location(i) + "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined mappings; all three slot maps share the slot budget.");
+            return false;
+        }
+        for (const auto& [key, children] : invocation.invocation_slots) {
+            const auto slot_path = location(i) + "/slots/" + detail::pointer_token(key);
+            const auto& declarations = invocation.component.slots;
+            const auto slot = std::find_if(declarations.begin(), declarations.end(), [&](const auto& s) { return s.name == key; });
+            if (slot == declarations.end()) {
+                error(errors, "component_unknown_slot", slot_path, "Supply only declared slots.");
+                return false;
+            }
+            if (arguments.slots.contains(key) || arguments.composed_slots.contains(key)) {
+                error(errors, "component_duplicate_slot_argument", slot_path, "Give this slot one raw, composed or invocation writer.");
+                return false;
+            }
+            if (children.size() < slot->minimum || children.size() > slot->maximum || children.size() > max_document_nodes) {
+                error(errors, "component_slot_count", slot_path, "Supply the declared number of invocation children.");
+                return false;
+            }
+        }
+        // Declared slot order, then supplied child order, determines postorder.
+        for (const auto& slot : invocation.component.slots) {
+            const auto found = invocation.invocation_slots.find(slot.name);
+            if (found == invocation.invocation_slots.end()) continue;
+            for (std::size_t j = 0; j < found->second.size(); ++j) {
+                const auto child = found->second[j];
+                const auto child_path = location(i) + "/slots/" + detail::pointer_token(slot.name) + "/" + std::to_string(j);
+                if (!self(self, child, depth + 1, child_path)) return false;
+                if (!contains(slot.accepted, invocations[child].component.document.root.kind)) {
+                    error(errors, "component_slot_kind", child_path + "/type", "Supply a root node kind accepted by this slot.");
+                    return false;
+                }
+            }
+        }
+        visits[i] = 2;
+        order.push_back(i);
+        return true;
+    };
+    if (!visit(visit, root, 1, "/root")) return {{}, std::move(errors)};
+    for (std::size_t i = 0; i < visits.size(); ++i) if (!visits[i]) {
+        error(errors, "component_invocation_unreachable", location(i), "Connect every invocation to the selected root or remove it.");
+        return {{}, std::move(errors)};
+    }
+
+    // Count all authored nodes once before any subtree copying. Each record and
+    // each supplied child contributes to the final tree; no shared expansion.
+    std::size_t count = 0;
+    auto measure = [&](auto&& self, const UiNode& node, std::size_t depth, std::size_t& height) -> bool {
+        if (++count > max_document_nodes || depth > max_document_depth) return false;
+        height = std::max(height, depth);
+        for (const auto& child : node.children) if (!self(self, child, depth + 1, height)) return false;
+        return true;
+    };
+    std::vector<std::size_t> heights(invocations.size());
+    for (const auto i : order) {
+        const auto& invocation = invocations[i];
+        const auto base = location(i);
+        if (!measure(measure, invocation.component.document.root, 1, heights[i])) {
+            error(errors, "component_document_limit", base + "/component/document/root", "Keep all invocation input nodes within 64 levels and 10000 nodes combined.");
+            return {{}, std::move(errors)};
+        }
+        std::map<std::string, Target, std::less<>> targets;
+        std::size_t template_count = 0;
+        index(invocation.component.document.root, "/root", 1, targets, template_count);
+        // Measure raw/composed children even for invalid/unknown slot names so
+        // malformed input cannot bypass the pre-copy aggregate budget.
+        auto supplied = [&](const auto& slots, auto get_node) {
+            for (const auto& [key, children] : slots) for (std::size_t j = 0; j < children.size(); ++j) {
+                std::size_t height = 0;
+                const auto path = base + "/slots/" + detail::pointer_token(key) + "/" + std::to_string(j);
+                if (!measure(measure, get_node(children[j]), 1, height)) {
+                    error(errors, "component_document_limit", path, "Keep all invocation input nodes within 64 levels and 10000 nodes combined.");
+                    return false;
+                }
+                for (const auto& slot : invocation.component.slots) if (slot.name == key) {
+                    const auto target = targets.find(slot.target);
+                    if (target != targets.end()) heights[i] = std::max(heights[i], target->second.depth + height);
+                }
+            }
+            return true;
+        };
+        if (!supplied(invocation.arguments.slots, [](const UiNode& node) -> const UiNode& { return node; }) ||
+            !supplied(invocation.arguments.composed_slots, [](const BoundComponent& child) -> const UiNode& { return child.document.root; }))
+            return {{}, std::move(errors)};
+        for (const auto& slot : invocation.component.slots) {
+            const auto found = invocation.invocation_slots.find(slot.name);
+            const auto target = targets.find(slot.target);
+            if (found == invocation.invocation_slots.end() || target == targets.end()) continue;
+            for (const auto child : found->second) heights[i] = std::max(heights[i], target->second.depth + heights[child]);
+        }
+        if (heights[i] > max_document_depth) {
+            error(errors, "component_document_limit", base + "/component/document/root", "Keep the composed invocation document within 64 levels.");
+            return {{}, std::move(errors)};
+        }
+    }
+
+    std::vector<std::optional<BoundComponent>> results(invocations.size());
+    for (const auto i : order) {
+        const auto& invocation = invocations[i];
+        std::map<std::string, std::vector<BoundComponent>, std::less<>> children;
+        ComposedSlots slots;
+        for (const auto& [key, values] : invocation.arguments.composed_slots) slots.emplace(key, values);
+        for (const auto& [key, indices] : invocation.invocation_slots) {
+            auto& values = children[key];
+            values.reserve(indices.size());
+            for (const auto child : indices) {
+                values.push_back(std::move(*results[child]));
+                results[child].reset();
+            }
+            slots.emplace(key, values);
+        }
+        auto lowered = lower_component_impl(runtime, invocation.component, invocation.arguments, slots, context);
+        if (!lowered) {
+            for (auto& diagnostic : lowered.diagnostics) {
+                // Whole-graph entry failures keep their graph location.
+                if (!diagnostic.path.starts_with("/reactive")) diagnostic.path = location(i) + diagnostic.path;
+            }
+            return {{}, std::move(lowered.diagnostics)};
+        }
+        results[i] = std::move(*lowered.value);
+    }
+    return {std::move(results[root]), {}};
 }
 } // namespace tessera
