@@ -21,6 +21,13 @@ struct SourceSpan {
     bool operator==(const SourceSpan&) const = default;
 };
 
+// Independent caller-declared origin, possibly outside the template file/range.
+struct SourceLocation {
+    std::string file;
+    SourceSpan span;
+    bool operator==(const SourceLocation&) const = default;
+};
+
 // Tooling metadata for one resulting node; never encoded as JSON v1 fields.
 struct NodeSource {
     std::string pointer; // JSON pointer of the node object, e.g. "/root/children/1".
@@ -31,8 +38,17 @@ struct NodeSource {
     // before composition; pointer always addresses the resulting document.
     std::optional<std::string> file;
     bool mapped = true; // False for generated/raw nodes without an authored span.
-    // Present properties without an authored value span (e.g. reactive mappings).
+    // Present properties without a template value span (e.g. reactive mappings).
     std::set<std::string, std::less<>> unmapped_properties;
+    // Instance provenance is separate from authored template spans. Argument
+    // locations describe supplied expressions, not the bytes of settled values.
+    std::optional<SourceLocation> invocation;
+    std::map<std::string, SourceLocation, std::less<>> property_arguments;
+    std::map<std::string, SourceLocation, std::less<>> event_arguments;
+    std::optional<SourceLocation> style_argument;
+    bool has_provenance() const {
+        return invocation || !property_arguments.empty() || !event_arguments.empty() || style_argument;
+    }
     bool operator==(const NodeSource&) const = default;
 };
 
@@ -43,6 +59,7 @@ struct DocumentSourceMap {
 };
 
 inline constexpr std::size_t max_source_file_bytes = 4096;
+std::vector<Diagnostic> validate_source_location(const SourceLocation&, std::string_view path);
 // Bounded shape, pointer, file and span validation; does not validate document
 // semantics or authenticate source contents. No copying or external reads.
 std::vector<Diagnostic> validate_sources(const UiDocument&, const DocumentSourceMap&,

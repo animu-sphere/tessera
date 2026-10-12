@@ -72,9 +72,9 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
             element.children.push_back(child.index);
             snapshot.elements[child.index].parent = i;
         }
-        if (input.sources && input.sources->nodes[i].mapped) {
+        if (input.sources && (input.sources->nodes[i].mapped || input.sources->nodes[i].has_provenance())) {
             element.source = input.sources->nodes[i];
-            if (!element.source->file) element.source->file = input.sources->file;
+            if (element.source->mapped && !element.source->file) element.source->file = input.sources->file;
         }
     }
     for (const auto& box : input.layout->boxes)

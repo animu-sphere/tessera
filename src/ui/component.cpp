@@ -20,6 +20,30 @@ bool input_limit(const ComponentDescription& description, const ComponentArgumen
 void error(Errors& errors, std::string code, std::string path, std::string message) {
     errors.push_back({std::move(code), Severity::error, std::move(path), std::move(message), {}});
 }
+Errors argument_sources(const ComponentArguments& arguments, const std::string& path = "/sources") {
+    Errors errors;
+    if (!arguments.sources) return errors;
+    const auto& sources = *arguments.sources;
+    if (sources.props.size() > max_component_props || sources.actions.size() > max_component_actions ||
+        sources.styles.size() > max_component_styles) {
+        error(errors, "component_limit", path, "Supply at most 256 prop, action and style origins each.");
+        return errors;
+    }
+    if (sources.invocation) errors = validate_source_location(*sources.invocation, path + "/invocation");
+    auto check = [&](const auto& origins, const auto& values, const std::string& kind) {
+        for (const auto& [key, origin] : origins) {
+            const auto location = path + "/" + kind + "/" + detail::pointer_token(key);
+            if (!values.contains(key))
+                error(errors, "component_source_argument", location, "Supply an origin only for an explicitly supplied argument.");
+            auto diagnostics = validate_source_location(origin, location);
+            errors.insert(errors.end(), diagnostics.begin(), diagnostics.end());
+        }
+    };
+    check(sources.props, arguments.props, "props");
+    check(sources.actions, arguments.actions, "actions");
+    check(sources.styles, arguments.styles, "styles");
+    return errors;
+}
 void name(Errors& errors, std::string_view value, const std::string& path) {
     const bool controls = std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; });
     if (value.empty() || value.size() > 256 || controls || !detail::valid_utf8(value))
@@ -87,12 +111,36 @@ void component_sources(const UiNode& node, const std::string& path, const Compon
                        const ComponentArguments& arguments, const ComposedSlots& slots,
                        std::size_t& template_index, std::vector<NodeSource>& out) {
     auto source = source_record(node, path, description.sources ? &*description.sources : nullptr, template_index);
+    source.invocation = arguments.sources ? arguments.sources->invocation : std::nullopt;
     // A template placeholder is not the origin of an instance value, even when
     // the value happens to equal it. Preserve the node declaration's span only.
     if (node.id) for (const auto& binding : description.properties) {
         if (binding.target != *node.id) continue;
         source.properties.erase(binding.property);
         source.unmapped_properties.insert(binding.property);
+        source.property_arguments.erase(binding.property);
+        if (arguments.sources) {
+            const auto found = arguments.sources->props.find(binding.prop);
+            if (found != arguments.sources->props.end()) source.property_arguments.emplace(binding.property, found->second);
+        }
+    }
+    if (node.id) {
+        for (const auto& binding : description.events) {
+            if (binding.target != *node.id) continue;
+            source.event_arguments.erase(binding.event);
+            if (arguments.sources) {
+                const auto found = arguments.sources->actions.find(binding.action);
+                if (found != arguments.sources->actions.end()) source.event_arguments.emplace(binding.event, found->second);
+            }
+        }
+        for (const auto& binding : description.style_bindings) {
+            if (binding.target != *node.id) continue;
+            source.style_argument.reset();
+            if (arguments.sources) {
+                const auto found = arguments.sources->styles.find(binding.style);
+                if (found != arguments.sources->styles.end()) source.style_argument = found->second;
+            }
+        }
     }
     out.push_back(std::move(source));
     if (node.id) for (const auto& slot : description.slots) {
@@ -194,6 +242,8 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
         error(errors, "component_limit", "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined property/event/style mappings.");
         return {{}, std::move(errors)};
     }
+    errors = argument_sources(arguments);
+    if (!errors.empty()) return {{}, std::move(errors)};
     name(errors, description.kind, "/component/kind");
     auto template_errors = validate(description.document, context);
     for (auto& diagnostic : template_errors) {
@@ -484,11 +534,13 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
     const bool child_sources = std::any_of(composed_slots.begin(), composed_slots.end(), [](const auto& slot) {
         return std::any_of(slot.second.begin(), slot.second.end(), [](const auto& child) { return child.sources.has_value(); });
     });
-    if (description.sources || child_sources) {
+    if (description.sources || arguments.sources || child_sources) {
         candidate.sources.emplace();
         if (description.sources) candidate.sources->file = description.sources->file;
         std::size_t index = 0;
         component_sources(description.document.root, "/root", description, arguments, composed_slots, index, candidate.sources->nodes);
+        errors = validate_sources(candidate.document, *candidate.sources);
+        if (!errors.empty()) return {{}, std::move(errors)};
     }
     return {std::move(candidate), {}};
 }
@@ -537,6 +589,11 @@ Result<BoundComponent> lower_component_tree(const ReactiveRuntime& runtime, std:
         if (input_limit(invocation.component, arguments, arguments.composed_slots.size()) ||
             invocation.invocation_slots.size() > max_component_slots - arguments.slots.size() - arguments.composed_slots.size()) {
             error(errors, "component_limit", location(i) + "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined mappings; all three slot maps share the slot budget.");
+            return false;
+        }
+        auto source_errors = argument_sources(arguments, location(i) + "/sources");
+        if (!source_errors.empty()) {
+            errors.insert(errors.end(), source_errors.begin(), source_errors.end());
             return false;
         }
         for (const auto& [key, children] : invocation.invocation_slots) {

@@ -192,12 +192,168 @@ void warning_availability_and_inspection_rejection() {
     check(has(capture_inspection({tree.value->get(), styles, &*layout.value, &map}).diagnostics,
               "source_map_mismatch", "/sources/nodes/1"), "Inspection rejects malformed composed map pointers");
 }
+
+void invocation_argument_origins() {
+    ReactiveRuntime runtime;
+    auto label = runtime.signal(runtime.root(), "label", std::string("Placeholder"));
+    int evaluations = 0;
+    auto caption = runtime.computed<std::string>(runtime.root(), "caption", [&] { ++evaluations; return label.read(); });
+    auto component = sourced(leaf_json, "template.json", "caption");
+    component.props = {{"caption", PropertyType::string, {}}, {"focus", PropertyType::boolean, Property{true}}};
+    component.properties = {{"caption", "caption", "text"}, {"focus", "caption", "focusable"}};
+    component.actions = {{"click", {}}}; component.events = {{"click", "caption", "activate"}};
+    StyleDeclarations declarations; declarations.height = Dimension::points(24);
+    component.styles = {{"row", {}}}; component.style_bindings = {{"row", "caption"}};
+    ComponentArguments arguments;
+    arguments.props["caption"] = caption; arguments.actions["click"] = std::string("go");
+    arguments.styles["row"] = declarations;
+    const SourceLocation call{"view.cpp", {100, 200}}, prop{"model.cpp", {10, 20}},
+        action{"actions.cpp", {20, 30}}, style{"theme.cpp", {30, 40}};
+    arguments.sources = ComponentArgumentSources{call, {{"caption", prop}}, {{"click", action}}, {{"row", style}}};
+    const ValidationContext context{{"go"}};
+    runtime.flush();
+    auto leaf = lower_component(runtime, component, arguments, context);
+    check(leaf && leaf.value->sources && evaluations == 1, "Explicit origins lower without evaluating again");
+    const auto& origin = leaf.value->sources->nodes[0];
+    check(origin.file == "template.json" && origin.invocation == call && origin.property_arguments.at("text") == prop &&
+          !origin.property_arguments.contains("focusable") && origin.event_arguments.at("activate") == action &&
+          origin.style_argument == style && !origin.properties.contains("text") && origin.unmapped_properties.contains("text"),
+          "Call, expression, event and style origins have independent files; defaults have no argument origin");
+    auto plain_arguments = arguments; plain_arguments.sources.reset();
+    auto plain = lower_component(runtime, component, plain_arguments, context);
+    check(plain && plain.value->document == leaf.value->document && plain.value->stages == leaf.value->stages &&
+          plain.value->overrides == leaf.value->overrides && save_document(plain.value->document, context).value ==
+          save_document(leaf.value->document, context).value, "Instance provenance does not change runtime values or JSON");
+
+    // Parent origins are confined to its template; nested child origins survive.
+    ComponentInvocation root; root.component = container("outer"); root.invocation_slots["body"] = {1};
+    root.arguments.sources = ComponentArgumentSources{SourceLocation{"outer.cpp", {0, 5}}, {}, {}, {}};
+    std::vector<ComponentInvocation> invocations{root, {component, arguments, {}}};
+    auto nested = lower_component_tree(runtime, invocations, 0, context);
+    check(nested && !nested.value->sources->nodes[0].mapped && nested.value->sources->nodes[0].invocation ==
+          root.arguments.sources->invocation && nested.value->sources->nodes[1].invocation == call &&
+          nested.value->sources->nodes[1].property_arguments.at("text") == prop,
+          "Unsourced parent and sourced child keep separate invocation identities");
+    auto outer = container("again"); ComponentArguments composed; composed.composed_slots["body"] = {*nested.value};
+    auto repeated = lower_component(runtime, outer, composed, context);
+    check(repeated && repeated.value->sources->nodes[2].pointer == "/root/children/0/children/0" &&
+          repeated.value->sources->nodes[2].invocation == call && repeated.value->sources->nodes[2].style_argument == style &&
+          validate_sources(repeated.value->document, *repeated.value->sources).empty(), "Repeated composition preserves independent origins");
+    auto tree = UiTree::create(nested.value->document, context); check(bool(tree), "Origin candidate creates tree");
+    const StyleSheet sheet;
+    auto styles = resolve_styles({tree.value->get(), &sheet, {}, nested.value->overrides});
+    check(bool(styles), "Origin fixture resolves styles");
+    PlaceholderTextShaper text;
+    auto layout = compute_layout({tree.value->get(), *styles.value, {240, 120}, &text}); check(bool(layout), "Origin fixture lays out");
+    auto captured = capture_inspection({tree.value->get(), *styles.value, &*layout.value, &*nested.value->sources});
+    check(captured && captured.value->elements[0].source && !captured.value->elements[0].source->mapped &&
+          !captured.value->elements[0].source->file && captured.value->elements[0].source->invocation == root.arguments.sources->invocation &&
+          captured.value->elements[1].source->event_arguments.at("activate") == action,
+          "Inspection preserves provenance even without authored template spans");
+    std::vector<UiInvariant> invariants{{"root-name", SemanticNameInvariant{AuthorIdTarget{"outer"}, "wrong"}},
+        {"caption", SemanticNameInvariant{AuthorIdTarget{"caption"}, "Placeholder"}}};
+    auto report = evaluate_invariants({&*captured.value, invariants, Size{240, 120}});
+    check(report && !report.value->results[0].diagnostics.empty() && !report.value->results[0].diagnostics[0].byte_offset &&
+          report.value->results[0].observations[0].source->invocation == root.arguments.sources->invocation &&
+          report.value->results[1].observations[0].source->property_arguments.at("text") == prop,
+          "Invariant reports own expression origins without inventing a template diagnostic offset");
+    auto no_template = component; no_template.sources.reset();
+    auto generated = lower_component(runtime, no_template, arguments, context);
+    check(generated && !generated.value->sources->nodes[0].mapped && !generated.value->sources->nodes[0].file &&
+          generated.value->sources->nodes[0].property_arguments.at("text") == prop &&
+          generated.value->sources->nodes[0].event_arguments.at("activate") == action &&
+          generated.value->sources->nodes[0].style_argument == style,
+          "All argument origins are observable without any template map");
+    UiNode raw; raw.kind = NodeKind::text; raw.properties["text"] = std::string("raw");
+    auto raw_arguments = root.arguments; raw_arguments.slots["body"] = {raw};
+    auto raw_result = lower_component(runtime, root.component, raw_arguments, context);
+    check(raw_result && !raw_result.value->sources->nodes[1].has_provenance() &&
+          !raw_result.value->sources->nodes[1].mapped, "Raw slot nodes cannot inherit parent invocation origins");
+    auto replaced = component; replaced.sources = *leaf.value->sources; replaced.document = leaf.value->document;
+    ComponentArguments default_arguments; default_arguments.props["caption"] = Property{std::string("Default")};
+    default_arguments.actions["click"] = std::string("go"); default_arguments.styles["row"] = declarations;
+    auto replaced_origins = lower_component(runtime, replaced, default_arguments, context);
+    check(replaced_origins && !replaced_origins.value->sources->nodes[0].has_provenance(),
+          "Rebinding clears older instance origins when the new arguments have no locations");
+    runtime.batch([&] { label.write("Updated"); }); runtime.flush();
+    auto updated = lower_component(runtime, component, arguments, context);
+    arguments.sources->props.at("caption").file = "changed.cpp";
+    check(updated && updated.value->sources == leaf.value->sources &&
+          captured.value->elements[1].source->property_arguments.at("text") == prop,
+          "Settled value changes and later input mutation cannot alter accepted origins");
+}
+
+void argument_origin_rejection() {
+    ReactiveRuntime runtime;
+    auto component = sourced(leaf_json, "template.json", "caption");
+    component.props = {{"caption", PropertyType::string, {}}};
+    component.properties = {{"caption", "caption", "text"}};
+    int evaluations = 0;
+    auto value = runtime.computed<std::string>(runtime.root(), "pending", [&] { ++evaluations; return std::string("Value"); });
+    ComponentArguments arguments; arguments.props["caption"] = value;
+    arguments.sources = ComponentArgumentSources{SourceLocation{"view.cpp", {3, 2}}, {}, {}, {}};
+    check(has(lower_component(runtime, component, arguments).diagnostics, "source_map_span", "/sources/invocation/span") &&
+          evaluations == 0, "Malformed invocation rejects before unsettled reads");
+    arguments.sources->invocation->span = {0, 0}; arguments.sources->props["not/supplied"] = {"x", {0, 1}};
+    check(has(lower_component(runtime, component, arguments).diagnostics, "component_source_argument", "/sources/props/not~1supplied"),
+          "Argument origins cannot describe defaults or absent arguments; names are pointer escaped");
+    arguments.sources->props.clear(); arguments.sources->actions["absent"] = {"x", {}};
+    arguments.sources->styles["absent"] = {"x", {}};
+    auto rejected = lower_component(runtime, component, arguments);
+    check(has(rejected.diagnostics, "component_source_argument", "/sources/actions/absent") &&
+          has(rejected.diagnostics, "component_source_argument", "/sources/styles/absent"), "All argument namespaces validate");
+    arguments.sources->actions.clear(); arguments.sources->styles.clear();
+    arguments.sources->props["caption"] = {std::string(1, static_cast<char>(0xff)), {0, 1}};
+    check(has(lower_component(runtime, component, arguments).diagnostics, "source_map_file", "/sources/props/caption/file"),
+          "Argument file identities validate UTF-8");
+    arguments.sources->props["caption"].file.assign(max_source_file_bytes + 1, 'x');
+    check(has(lower_component(runtime, component, arguments).diagnostics, "source_map_file", "/sources/props/caption/file"),
+          "Argument file identities share the byte bound");
+    arguments.sources->props["caption"].file.assign(max_source_file_bytes, 'x');
+    check(has(lower_component(runtime, component, arguments).diagnostics, "reactive_unsettled", "/reactive/root/values/pending"),
+          "Exact file byte bound reaches the ordinary settlement guard");
+    for (std::size_t i = 0; i < max_component_props; ++i) arguments.sources->props[std::to_string(i)] = {"", {}};
+    check(has(lower_component(runtime, component, arguments).diagnostics, "component_limit", "/sources"), "Origin maps have bounded counts");
+    arguments.sources = ComponentArgumentSources{};
+    ComponentInvocation root; root.component = container("root"); root.invocation_slots["body"] = {1};
+    root.arguments.sources = ComponentArgumentSources{SourceLocation{"root.cpp", {2, 1}}, {}, {}, {}};
+    std::vector<ComponentInvocation> tree{root, {component, arguments, {}}};
+    check(has(lower_component_tree(runtime, tree).diagnostics, "source_map_span", "/invocations/0/sources/invocation/span") &&
+          evaluations == 0, "Parent invocation origins validate before child reactive entry");
+    tree[0].arguments.sources.reset(); tree[1].arguments.sources->props["caption"] = {"x", {2, 1}};
+    check(has(lower_component_tree(runtime, tree).diagnostics, "source_map_span", "/invocations/1/sources/props/caption/span"),
+          "Nested origin errors identify the owning invocation");
+    runtime.flush(); arguments.sources->props["caption"] = {"", {0, 0}};
+    auto accepted = lower_component(runtime, component, arguments); check(bool(accepted), "Empty file and zero-length range remain explicit");
+    auto malformed = *accepted.value;
+    malformed.sources->nodes[0].property_arguments["text"].span = {2, 1};
+    ComponentArguments slots; slots.composed_slots["body"] = {malformed};
+    runtime.begin_batch();
+    check(has(lower_component(runtime, root.component, slots).diagnostics, "source_map_span", "/slots/body/0/sources/nodes/0/property_arguments/text/span"),
+          "Caller-modified child provenance rejects before parent reads");
+    runtime.end_batch();
+    auto map = *accepted.value->sources;
+    map.nodes[0].property_arguments.clear(); map.nodes[0].property_arguments["disabled"] = {"x", {}};
+    check(has(validate_sources(accepted.value->document, map), "source_map_mismatch", "/sources/nodes/0/property_arguments/disabled"),
+          "Template value spans cannot masquerade as instance argument origins");
+    map = *accepted.value->sources; map.nodes[0].event_arguments["activate"] = {"x", {}};
+    check(has(validate_sources(accepted.value->document, map), "source_map_mismatch", "/sources/nodes/0"),
+          "Event origins require present event bindings");
+    auto event_document = accepted.value->document; event_document.root.events["activate"] = "go";
+    map.nodes[0].event_arguments.clear(); map.nodes[0].event_arguments["cancel"] = {"x", {}};
+    check(has(validate_sources(event_document, map), "source_map_mismatch", "/sources/nodes/0/event_arguments/cancel"),
+          "Matching event counts cannot hide a different event key");
+    map = *accepted.value->sources; map.nodes[0].style_argument = SourceLocation{"style.cpp", {2, 1}};
+    check(has(validate_sources(accepted.value->document, map), "source_map_span", "/sources/nodes/0/style_argument/span"),
+          "Complete-style origins obey independent range validation");
+}
 } // namespace
 
 int main() {
     try {
         nested_presentation_and_provenance(); repeated_composition_and_validation_order(); malformed_maps_and_bounds();
         warning_availability_and_inspection_rejection();
+        invocation_argument_origins(); argument_origin_rejection();
         std::cout << "Component source checks passed.\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

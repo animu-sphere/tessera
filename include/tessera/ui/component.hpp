@@ -78,6 +78,14 @@ struct BoundComponent : BoundDocument {
     std::vector<StyleDeclarations> overrides;
     std::optional<DocumentSourceMap> sources; // Composed preorder; missing origins stay explicit.
 };
+// Optional tooling origins for explicitly supplied arguments; defaults have no
+// argument origin. File identities/ranges are independent of template sources.
+struct ComponentArgumentSources {
+    std::optional<SourceLocation> invocation;
+    std::map<std::string, SourceLocation, std::less<>> props;
+    std::map<std::string, SourceLocation, std::less<>> actions;
+    std::map<std::string, SourceLocation, std::less<>> styles;
+};
 struct ComponentArguments {
     std::map<std::string, ComponentValue, std::less<>> props;
     std::map<std::string, std::vector<UiNode>, std::less<>> slots;
@@ -87,6 +95,7 @@ struct ComponentArguments {
     // Each slot uses either slots or composed_slots, never both. Child document
     // extensions belong to that document and are not merged into the parent.
     std::map<std::string, std::vector<BoundComponent>, std::less<>> composed_slots;
+    std::optional<ComponentArgumentSources> sources;
 };
 
 // Validates schema/arguments before reading settled values or copying subtrees.

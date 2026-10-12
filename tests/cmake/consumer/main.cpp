@@ -1,6 +1,7 @@
 #include <tessera/ui/serialization.hpp>
 #include <tessera/ui/tree.hpp>
 #include <tessera/ui/async.hpp>
+#include <tessera/ui/component.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/style/style_sheet.hpp>
 #include <concepts>
@@ -44,5 +45,17 @@ int main() {
     const tessera::StyleSheet sheet;
     const auto styles = tessera::resolve_styles({tree.value->get(), &sheet, {}, {}, &theme});
     if (!tessera::validate(theme).empty() || !styles || styles.value->at(target->index).color != ink) return 8;
-    std::cout << "Source consumer: JSON round trip, owned tree, scalar CPU capture, async observation and theme agree.\n";
+    tessera::ComponentDescription component;
+    component.kind = "panel"; component.document = document;
+    component.props = {{"caption", tessera::PropertyType::string, {}}};
+    component.properties = {{"caption", "title", "text"}};
+    tessera::ComponentArguments arguments;
+    arguments.props["caption"] = title.properties.at("text");
+    const tessera::SourceLocation origin{"fixture:consumer", {0, 8}};
+    arguments.sources = tessera::ComponentArgumentSources{origin, {{"caption", origin}}, {}, {}};
+    const auto bound = tessera::lower_component(runtime, component, arguments);
+    if (!tessera::validate_source_location(origin, "/origin").empty() || !bound || bound.value->document != document ||
+        !bound.value->sources || !tessera::validate_sources(bound.value->document, *bound.value->sources).empty() ||
+        bound.value->sources->nodes[1].property_arguments.at("text") != origin) return 9;
+    std::cout << "Source consumer: JSON round trip, owned tree, scalar CPU capture, async observation, theme and component origins agree.\n";
 }
