@@ -9,6 +9,7 @@
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/keyed.hpp>
 #include <tessera/ui/component.hpp>
+#include <tessera/ui/async.hpp>
 #include <iostream>
 #include <map>
 
@@ -219,7 +220,7 @@ int main() {
     }
     // Inventory rows: keys keep each row's owner, local state, bindings, and focus
     // across host reorders; removal closes the row and reinsertion starts fresh.
-    struct Row { Signal<std::string> name; Signal<bool> pinned; Computed<std::string> label; };
+    struct Row { AsyncValue name; Signal<bool> pinned; Computed<std::string> label; };
     KeyedCollection rows(runtime.owner(panel_owner, "rows"));
     std::map<std::uint64_t, Row> row_state; // By instance lifetime.
     int label_evaluations = 0;
@@ -237,18 +238,33 @@ int main() {
         if (!update) return 14;
         for (const auto i : update.value->created) {
             const auto& row = update.value->instances[i];
-            const auto name = runtime.signal(row.owner, "name", items[i].second);
+            const AsyncValue name(runtime, row.owner, "name", PropertyType::string);
+            // Synthetic host cache; no file/network work runs in the runtime.
+            if (!name.ready_cached("item-data", items[i].second)) return 28;
             const auto pinned = runtime.signal(row.owner, "pinned", false); // Local view state.
             const auto label = runtime.computed<std::string>(row.owner, "label", [&label_evaluations, name, pinned] {
                 ++label_evaluations;
-                return name.read() + (pinned.read() ? " (pinned)" : "");
+                return std::get<std::string>(name.read().value->value) + (pinned.read() ? " (pinned)" : "");
             });
-            row_state[row.lifetime] = {name, pinned, label};
+            row_state.insert_or_assign(row.lifetime, Row{name, pinned, label});
             runtime.on_cleanup(row.owner, "thumbnail", [&unsubscribed, key = row.key] { unsubscribed.push_back(key); });
         }
-        runtime.batch([&] { // Host item data reaches each row as a prop.
-            for (std::size_t i = 0; i < items.size(); ++i) row_state[rows.instances()[i].lifetime].name.write(items[i].second);
+        bool resource_valid = true;
+        runtime.batch([&] { // Ordered host deliveries; unchanged rows keep their accepted value.
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                const auto& name = row_state.at(rows.instances()[i].lifetime).name;
+                const auto previous = name.read();
+                if (std::get<std::string>(previous.value->value) == items[i].second) continue;
+                const auto replacement = name.begin("item-data");
+                if (!replacement || !name.progress(replacement.value->attempt, 0.5) ||
+                    !name.fail(replacement.value->attempt, {"unavailable", "Synthetic retry", true}) ||
+                    !name.read().stale() || name.read().value != previous.value) { resource_valid = false; return; }
+                const auto retry = name.begin("item-data");
+                if (!retry || name.complete(replacement.value->attempt, std::string("late item data")) ||
+                    !name.complete(retry.value->attempt, items[i].second)) { resource_valid = false; return; }
+            }
         });
+        if (!resource_valid) return 28;
         if (!runtime.flush().empty()) return 15;
         ComponentDescription list_component;
         list_component.kind = "inventory";
@@ -269,7 +285,7 @@ int main() {
             item_component.styles = {{"row", row_style}};
             item_component.style_bindings = {{"row", row.key}};
             ComponentArguments item_arguments;
-            item_arguments.props["caption"] = row_state[row.lifetime].label;
+            item_arguments.props["caption"] = row_state.at(row.lifetime).label;
             invocations[0].invocation_slots["rows"].push_back(invocations.size());
             invocations.push_back({std::move(item_component), std::move(item_arguments), {}});
         }
@@ -290,7 +306,7 @@ int main() {
         if (!runtime.deliver_effects(EffectPhase::notify).empty() || !runtime.deliver_cleanups().empty()) return 19;
         if (lantern == 0) {
             lantern = rows.find("item-7")->lifetime;
-            row_state[lantern].pinned.write(true); // A user toggle on this row, flushed next generation.
+            row_state.at(lantern).pinned.write(true); // A user toggle on this row, flushed next generation.
         }
         std::cout << "Rows:";
         for (const auto& node : list.root.children) std::cout << ' ' << *node.id << "=\"" << std::get<std::string>(node.properties.at("text")) << '"';
@@ -299,7 +315,7 @@ int main() {
     // Reorder kept the pinned Lantern row and its focus; removal unsubscribed it,
     // and reinsertion created a new lifetime, so a late result for the old row is stale.
     const auto* lantern_row = rows.find("item-7");
-    if (!lantern_row || rows.current("item-7", lantern) || row_state[lantern_row->lifetime].pinned.read() ||
+    if (!lantern_row || rows.current("item-7", lantern) || row_state.at(lantern_row->lifetime).pinned.read() ||
         unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6) return 20;
 
     // One application gesture spans three reactive batches. Each edit lowers a
