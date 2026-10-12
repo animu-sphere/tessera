@@ -1,5 +1,6 @@
 #include <tessera/ui/serialization.hpp>
 #include <tessera/ui/tree.hpp>
+#include <tessera/ui/async.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <concepts>
 #include <iostream>
@@ -28,5 +29,12 @@ int main() {
     const tessera::UiDrawList paint{{tessera::DrawRect{{{0,0},{1,1}},{1,0,0,1}}}};
     const auto capture = frames.capture({0,{1,1},1,{1,1},&paint});
     if (!capture || capture.value->pixels != std::vector<std::uint8_t>{255,0,0,255}) return 5;
-    std::cout << "Source consumer: JSON round trip, owned tree and scalar CPU capture agree.\n";
+    tessera::ReactiveRuntime runtime;
+    tessera::AsyncValue asset(runtime, runtime.root(), "asset", tessera::PropertyType::string);
+    const auto attempt = asset.begin("host-request");
+    if (!attempt || !asset.complete(attempt.value->attempt, std::string("Ready"))) return 6;
+    runtime.flush();
+    const auto observed = asset.snapshot(runtime);
+    if (observed.status != tessera::AsyncStatus::ready || std::get<std::string>(observed.value->value) != "Ready") return 7;
+    std::cout << "Source consumer: JSON round trip, owned tree, scalar CPU capture and async observation agree.\n";
 }
