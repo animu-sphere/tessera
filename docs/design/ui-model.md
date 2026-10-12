@@ -95,6 +95,16 @@ Compatible-state preservation during reload uses the same identity rules; see [P
 
 Property bindings follow [dependency and change detection](reactive-runtime.md#proposed-dependencies-and-change-detection) and [batch scheduling](reactive-runtime.md#proposed-update-batches-and-scheduler). Dirty property/subtree updates must match full-tree results. Test state capture/restore uses only host-declared slots through [inspection](inspection.md#proposed-inspection-records-and-source-mapping), with application state ownership unchanged.
 
+## Proposed automatic component lifecycle
+
+Mounting a component associates its scoped key and component type with a stable reactive owner, named local-state slots, declared signals, effects, cleanup, async observations, source origin, fault boundary, and reload-compatibility metadata. Lowering uses the ordinary component/document representation; automatic setup composes [reactive owners](reactive-runtime.md#implemented-in-process-graph-contract), [keyed reconciliation](#implemented-keyed-instance-reconciliation), and [publication](reactive-runtime.md#implemented-effect-and-publication-boundary). Public authoring syntax and concrete registration types are open decisions.
+
+Local-state and signal declarations need stable names and exact types so compatible updates retain accepted values without depending on declaration order. State compatibility is explicit by component identity/type and slot schema; an incompatible slot or subtree follows the declared reset policy under [reload](path-finder-integration.md#live-reload-transaction). Component-local view state does not take ownership of application data or history.
+
+Compatible keyed reorder retains the owner and its registered state, effects, and observations. Removal or incompatible replacement closes the lifetime, disposes children deterministically, invalidates queued work, and queues once-only external cleanup for host delivery after traversal. Component-bound observations register host cancellation/detachment with that lifetime; a late completion must match the live owner/request/attempt and cannot update a recreated key. Submitted assets obey [completion-safe retirement](rendering.md#implemented-frame-contract) independently of logical disposal.
+
+Lifecycle creation preserves definition, invocation, argument, and available declaration origins for inspection and diagnostics. Component failures project the [fault boundary](reactive-runtime.md#implemented-subtree-fault-boundary) through a declared [UI fallback](#proposed-error-boundaries), without publishing partial content. Verify a keyed row that creates state and an observation, survives reorder, is removed, rejects late completion, and is recreated with a fresh lifetime and owned source/inspection records.
+
 ## Implemented component description and lowering
 
 [component.hpp](../../include/tessera/ui/component.hpp) defines the data-only `ComponentDescription`, `ComponentProp`, `ComponentProperty`, `ComponentSlot`, `ComponentValue`, and `ComponentArguments`; [component.cpp](../../src/ui/component.cpp) owns `lower_component`. A description has a stable `kind`, an ordinary valid document template, ordered prop declarations, semantic property mappings, ordered slot declarations, [action/event declarations](#implemented-component-actions-and-events), and [style declarations/mappings](#implemented-component-style-bindings). It contains no executable builder or renderer callback. Template Text nodes require authored placeholders. Component descriptions and arguments are host-built values outside the serialized document format.
@@ -293,9 +303,15 @@ Extend the implemented descriptors as the schema evolves, without a general refl
 
 Use the same descriptors for Inspector generation and invalidation. Do not maintain a second editor-owned list of types/defaults. This proposal does not add fields to JSON v1. Path-finder consumes this metadata under its [bridge contract](path-finder-integration.md).
 
+Separate static schema descriptors from observations of one generation. The schema supplies stable property ID, display name, semantic type, default/absence rules, editability, validation rules, enum/range metadata where applicable, and affected stages. Observations join current, authored, default, inherited, and resolved values as applicable, source origin, component owner, and generation. Missing or inapplicable values are explicit rather than guessed from a rendered result; derived observations are read-only unless they expose a declared edit operation.
+
+The affected-stage set follows [property effects](styling.md#property-effects); resource-related effects need an explicit extension when resource properties are introduced. Metadata can support semantic, style, layout, paint, resource, and interaction work without requiring incremental evaluation. Inspector edits validate a typed candidate, enter the ordinary command/transaction or declared runtime edit boundary, and publish one accepted generation. A generic Inspector must discover editors from this schema without hardcoding Box/Text properties, and observe the resulting property/source metadata after an edit.
+
 ## Proposed overlays and portals
 
 An overlay root provides a presentation layer for popups, tooltips, context menus, and modals outside ordinary content clipping. A portal changes presentation ancestry while retaining declared component/state ownership and stable identity. Define logical versus presentation parentage explicitly before adding it to the document schema.
+
+`OverlayRoot` and `Portal` are the shared primitives for composed Tooltip, Dropdown, and Modal behavior. Presentation relocation does not transfer the portal child's local state, subscriptions, source origin, or command ownership to the overlay root. The [SemanticTree](semantics.md) must express the declared logical relationships rather than deriving meaning solely from the relocated paint hierarchy; concrete relationship encoding is a schema decision.
 
 The model owns mount/unmount, keyed identity, and cleanup. [Layout](layout.md#scrolling-and-overlay-geometry) owns anchor/viewport placement; [rendering](rendering.md#proposed-overlay-paint) owns presentation order/clips; [input](input.md#proposed-overlay-interaction) owns modal focus and hit eligibility. These consumers must use the same layer identity rather than inventing independent z-order schemes.
 

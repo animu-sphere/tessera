@@ -122,7 +122,13 @@ Delivery scope is owned by [current](../roadmap/current.md) and [backlog](../roa
 
 Use the [portal model](ui-model.md#proposed-overlays-and-portals) and shared [overlay geometry](layout.md#scrolling-and-overlay-geometry) for targeting. Define modal input capture, focus scope/restoration, dismissal/back, and hit order consistently with presentation order. Tooltip lifetime belongs to interaction state. Specify behavior when anchors or owners disappear; no implicit OS pointer capture is introduced by a portal.
 
+A modal establishes a bounded focus scope for sequential and directional keyboard/gamepad navigation and remembers a restoration target by logical identity. Dismissal restores it only if it is eligible in the accepted generation, otherwise applying a declared recovery policy. Opening or closing a dropdown/modal uses ordinary actions and command scopes under the logical component owner. Verify that relocated paint, clips, targeting, focus recovery, inspection, source mapping, and replay agree for the same portal generation.
+
 ## Proposed editing, IME, and clipboard boundary
+
+An editable TextInput component supplies the minimum string property editor: a Unicode UTF-8 logical buffer, caret, selection, insertion/deletion, and left/right/home/end navigation. Runtime editing state belongs to the editing owner independently of source text; authored property source origins identify edit targets, not caret offsets. Multiline behavior is a separate consumer-driven extension; rich-text editing is outside this contract. Caret movement/deletion follows the declared [text index and segmentation services](text.md), and consumed editing keys must not also navigate or activate surrounding UI.
+
+Expose selection/value state through [semantics](semantics.md) and caret/selection/scroll geometry from the settled revision. Deterministic replay records normalized logical edit/composition and clipboard-result events with owner/revision identity, rather than relying on live clipboard contents or platform completion timing. The concrete replay encoding is a [replay](replay.md) contract decision. A Tessera Inspector string editor verifies this boundary through ordinary focus and command/transaction paths.
 
 Keep committed `TextInput` separate from composition start/update/commit/cancel. A text-editing contract needs replacement ranges, selection, caret, and copy/cut/paste requests. Declare index units and validate ranges against the document revision; UTF-8 bytes, graphemes, and glyph indices are distinct under [text](text.md).
 

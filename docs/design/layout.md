@@ -61,7 +61,7 @@ Extension order is a dependency guide; milestone scope lives in [current](../roa
 
 The [prototype scrolling rule](#implemented-prototype-algorithm) makes viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing, including nested scroll boxes; [input](input.md#implemented-scroll-routing) turns wheel deltas and reveal requests into new requested offsets.
 
-Proposed: overlay placement resolves an anchor in logical coordinates against a declared viewport, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](ui-model.md#proposed-overlays-and-portals). Layout supplies shared geometry; input and paint must not independently recompute popup positions.
+Proposed: overlay placement supports a source anchor, the declared viewport, or explicit logical coordinates, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](ui-model.md#proposed-overlays-and-portals). Layout supplies shared geometry and effective clips; input and paint must not independently recompute popup positions. Missing or removed anchors follow a declared dismissal/fallback policy and cannot leave targeting at obsolete coordinates.
 
 ## Proposed rules to settle
 
@@ -91,6 +91,10 @@ Virtualization is one shared layer, not a VirtualList-specific implementation. V
 - **Anchor.** Scroll position is restored from an anchor item key plus a local offset within that item, not a pixel offset, so prepending items, correcting estimates, or reloading does not move visible content. A follow-end policy keeps the trailing edge visible as content grows, ends when the user scrolls away, and resumes only on request.
 - **Recycling and generations.** Realized components may be recycled across keys, but identity, state, selection, and focus follow keys, never recycled instances. Realization changes settle in an update generation like any other change, and observations name the generation they belong to.
 - **Correctness reference.** Realizing every item is the reference: a virtualized frame must match the full frame within the viewport, as required by [architecture](architecture.md#frame-scheduling).
+
+For a bounded VirtualList consumer, declare a deterministic measurement/estimate policy, visible-range/overscan limits, and a semantic virtualization policy: which logical items are exposed and how navigation requests realization of an unrealized item. Semantic order and focus/selection use stable item keys rather than visible indices. State retained for unrealized keys has an explicit owner and bounded lifetime; destroying a realized row detaches its async observations, and remounting cannot accept a completion from the old lifetime. Keeping logical item state does not keep obsolete row resources alive. The concrete retention and semantic schemas are open decisions.
+
+Verify a fixture with thousands of logical items and a small bounded realized set, without treating its size as a performance guarantee. Reorder, scrolling, estimate correction, focus reveal, async row replacement, and reload must preserve declared keyed state and scroll identity and produce deterministic replay/inspection observations.
 
 Conversation, log, and terminal views motivate the anchor and follow-end rules under [conversational workspaces](conversational-ui.md#proposed-list-virtualization-requirements); spatial culling for 2D canvases follows the [graph editor](graph-editor.md#proposed-visibility-culling-and-lod).
 
