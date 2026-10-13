@@ -1,6 +1,7 @@
 #include <tessera/ui/component.hpp>
 #include "json_detail.hpp"
 #include "component_state_detail.hpp"
+#include "component_tree_detail.hpp"
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -600,8 +601,8 @@ Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const Com
     return lower_component_impl(runtime, description, arguments, slots, context);
 }
 
-static Result<BoundComponent> lower_component_tree_candidate(const ReactiveRuntime& runtime, std::span<const ComponentInvocation> invocations,
-                                          std::size_t root, const ValidationContext& context) {
+Result<std::vector<std::size_t>> detail::component_tree_order(std::span<const ComponentInvocation> invocations,
+                                                           std::size_t root) {
     Errors errors;
     if (invocations.empty() || invocations.size() > max_component_invocations) {
         error(errors, "component_invocation_limit", "/invocations", "Supply between 1 and 4096 invocation records.");
@@ -734,8 +735,15 @@ static Result<BoundComponent> lower_component_tree_candidate(const ReactiveRunti
         }
     }
 
+    return {std::move(order), {}};
+}
+
+static Result<BoundComponent> lower_component_tree_candidate(const ReactiveRuntime& runtime, std::span<const ComponentInvocation> invocations,
+                                          std::size_t root, const ValidationContext& context) {
+    auto order = detail::component_tree_order(invocations, root);
+    if (!order) return {{}, std::move(order.diagnostics)};
     std::vector<std::optional<BoundComponent>> results(invocations.size());
-    for (const auto i : order) {
+    for (const auto i : *order.value) {
         const auto& invocation = invocations[i];
         std::map<std::string, std::vector<BoundComponent>, std::less<>> children;
         ComposedSlots slots;
@@ -753,7 +761,7 @@ static Result<BoundComponent> lower_component_tree_candidate(const ReactiveRunti
         if (!lowered) {
             for (auto& diagnostic : lowered.diagnostics) {
                 // Whole-graph entry failures keep their graph location.
-                if (!diagnostic.path.starts_with("/reactive")) diagnostic.path = location(i) + diagnostic.path;
+                if (!diagnostic.path.starts_with("/reactive")) diagnostic.path = "/invocations/" + std::to_string(i) + diagnostic.path;
             }
             return {{}, std::move(lowered.diagnostics)};
         }
