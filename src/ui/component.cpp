@@ -1,5 +1,6 @@
 #include <tessera/ui/component.hpp>
 #include "json_detail.hpp"
+#include "component_state_detail.hpp"
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -9,7 +10,8 @@ namespace {
 using Errors = std::vector<Diagnostic>;
 using ComposedSlots = std::map<std::string, std::span<const BoundComponent>, std::less<>>;
 bool input_limit(const ComponentDescription& description, const ComponentArguments& arguments, std::size_t composed_slots) {
-    return description.props.size() > max_component_props || arguments.props.size() > max_component_props ||
+    return description.local_state.size() > max_component_local_state ||
+        description.props.size() > max_component_props || arguments.props.size() > max_component_props ||
         description.slots.size() > max_component_slots || arguments.slots.size() > max_component_slots ||
         composed_slots > max_component_slots - arguments.slots.size() ||
         description.actions.size() > max_component_actions || arguments.actions.size() > max_component_actions ||
@@ -269,10 +271,12 @@ Result<BoundComponent> lower_component_candidate(const ReactiveRuntime& runtime,
     const ComponentArguments& arguments, const ComposedSlots& composed_slots, const ValidationContext& context) {
     Errors errors;
     if (input_limit(description, arguments, composed_slots.size())) {
-        error(errors, "component_limit", "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined property/event/style mappings.");
+        error(errors, "component_limit", "/component", "Supply at most 256 props, slots, actions, styles and local-state declarations each, and 4096 combined property/event/style mappings.");
         return {{}, std::move(errors)};
     }
     errors = argument_sources(arguments);
+    if (!errors.empty()) return {{}, std::move(errors)};
+    errors = detail::validate_component_local_state(description.local_state, "/component/local_state");
     if (!errors.empty()) return {{}, std::move(errors)};
     name(errors, description.kind, "/component/kind");
     auto template_errors = validate(description.document, context);
@@ -590,7 +594,7 @@ Result<BoundComponent> lower_component_impl(const ReactiveRuntime& runtime, cons
 Result<BoundComponent> lower_component(const ReactiveRuntime& runtime, const ComponentDescription& description,
                                      const ComponentArguments& arguments, const ValidationContext& context) {
     if (input_limit(description, arguments, arguments.composed_slots.size()))
-        return {{}, {{"component_limit", Severity::error, "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined property/event/style mappings.", {}}}};
+        return {{}, {{"component_limit", Severity::error, "/component", "Supply at most 256 props, slots, actions, styles and local-state declarations each, and 4096 combined property/event/style mappings.", {}}}};
     ComposedSlots slots;
     for (const auto& [key, children] : arguments.composed_slots) slots.emplace(key, children);
     return lower_component_impl(runtime, description, arguments, slots, context);
@@ -629,7 +633,7 @@ static Result<BoundComponent> lower_component_tree_candidate(const ReactiveRunti
         const auto& arguments = invocation.arguments;
         if (input_limit(invocation.component, arguments, arguments.composed_slots.size()) ||
             invocation.invocation_slots.size() > max_component_slots - arguments.slots.size() - arguments.composed_slots.size()) {
-            error(errors, "component_limit", location(i) + "/component", "Supply at most 256 props, slots, actions and styles each, and 4096 combined mappings; all three slot maps share the slot budget.");
+            error(errors, "component_limit", location(i) + "/component", "Supply at most 256 props, slots, actions, styles and local-state declarations each, and 4096 combined mappings; all three slot maps share the slot budget.");
             return false;
         }
         auto source_errors = argument_sources(arguments, location(i) + "/sources");
