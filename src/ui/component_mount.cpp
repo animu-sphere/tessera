@@ -3,6 +3,7 @@
 #include "json_detail.hpp"
 #include <algorithm>
 #include <cmath>
+#include <new>
 
 namespace tessera {
 namespace {
@@ -55,11 +56,16 @@ std::vector<Diagnostic> detail::validate_component_local_state(std::span<const C
     return errors;
 }
 
-void ComponentCollection::prune() {
+void ComponentCollection::prune(ReactiveRuntime& runtime) {
     // Keyed reconciliation can fail after committing owner replacements (for
     // example, while allocating its returned records). Do not retain an owner
     // whose local state was never registered by this collection.
     std::erase_if(keyed_.instances_, [&](const KeyedInstance& instance) {
+        try { (void)runtime.faulted(instance.owner); }
+        catch (const ReactiveError& e) {
+            if (e.diagnostic().code == "disposed_reactive_owner") return true;
+            throw;
+        }
         const auto record = records_.find(instance.key);
         if (record != records_.end() && record->second.lifetime == instance.lifetime) return false;
         instance.owner.dispose();
@@ -72,6 +78,13 @@ void ComponentCollection::prune() {
 }
 
 Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std::span<const ComponentMount> mounts) {
+    if (reconciling_) return {{}, {{"component_setup_reentry", Severity::error, "/components",
+        "Reconcile this collection after its setup operation returns.", {}}}};
+    struct Guard {
+        bool& active;
+        explicit Guard(bool& value) : active(value) { active = true; }
+        ~Guard() { active = false; }
+    } guard(reconciling_);
     std::vector<Diagnostic> errors;
     if (mounts.size() > max_keyed_children) {
         error(errors, "keyed_child_limit", "/components", "Supply at most 4096 keyed components in one collection.");
@@ -133,7 +146,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
     runtime.batch([&] {
         (void)runtime.faulted(keyed_.scope_); // Validates runtime, thread and scope lifetime.
         try { update = keyed_.reconcile(runtime, children); }
-        catch (...) { prune(); throw; }
+        catch (...) { prune(runtime); throw; }
         if (!update) return;
         try {
             for (const auto i : update.value->created) {
@@ -142,8 +155,28 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
                 for (const auto& slot : mounts[i].component->local_state)
                     record.values.at(slot.name) = create(runtime, instance.owner, slot);
             }
+            // Every fresh schema is registered before host setup starts. Records
+            // stay provisional until all callbacks succeed; the context carries
+            // its own weak handles instead of observing the previous collection.
+            for (const auto i : update.value->created) {
+                if (!mounts[i].setup) continue;
+                const auto& instance = update.value->instances[i];
+                const ComponentSetup setup(instance, next.at(instance.key).values);
+                try { mounts[i].setup(runtime, setup); }
+                catch (const std::bad_alloc&) { throw; }
+                catch (const ReactiveError&) { throw; }
+                catch (const std::exception& e) {
+                    throw ReactiveError({"component_setup_failure", Severity::error,
+                        "/components/" + std::to_string(i) + "/setup", e.what(), {}});
+                } catch (...) {
+                    throw ReactiveError({"component_setup_failure", Severity::error,
+                        "/components/" + std::to_string(i) + "/setup", "Component setup threw an unknown exception.", {}});
+                }
+                (void)runtime.faulted(instance.owner); // Setup must leave its owner live.
+            }
+            for (const auto& instance : update.value->instances) (void)runtime.faulted(instance.owner);
         } catch (...) {
-            // State registration is one setup operation: release every owner
+            // State registration and callbacks form one setup operation: release every owner
             // created in this call, including fully initialized siblings.
             // Repair the weak records after ordinary owner disposal.
             for (const auto i : update.value->created) update.value->instances[i].owner.dispose();
@@ -152,13 +185,19 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
                     return update.value->instances[i].lifetime == instance.lifetime;
                 });
             });
-            prune();
+            prune(runtime);
             throw;
         }
         for (const auto& instance : update.value->instances) next.at(instance.key).lifetime = instance.lifetime;
         records_.swap(next);
     });
     return update;
+}
+
+Diagnostic ComponentSetup::error(std::string code, std::string_view slot, std::string message) const {
+    return {std::move(code), Severity::error,
+        "/components/" + detail::pointer_token(instance_.key) + "/local_state/" + detail::pointer_token(slot),
+        std::move(message), {}};
 }
 
 Diagnostic ComponentCollection::state_error(std::string code, std::string_view key,

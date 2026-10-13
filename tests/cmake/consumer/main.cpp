@@ -68,10 +68,18 @@ int main() {
         !diagnostics[0].source || diagnostics[0].source->location != origin) return 11;
     component.local_state = {{"pinned", tessera::PropertyType::boolean, tessera::Property{false}}};
     tessera::ComponentCollection components(runtime.owner(runtime.root(), "components"));
-    const std::vector<tessera::ComponentMount> mounts{{"panel", &component}};
+    int setups = 0;
+    const std::vector<tessera::ComponentMount> mounts{{"panel", &component,
+        [&](tessera::ReactiveRuntime& setup_runtime, const tessera::ComponentSetup& setup) {
+            ++setups;
+            const auto pinned = setup.state<bool>("pinned");
+            if (!pinned || setup.instance().key != "panel") throw std::runtime_error("Invalid setup state");
+            pinned.value->write(true);
+            setup_runtime.on_cleanup(setup.instance().owner, "detach", [] {});
+        }}};
     if (!components.reconcile(runtime, mounts)) return 12;
     const auto local = components.state<bool>("panel", "pinned");
-    if (!local || !local.value->write(true) || !components.reconcile(runtime, mounts) ||
+    if (!local || !local.value->read() || !components.reconcile(runtime, mounts) || setups != 1 ||
         !components.state<bool>("panel", "pinned").value->read()) return 13;
-    std::cout << "Source consumer: JSON, tree, CPU capture, async, theme, component origins, diagnostics and mounted state agree.\n";
+    std::cout << "Source consumer: JSON, tree, CPU capture, async, theme, component origins, diagnostics and component setup agree.\n";
 }

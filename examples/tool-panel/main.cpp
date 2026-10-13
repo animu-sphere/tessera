@@ -247,24 +247,24 @@ int main() {
             row_theme.variables[1].value = ThemeValue{18.0f};
         }
         std::vector<ComponentMount> children;
-        for (const auto& item : items) children.push_back({item.first, &row_definition});
+        for (const auto& item : items) children.push_back({item.first, &row_definition,
+            [&, caption = item.second](ReactiveRuntime& row_runtime, const ComponentSetup& setup) {
+                const auto& row = setup.instance();
+                const AsyncValue name(row_runtime, row.owner, "name", PropertyType::string);
+                // Synthetic host cache; no file/network work runs in the runtime.
+                if (!name.ready_cached("item-data", caption)) throw std::runtime_error("Invalid cached row name");
+                const auto local = setup.state<bool>("pinned");
+                if (!local) throw std::runtime_error("Missing pinned row state");
+                const auto pinned = *local.value; // Registered automatically on mount.
+                const auto label = row_runtime.computed<std::string>(row.owner, "label", [&label_evaluations, name, pinned] {
+                    ++label_evaluations;
+                    return std::get<std::string>(name.read().value->value) + (pinned.read() ? " (pinned)" : "");
+                });
+                row_state.insert_or_assign(row.lifetime, Row{name, pinned, label});
+                row_runtime.on_cleanup(row.owner, "thumbnail", [&unsubscribed, key = row.key] { unsubscribed.push_back(key); });
+            }});
         const auto update = rows.reconcile(runtime, children);
         if (!update) return 14;
-        for (const auto i : update.value->created) {
-            const auto& row = update.value->instances[i];
-            const AsyncValue name(runtime, row.owner, "name", PropertyType::string);
-            // Synthetic host cache; no file/network work runs in the runtime.
-            if (!name.ready_cached("item-data", items[i].second)) return 28;
-            const auto local = rows.state<bool>(row.key, "pinned");
-            if (!local) return 31;
-            const auto pinned = *local.value; // Registered automatically on mount.
-            const auto label = runtime.computed<std::string>(row.owner, "label", [&label_evaluations, name, pinned] {
-                ++label_evaluations;
-                return std::get<std::string>(name.read().value->value) + (pinned.read() ? " (pinned)" : "");
-            });
-            row_state.insert_or_assign(row.lifetime, Row{name, pinned, label});
-            runtime.on_cleanup(row.owner, "thumbnail", [&unsubscribed, key = row.key] { unsubscribed.push_back(key); });
-        }
         bool resource_valid = true;
         runtime.batch([&] { // Ordered host deliveries; unchanged rows keep their accepted value.
             for (std::size_t i = 0; i < items.size(); ++i) {

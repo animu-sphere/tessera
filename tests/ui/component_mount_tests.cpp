@@ -293,6 +293,139 @@ void lowering_and_full_presentation() {
     scope.dispose();
     check(inspection.value->elements[0].source->file == "fixture:row", "Accepted inspection owns provenance after disposal");
 }
+
+void automatic_setup_lifetime() {
+    ReactiveRuntime r;
+    const auto scope = r.owner(r.root(), "rows");
+    ComponentCollection rows(scope);
+    auto c = row();
+    std::vector<std::string> setup_order, detached;
+    std::map<std::string, AsyncValue, std::less<>> resources;
+    std::map<std::string, ComponentSetup, std::less<>> contexts;
+    int evaluations = 0, applied = 0;
+    const auto setup = [&](ReactiveRuntime& runtime, const ComponentSetup& context) {
+        const auto& instance = context.instance();
+        setup_order.push_back(instance.key);
+        contexts.insert_or_assign(instance.key, context); // Owned weak handles.
+        const auto pinned = context.state<bool>("pinned");
+        check(pinned && !pinned.value->read(), "Setup sees freshly registered state");
+        check(has(context.state<double>("pinned").diagnostics, "component_state_type",
+                  "/components/" + instance.key + "/local_state/pinned") &&
+              has(context.state<bool>("x/~").diagnostics, "component_unknown_state",
+                  "/components/" + instance.key + "/local_state/x~1~0"), "Setup uses exact-type, located state access");
+        check(has(rows.reconcile(runtime, {}).diagnostics, "component_setup_reentry", "/components"),
+              "Recursive reconciliation cannot change provisional records");
+        rejects([&] { runtime.snapshot(*pinned.value); }, "reactive_open_batch");
+        resources.insert_or_assign(instance.key, AsyncValue(runtime, instance.owner, "asset", PropertyType::string));
+        runtime.on_cleanup(instance.owner, "detach", [&, key = instance.key] { detached.push_back(key); });
+        runtime.effect<bool>(instance.owner, "status", EffectPhase::notify,
+            [&, value = *pinned.value] { ++evaluations; return value.read(); }, [&](bool) { ++applied; });
+    };
+    const auto first = mount(rows, r, {{"a", &c, setup}, {"b", &c, setup}});
+    check(first && setup_order == std::vector<std::string>{"a", "b"} && evaluations == 0 && applied == 0,
+          "Setup runs in candidate order without evaluation or effect delivery");
+    const auto a = rows.find("a")->lifetime;
+    const auto old_context = contexts.at("a");
+    const auto old_resource = resources.at("a");
+    const auto attempt = old_resource.begin("thumbnail");
+    check(static_cast<bool>(attempt), "Host starts work on the automatically attached observation");
+    state<bool>(rows, "a", "pinned").write(true);
+    r.flush(); check(r.publish() == 2, "Publication is explicit after setup settlement");
+    check(r.deliver_effects(EffectPhase::notify).empty() && applied == 2, "Host delivers owned effects explicitly");
+    const auto reordered = mount(rows, r, {{"b", &c, setup}, {"a", &c, setup}});
+    r.flush();
+    check(reordered && reordered.value->created.empty() && setup_order.size() == 2 && evaluations == 2 &&
+          rows.current("a", a) && contexts.at("a").state<bool>("pinned").value->read(),
+          "Reorder preserves state and registrations without invoking setup again");
+    const auto removed = mount(rows, r, {{"b", &c, setup}});
+    check(removed && detached.empty() && !old_resource.complete(attempt.value->attempt, std::string("late")),
+          "Removal expires async delivery and defers host detachment");
+    rejects([&] { old_context.state<bool>("pinned").value->read(); }, "disposed_reactive_value");
+    r.flush();
+    check(evaluations == 2 && r.deliver_cleanups().empty() && detached == std::vector<std::string>{"a"},
+          "Removed effects do not evaluate and cleanup runs after mounting returns");
+    const auto recreated = mount(rows, r, {{"a", &c, setup}, {"b", &c, setup}});
+    check(recreated && setup_order == std::vector<std::string>{"a", "b", "a"} && !rows.current("a", a) &&
+          !state<bool>(rows, "a", "pinned").read(), "Reinsertion invokes setup for a fresh state lifetime");
+    scope.dispose();
+    check(r.deliver_cleanups().empty() && detached == std::vector<std::string>{"a", "b", "a"},
+          "Scope shutdown preserves deterministic once-only cleanup order");
+}
+
+void automatic_setup_failure_repair() {
+    ReactiveRuntime r;
+    ComponentCollection rows(r.owner(r.root(), "rows"));
+    auto c = row();
+    check(static_cast<bool>(mount(rows, r, {{"kept", &c}})), "Compatible row exists before failed setup");
+    const auto kept = rows.find("kept")->lifetime;
+    state<bool>(rows, "kept", "pinned").write(true);
+    std::vector<ComponentSetup> contexts;
+    std::vector<std::string> closed;
+    int evaluated = 0, applied = 0;
+    bool fail = true;
+    const auto setup = [&](ReactiveRuntime& runtime, const ComponentSetup& context) {
+        contexts.push_back(context);
+        runtime.on_cleanup(context.instance().owner, "detach", [&, key = context.instance().key] { closed.push_back(key); });
+        runtime.effect<bool>(context.instance().owner, "effect", EffectPhase::notify,
+            [&] { ++evaluated; return true; }, [&](bool) { ++applied; });
+        if (fail && context.instance().key == "second") throw std::runtime_error("Synthetic setup failure");
+    };
+    try { mount(rows, r, {{"kept", &c, setup}, {"first", &c, setup}, {"second", &c, setup}}); }
+    catch (const ReactiveError& e) {
+        check(e.diagnostic().code == "component_setup_failure" && e.diagnostic().path == "/components/2/setup",
+              "Host setup exceptions identify their candidate position");
+    }
+    check(contexts.size() == 2 && rows.instances().size() == 1 && rows.current("kept", kept) &&
+          state<bool>(rows, "kept", "pinned").read() && !rows.state<bool>("first", "pinned"),
+          "Failure disposes initialized siblings and retains compatible owner state");
+    for (const auto& context : contexts)
+        rejects([&] { context.state<bool>("pinned").value->read(); }, "disposed_reactive_value");
+    r.flush();
+    check(r.publish() == 0 && evaluated == 0 && applied == 0 && closed.empty(),
+          "Failed setup never settles or publishes its disposed effects");
+    check(r.deliver_cleanups().empty() && closed == std::vector<std::string>{"first", "second"},
+          "Host delivers cleanup for every partially initialized owner once");
+    const auto failed_lifetime = contexts.back().instance().lifetime;
+    fail = false;
+    const auto retried = mount(rows, r, {{"kept", &c, setup}, {"second", &c, setup}});
+    check(retried && contexts.size() == 3 && rows.find("second")->lifetime > failed_lifetime,
+          "Retry invokes setup with a never-reused lifetime");
+    auto invalid = c; invalid.local_state.push_back(invalid.local_state.front());
+    check(!mount(rows, r, {{"new", &c, setup}, {"bad", &invalid, setup}}) && contexts.size() == 3,
+          "Complete candidate rejection invokes no setup and changes no owners");
+    auto replacement = c; replacement.kind = "replacement";
+    fail = true;
+    rejects([&] { mount(rows, r, {{"kept", &c, setup}, {"second", &replacement, setup}}); }, "component_setup_failure");
+    check(rows.instances().size() == 1 && rows.current("kept", kept) && !rows.find("second"),
+          "Failed replacement does not restore its disposed predecessor");
+    fail = false;
+    check(static_cast<bool>(mount(rows, r, {{"kept", &c}, {"second", &replacement, setup}})),
+          "Failure resets the reconciliation guard for later setup");
+}
+
+void setup_disposal_and_runtime_errors() {
+    ReactiveRuntime r;
+    const auto scope = r.owner(r.root(), "rows");
+    ComponentCollection rows(scope);
+    auto c = row();
+    const auto self_dispose = [](ReactiveRuntime&, const ComponentSetup& setup) { setup.instance().owner.dispose(); };
+    rejects([&] { mount(rows, r, {{"a", &c, self_dispose}}); }, "disposed_reactive_owner");
+    check(rows.instances().empty(), "Setup cannot return an expired owner as a successful mount");
+    const auto duplicate = [](ReactiveRuntime& runtime, const ComponentSetup& setup) {
+        runtime.signal(setup.instance().owner, "pinned", false);
+    };
+    rejects([&] { mount(rows, r, {{"a", &c, duplicate}}); }, "duplicate_reactive_name");
+    check(rows.instances().empty(), "Runtime setup failures preserve their original diagnostic and repair records");
+    bool allocation_failed = false;
+    try { mount(rows, r, {{"a", &c, [](ReactiveRuntime&, const ComponentSetup&) { throw std::bad_alloc(); }}}); }
+    catch (const std::bad_alloc&) { allocation_failed = true; }
+    check(allocation_failed && rows.instances().empty(), "Allocation failures propagate after disposing fresh owners");
+    check(static_cast<bool>(mount(rows, r, {{"kept", &c}})), "A compatible owner mounts after failed setup");
+    rejects([&] { mount(rows, r, {{"kept", &c}, {"a", &c,
+        [&](ReactiveRuntime&, const ComponentSetup&) { scope.dispose(); }}}); }, "disposed_reactive_owner");
+    check(rows.instances().empty() && !rows.state<bool>("kept", "pinned"),
+          "Host scope disposal during setup cannot leave expired compatible records");
+}
 } // namespace
 
 int main() {
@@ -303,6 +436,9 @@ int main() {
         exact_initialization_bounds();
         runtime_failure_repair_and_entry();
         lowering_and_full_presentation();
+        automatic_setup_lifetime();
+        automatic_setup_failure_repair();
+        setup_disposal_and_runtime_errors();
         std::cout << "Component mounting: named state, keyed ownership, rejection, failure repair and presentation agree.\n";
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n'; return 1;
