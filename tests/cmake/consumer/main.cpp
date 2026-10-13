@@ -3,6 +3,7 @@
 #include <tessera/ui/async.hpp>
 #include <tessera/ui/component.hpp>
 #include <tessera/ui/component_mount.hpp>
+#include <tessera/ui/component_tree_mount.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/style/style_sheet.hpp>
 #include <concepts>
@@ -81,5 +82,15 @@ int main() {
     const auto local = components.state<bool>("panel", "pinned");
     if (!local || !local.value->read() || !components.reconcile(runtime, mounts) || setups != 1 ||
         !components.state<bool>("panel", "pinned").value->read()) return 13;
-    std::cout << "Source consumer: JSON, tree, CPU capture, async, theme, component origins, diagnostics and component setup agree.\n";
+    tessera::ComponentTreeCollection invocation_tree(runtime.owner(runtime.root(), "invocations"));
+    tessera::ComponentInvocation invocation{component, {}, {}};
+    invocation.arguments.props["caption"] = title.properties.at("text");
+    const std::vector<tessera::ComponentInvocationMount> invocation_mounts{{"panel",
+        [](tessera::ReactiveRuntime&, const tessera::ComponentSetup& setup) { setup.state<bool>("pinned").value->write(true); }}};
+    const auto mounted = invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts);
+    if (!mounted || !mounted.value->instances[0].state<bool>("pinned").value->read() ||
+        !invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts).value->created.empty()) return 14;
+    runtime.flush();
+    if (!tessera::lower_component_tree(runtime, {&invocation, 1})) return 15;
+    std::cout << "Source consumer: JSON, tree, CPU capture, async, theme, component origins, diagnostics and invocation setup agree.\n";
 }

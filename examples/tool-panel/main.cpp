@@ -9,7 +9,7 @@
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/keyed.hpp>
 #include <tessera/ui/component.hpp>
-#include <tessera/ui/component_mount.hpp>
+#include <tessera/ui/component_tree_mount.hpp>
 #include <tessera/ui/async.hpp>
 #include <iostream>
 #include <map>
@@ -222,7 +222,8 @@ int main() {
     // Inventory rows: keys keep each row's owner, local state, bindings, and focus
     // across host reorders; removal closes the row and reinsertion starts fresh.
     struct Row { AsyncValue name; Signal<bool> pinned; Computed<std::string> label; };
-    ComponentCollection rows(runtime.owner(panel_owner, "rows"));
+    ComponentTreeCollection rows(runtime.owner(panel_owner, "rows"));
+    std::map<std::string, std::uint64_t, std::less<>> row_lifetimes;
     ComponentDescription row_definition;
     row_definition.kind = "item-row";
     row_definition.local_state = {{"pinned", PropertyType::boolean, Property{false}}};
@@ -246,8 +247,50 @@ int main() {
             row_theme.variables[0].value = ThemeValue{Color{0.2f, 0.4f, 0.8f, 1}};
             row_theme.variables[1].value = ThemeValue{18.0f};
         }
-        std::vector<ComponentMount> children;
-        for (const auto& item : items) children.push_back({item.first, &row_definition,
+        ComponentDescription list_component;
+        list_component.kind = "inventory";
+        auto list_template = load_document_with_sources(
+            R"({"version":1,"root":{"type":"Box","id":"inventory"}})", "fixture:inventory");
+        if (!list_template) return 30;
+        list_component.document = std::move(list_template.value->document);
+        list_component.sources = std::move(list_template.value->sources);
+        list_component.slots = {{"rows", "inventory", NodeKinds::text}};
+        std::vector<ComponentInvocation> invocations;
+        invocations.push_back({std::move(list_component), {}, {}});
+        for (const auto& item : items) {
+            const auto& key = item.first;
+            ComponentDescription item_component;
+            item_component.kind = row_definition.kind;
+            item_component.local_state = row_definition.local_state;
+            auto item_template = load_document_with_sources(
+                R"({"version":1,"root":{"type":"Text","properties":{"text":""}}})", "fixture:inventory-row");
+            if (!item_template) return 30;
+            item_component.document = std::move(item_template.value->document);
+            item_component.sources = std::move(item_template.value->sources);
+            auto& node = item_component.document.root;
+            node.id = key;
+            item_component.props = {{"caption", PropertyType::string, {}},
+                {"focusable", PropertyType::boolean, Property{true}}};
+            item_component.properties = {{"caption", key, "text"}, {"focusable", key, "focusable"}};
+            StyleDeclarations row_style; row_style.height = Dimension::points(24);
+            item_component.styles = {{"row", row_style}};
+            item_component.style_bindings = {{"row", key}};
+            ComponentArguments item_arguments;
+            item_arguments.props["caption"] = Property{item.second};
+            item_arguments.styles["row"] = row_style;
+            // Opaque embedded authoring fixture; these are expression locations,
+            // independent of the row template and its settled label value.
+            constexpr std::string_view call = "ItemRow(caption: item.label, row: height(24))";
+            const std::string call_file = "fixture:inventory-invocation";
+            item_arguments.sources = ComponentArgumentSources{
+                SourceLocation{call_file, {0, call.size()}},
+                {{"caption", {call_file, {call.find("item.label"), call.find("item.label") + 10}}}}, {},
+                {{"row", {call_file, {call.find("height(24)"), call.find("height(24)") + 10}}}}};
+            invocations[0].invocation_slots["rows"].push_back(invocations.size());
+            invocations.push_back({std::move(item_component), std::move(item_arguments), {}});
+        }
+        std::vector<ComponentInvocationMount> children{{"inventory"}};
+        for (const auto& item : items) children.push_back({item.first,
             [&, caption = item.second](ReactiveRuntime& row_runtime, const ComponentSetup& setup) {
                 const auto& row = setup.instance();
                 const AsyncValue name(row_runtime, row.owner, "name", PropertyType::string);
@@ -263,12 +306,18 @@ int main() {
                 row_state.insert_or_assign(row.lifetime, Row{name, pinned, label});
                 row_runtime.on_cleanup(row.owner, "thumbnail", [&unsubscribed, key = row.key] { unsubscribed.push_back(key); });
             }});
-        const auto update = rows.reconcile(runtime, children);
+        const auto update = rows.reconcile(runtime, invocations, children);
         if (!update) return 14;
+        row_lifetimes.clear();
+        for (std::size_t i = 1; i < update.value->instances.size(); ++i) {
+            const auto& row = update.value->instances[i].instance();
+            row_lifetimes.emplace(row.key, row.lifetime);
+            invocations[i].arguments.props["caption"] = row_state.at(row.lifetime).label;
+        }
         bool resource_valid = true;
         runtime.batch([&] { // Ordered host deliveries; unchanged rows keep their accepted value.
             for (std::size_t i = 0; i < items.size(); ++i) {
-                const auto& name = row_state.at(rows.instances()[i].lifetime).name;
+                const auto& name = row_state.at(update.value->instances[i + 1].instance().lifetime).name;
                 const auto previous = name.read();
                 if (std::get<std::string>(previous.value->value) == items[i].second) continue;
                 const auto replacement = name.begin("item-data");
@@ -282,47 +331,6 @@ int main() {
         });
         if (!resource_valid) return 28;
         if (!runtime.flush().empty()) return 15;
-        ComponentDescription list_component;
-        list_component.kind = "inventory";
-        auto list_template = load_document_with_sources(
-            R"({"version":1,"root":{"type":"Box","id":"inventory"}})", "fixture:inventory");
-        if (!list_template) return 30;
-        list_component.document = std::move(list_template.value->document);
-        list_component.sources = std::move(list_template.value->sources);
-        list_component.slots = {{"rows", "inventory", NodeKinds::text}};
-        std::vector<ComponentInvocation> invocations;
-        invocations.push_back({std::move(list_component), {}, {}});
-        for (const auto& row : rows.instances()) {
-            ComponentDescription item_component;
-            item_component.kind = row.kind;
-            item_component.local_state = row_definition.local_state;
-            auto item_template = load_document_with_sources(
-                R"({"version":1,"root":{"type":"Text","properties":{"text":""}}})", "fixture:inventory-row");
-            if (!item_template) return 30;
-            item_component.document = std::move(item_template.value->document);
-            item_component.sources = std::move(item_template.value->sources);
-            auto& node = item_component.document.root;
-            node.id = row.key;
-            item_component.props = {{"caption", PropertyType::string, {}},
-                {"focusable", PropertyType::boolean, Property{true}}};
-            item_component.properties = {{"caption", row.key, "text"}, {"focusable", row.key, "focusable"}};
-            StyleDeclarations row_style; row_style.height = Dimension::points(24);
-            item_component.styles = {{"row", row_style}};
-            item_component.style_bindings = {{"row", row.key}};
-            ComponentArguments item_arguments;
-            item_arguments.props["caption"] = row_state.at(row.lifetime).label;
-            item_arguments.styles["row"] = row_style;
-            // Opaque embedded authoring fixture; these are expression locations,
-            // independent of the row template and its settled label value.
-            constexpr std::string_view call = "ItemRow(caption: item.label, row: height(24))";
-            const std::string call_file = "fixture:inventory-invocation";
-            item_arguments.sources = ComponentArgumentSources{
-                SourceLocation{call_file, {0, call.size()}},
-                {{"caption", {call_file, {call.find("item.label"), call.find("item.label") + 10}}}}, {},
-                {{"row", {call_file, {call.find("height(24)"), call.find("height(24)") + 10}}}}};
-            invocations[0].invocation_slots["rows"].push_back(invocations.size());
-            invocations.push_back({std::move(item_component), std::move(item_arguments), {}});
-        }
         const auto bound = lower_component_tree(runtime, invocations);
         if (!bound) return 22;
         const auto& list = bound.value->document;
@@ -349,14 +357,14 @@ int main() {
             auto invalid_theme = row_theme;
             invalid_theme.variables[1].value = ThemeValue{0.0f};
             if (resolve_styles({tree.value->get(), &row_sheet, {}, bound.value->overrides, &invalid_theme}) ||
-                !rows.current("item-7", lantern)) return 29;
+                row_lifetimes.at("item-7") != lantern) return 29;
         }
         const HitTestInput hit{tree.value->get(), styles, &*layout.value};
         const auto focused = lantern == 0 ? row_focus.focus(hit, *(*tree.value)->find("item-7")) : row_focus.refresh(hit);
         if (!focused || !focused.value->focused || runtime.publish() != 0) return 18;
         if (!runtime.deliver_effects(EffectPhase::notify).empty() || !runtime.deliver_cleanups().empty()) return 19;
         if (lantern == 0) {
-            lantern = rows.find("item-7")->lifetime;
+            lantern = row_lifetimes.at("item-7");
             row_state.at(lantern).pinned.write(true); // A user toggle on this row, flushed next generation.
         }
         std::cout << "Rows:";
@@ -366,8 +374,8 @@ int main() {
     }
     // Reorder kept the pinned Lantern row and its focus; removal unsubscribed it,
     // and reinsertion created a new lifetime, so a late result for the old row is stale.
-    const auto* lantern_row = rows.find("item-7");
-    if (!lantern_row || rows.current("item-7", lantern) || row_state.at(lantern_row->lifetime).pinned.read() ||
+    const auto lantern_row = row_lifetimes.find("item-7");
+    if (lantern_row == row_lifetimes.end() || lantern_row->second == lantern || row_state.at(lantern_row->second).pinned.read() ||
         unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6) return 20;
 
     // One application gesture spans three reactive batches. Each edit lowers a

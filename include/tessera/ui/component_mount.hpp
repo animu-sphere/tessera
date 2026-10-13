@@ -26,6 +26,7 @@ public:
     }
 private:
     friend class ComponentCollection;
+    friend class ComponentTreeCollection;
     ComponentSetup(KeyedInstance instance, const std::map<std::string, ComponentStateValue, std::less<>>& values)
         : instance_(std::move(instance)), values_(values) {}
     Diagnostic error(std::string code, std::string_view name, std::string message) const;
@@ -86,6 +87,7 @@ private:
     static Diagnostic state_error(std::string code, std::string_view key,
                                   std::string_view name, std::string message);
     void prune(ReactiveRuntime&);
+    friend class ComponentTreeCollection;
     KeyedCollection keyed_;
     std::map<std::string, Record, std::less<>> records_;
     bool reconciling_ = false;
