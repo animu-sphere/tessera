@@ -9,6 +9,7 @@
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/keyed.hpp>
 #include <tessera/ui/component.hpp>
+#include <tessera/ui/component_mount.hpp>
 #include <tessera/ui/async.hpp>
 #include <iostream>
 #include <map>
@@ -221,7 +222,10 @@ int main() {
     // Inventory rows: keys keep each row's owner, local state, bindings, and focus
     // across host reorders; removal closes the row and reinsertion starts fresh.
     struct Row { AsyncValue name; Signal<bool> pinned; Computed<std::string> label; };
-    KeyedCollection rows(runtime.owner(panel_owner, "rows"));
+    ComponentCollection rows(runtime.owner(panel_owner, "rows"));
+    ComponentDescription row_definition;
+    row_definition.kind = "item-row";
+    row_definition.local_state = {{"pinned", PropertyType::boolean, Property{false}}};
     std::map<std::uint64_t, Row> row_state; // By instance lifetime.
     int label_evaluations = 0;
     std::vector<std::string> unsubscribed;
@@ -242,8 +246,8 @@ int main() {
             row_theme.variables[0].value = ThemeValue{Color{0.2f, 0.4f, 0.8f, 1}};
             row_theme.variables[1].value = ThemeValue{18.0f};
         }
-        std::vector<KeyedChild> children;
-        for (const auto& [id, name] : items) children.push_back({id, "item-row"});
+        std::vector<ComponentMount> children;
+        for (const auto& item : items) children.push_back({item.first, &row_definition});
         const auto update = rows.reconcile(runtime, children);
         if (!update) return 14;
         for (const auto i : update.value->created) {
@@ -251,7 +255,9 @@ int main() {
             const AsyncValue name(runtime, row.owner, "name", PropertyType::string);
             // Synthetic host cache; no file/network work runs in the runtime.
             if (!name.ready_cached("item-data", items[i].second)) return 28;
-            const auto pinned = runtime.signal(row.owner, "pinned", false); // Local view state.
+            const auto local = rows.state<bool>(row.key, "pinned");
+            if (!local) return 31;
+            const auto pinned = *local.value; // Registered automatically on mount.
             const auto label = runtime.computed<std::string>(row.owner, "label", [&label_evaluations, name, pinned] {
                 ++label_evaluations;
                 return std::get<std::string>(name.read().value->value) + (pinned.read() ? " (pinned)" : "");
@@ -289,6 +295,7 @@ int main() {
         for (const auto& row : rows.instances()) {
             ComponentDescription item_component;
             item_component.kind = row.kind;
+            item_component.local_state = row_definition.local_state;
             auto item_template = load_document_with_sources(
                 R"({"version":1,"root":{"type":"Text","properties":{"text":""}}})", "fixture:inventory-row");
             if (!item_template) return 30;

@@ -2,6 +2,7 @@
 #include <tessera/ui/tree.hpp>
 #include <tessera/ui/async.hpp>
 #include <tessera/ui/component.hpp>
+#include <tessera/ui/component_mount.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/style/style_sheet.hpp>
 #include <concepts>
@@ -65,5 +66,12 @@ int main() {
     std::vector<tessera::Diagnostic> diagnostics{{"fixture", tessera::Severity::warning, "/root/children/0/properties/text", "Caption", {}}};
     if (!tessera::locate_diagnostics(bound.value->document, *bound.value->sources, diagnostics).empty() ||
         !diagnostics[0].source || diagnostics[0].source->location != origin) return 11;
-    std::cout << "Source consumer: JSON round trip, owned tree, scalar CPU capture, async observation, theme, component origins and diagnostics agree.\n";
+    component.local_state = {{"pinned", tessera::PropertyType::boolean, tessera::Property{false}}};
+    tessera::ComponentCollection components(runtime.owner(runtime.root(), "components"));
+    const std::vector<tessera::ComponentMount> mounts{{"panel", &component}};
+    if (!components.reconcile(runtime, mounts)) return 12;
+    const auto local = components.state<bool>("panel", "pinned");
+    if (!local || !local.value->write(true) || !components.reconcile(runtime, mounts) ||
+        !components.state<bool>("panel", "pinned").value->read()) return 13;
+    std::cout << "Source consumer: JSON, tree, CPU capture, async, theme, component origins, diagnostics and mounted state agree.\n";
 }

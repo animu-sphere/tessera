@@ -52,6 +52,7 @@ public:
     bool current(std::string_view key, std::uint64_t lifetime) const noexcept;
 
 private:
+    friend class ComponentCollection; // Rolls back owners whose state setup failed.
     ReactiveOwner scope_;
     std::vector<KeyedInstance> instances_;
     std::uint64_t next_lifetime_ = 1;

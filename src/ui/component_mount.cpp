@@ -1,0 +1,177 @@
+#include <tessera/ui/component_mount.hpp>
+#include "component_state_detail.hpp"
+#include "json_detail.hpp"
+#include <algorithm>
+#include <cmath>
+
+namespace tessera {
+namespace {
+void error(std::vector<Diagnostic>& errors, std::string code, std::string path, std::string message) {
+    errors.push_back({std::move(code), Severity::error, std::move(path), std::move(message), {}});
+}
+void name(std::vector<Diagnostic>& errors, std::string_view value, const std::string& path) {
+    const bool controls = std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; });
+    if (value.empty() || value.size() > 256 || controls || !detail::valid_utf8(value))
+        error(errors, "component_name", path, "Supply a name of 1 to 256 UTF-8 bytes without control characters.");
+}
+ComponentStateValue placeholder(const Property& initial) {
+    return std::visit([](const auto& value) -> ComponentStateValue {
+        return Signal<std::decay_t<decltype(value)>>{};
+    }, initial);
+}
+ComponentStateValue create(ReactiveRuntime& runtime, const ReactiveOwner& owner, const ComponentLocalState& slot) {
+    return std::visit([&](const auto& value) -> ComponentStateValue {
+        return runtime.signal(owner, slot.name, value);
+    }, slot.initial_value);
+}
+} // namespace
+
+std::vector<Diagnostic> detail::validate_component_local_state(std::span<const ComponentLocalState> slots,
+                                                             const std::string& path) {
+    std::vector<Diagnostic> errors;
+    if (slots.size() > max_component_local_state) {
+        error(errors, "component_state_limit", path, "Declare at most 256 local-state slots per component.");
+        return errors;
+    }
+    std::set<std::string_view, std::less<>> names;
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+        const auto& slot = slots[i];
+        const auto location = path + "/" + std::to_string(i);
+        name(errors, slot.name, location + "/name");
+        if (!names.insert(slot.name).second)
+            error(errors, "component_duplicate_state", location + "/name", "Declare each local-state name once.");
+        if (slot.type != property_type(slot.initial_value))
+            error(errors, "component_state_type", location + "/initial", "Use the declared exact state type; values are not coerced.");
+        if (const auto* text = std::get_if<std::string>(&slot.initial_value)) {
+            if (text->size() > max_component_state_text_bytes)
+                error(errors, "component_state_limit", location + "/initial", "Use an initial string of at most 4096 UTF-8 bytes.");
+            else if (!valid_utf8(*text))
+                error(errors, "invalid_utf8", location + "/initial", "Use valid UTF-8 text.");
+        }
+        if (const auto* number = std::get_if<double>(&slot.initial_value); number && !std::isfinite(*number))
+            error(errors, "invalid_number", location + "/initial", "Use a finite initial number.");
+        if (const auto* ref = std::get_if<NodeReference>(&slot.initial_value)) name(errors, ref->id, location + "/initial/ref");
+    }
+    return errors;
+}
+
+void ComponentCollection::prune() {
+    // Keyed reconciliation can fail after committing owner replacements (for
+    // example, while allocating its returned records). Do not retain an owner
+    // whose local state was never registered by this collection.
+    std::erase_if(keyed_.instances_, [&](const KeyedInstance& instance) {
+        const auto record = records_.find(instance.key);
+        if (record != records_.end() && record->second.lifetime == instance.lifetime) return false;
+        instance.owner.dispose();
+        return true;
+    });
+    for (auto it = records_.begin(); it != records_.end();) {
+        if (!keyed_.current(it->first, it->second.lifetime)) it = records_.erase(it);
+        else ++it;
+    }
+}
+
+Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std::span<const ComponentMount> mounts) {
+    std::vector<Diagnostic> errors;
+    if (mounts.size() > max_keyed_children) {
+        error(errors, "keyed_child_limit", "/components", "Supply at most 4096 keyed components in one collection.");
+        return {{}, std::move(errors)};
+    }
+    std::vector<KeyedChild> children;
+    std::size_t slots = 0;
+    std::set<std::string_view, std::less<>> seen;
+    // Validate the complete candidate and its aggregate state budget before
+    // constructing copied schemas or entering any runtime.
+    for (std::size_t i = 0; i < mounts.size(); ++i) {
+        const auto& mount = mounts[i];
+        const auto path = "/components/" + std::to_string(i);
+        name(errors, mount.key, path + "/key");
+        if (!seen.insert(mount.key).second)
+            error(errors, "duplicate_key", path + "/key", "Use each key once within the component collection.");
+        if (!mount.component) {
+            error(errors, "component_description", path + "/component", "Supply a component description for mounting.");
+            continue;
+        }
+        const auto& description = *mount.component;
+        name(errors, description.kind, path + "/kind");
+        auto schema_errors = detail::validate_component_local_state(description.local_state, path + "/local_state");
+        errors.insert(errors.end(), schema_errors.begin(), schema_errors.end());
+        if (description.local_state.size() <= max_component_local_state) slots += description.local_state.size();
+    }
+    if (slots > max_reactive_nodes)
+        error(errors, "component_state_limit", "/components", "Keep the collection's declared local-state slots within 4096; runtime values share that budget.");
+    if (!errors.empty()) return {{}, std::move(errors)};
+    children.reserve(mounts.size());
+    std::map<std::string, Record, std::less<>> next;
+    for (std::size_t i = 0; i < mounts.size(); ++i) {
+        const auto& mount = mounts[i];
+        const auto& description = *mount.component;
+        const auto path = "/components/" + std::to_string(i);
+        children.push_back({mount.key, description.kind});
+        Record record;
+        for (const auto& slot : description.local_state) record.values.emplace(slot.name, placeholder(slot.initial_value));
+        const auto* previous = keyed_.find(mount.key);
+        if (previous && previous->kind == description.kind) {
+            const auto& accepted = records_.at(mount.key);
+            bool compatible = record.values.size() == accepted.values.size();
+            for (const auto& [slot, value] : record.values) {
+                const auto found = accepted.values.find(slot);
+                if (found == accepted.values.end() || found->second.index() != value.index()) compatible = false;
+            }
+            if (!compatible)
+                error(errors, "component_state_schema", path + "/local_state",
+                      "Preserve the named state types for this kind, or change kind to recreate the component.");
+            else record = accepted;
+        }
+        next.emplace(mount.key, std::move(record));
+    }
+    if (!errors.empty()) return {{}, std::move(errors)};
+
+    Result<KeyedUpdate> update;
+    // Even literal-only compatible reorders enter the ordinary structural guard.
+    // Nested host batches remain open; no flush or publication is implicit.
+    runtime.batch([&] {
+        (void)runtime.faulted(keyed_.scope_); // Validates runtime, thread and scope lifetime.
+        try { update = keyed_.reconcile(runtime, children); }
+        catch (...) { prune(); throw; }
+        if (!update) return;
+        try {
+            for (const auto i : update.value->created) {
+                const auto& instance = update.value->instances[i];
+                auto& record = next.at(instance.key);
+                for (const auto& slot : mounts[i].component->local_state)
+                    record.values.at(slot.name) = create(runtime, instance.owner, slot);
+            }
+        } catch (...) {
+            // State registration is one setup operation: release every owner
+            // created in this call, including fully initialized siblings.
+            // Repair the weak records after ordinary owner disposal.
+            for (const auto i : update.value->created) update.value->instances[i].owner.dispose();
+            std::erase_if(keyed_.instances_, [&](const KeyedInstance& instance) {
+                return std::any_of(update.value->created.begin(), update.value->created.end(), [&](std::size_t i) {
+                    return update.value->instances[i].lifetime == instance.lifetime;
+                });
+            });
+            prune();
+            throw;
+        }
+        for (const auto& instance : update.value->instances) next.at(instance.key).lifetime = instance.lifetime;
+        records_.swap(next);
+    });
+    return update;
+}
+
+Diagnostic ComponentCollection::state_error(std::string code, std::string_view key,
+                                           std::string_view slot, std::string message) {
+    return {std::move(code), Severity::error,
+        "/components/" + detail::pointer_token(key) + "/local_state/" + detail::pointer_token(slot),
+        std::move(message), {}};
+}
+Result<const ComponentStateValue*> ComponentCollection::lookup(std::string_view key, std::string_view slot) const {
+    const auto record = records_.find(key);
+    if (record == records_.end()) return {{}, {state_error("component_instance", key, slot, "Use a mounted component key.")}};
+    const auto value = record->second.values.find(slot);
+    if (value == record->second.values.end()) return {{}, {state_error("component_unknown_state", key, slot, "Use a declared local-state name.")}};
+    return {&value->second, {}};
+}
+} // namespace tessera
