@@ -230,6 +230,8 @@ int main() {
     std::map<std::uint64_t, Row> row_state; // By instance lifetime.
     int label_evaluations = 0;
     std::vector<std::string> unsubscribed;
+    std::vector<std::pair<std::uint64_t, AsyncAttempt>> detached_names;
+    std::optional<AsyncAttempt> lantern_attempt;
     FocusDispatcher row_focus;
     std::uint64_t lantern = 0;
     using Items = std::vector<std::pair<std::string, std::string>>;
@@ -294,6 +296,9 @@ int main() {
             [&, caption = item.second](ReactiveRuntime& row_runtime, const ComponentSetup& setup) {
                 const auto& row = setup.instance();
                 const AsyncValue name(row_runtime, row.owner, "name", PropertyType::string);
+                name.on_detach(row_runtime, [&, lifetime = row.lifetime](const AsyncAttempt& attempt) {
+                    detached_names.emplace_back(lifetime, attempt);
+                });
                 // Synthetic host cache; no file/network work runs in the runtime.
                 if (!name.ready_cached("item-data", caption)) throw std::runtime_error("Invalid cached row name");
                 const auto local = setup.state<bool>("pinned");
@@ -366,6 +371,9 @@ int main() {
         if (lantern == 0) {
             lantern = row_lifetimes.at("item-7");
             row_state.at(lantern).pinned.write(true); // A user toggle on this row, flushed next generation.
+            const auto pending = row_state.at(lantern).name.begin("preview-name");
+            if (!pending) return 31;
+            lantern_attempt = pending.value->attempt; // Loading work survives reorder, then closes on removal.
         }
         std::cout << "Rows:";
         for (const auto& node : list.root.children) std::cout << ' ' << *node.id << "=\"" << std::get<std::string>(node.properties.at("text")) << '"';
@@ -376,7 +384,12 @@ int main() {
     // and reinsertion created a new lifetime, so a late result for the old row is stale.
     const auto lantern_row = row_lifetimes.find("item-7");
     if (lantern_row == row_lifetimes.end() || lantern_row->second == lantern || row_state.at(lantern_row->second).pinned.read() ||
-        unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6) return 20;
+        unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6 ||
+        detached_names.size() != 1 || detached_names[0].first != lantern || !lantern_attempt ||
+        detached_names[0].second.request() != lantern_attempt->request() ||
+        detached_names[0].second.sequence() != lantern_attempt->sequence() ||
+        row_state.at(lantern).name.complete(*lantern_attempt, std::string("Late name")) ||
+        row_state.at(lantern_row->second).name.complete(*lantern_attempt, std::string("Late name"))) return 20;
 
     // One application gesture spans three reactive batches. Each edit lowers a
     // complete document and evaluates the ordinary presentation pipeline; only

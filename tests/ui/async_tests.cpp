@@ -146,6 +146,128 @@ void lifetimes_and_entry() {
     r.root().dispose();
     check(!next.begin("disposed") && text(survived) == "fresh", "Owned snapshots survive logical disposal without reviving work");
 }
+void owner_detachment() {
+    ReactiveRuntime r;
+    const auto owner = r.owner(r.root(), "row");
+    AsyncValue value(r, owner, "a/b~c", PropertyType::string);
+    auto first = value.begin("old"); check(bool(first), "Work may begin before detachment registration");
+    std::vector<AsyncAttempt> delivered;
+    value.on_detach(r, [&](const AsyncAttempt& attempt) { delivered.push_back(attempt); });
+    const auto copy = value;
+    try { copy.on_detach(r, [](const AsyncAttempt&) {}); check(false, "Aliased registration must reject"); }
+    catch (const ReactiveError& e) { check(has({e.diagnostic()}, "async_detach_registered", "/async/a~1b~0c/detach"), "Copies share one detachment registration"); }
+    const auto second = copy.begin("new"); check(bool(second), "Copied handle supersedes current work");
+    check(second.value->detached && second.value->detached->request() == "old", "Supersession retains the explicit host detachment address");
+    check(!value.complete(first.value->attempt, std::string("late")) && !value.complete(second.value->attempt, true),
+          "Rejected attempts and payloads do not clear active detachment");
+    check(bool(value.progress(second.value->attempt, 0.25)), "Progress preserves active work");
+    r.batch([&] { owner.dispose(); check(delivered.empty(), "Disposal inside a batch invokes no external work"); });
+    check(!value.complete(second.value->attempt, std::string("late")), "Disposed completion cannot change the queued address");
+    check(r.deliver_cleanups().empty() && delivered.size() == 1 && delivered[0].request() == "new" &&
+          delivered[0].sequence() == second.value->attempt.sequence(), "Cleanup delivers only the latest loading attempt");
+    check(r.deliver_cleanups().empty() && delivered.size() == 1, "Detachment delivers once");
+    try { value.on_detach(r, [](const AsyncAttempt&) {}); check(false, "Disposed registration must reject"); }
+    catch (const ReactiveError& e) { check(e.diagnostic().code == "disposed_reactive_value", "Disposed handles cannot attach cleanup"); }
+
+    // Terminal observations have no live host work; retained stale payloads are
+    // presentation data and must not cause a second cancellation.
+    for (const auto terminal : {AsyncStatus::idle, AsyncStatus::ready, AsyncStatus::failed, AsyncStatus::cancelled}) {
+        const auto scope = r.owner(r.root(), "terminal");
+        AsyncValue item(r, scope, "item", PropertyType::string);
+        item.on_detach(r, [&](const AsyncAttempt&) { check(false, "Terminal work must not detach on disposal"); });
+        if (terminal == AsyncStatus::ready) check(bool(item.ready_cached("cached", std::string("value"))), "Cache is terminal without work");
+        if (terminal == AsyncStatus::failed || terminal == AsyncStatus::cancelled) {
+            check(bool(item.ready_cached("cached", std::string("value"))), "Cache initializes stale-value fixture");
+            const auto loading = item.begin("work"); check(bool(loading), "Terminal fixture begins replacement");
+            if (terminal == AsyncStatus::failed) check(bool(item.fail(loading.value->attempt, {"error", "Failed"})), "Failure clears active detachment");
+            else check(bool(item.cancel(loading.value->attempt)), "Explicit cancellation clears active detachment");
+        }
+        scope.dispose(); check(r.deliver_cleanups().empty(), "Terminal cleanup consumes an empty registration");
+    }
+    const auto completed_owner = r.owner(r.root(), "completed");
+    AsyncValue completed(r, completed_owner, "item", PropertyType::string);
+    completed.on_detach(r, [&](const AsyncAttempt&) { check(false, "Completed work must not detach"); });
+    const auto complete_start = completed.begin("work"); check(bool(complete_start), "Completion fixture begins work");
+    check(bool(completed.complete(complete_start.value->attempt, std::string("ready"))), "Completion clears active detachment");
+    completed_owner.dispose(); check(r.deliver_cleanups().empty(), "Ready completion has no active work");
+
+    // Failed registration leaves the source and shared registration state intact.
+    const auto guarded_owner = r.owner(r.root(), "guarded");
+    AsyncValue guarded(r, guarded_owner, "item", PropertyType::boolean);
+    try { guarded.on_detach(r, {}); check(false, "Empty detachment must reject"); }
+    catch (const ReactiveError& e) { check(e.diagnostic().code == "async_detach_callback", "Empty callback has an actionable diagnostic"); }
+    ReactiveRuntime foreign;
+    try { guarded.on_detach(foreign, [](const AsyncAttempt&) {}); check(false, "Foreign registration must reject"); }
+    catch (const ReactiveError& e) { check(e.diagnostic().code == "foreign_reactive_owner", "Registration keeps its original owner"); }
+    std::string thread_error;
+    std::thread thread([&] {
+        try { guarded.on_detach(r, [](const AsyncAttempt&) {}); }
+        catch (const ReactiveError& e) { thread_error = e.diagnostic().code; }
+    }); thread.join();
+    check(thread_error == "reactive_thread", "Registration checks thread before shared state");
+    int closed = 0;
+    guarded.on_detach(r, [&](const AsyncAttempt&) { ++closed; });
+    check(bool(guarded.begin("work")), "Registration recovers after invalid entries");
+    guarded_owner.dispose(); check(r.deliver_cleanups().empty() && closed == 1, "Recovered registration closes once");
+
+    const auto failing = r.owner(r.root(), "failing");
+    AsyncValue failure(r, failing, "resource", PropertyType::boolean);
+    failure.on_detach(r, [&](const AsyncAttempt&) { ++closed; throw std::runtime_error("Host failure"); });
+    check(bool(failure.begin("work")), "Failing host fixture starts");
+    r.on_cleanup(failing, "following", [&] { ++closed; });
+    failing.dispose();
+    check(has(r.deliver_cleanups(), "reactive_cleanup_failed", "/reactive/root/owners/failing/cleanups/resource") && closed == 3,
+          "Host failures are located and do not stop following cleanup");
+    check(r.deliver_cleanups().empty() && closed == 3, "Failed detachment cannot retry");
+}
+void detachment_registration_boundaries() {
+    ReactiveRuntime r;
+    const auto scope = r.owner(r.root(), "resource");
+    AsyncValue value(r, scope, "item", PropertyType::boolean);
+    const auto boundary = r.boundary(r.root(), "registration");
+    r.computed<bool>(boundary, "illegal", [&] { value.on_detach(r, [](const AsyncAttempt&) {}); return true; });
+    check(has(r.flush(), "reactive_mutation", "/async/item"), "Calculation-time registration rejects without attaching cleanup");
+    boundary.dispose();
+    const auto occupied = r.owner(r.root(), "occupied");
+    for (std::size_t i = 0; i < max_reactive_cleanups; ++i) r.on_cleanup(occupied, std::to_string(i), [] {});
+    try { value.on_detach(r, [](const AsyncAttempt&) {}); check(false, "Full cleanup budget must reject"); }
+    catch (const ReactiveError& e) { check(e.diagnostic().code == "reactive_cleanup_limit", "Detachment shares the bounded cleanup queue"); }
+    occupied.dispose(); check(r.deliver_cleanups().empty(), "Delivery releases the occupied budget");
+    auto capture = std::make_shared<int>(0);
+    std::weak_ptr<int> weak = capture;
+    int closed = 0;
+    value.on_detach(r, [&, capture](const AsyncAttempt&) {
+        ++closed;
+        try { value.read(); check(false, "Detachment callback cannot enter graph"); }
+        catch (const ReactiveError& e) { check(e.diagnostic().code == "reactive_cleanup_entry", "Detachment uses ordinary cleanup guards"); }
+    });
+    capture.reset();
+    check(!weak.expired() && bool(value.begin("work")), "Failed registration permits later registration and owns its callback");
+    scope.dispose();
+    check(!weak.expired() && closed == 0, "Queued callback survives disposal without executing");
+    check(r.deliver_cleanups().empty() && closed == 1 && weak.expired(), "Delivery releases host captures despite retained async handles");
+    const auto collision = r.owner(r.root(), "collision");
+    AsyncValue colliding(r, collision, "item", PropertyType::boolean);
+    r.on_cleanup(collision, "item", [&] { ++closed; });
+    try { colliding.on_detach(r, [&](const AsyncAttempt&) { check(false, "Rejected callback cannot be retained"); }); check(false, "Cleanup name collision must reject"); }
+    catch (const ReactiveError& e) { check(e.diagnostic().code == "duplicate_reactive_name", "Observation name uses the cleanup namespace"); }
+    check(bool(colliding.begin("work")), "Rejected registration leaves the observation available");
+    collision.dispose(); check(r.deliver_cleanups().empty() && closed == 2, "Only the accepted colliding cleanup runs");
+    const auto unreferenced = r.owner(r.root(), "unreferenced");
+    {
+        AsyncValue temporary(r, unreferenced, "item", PropertyType::boolean);
+        temporary.on_detach(r, [&](const AsyncAttempt&) { ++closed; });
+        check(bool(temporary.begin("work")), "Transient handles can start work");
+    }
+    unreferenced.dispose(); check(r.deliver_cleanups().empty() && closed == 3, "Owner retains detachment after all observation handles are released");
+    {
+        ReactiveRuntime destroyed;
+        AsyncValue abandoned(destroyed, destroyed.root(), "item", PropertyType::boolean);
+        abandoned.on_detach(destroyed, [&](const AsyncAttempt&) { ++closed; });
+        check(bool(abandoned.begin("work")), "Shutdown fixture starts work");
+    }
+    check(closed == 3, "Runtime destruction releases registrations without implicit host execution");
+}
 void presentation() {
     ReactiveRuntime r;
     AsyncValue value(r, r.root(), "asset", PropertyType::string);
@@ -207,7 +329,7 @@ void presentation() {
 }
 }
 int main() {
-    try { transitions(); rejection(); lifetimes_and_entry(); presentation(); }
+    try { transitions(); rejection(); lifetimes_and_entry(); owner_detachment(); detachment_registration_boundaries(); presentation(); }
     catch (const std::exception& failure) { std::cerr << failure.what() << '\n'; return 1; }
     std::cout << "Async view observations validated.\n";
 }

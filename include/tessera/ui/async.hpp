@@ -58,6 +58,11 @@ public:
     AsyncValue(ReactiveRuntime&, const ReactiveOwner&, std::string name, PropertyType);
     AsyncObservation read() const { return state_.read(); } // Tracked in calculations.
     AsyncObservation snapshot(const ReactiveRuntime& runtime) const { return runtime.snapshot(state_); }
+    // Register once for this observation (including its copies). Owner disposal
+    // queues detachment of the then-loading attempt for deliver_cleanups(); no
+    // callback runs during transitions or traversal. Uses the observation name
+    // in the owner's cleanup namespace. Supersession/cancel stay host operations.
+    void on_detach(ReactiveRuntime&, std::function<void(const AsyncAttempt&)>) const;
     Result<AsyncStart> begin(std::string request) const;
     // Explicit synchronous cache declaration, permitted only from idle.
     Result<AsyncAttempt> ready_cached(std::string request, Property value) const;
@@ -73,9 +78,16 @@ private:
     Result<bool> write(AsyncObservation) const;
     Diagnostic error(std::string code, std::string field, std::string message) const;
     Diagnostic located(const ReactiveError&) const;
+    struct Detachment {
+        bool registered = false;
+        std::optional<AsyncAttempt> active;
+    };
     std::string path_;
+    std::string cleanup_name_;
     PropertyType type_;
     std::shared_ptr<const char> identity_;
+    std::shared_ptr<Detachment> detachment_;
+    ReactiveOwner owner_;
     Signal<AsyncObservation> state_;
 };
 } // namespace tessera

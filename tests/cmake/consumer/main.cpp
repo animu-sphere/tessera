@@ -85,12 +85,23 @@ int main() {
     tessera::ComponentTreeCollection invocation_tree(runtime.owner(runtime.root(), "invocations"));
     tessera::ComponentInvocation invocation{component, {}, {}};
     invocation.arguments.props["caption"] = title.properties.at("text");
+    int detached = 0;
     const std::vector<tessera::ComponentInvocationMount> invocation_mounts{{"panel",
-        [](tessera::ReactiveRuntime&, const tessera::ComponentSetup& setup) { setup.state<bool>("pinned").value->write(true); }}};
+        [&](tessera::ReactiveRuntime& setup_runtime, const tessera::ComponentSetup& setup) {
+            setup.state<bool>("pinned").value->write(true);
+            tessera::AsyncValue work(setup_runtime, setup.instance().owner, "work", tessera::PropertyType::boolean);
+            work.on_detach(setup_runtime, [&](const tessera::AsyncAttempt& address) {
+                if (address.request() != "host-request" || address.sequence() != 1) throw std::runtime_error("Wrong work address");
+                ++detached;
+            });
+            if (!work.begin("host-request")) throw std::runtime_error("Invalid host request");
+        }}};
     const auto mounted = invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts);
     if (!mounted || !mounted.value->instances[0].state<bool>("pinned").value->read() ||
         !invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts).value->created.empty()) return 14;
     runtime.flush();
     if (!tessera::lower_component_tree(runtime, {&invocation, 1})) return 15;
-    std::cout << "Source consumer: JSON, tree, CPU capture, async, theme, component origins, diagnostics and invocation setup agree.\n";
+    if (!invocation_tree.reconcile(runtime, {}, {}) || detached != 0 ||
+        !runtime.deliver_cleanups().empty() || detached != 1 || !runtime.deliver_cleanups().empty() || detached != 1) return 16;
+    std::cout << "Source consumer: JSON, tree, CPU capture, async detachment, theme, component origins, diagnostics and invocation setup agree.\n";
 }
