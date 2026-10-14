@@ -1,5 +1,8 @@
 # Conversational and agent workspaces
 
+> [!IMPORTANT]
+> Consumer design and requirements do not independently authorize core work. Proposed sections are Direction, and open decisions are Exploration. Promote only a demonstrated blocker into [current work](../roadmap/current.md), under the [agent policy](../agent-policy.md).
+
 ## Proposed scope
 
 Conversational applications (chat assistants, coding agents, AI workspaces) are a primary reference workload for Tessera. They are structured, asynchronous, streaming UI, not a text transcript in a scroll view. The same primitives serve IDEs, terminals, log viewers, documentation tools, dashboards, and agent control panels. This page proposes a design.
@@ -15,25 +18,25 @@ optional agent UI library: conversation, tool call, approval, agent timeline, ar
 application: provider adapters, networking, tool execution, persistence
 ```
 
-Only broadly reusable primitives belong in core or widgets; AI-specific views live in an optional library. Package boundaries follow [module organization](architecture.md#module-organization) and are decided with consumers.
+Only broadly reusable primitives belong in core or widgets; AI-specific views live in an optional library. Package boundaries follow [module organization](../architecture/overview.md#module-organization) and are decided with consumers.
 
-Tessera embeds no provider message schema, model name, token accounting, prompt format, or proprietary tool-call schema. Application adapters map each provider or local agent protocol into a generic conversation model. This keeps the UI independent of fast-changing model APIs, consistent with the agent-neutral [core constraints](architecture.md#purpose-and-constraints).
+Tessera embeds no provider message schema, model name, token accounting, prompt format, or proprietary tool-call schema. Application adapters map each provider or local agent protocol into a generic conversation model. This keeps the UI independent of fast-changing model APIs, consistent with the agent-neutral [core constraints](../architecture/overview.md#purpose-and-constraints).
 
 ## Proposed content model
 
 A message has a stable ID, a role, and an ordered list of content blocks: text, Markdown, code, image, file, tool call, tool result, citation, status, artifact, or a custom block. Messages keep parent links, so regeneration, edits, rewinds, checkpoints, and forks can form a conversation graph later while the first presentation is linear.
 
-These are application view models. They lower to ordinary components under the [UI model](ui-model.md#common-representation) rather than adding conversation node types to the runtime. Textual content and interactive content (choice buttons, sliders, confirm/cancel prompts) can coexist in one message. Applications register renderers for custom block types (charts, forms, previews, domain inspectors) without modifying Tessera.
+These are application view models. They lower to ordinary components under the [UI model](../architecture/ui-model.md#common-representation) rather than adding conversation node types to the runtime. Textual content and interactive content (choice buttons, sliders, confirm/cancel prompts) can coexist in one message. Applications register renderers for custom block types (charts, forms, previews, domain inspectors) without modifying Tessera.
 
 ## Proposed list virtualization requirements
 
-Long conversations need a virtualized list of variable-height items with stable keys: lazy realization, fast append and prepend, dynamic height correction, and anchor-based restoration of an item key plus local offset rather than a pixel offset. Follow-end mode keeps the newest content visible, stops when the user scrolls away, and resumes explicitly. Prepending history must not move visible content. Geometry rules are owned by [layout](layout.md#scrolling-and-overlay-geometry). Log viewers, terminals, and diff views reuse the same requirements.
+Long conversations need a virtualized list of variable-height items with stable keys: lazy realization, fast append and prepend, dynamic height correction, and anchor-based restoration of an item key plus local offset rather than a pixel offset. Follow-end mode keeps the newest content visible, stops when the user scrolls away, and resumes explicitly. Prepending history must not move visible content. Geometry rules are owned by [layout](../architecture/layout.md#scrolling-and-overlay-geometry). Log viewers, terminals, and diff views reuse the same requirements.
 
 ## Proposed streaming and asynchronous updates
 
-Incoming chunks append to application state and reach the runtime only at [update points](architecture.md#update-and-snapshot-rules). Many network events per second (for example 50-200) coalesce into at most one update generation per frame, so layout and GPU submission follow the display rate rather than the token rate. Rebuilding or diffing the whole conversation per chunk is excluded. Limiting invalidation to the affected message subtree is the intended optimization, introduced only with parity to full-tree results.
+Incoming chunks append to application state and reach the runtime only at [update points](../architecture/overview.md#update-and-snapshot-rules). Many network events per second (for example 50-200) coalesce into at most one update generation per frame, so layout and GPU submission follow the display rate rather than the token rate. Rebuilding or diffing the whole conversation per chunk is excluded. Limiting invalidation to the affected message subtree is the intended optimization, introduced only with parity to full-tree results.
 
-Asynchronous execution (network, coroutines, threads, subprocesses) is host-owned. A host-side or optional-library bridge delivers results at update points, propagates errors, and cancels or detaches tasks owned by a removed component; the core gains no coroutine runtime or multithreaded API. A request moves through application states such as idle, submitting, connecting, streaming, running tools, completed, failed, and cancelled, presented through the shared [async state](ui-model.md#proposed-async-state) vocabulary. Stop is available in every intermediate state, and cancellation propagates through agent, network, tool, and subprocess services where supported.
+Asynchronous execution (network, coroutines, threads, subprocesses) is host-owned. A host-side or optional-library bridge delivers results at update points, propagates errors, and cancels or detaches tasks owned by a removed component; the core gains no coroutine runtime or multithreaded API. A request moves through application states such as idle, submitting, connecting, streaming, running tools, completed, failed, and cancelled, presented through the shared [async state](../proposals/async-resources.md#proposed-async-state) vocabulary. Stop is available in every intermediate state, and cancellation propagates through agent, network, tool, and subprocess services where supported.
 
 Markdown parsing, syntax highlighting, diff parsing, image decoding, attachment metadata, and search indexing may run off the UI thread in the host. Their results are immutable document patches applied at update points, preserving selection and scroll anchors.
 
@@ -41,13 +44,13 @@ Markdown parsing, syntax highlighting, diff parsing, image decoding, attachment 
 
 Markdown renders natively: source, parser, document AST, then ordinary components (heading, rich text paragraph, code block, table, quote, list) with native theming, selection, semantics, and inspection. Normal rendering needs no HTML conversion or WebView. The initial set covers paragraphs, headings, emphasis, inline code, fenced code, links, block quotes, ordered/unordered/nested lists, rules, and tables. Task lists, footnotes, math, diagrams, and custom interactive blocks come later. Read-only rich text is distinct from the deferred rich-text editor suite.
 
-Rich text needs styled spans, hyperlinks, inline components, selection across read-only text, and copy. Text requirements (grapheme handling, emoji, fallback, bidirectional text, Japanese line breaking, word boundaries) are owned by [text](text.md); editing and IME by [input](input.md#proposed-editing-ime-and-clipboard-boundary).
+Rich text needs styled spans, hyperlinks, inline components, selection across read-only text, and copy. Text requirements (grapheme handling, emoji, fallback, bidirectional text, Japanese line breaking, word boundaries) are owned by [text](../architecture/text.md); editing and IME by [input](../architecture/input.md#proposed-editing-ime-and-clipboard-boundary).
 
 A code block supports selection, copy, horizontal scrolling, optional line numbers and wrapping, a language label, collapse, search, and virtualization for very large sources. Syntax highlighting comes through an injected interface. Inline, unified, and side-by-side diffs, annotations, diagnostics, file references, and apply actions are later extensions.
 
 ## Proposed composer
 
-The input area is a multiline editor with first-class Japanese IME, selection, clipboard, undo/redo, attachments from drag/drop and pasted images with previews, and completion for slash commands and mentions of files, workspaces, or tools. Submit and newline keys (for example Enter and Shift+Enter) are declared key-to-action mappings under [input](input.md#event-to-action-boundary), not hard-coded behavior.
+The input area is a multiline editor with first-class Japanese IME, selection, clipboard, undo/redo, attachments from drag/drop and pasted images with previews, and completion for slash commands and mentions of files, workspaces, or tools. Submit and newline keys (for example Enter and Shift+Enter) are declared key-to-action mappings under [input](../architecture/input.md#event-to-action-boundary), not hard-coded behavior.
 
 ## Proposed tool, approval, and agent views
 
@@ -59,7 +62,7 @@ Artifacts separate generated work from the conversation: documents, code, images
 
 ## Proposed accessibility
 
-Messages carry semantic roles, readable boundaries, heading levels, code and link semantics, focus navigation, and complete keyboard operation through [semantics](semantics.md). Streaming announcements use live regions sparingly. Reduced motion and high contrast apply through ordinary styling.
+Messages carry semantic roles, readable boundaries, heading levels, code and link semantics, focus navigation, and complete keyboard operation through [semantics](../architecture/semantics.md). Streaming announcements use live regions sparingly. Reduced motion and high contrast apply through ordinary styling.
 
 ## Proposed reference application and fixtures
 
@@ -71,7 +74,7 @@ A reference application serves as both showcase and stress test, exercising text
 - Tool-heavy agent: hundreds of tool calls with live status, nesting, and logs.
 - Mixed workspace: conversation, editor, terminal, node graph, and viewport together.
 
-These are workload fixtures, not support claims; budgets follow recorded baselines under [inspection](inspection.md#proposed-diagnostics-and-comparisons). Automation uses the shared inspection boundary: open a conversation, inject a message, start and advance a stream, open a tool result, scroll to a message, capture, and inspect. Stream progress is declared fixture input, never wall-clock timing. Delivery scope is owned by [backlog](../roadmap/backlog.md).
+These are workload fixtures, not support claims; budgets follow recorded baselines under [inspection](../architecture/inspection.md#proposed-diagnostics-and-comparisons). Automation uses the shared inspection boundary: open a conversation, inject a message, start and advance a stream, open a tool result, scroll to a message, capture, and inspect. Stream progress is declared fixture input, never wall-clock timing. Delivery scope is owned by [backlog](../roadmap/backlog.md).
 
 ## Verification
 

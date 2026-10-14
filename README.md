@@ -4,11 +4,12 @@ Tessera is a deterministic GPU-native UI runtime for humans and agents, built fo
 
 Intended uses include game HUDs and menus, editor panels, inspectors, overlays, in-world UI, Mimikuri application UI, Path-finder previews, and OpenUSD utility applications. These are intended consumers, not support claims.
 
-The host owns application state, windows, devices, and frame scheduling. Tessera owns the UI runtime; Path-finder owns authoring and uses the same runtime for preview. The core stays independent of browser engines, GPU/platform SDKs, OpenUSD, and editor SDKs. See [architecture](docs/design/architecture.md).
+The host owns application state, windows, devices, and frame scheduling. Tessera owns the UI runtime; Path-finder owns authoring and uses the same runtime for preview. The core stays independent of browser engines, GPU/platform SDKs, OpenUSD, and editor SDKs. See [architecture](docs/architecture/overview.md).
 
 ## Start here
 
 - [Documentation index and ownership](docs/README.md)
+- [Product vision](docs/product/vision.md), [principles](docs/product/principles.md), [use cases](docs/product/use-cases.md) and [non-goals](docs/product/non-goals.md)
 - [Agent implementation policy](docs/agent-policy.md): authority, fixture-driven work, and subsystem stop rule
 - [Implementation and validation status](docs/reference/support-matrix.md)
 - [Active work](docs/roadmap/current.md) and [future candidates](docs/roadmap/backlog.md)

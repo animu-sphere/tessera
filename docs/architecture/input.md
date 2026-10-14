@@ -1,5 +1,14 @@
 # Input, focus, and navigation
 
+## Core invariants
+
+- The host normalizes platform devices at the boundary; core does not poll OS input APIs.
+- Targeting uses coherent logical geometry and shared eligibility. Keyboard/gamepad navigation and semantic operations follow ordinary action/command boundaries.
+- Host actions execute after traversal; generation/lifetime checks reject stale targets rather than invoking expired owners.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Host boundary
 
 The host polls platform devices and translates their data into normalized Tessera events. Tessera does not poll OS input APIs.
@@ -120,7 +129,7 @@ Delivery scope is owned by [current](../roadmap/current.md) and [backlog](../roa
 
 ## Proposed overlay interaction
 
-Use the [portal model](ui-model.md#proposed-overlays-and-portals) and shared [overlay geometry](layout.md#scrolling-and-overlay-geometry) for targeting. Define modal input capture, focus scope/restoration, dismissal/back, and hit order consistently with presentation order. Tooltip lifetime belongs to interaction state. Specify behavior when anchors or owners disappear; no implicit OS pointer capture is introduced by a portal.
+Use the [portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals) and shared [overlay geometry](layout.md#scrolling-and-overlay-geometry) for targeting. Define modal input capture, focus scope/restoration, dismissal/back, and hit order consistently with presentation order. Tooltip lifetime belongs to interaction state. Specify behavior when anchors or owners disappear; no implicit OS pointer capture is introduced by a portal.
 
 A modal establishes a bounded focus scope for sequential and directional keyboard/gamepad navigation and remembers a restoration target by logical identity. Dismissal restores it only if it is eligible in the accepted generation, otherwise applying a declared recovery policy. Opening or closing a dropdown/modal uses ordinary actions and command scopes under the logical component owner. Verify that relocated paint, clips, targeting, focus recovery, inspection, source mapping, and replay agree for the same portal generation.
 
@@ -146,7 +155,7 @@ Copy requests the selected committed bytes and leaves state unchanged. Cut reque
 
 Open decisions: concrete editing event/result types, editable-owner declaration, clipboard byte limits, newline policy, and grapheme/caret navigation service. First fixtures must include Japanese preedit replacement/commit/cancel, UTF-16 supplementary characters, stale revision rejection, focus loss and reload, read-only/disabled transitions, failed clipboard write before cut, and delayed paste after selection/focus changes. Platform adapters verify their own IME behavior against these fixtures.
 
-The [Web editing adapter](web-host.md#proposed-text-editing-adapter) may use browser-native input facilities alongside GPU visuals. It translates index units, revisions, focus, and composition into this same contract without exposing browser-specific controls in the UI model.
+The [Web editing adapter](../proposals/web-host.md#proposed-text-editing-adapter) may use browser-native input facilities alongside GPU visuals. It translates index units, revisions, focus, and composition into this same contract without exposing browser-specific controls in the UI model.
 
 ## Proposed typed drag and drop
 

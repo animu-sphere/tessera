@@ -1,5 +1,14 @@
 # Rendering
 
+## Core invariants
+
+- Backends consume backend-neutral resolved draw data; they do not query layout, signals, components or application state.
+- Submission borrows a coherent snapshot and retains referenced resources until declared completion-safe retirement.
+- Paint order, blend/clip/transform boundaries and logical-to-physical conversion are explicit. Optimized paths preserve reference output under declared tolerances.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Implemented draw-list contract
 
 [draw_list.hpp](../../include/tessera/render/draw_list.hpp) defines `UiDrawList`, an owned ordered vector of commands. Later commands paint above earlier ones. Geometry is in logical units within the current transform.
@@ -85,7 +94,7 @@ CPU data and resource lifetimes follow the frame contract above: GPU-visible res
 
 ## Backends and shaders
 
-The optional Vulkan module is defined below. WebGPU is the intended rendering boundary for the [Web host](web-host.md), with native WebGPU evaluated separately. The [CPU reference backend](#implemented-scalar-cpu-reference-backend) is explicitly constructed by the host. Metal and Direct3D 12 require a concrete consumer. Scheduling belongs in backlog and configuration evidence in support.
+The optional Vulkan module is defined below. WebGPU is the intended rendering boundary for the [Web host](../proposals/web-host.md), with native WebGPU evaluated separately. The [CPU reference backend](#implemented-scalar-cpu-reference-backend) is explicitly constructed by the host. Metal and Direct3D 12 require a concrete consumer. Scheduling belongs in backlog and configuration evidence in support.
 
 `UiDrawList` is the backend-neutral render IR: every backend consumes the same commands, and layout, style, shaping, glyph selection, clips, and transforms are settled before submission. Only rasterization differs per backend. A separate display list or render IR is introduced only with a defined consumer, as stated under [batching](#batching).
 
@@ -146,9 +155,9 @@ Keep the reference path for image comparison whenever grouping or packet encodin
 
 ### Proposed retained render updates
 
-[Reactive presentation invalidation](reactive-runtime.md#proposed-presentation-integration) can feed persistent display items, retained packets/atlas pages, instance-buffer regions, and partial uploads through backend-neutral paint data. Backends consume resolved changes and resource identities, never signals, owner objects, or application state. A paint-only change should update affected records without rebuilding unrelated geometry; static content can reuse prepared data under a declared lifetime.
+Retained rendering consumes resolved backend-neutral data and preserves paint ordering and completion-safe retirement. Backends cannot read component state or reactive owners.
 
-Preserve ordering, blend/clip/transform batch boundaries, and completion-safe ownership. Removal or replacement invalidates retained records; uploads and atlas regions cannot be overwritten while an earlier submission references them. Logical owner cleanup requests retirement rather than bypassing completion. Compare both commands and rendered output with full paint/reference rendering before measuring work reduction. Record affected items, rebuilt batches, and upload bytes without assuming that a local change always has constant cost. A separate Paint Tree or Render Tree is not required merely to mirror an architecture diagram; introduce a representation only with a defined consumer and lifetime.
+Possible mechanisms: [incremental evaluation](../proposals/incremental-evaluation.md#proposed-retained-render-updates). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Proposed primitive semantics
 
@@ -198,13 +207,13 @@ The [Vulkan fixtures](../../tests/render/vulkan_tests.cpp) implement an adapter 
 
 ## Proposed capture boundary
 
-An offscreen host owns targets, submission, completion, and readback. A reusable capture service associates an image with the submitted frame/update generation, physical extent, scale, format/color convention, and backend/device metadata. CPU inspection and GPU completion must agree under the [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle) contract. Readback does not weaken retirement requirements or add window/platform types to core.
+An offscreen host owns targets, submission, completion, and readback. A reusable capture service associates an image with the submitted frame/update generation, physical extent, scale, format/color convention, and backend/device metadata. CPU inspection and GPU completion must agree under the [snapshot bundle](../proposals/snapshot-bundles.md#proposed-runner-and-snapshot-bundle) contract. Readback does not weaken retirement requirements or add window/platform types to core.
 
 Image encoding/export belongs to optional tooling, with explicit dependency/licensing choices. Existing fixture readback and PPM artifacts are examples of backend evidence, not a general PNG-capture API, runner, or CLI. Headless means no window: GPU capture requires a declared device, while the [CPU reference backend](#implemented-scalar-cpu-reference-backend) captures without one. Which backend produced an image is always declared.
 
 ## Proposed overlay paint
 
-The [overlay/portal model](ui-model.md#proposed-overlays-and-portals) provides layer identity and presentation ancestry. Paint uses shared placement/clip geometry to place overlay commands after the appropriate content layer, without inheriting ordinary content clips accidentally. Define deterministic ordering and balanced stack boundaries; input must use the same presentation order. Portals do not bypass resource retirement or create backend-owned components.
+The [overlay/portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals) provides layer identity and presentation ancestry. Paint uses shared placement/clip geometry to place overlay commands after the appropriate content layer, without inheriting ordinary content clips accidentally. Define deterministic ordering and balanced stack boundaries; input must use the same presentation order. Portals do not bypass resource retirement or create backend-owned components.
 
 ## Assets
 

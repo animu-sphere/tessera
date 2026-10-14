@@ -1,5 +1,14 @@
 # Semantics and external adapters
 
+## Core invariants
+
+- Semantic records project one settled runtime generation, separate from paint commands and layout containers.
+- Names, state and action availability derive from shared runtime/interaction rules; external adapters do not maintain competing eligibility.
+- Semantic invocation uses ordinary action boundaries and rejects stale identities. Presentation relocation or absent paint cannot alone define logical meaning.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Proposed semantic projection
 
 `SemanticTree` is a backend-neutral projection of the settled UI snapshot, separate from paint commands and geometry. It represents meaning for accessibility, automated tests, external agents, and inspection. This section defines a proposal, not JSON v1 fields or a stable public API; the [implemented prototype](#implemented-prototype-projection) covers a small in-process subset. Actual capability status is in [support](../reference/support-matrix.md).
@@ -16,7 +25,7 @@ Derive enabled/focused/action availability from settled interaction state rather
 
 Semantic inclusion for hidden, display-none, virtualized, and modal content needs explicit fixtures. Do not infer eligibility solely from whether a paint command exists.
 
-Portal relocation preserves declared logical component relationships under the [portal model](ui-model.md#proposed-overlays-and-portals); presentation parentage alone cannot determine semantic ownership. Modal scope and background action availability reflect [input](input.md#proposed-overlay-interaction). Virtualized lists declare exposed logical item order, stable keys, and realization actions under [virtualization](layout.md#proposed-virtualization-foundation), rather than making visible indices into identities. Editable text exposes committed value, selection, read-only state, and declared editing actions from the [editing owner](input.md#proposed-editing-ime-and-clipboard-boundary). Relationship, value/selection, and virtualization encoding require explicit schema decisions before extending semantic snapshots.
+Portal relocation preserves declared logical component relationships under the [portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals); presentation parentage alone cannot determine semantic ownership. Modal scope and background action availability reflect [input](input.md#proposed-overlay-interaction). Virtualized lists declare exposed logical item order, stable keys, and realization actions under [virtualization](../proposals/virtualization.md#proposed-virtualization-foundation), rather than making visible indices into identities. Editable text exposes committed value, selection, read-only state, and declared editing actions from the [editing owner](input.md#proposed-editing-ime-and-clipboard-boundary). Relationship, value/selection, and virtualization encoding require explicit schema decisions before extending semantic snapshots.
 
 ## Implemented prototype projection
 
@@ -55,17 +64,17 @@ Canonical output sorts object keys, preserves array order, writes absent identit
 
 ## Snapshot and identity
 
-Publish a coherent semantic snapshot with the same update generation as style/layout and actions under the [frame lifecycle](architecture.md#frame-scheduling). Borrowed runtime handles expire with their tree. External adapters need a generation-aware identity and must reject stale action targets after replacement. Do not serialize process-unique handles into recordings.
+Publish a coherent semantic snapshot with the same update generation as style/layout and actions under the [frame lifecycle](overview.md#frame-scheduling). Borrowed runtime handles expire with their tree. External adapters need a generation-aware identity and must reject stale action targets after replacement. Do not serialize process-unique handles into recordings.
 
 Semantic output is deterministic for the same document, state, input, time, and resource readiness. Geometry may be supplied for adapter needs through layout references; semantics does not own layout calculation.
 
 ## Accessibility and automation boundary
 
-Platform adapters translate this projection to native services such as Windows UI Automation or macOS accessibility. The [Web host](web-host.md#proposed-semantic-dom-bridge) projects it to semantic DOM alongside canvas rendering. OS/DOM types stay outside core, and all adapters share the same semantic schema.
+Platform adapters translate this projection to native services such as Windows UI Automation or macOS accessibility. The [Web host](../proposals/web-host.md#proposed-semantic-dom-bridge) projects it to semantic DOM alongside canvas rendering. OS/DOM types stay outside core, and all adapters share the same semantic schema.
 
 An external automation adapter may find a role/name, inspect state, and invoke a declared semantic action. Invocation passes through the same eligibility, host action, and [command](commands.md) path as normal interaction, and a node bound to a disabled command reports itself disabled; adapters do not call component callbacks or host functions directly. A semantic schema does not imply native screen-reader integration, a bundled AI runtime, or supported automation transport.
 
-Path-finder and external tools consume this projection through [shared inspection](inspection.md), alongside [reflection](ui-model.md#proposed-property-reflection), without defining a second semantic schema. Inspection owns target resolution and source/geometry joins; it does not redefine accessible names or actions. Adapter transport, authorization policy, and platform-specific lifetime mapping are integration decisions.
+Path-finder and external tools consume this projection through [shared inspection](inspection.md), alongside [reflection](../proposals/property-reflection.md#proposed-property-reflection), without defining a second semantic schema. Inspection owns target resolution and source/geometry joins; it does not redefine accessible names or actions. Adapter transport, authorization policy, and platform-specific lifetime mapping are integration decisions.
 
 ## Verification
 

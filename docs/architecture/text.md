@@ -1,5 +1,14 @@
 # Text
 
+## Core invariants
+
+- Layout receives metrics and paint receives positioned glyphs through injected interfaces without font-library or GPU implementation types.
+- Measurement and shaping agree for the same text, font environment and constraints; cache reuse preserves that agreement.
+- Index units are explicit; UTF-8 byte offsets, code points, grapheme clusters and glyph indices are not interchangeable.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Implemented boundary
 
 [text.hpp](../../include/tessera/text/text.hpp) defines the abstraction. `TextShaper::measure(utf8, style, constraints)` returns `TextMetrics`; `TextShaper::shape(utf8, style, constraints)` returns a `GlyphRun` whose `metrics` equal `measure` for the same inputs. Constraints default to absent, preserving two-argument calls; implementations override the three-argument signatures. Shapers are borrowed by layout and paint for each call and may cache internally, so the operations are non-const. Results are owned values; no FreeType/HarfBuzz or other implementation type crosses the boundary.
@@ -127,7 +136,7 @@ Text consumes resolved UTF-8 content plus explicit language/script and paragraph
 
 Unicode segmentation, bidirectional analysis, script itemization, language-aware font selection, shaping and line breaking cooperate in text layout. Do not prescribe one unconditional pass order: chosen line boundaries and shaping context must preserve correct visual ordering. A paragraph can contain several directional/script runs and concrete font faces, while source clusters keep explicit UTF-8 byte offsets. Measure and paint consume identical resolved options and constraints. Broader grapheme/line-break and BiDi behavior requires explicit Unicode/data identities and dedicated fixtures rather than a HarfBuzz library inference.
 
-Font selection can use declared language/script preferences as well as coverage and the host's ordered fallback stack. Selected concrete faces and missing-glyph diagnostics stay observable; color emoji formats follow the separate [glyph strategy](#proposed-glyph-raster-strategy). Reuse keys must include resolved content, language/direction, font/fallback revisions and line constraints under [incremental invalidation](#proposed-incremental-text-invalidation).
+Font selection can use declared language/script preferences as well as coverage and the host's ordered fallback stack. Selected concrete faces and missing-glyph diagnostics stay observable; color emoji formats follow the separate [glyph strategy](#proposed-glyph-raster-strategy). Reuse keys must include resolved content, language/direction, font/fallback revisions and line constraints under [incremental invalidation](../proposals/incremental-evaluation.md#proposed-incremental-text-invalidation).
 
 Use representative Latin/CJK, Arabic/Hebrew mixed with numbers and Latin, Indic, Thai and emoji fixtures as each algorithm is introduced. They are verification targets, not a script-support claim. Text editing, caret/selection and IME continue to follow the [input boundary](input.md#proposed-editing-ime-and-clipboard-boundary).
 
@@ -186,7 +195,7 @@ Load errors carry JSON pointers and UTF-8 byte offsets. Schema errors use `missi
 
 ## Proposed deterministic font profile
 
-Snapshot and agent-driven tests declare a font profile: fixed redistributable fonts and versions, fixed fallback chain, device scale, shaping options, rasterizer settings, and rendering backend configuration. The [in-process profile](#implemented-in-process-font-profile) supplies owned face/mapping inputs and the sealed service; [font profile JSON v1](#implemented-font-profile-json-v1) preserves those inputs. [Replay JSON v1](replay.md#implemented-replay-json-v1) identifies that profile by digest and declares device scale and locale; shaping and rasterizer settings are fixed by profile version 1. The [offscreen runner](inspection.md#implemented-prototype-offscreen-runner) manifest carries that identity with a declared capture backend, and a Vulkan fixture adapter captures real-font frames under the [declared fixture profile](#declared-grayscale-fixture-profile); a [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle) identifies both. System fonts are never a CI default. The profile is one of the declared inputs under [determinism](architecture.md#determinism) and the [snapshot bundle](inspection.md#proposed-runner-and-snapshot-bundle).
+Snapshot and agent-driven tests declare a font profile: fixed redistributable fonts and versions, fixed fallback chain, device scale, shaping options, rasterizer settings, and rendering backend configuration. The [in-process profile](#implemented-in-process-font-profile) supplies owned face/mapping inputs and the sealed service; [font profile JSON v1](#implemented-font-profile-json-v1) preserves those inputs. [Replay JSON v1](replay.md#implemented-replay-json-v1) identifies that profile by digest and declares device scale and locale; shaping and rasterizer settings are fixed by profile version 1. The [offscreen runner](inspection.md#implemented-prototype-offscreen-runner) manifest carries that identity with a declared capture backend, and a Vulkan fixture adapter captures real-font frames under the [declared fixture profile](#declared-grayscale-fixture-profile); a [snapshot bundle](../proposals/snapshot-bundles.md#proposed-runner-and-snapshot-bundle) identifies both. System fonts are never a CI default. The profile is one of the declared inputs under [determinism](overview.md#determinism) and the [snapshot bundle](../proposals/snapshot-bundles.md#proposed-runner-and-snapshot-bundle).
 
 ## Measurement and rendering agreement
 
@@ -194,9 +203,9 @@ Measurement and paint must use compatible shaping and line-break results. Asset 
 
 ## Proposed incremental text invalidation
 
-Treat font selection, Unicode/script analysis, shaping, line breaking, placement, and raster preparation as distinct dependency stages under [reactive presentation integration](reactive-runtime.md#proposed-presentation-integration). Text color changes only paint. Font/alias/fallback/variation or string changes invalidate the relevant analysis, shaping, measurement, and paint; a width change invalidates wrapping and placement and can require reshaping where the wrapping algorithm shapes candidate segments. Do not promise line-break-only work unless cached shaping remains valid for that algorithm.
+Text reuse must preserve measurement/shaping agreement, font-environment identity and diagnostics. Full shaping and measurement define the correctness reference.
 
-Cache keys include all consumed text/style/constraint and font-environment revisions, plus locale/direction/options when supported. Raster size, face revision, and scale obey the [glyph cache contract](#implemented-grayscale-raster-and-cache-contract). Atlas or paint reuse cannot keep glyph indices from a replaced face. An accepted cache hit must preserve metrics, glyphs, and diagnostics, with `measure` and `shape` agreeing under the same inputs. Repeated full shaping/measurement is the correctness reference; stage reuse must not infer broader Unicode support or couple text to GPU storage.
+Possible mechanisms: [incremental evaluation](../proposals/incremental-evaluation.md#proposed-incremental-text-invalidation). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Proposed glyph raster strategy
 

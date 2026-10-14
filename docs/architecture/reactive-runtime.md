@@ -1,5 +1,14 @@
 # Reactive runtime
 
+## Core invariants
+
+- The dependency graph and owner tree are separate; dependencies do not transfer application ownership or prolong a source lifetime.
+- Pure calculations cannot mutate graph or presentation state. Observed derivations settle coherently before publication; rejected candidates deliver no partial effects.
+- Disposal invalidates lifetime references and queued work, with deterministic child-first teardown and explicit host cleanup delivery.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Implemented in-process graph contract
 
 [runtime.hpp](../../include/tessera/reactive/runtime.hpp) defines `ReactiveRuntime`, `ReactiveOwner`, `Signal<T>`, `Computed<T>`, and `ReactiveError`; [runtime.cpp](../../src/reactive/runtime.cpp) owns the dependency graph. The runtime is noncopyable and nonmovable. Its operations run on its creating UI thread; background-thread entry and cross-runtime reads during calculations or equality comparisons fail. The core imports no host, renderer, text-service, or executor types.
@@ -72,13 +81,13 @@ Within one flush, a failed calculation reports its recorded cause to later consu
 
 [Publication](#implemented-effect-and-publication-boundary) ignores stale or failed calculations under a faulted boundary and captures no effect under one. Held effects keep their last published values and cleanups; after recovery, the next successful publication captures their latest values. A stale or failed calculation outside every faulted boundary still blocks publication. Disposing a faulted boundary removes it from the faulted set. Effect application and cleanup failures are external operation failures and do not fault boundaries.
 
-The boundary provides containment and located diagnostics only. It defines no fallback content, presentation generation, retry policy, reload transaction, or mapping to [UI error boundaries](ui-model.md#proposed-error-boundaries). The [tool panel](../../examples/tool-panel/main.cpp) places item details in a boundary; a missing host record faults it, the host presents fallback text, and the rest of the panel publishes. Boundary checks are in [reactive_tests.cpp](../../tests/reactive/reactive_tests.cpp).
+The boundary provides containment and located diagnostics only. It defines no fallback content, presentation generation, retry policy, reload transaction, or mapping to [UI error boundaries](../proposals/error-boundaries.md#proposed-error-boundaries). The [tool panel](../../examples/tool-panel/main.cpp) places item details in a boundary; a missing host record faults it, the host presents fallback text, and the rest of the panel publishes. Boundary checks are in [reactive_tests.cpp](../../tests/reactive/reactive_tests.cpp).
 
 ## Proposed kernel boundary
 
 Treat view updates as incremental evaluation of a dynamic dependency graph. Components provide composition, identity boundaries, and owner scopes above this kernel; state does not require component re-execution, a virtual-tree diff, or call-order-dependent hook slots. All frontends lower to the [common UI representation](ui-model.md#common-representation). Reactive closures, graph edges, and scheduler queues are runtime data, never serialized document fields.
 
-The kernel owns dependency collection, value revisions, invalidation, evaluation, reactive owner disposal, and update batching. Applications own their data and expose explicit view sources; [UI model](ui-model.md#state-and-reconciliation) owns component keys and reconciliation. The host advances work at the [frame boundary](architecture.md#frame-scheduling), supplies time and external readiness, and executes external operations after traversal. The kernel imports no platform, GPU, text-library, editor, browser, or asynchronous executor types.
+The kernel owns dependency collection, value revisions, invalidation, evaluation, reactive owner disposal, and update batching. Applications own their data and expose explicit view sources; [UI model](ui-model.md#state-and-reconciliation) owns component keys and reconciliation. The host advances work at the [frame boundary](overview.md#frame-scheduling), supplies time and external readiness, and executes external operations after traversal. The kernel imports no platform, GPU, text-library, editor, browser, or asynchronous executor types.
 
 Conceptual primitives, with public spelling and C++ representation subject to API design:
 
@@ -89,7 +98,7 @@ Conceptual primitives, with public spelling and C++ representation subject to AP
 | Owner scope | Deterministic lifetime for computations, subscriptions, pending work, and effect cleanup |
 | Update batch | Coalesced invalidation and a boundary before observable effects |
 | Effect | Owned external operation prepared from settled values and delivered to the host |
-| Resource observation | Reactive projection of [async state](ui-model.md#proposed-async-state), using its request/attempt and cancellation rules |
+| Resource observation | Reactive projection of [async state](../proposals/async-resources.md#proposed-async-state), using its request/attempt and cancellation rules |
 
 Constants require no subscription. Bindings connect these concepts to typed presentation properties rather than introducing another state runtime. Resource observations do not execute file/network/font loading or create a second pending/error state machine.
 
@@ -103,7 +112,7 @@ A write marks dependent work as potentially stale and queues it, without recursi
 
 A chain and a diamond must both settle against the same source values. A diamond's sink must never publish a mixture of refreshed and stale branches. Shared prerequisites are refreshed once for a settled revision; laziness may avoid unobserved work but cannot leave an observed consumer stale. These rules hold through dynamic dependency replacement regardless of traversal order.
 
-Synchronous direct and indirect evaluation cycles fail with a located dependency path; the kernel is not a fixed-point solver. Pure derivations cannot write reactive state, mutate the presentation tree, or perform external operations. Failed evaluation publishes no partial value or dependency set, restores bookkeeping, and reports through the [error boundary](ui-model.md#proposed-error-boundaries). Recovery must permit a later accepted update to retry without losing relevant invalidation.
+Synchronous direct and indirect evaluation cycles fail with a located dependency path; the kernel is not a fixed-point solver. Pure derivations cannot write reactive state, mutate the presentation tree, or perform external operations. Failed evaluation publishes no partial value or dependency set, restores bookkeeping, and reports through the [error boundary](../proposals/error-boundaries.md#proposed-error-boundaries). Recovery must permit a later accepted update to retry without losing relevant invalidation.
 
 ## Proposed reactive ownership
 
@@ -123,23 +132,21 @@ One normalized event and its accepted host action handling form an update batch 
 
 An update batch is distinct from an application [edit transaction](commands.md#proposed-transaction-boundary): it neither opens an undo entry nor provides application-state rollback. A continuous edit can span several UI batches while retaining one application transaction token. A batch may wrap a non-editing action without an edit token. Closing a batch does not imply that the host mutation succeeded or that a candidate UI is valid.
 
-The scheduler settles reactive values and presentation bindings before style, layout, semantics, and paint, then prepares one candidate generation for publication under [update and snapshot rules](architecture.md#update-and-snapshot-rules). A failed candidate retains the last valid published generation; it does not undo host state. No external effect observes a rejected candidate. Rendering consumes only published draw data and the host owns submission/presentation.
+The scheduler settles reactive values and presentation bindings before style, layout, semantics, and paint, then prepares one candidate generation for publication under [update and snapshot rules](overview.md#update-and-snapshot-rules). A failed candidate retains the last valid published generation; it does not undo host state. No external effect observes a rejected candidate. Rendering consumes only published draw data and the host owns submission/presentation.
 
 Effects have explicit delivery phases. Host/resource preparation needed for submission occurs after successful publication and before submission; post-commit notifications follow publication, without implying GPU completion. Work needing GPU completion follows the renderer completion boundary. Effect registrations own cleanup, and replacement runs prior cleanup once before the next delivery. Effect-induced writes are queued for a later batch rather than recursively entering a flush. Reentrant flush is rejected; bounded draining diagnoses feedback that cannot settle instead of looping indefinitely.
 
 ## Proposed presentation integration
 
-Bindings invalidate consumers according to [property effects](styling.md#property-effects), using the same metadata as validation and Inspector tooling. Stage invalidation is a set, not one mutually exclusive classification. [Layout](layout.md#invalidation), [text](text.md#proposed-incremental-text-invalidation), and [render preparation](rendering.md#proposed-retained-render-updates) own their algorithms and cache keys; participating in scheduling does not merge these subsystems into the kernel.
+Presentation consumers share property-stage metadata while retaining separate layout, text and render algorithms. Skipping work must preserve observable semantics, focus, cleanup and full-tree output.
 
-A paint-only value change should avoid measurement and layout. Geometry, inherited state, text, and clip changes must invalidate every affected layout/input/semantic/paint consumer, including ancestors or siblings when required. Invisible or unrealized content cannot be skipped merely because it has no draw commands: dependencies, semantics, focus/navigation, and cleanup can remain observable. Fine-grained paths must match full-tree output before retained rendering or priority scheduling relies on them.
-
-[Inspection](inspection.md#proposed-reactive-observations) owns graph snapshots and update-cause records; the kernel supplies bounded observations without exposing mutable storage. Components and future authoring facades use the same identity, ownership, and update model rather than establishing separate reconciliation or scheduling semantics.
+Possible mechanisms: [incremental evaluation](../proposals/incremental-evaluation.md#proposed-presentation-integration). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Open decisions
 
-- Declarative signal/effect/async registration and automatic detachment for the [component lifecycle](ui-model.md#proposed-automatic-component-lifecycle), above [invocation mounting](ui-model.md#implemented-component-invocation-mounting) and [named local state](ui-model.md#implemented-keyed-component-mounting).
+- Declarative signal/effect/async registration and automatic detachment for the [component lifecycle](../proposals/automatic-component-lifecycle.md#proposed-automatic-component-lifecycle), above [invocation mounting](ui-model.md#implemented-component-invocation-mounting) and [named local state](ui-model.md#implemented-keyed-component-mounting).
 - Observed-demand tracking, queue structures, and wider graph bounds based on consumer workloads.
-- Effect result adapter; mapping [fault boundaries](#implemented-subtree-fault-boundary) to presentation [error boundaries](ui-model.md#proposed-error-boundaries) and component identity. Disposal and replacement cleanup use the implemented [cleanup](#implemented-external-cleanup-boundary) and [publication](#implemented-effect-and-publication-boundary) boundaries.
+- Effect result adapter; mapping [fault boundaries](#implemented-subtree-fault-boundary) to presentation [error boundaries](../proposals/error-boundaries.md#proposed-error-boundaries) and component identity. Disposal and replacement cleanup use the implemented [cleanup](#implemented-external-cleanup-boundary) and [publication](#implemented-effect-and-publication-boundary) boundaries.
 - Allocation strategy and debug metadata storage, selected after measuring graph workloads rather than fixing an illustrative node ABI.
 
 ## Verification

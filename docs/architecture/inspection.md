@@ -1,12 +1,21 @@
 # Inspection, snapshots, and automation tooling
 
+## Core invariants
+
+- Owned observations identify one accepted generation; completed pixels cannot be combined with a different generation's semantic/layout records.
+- Source information and unavailable observations are explicit; tooling cannot invent origins or inspect private application memory.
+- Operations use ordinary target eligibility, lifetime and command/transaction boundaries under adapter permissions.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Proposed shared inspection boundary
 
 Tessera should be operable by humans, test runners, and external agents through the same runtime. This proposal defines inspection and tooling boundaries, not a stable public API, wire format, CLI, or build option; the [implemented prototype](#implemented-prototype-capture-and-target-resolution) covers a small in-process subset. Capability and configuration evidence belongs in [support](../reference/support-matrix.md).
 
 DevTools, Path-finder, regression tools, and agent adapters consume a shared inspection layer. The layer depends on runtime contracts; the core never depends on an agent SDK, RPC server, MCP, or AI model. [Semantics](semantics.md) owns roles, names, state, and supported actions; [UI model](ui-model.md) owns identity and property metadata. Inspection joins these with layout and source information rather than maintaining another widget or accessibility tree.
 
-Publish owned observations from one settled [update generation](architecture.md#update-and-snapshot-rules). External consumers must not retain borrowed node pointers or access mutable runtime internals. A response identifies its generation; an action against an expired generation fails even if an author ID has been reused.
+Publish owned observations from one settled [update generation](overview.md#update-and-snapshot-rules). External consumers must not retain borrowed node pointers or access mutable runtime internals. A response identifies its generation; an action against an expired generation fails even if an author ID has been reused.
 
 ## Proposed inspection records and source mapping
 
@@ -14,7 +23,7 @@ An element record should expose scoped author identity, component/type informati
 
 Source mappings associate authored nodes/properties with file identity and spans through frontend lowering and reload. Generated components may need both definition and instance origins. Report unavailable source information explicitly; never guess a source line from a preorder index. Source maps are tooling metadata, not runtime behavior or implicit new JSON v1 fields.
 
-Extend provenance to component prop/signal/local-state declarations and authored defaults, keeping declaration/default origins distinct from invocation and supplied expression origins. Observations identify whether a value came from an explicit argument, a default, inheritance, or resolution using [property reflection](ui-model.md#proposed-property-reflection). Dedicated origin fields and precedence need bounded validation before use; a default must not acquire a fabricated argument span. Reload carries the accepted source map with its generation and preserves source-located rejection diagnostics for the discarded candidate.
+Extend provenance to component prop/signal/local-state declarations and authored defaults, keeping declaration/default origins distinct from invocation and supplied expression origins. Observations identify whether a value came from an explicit argument, a default, inheritance, or resolution using [property reflection](../proposals/property-reflection.md#proposed-property-reflection). Dedicated origin fields and precedence need bounded validation before use; a default must not acquire a fabricated argument span. Reload carries the accepted source map with its generation and preserves source-located rejection diagnostics for the discarded candidate.
 
 Expose only host-declared serializable state slots. An application adapter validates typed values, owns capture/restore and any schema migration, and applies changes at update boundaries. No arbitrary memory access or enumeration of private application state is allowed. Fixture state can include host inputs that affect UI, but UI tooling does not become the owner of application state.
 
@@ -57,27 +66,9 @@ Static message-ID extraction, missing/unused-key and argument checks, glossary c
 
 ## Proposed runner and snapshot bundle
 
-Separate interactive application execution from deterministic one-shot observation. An offscreen runner owns host adapters for viewport/scale, time/frame count, normalized input, fixture resources, and declared application state. It must not require an OS window. The [implemented prototype](#implemented-prototype-offscreen-runner) covers recorded viewport/scale, locale, text-service identity, input, and declared completed-frame capture. Screenshots come from an explicitly declared backend: the [CPU reference backend](rendering.md#implemented-scalar-cpu-reference-backend) supplies deterministic visual fixtures, and GPU capture requires a declared device/driver. Neither substitutes automatically for the other.
+A capture joins owned observations and optional completed pixels from one accepted generation. Replay inputs and snapshot observations remain distinct; missing artifacts are explicit.
 
-[Replay](replay.md) owns reproducible inputs and action order. A snapshot is an observation of one settled generation, while a replay describes progression between generations. Snapshot bundle versioning is independent of UI-document, semantic, and replay versions. Proposed bundle contents:
-
-| Artifact | Content and owner |
-| --- | --- |
-| Manifest | Bundle version, generation, fixture/input references, viewport/scale, locale, theme, font/asset identities, capture capabilities and rendering environment |
-| Screenshot | Optional completed frame readback; [rendering](rendering.md) owns target/color/lifetime rules |
-| Tree | Semantic projection plus explicitly identified runtime inspection records |
-| UI | Backend-neutral accepted document, with explicit references to any component/state fixture inputs needed to reproduce it |
-| State | Host-declared reproducible input state, excluding private or sensitive slots |
-| Layout | Logical geometry and available clip/scroll information from [layout](layout.md) |
-| Render | Owned command summary and backend counters; no SDK objects, addresses, or GPU handles |
-| Diagnostics | Structured issues associated with the captured generation |
-| Invariants | Owned declarations, actual observations, outcomes, and located diagnostics from the same generation |
-| Sources | Owned source map and property/component provenance with explicit unavailable origins |
-| Metrics | Allocation/memory and render counters when available, plus optional CPU/GPU timing with measurement conditions |
-
-Capture CPU observations coherently, then associate completed readback with that same generation/frame. Do not combine a later semantic tree with an earlier image. Missing artifacts carry an explicit reason; a core-only snapshot needs no screenshot. Names and encoding of bundle members remain open until bounded validation, version rejection, and round trips are specified.
-
-A small inspection/render CLI consumer loads a fixture, replays declared interactions, captures one coherent generation, and emits versioned machine-readable artifacts for CI, Path-finder, and agents. Select the scalar CPU renderer explicitly as the deterministic reference by default; unavailable requested backends are diagnosed under the runner boundary. Compare Vulkan output against the same scene under declared device/format tolerances. Inspection, rendering, bundle verification, and bundle comparison are intended operations, without committing to executable names, switches, or artifact filenames.
+Possible mechanisms: [snapshot bundles and cli](../proposals/snapshot-bundles.md#proposed-runner-and-snapshot-bundle). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Implemented prototype offscreen runner
 
@@ -175,13 +166,15 @@ A valid evaluation returns an owned `InvariantReport` even when assertions fail.
 
 ## Proposed agent capability manifest
 
-Agents operate UI through meaning rather than screen scraping. A capability manifest describes, for one generation and one adapter's permissions, the [commands](commands.md) with their eligibility and argument schemas, the inspectable surfaces (document, hierarchy, selection, properties), and the semantic actions (activate, select, focus, set value). It is a projection of the semantic tree, the command registry, and inspection records, not an agent-specific runtime API. Development-only commands and private state stay out of production manifests, and the manifest version is independent of document, replay, and bundle versions.
+Operation discovery projects ordinary semantics, commands and inspection under adapter permissions; it cannot bypass eligibility, generation checks or transactions.
 
-The manifest also declares adapter support for tree/property inspection, semantic action and command invocation, input replay, frame capture, invariant queries, source-target editing, reload, and snapshot comparison. Each entry identifies its request/result schema, availability, permission/development restrictions, and target/generation preconditions; unsupported operations are explicit. Editing resolves validated source mappings through a host-authorized source adapter, and runtime property edits use declared commands or edit operations. Capability discovery grants no bypass of eligibility, transactions, or lifetime checks.
+Possible mechanisms: [agent capability manifest](../proposals/agent-capability-manifest.md#proposed-agent-capability-manifest). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Proposed generation history
 
-Replay already describes progression between generations; time-travel inspection keeps selected observations per generation so tools can step through them. A history entry can hold the document generation, declared state snapshot, semantic tree, layout, focus, the command or action that produced it, paint counters, and resource readiness. DevTools then show differences between generations, focus changes, layout changes, command history, and resource transitions. History is bounded by count or bytes with explicit eviction, observes only owned data, and stays a development facility. A failure reproduction bundle packages the replay recording with the observations needed to reproduce it; a performance regression bundle adds the measurement conditions.
+Historical observations must be owned, generation-associated and bounded by explicit retention/eviction. History remains a development facility and cannot expose private application state.
+
+Possible mechanisms: [generation history](../proposals/generation-history.md#proposed-generation-history). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Proposed tooling and production boundary
 

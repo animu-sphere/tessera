@@ -1,5 +1,14 @@
 # Localization
 
+## Core invariants
+
+- Locale and formatting preferences are explicit host inputs; message identity remains distinct from resolved display text.
+- Message resolution, Unicode/font processing, logical layout and semantic naming retain separate interfaces and settle coherently.
+- Translation changes preserve stable UI identity and host-owned data; core APIs do not import formatter/font-library types.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Proposed boundary and ownership
 
 Localization is UI runtime input, coordinated with text and layout through ordinary reactive dependencies. It covers message resolution and locale-sensitive formatting, rather than adding translation logic to individual widgets. A literal UTF-8 value remains useful for user content and non-translatable text; an application message retains its semantic identity until resolution.
@@ -8,7 +17,7 @@ Localization is UI runtime input, coordinated with text and layout through ordin
 | --- | --- |
 | Locale identity, catalog fallback, message references/arguments, formatting, missing-translation policy | This page |
 | Provider scope and lifetime, component bindings, common representation | [UI model](ui-model.md#proposed-context) |
-| Dependency tracking and coherent publication | [Reactive runtime](reactive-runtime.md#proposed-presentation-integration) |
+| Dependency tracking and coherent publication | [Reactive runtime](../proposals/incremental-evaluation.md#proposed-presentation-integration) |
 | Unicode segmentation, BiDi, shaping, font selection, line breaking | [Text](text.md#proposed-international-text-layout) |
 | Logical edges, alignment and direction-aware placement | [Layout](layout.md#proposed-logical-direction-and-edges) |
 | Resource acquisition and readiness delivery | Host through the [asset boundary](rendering.md#assets) |
@@ -22,7 +31,7 @@ Locale is an explicitly supplied reactive [subtree context](ui-model.md#proposed
 
 Locale identity preserves BCP 47 language, script, region, variants and extensions rather than treating language alone as sufficient. Examples include `ja-JP`, `zh-Hans-CN`, `zh-Hant-TW`, and `sr-Latn`. Parsing, normalization, supported extensions, and invalid/unsupported-tag diagnostics must be defined before accepting authored values. Formatting preferences such as numbering system, calendar, hour cycle and measurement system are explicit inputs. Time zone and the value being formatted are supplied by the host; locale does not imply a clock or time zone.
 
-A provider change invalidates its dependent message/formatting values and the affected text, layout, semantic names, and paint. Catalog resolution and text/layout work settle before one generation is published under the [update rules](architecture.md#update-and-snapshot-rules). Preserve node/component keys, command IDs, focus and user edits across a locale change; translations are presentation values rather than identity. Incremental evaluation must agree with resolving and recomputing the full tree.
+A provider change invalidates its dependent message/formatting values and the affected text, layout, semantic names, and paint. Catalog resolution and text/layout work settle before one generation is published under the [update rules](overview.md#update-and-snapshot-rules). Preserve node/component keys, command IDs, focus and user edits across a locale change; translations are presentation values rather than identity. Incremental evaluation must agree with resolving and recomputing the full tree.
 
 ## Proposed semantic message values
 
@@ -46,7 +55,7 @@ Development policy can show a conspicuous marker such as `‚ü¶editor.node.delete‚
 
 ## Proposed catalog reload
 
-Translation reload follows the candidate-validation and atomic-publication pattern of the [live reload transaction](path-finder-integration.md#live-reload-transaction), with catalog validation owned here and readiness delivered by the host. Parse and validate a complete candidate before an update point; publish its revision atomically and invalidate consumers of replaced messages. A rejected catalog keeps the last valid UI and reports resource/message source locations. A locale change or resource completion cannot mix catalog revisions within a published generation. Removed providers/owners drop late completions under the [async lifetime](ui-model.md#proposed-async-state) rules.
+Translation reload follows the candidate-validation and atomic-publication pattern of the [live reload transaction](../proposals/live-reload.md#live-reload-transaction), with catalog validation owned here and readiness delivered by the host. Parse and validate a complete candidate before an update point; publish its revision atomically and invalidate consumers of replaced messages. A rejected catalog keeps the last valid UI and reports resource/message source locations. A locale change or resource completion cannot mix catalog revisions within a published generation. Removed providers/owners drop late completions under the [async lifetime](../proposals/async-resources.md#proposed-async-state) rules.
 
 Reload does not rebuild the UI tree solely to change language, reset editing state, or bypass shaping/layout. The host owns file watching and loading; the runtime owns resolution and dependency effects.
 

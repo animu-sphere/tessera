@@ -1,6 +1,6 @@
 # Contributing
 
-Read the [documentation index](docs/README.md), [architecture](docs/design/architecture.md), and [current work](docs/roadmap/current.md) before making changes.
+Read the [documentation index](docs/README.md), [architecture](docs/architecture/overview.md), and [current work](docs/roadmap/current.md) before making changes.
 
 ## Scope changes around a boundary
 

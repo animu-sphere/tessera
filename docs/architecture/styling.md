@@ -1,5 +1,14 @@
 # Styling
 
+## Core invariants
+
+- Style resolution produces values independently of input devices and renderer objects.
+- Cascade, inheritance and instance overrides use declared deterministic ordering and exact value types.
+- Property effects identify every affected consumer; a visual name alone cannot justify skipping layout, input or semantics.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Implemented resolved-style contract
 
 [resolved_style.hpp](../../include/tessera/style/resolved_style.hpp) defines `ResolvedStyle`, the typed values layout, paint, and interaction consume after resolution. Consumers take one resolved style per node, as described in [layout](layout.md), whether produced by the [prototype resolver](#implemented-prototype-style-resolution) or supplied directly by the host. Default construction yields primitive defaults.
@@ -75,7 +84,7 @@ The host accepts owned resolved styles only after successful resolution, then re
 
 ## Proposed theme scopes
 
-Subtree providers and reactive theme bindings follow [context ownership](ui-model.md#proposed-context) and [presentation integration](reactive-runtime.md#proposed-presentation-integration). Define nested scope lookup, reload identity and replay inputs before adopting an authored theme syntax. These extensions must preserve exact types, missing-value fallback, cycle rejection, and the ordinary cascade.
+Subtree providers and reactive theme bindings follow [context ownership](ui-model.md#proposed-context) and [presentation integration](../proposals/incremental-evaluation.md#proposed-presentation-integration). Define nested scope lookup, reload identity and replay inputs before adopting an authored theme syntax. These extensions must preserve exact types, missing-value fallback, cycle rejection, and the ordinary cascade.
 
 ## Property effects
 
@@ -83,15 +92,15 @@ Subtree providers and reactive theme bindings follow [context ownership](ui-mode
 
 ### Proposed stage invalidation
 
-The [reactive scheduler](reactive-runtime.md#proposed-presentation-integration) consumes this stage mapping without importing renderer or component state into style resolution. Distinguish style resolution, text/intrinsic measurement, placement, paint, input targeting, and semantic projection. Measurement and placement can refine the layout stage; they do not change the implemented descriptor bits. Resolve inherited values and pseudo-state effects before deciding which outputs actually changed.
+Affected stages form a set, and inherited/pseudo-state dependencies must be resolved before work is skipped. Full-tree style resolution is the correctness reference.
 
-Text color affects paint without requiring shaping or layout. Font face/size and text content affect measurement, placement, paint, and any dependent semantic names/bounds. Disabled changes affect input and semantics and can also affect style/layout through matching rules. Clip/transform changes can affect input and semantic bounds as well as paint. Theme changes invalidate actual consumers, including inherited dependents; do not infer paint-only work from a property's visual name.
+Possible mechanisms: [incremental evaluation](../proposals/incremental-evaluation.md#proposed-stage-invalidation). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Proposed animation
 
-After baseline UI is correct, animate resolved opacity, transforms, color, size, and scroll offset through an injected host `AnimationClock`. Replay supplies that clock's values; no hidden wall clock or CSS animation compatibility is required. Geometry changes invalidate layout; paint-only changes need not. Interruption, easing, authored-versus-animated precedence, and scroll interaction are open decisions. Complex game animation remains host-owned.
+Animation uses explicit host-clock/replay inputs and the same affected-stage rules as ordinary property updates. A visual property is not automatically compositor-only work.
 
-Opacity/transform and other paint-only changes may avoid layout, but compositor-only execution needs a concrete retained-render contract and evidence. Color can require repaint/upload; clip/transform changes may also affect input or semantic bounds. Do not classify all visual animations as GPU-only or skip those consumers.
+Possible mechanisms: [animation system](../proposals/animation.md#proposed-animation). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Verification
 

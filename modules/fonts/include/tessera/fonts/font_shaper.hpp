@@ -24,7 +24,7 @@ struct FontFamilyFace {
 // Aliases select the nearest declared weight in each family (lower weight wins ties).
 // Concrete faces ignore weight; variable fonts use their default instance.
 // Constrained LTR lines prefer spaces, hyphens and Japanese cluster
-// boundaries under the bounded menu profile in docs/design/text.md. Punctuation/glue
+// boundaries under the bounded menu profile in docs/architecture/text.md. Punctuation/glue
 // groups stay intact even when oversized; long words may split at clusters. A FontId may
 // name an ordered fallback stack of other FontIds; clusters its face cannot map are shaped again with the next face. Each
 // LF-separated line is shaped as one segment with guessed direction/script and the fixed
