@@ -42,7 +42,7 @@ The tool-panel rows bind a [declared notification effect](../architecture/ui-mod
 
 ## Editor panel fixture
 
-The [editor prototype](../../examples/editor-prototype/main.cpp) is a scripted core-only consumer of ordinary components, inspection and commands. Its [consumer boundary](../integrations/path-finder.md#implemented-in-process-panel-fixture) describes the panels and observation-only Inspector. The preview loads the committed JSON path supplied by CMake, so execution does not depend on the working directory.
+The [editor prototype](../../examples/editor-prototype/main.cpp) is a scripted core-only consumer of ordinary components, inspection and commands. Its [consumer boundary](../integrations/path-finder.md#implemented-in-process-panel-fixture) describes the panels, string Inspector and compatible label reload. The preview loads the committed JSON path supplied by CMake, so execution does not depend on the working directory.
 
 After the core build above, run it directly or through CTest:
 
@@ -51,7 +51,7 @@ After the core build above, run it directly or through CTest:
 ctest --test-dir build -C Debug -R '^editor_prototype$' --output-on-failure
 ```
 
-Use `Release` for the other configuration. The executable checks panel invariants, schema/value/source observation, metadata preservation, shared selection eligibility, keyed state/focus retention, stale targets and host-driven async transitions/shutdown. It prints a compact result and exits nonzero on a failed assertion; it opens no window and writes no image. Evidence and configuration limits belong to [support](../reference/support-matrix.md#editor-panel-fixture-evidence--2026-10-15).
+Use `Release` for the other configuration. The executable checks panel invariants, schema/value/source observations, metadata preservation, shared eligibility, scalar editing, gesture history/cancellation, compatible source reload, keyed state/focus retention, stale targets, async removal/recreation/shutdown and deterministic replay/CPU comparison. It prints a compact result and exits nonzero on a failed assertion. Source edits and images stay in memory; it opens no window and changes no fixture file. Evidence and configuration limits belong to [support](../reference/support-matrix.md#editor-string-edit-evidence--2026-10-15).
 
 ## Scalar CPU capture workflow
 
