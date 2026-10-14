@@ -103,6 +103,55 @@ std::vector<Diagnostic> detail::validate_component_cleanup_bindings(std::span<co
     return errors;
 }
 
+std::vector<Diagnostic> detail::validate_component_effects(std::span<const ComponentEffect> declarations,
+    const std::string& path) {
+    std::vector<Diagnostic> errors;
+    if (declarations.size() > max_component_effects) {
+        error(errors, "component_effect_limit", path, "Declare at most 256 effects per component.");
+        return errors;
+    }
+    std::set<std::string_view, std::less<>> names;
+    for (std::size_t i = 0; i < declarations.size(); ++i) {
+        const auto& declaration = declarations[i];
+        const auto location = path + "/" + std::to_string(i);
+        name(errors, declaration.name, location + "/name");
+        if (!names.insert(declaration.name).second)
+            error(errors, "component_duplicate_effect", location + "/name", "Declare each effect name once.");
+        if (declaration.type != PropertyType::boolean && declaration.type != PropertyType::number &&
+            declaration.type != PropertyType::string && declaration.type != PropertyType::reference)
+            error(errors, "component_effect_type", location + "/type", "Declare one of the four exact semantic property types.");
+        if (declaration.phase != EffectPhase::prepare && declaration.phase != EffectPhase::notify)
+            error(errors, "component_effect_phase", location + "/phase", "Use prepare or notify delivery.");
+    }
+    return errors;
+}
+
+std::vector<Diagnostic> detail::validate_component_effect_bindings(std::span<const ComponentEffect> declarations,
+    const ComponentEffectBindings& bindings, const std::string& path) {
+    auto errors = validate_component_effects(declarations, path);
+    if (bindings.size() > max_component_effects) {
+        error(errors, "component_effect_limit", path, "Bind at most 256 effect factories per component.");
+        return errors;
+    }
+    if (!errors.empty()) return errors;
+    std::set<std::string_view, std::less<>> names;
+    for (const auto& declaration : declarations) {
+        names.insert(declaration.name);
+        const auto found = bindings.find(declaration.name);
+        if (found == bindings.end() || !found->second)
+            error(errors, "component_effect_binding", path + "/" + pointer_token(declaration.name),
+                "Supply a nonempty host factory for each declared effect.");
+    }
+    std::size_t index = 0;
+    for (const auto& [key, factory] : bindings) {
+        (void)factory;
+        name(errors, key, path + "/bindings/" + std::to_string(index++));
+        if (!names.contains(key))
+            error(errors, "component_unknown_effect", path + "/" + pointer_token(key), "Bind only declared effect names.");
+    }
+    return errors;
+}
+
 void ComponentCollection::prune(ReactiveRuntime& runtime) {
     // Keyed reconciliation can fail after committing owner replacements (for
     // example, while allocating its returned records). Do not retain an owner
@@ -140,6 +189,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
     std::vector<KeyedChild> children;
     std::size_t slots = 0;
     std::size_t cleanups = 0;
+    std::size_t effects = 0;
     std::set<std::string_view, std::less<>> seen;
     // Validate the complete candidate and its aggregate state budget before
     // constructing copied schemas or entering any runtime.
@@ -159,6 +209,9 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         errors.insert(errors.end(), schema_errors.begin(), schema_errors.end());
         auto cleanup_errors = detail::validate_component_cleanup_bindings(description.cleanups, mount.cleanups, path + "/cleanups");
         errors.insert(errors.end(), cleanup_errors.begin(), cleanup_errors.end());
+        auto effect_errors = detail::validate_component_effect_bindings(description.effects, mount.effects, path + "/effects");
+        errors.insert(errors.end(), effect_errors.begin(), effect_errors.end());
+        if (description.effects.size() <= max_component_effects) effects += description.effects.size();
         if (description.cleanups.size() <= max_component_cleanups) cleanups += description.cleanups.size();
         if (description.local_state.size() <= max_component_local_state) slots += description.local_state.size();
     }
@@ -166,6 +219,8 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         error(errors, "component_state_limit", "/components", "Keep the collection's declared local-state slots within 4096; runtime values share that budget.");
     if (cleanups > max_reactive_cleanups)
         error(errors, "component_cleanup_limit", "/components", "Keep the collection's declared cleanup operations within 4096; live and pending operations share that budget.");
+    if (slots + effects > max_reactive_nodes || cleanups + effects > max_reactive_cleanups)
+        error(errors, "component_effect_limit", "/components", "State plus effects and cleanup plus effects must each fit the runtime's 4096-entry budgets.");
     if (!errors.empty()) return {{}, std::move(errors)};
     children.reserve(mounts.size());
     std::map<std::string, Record, std::less<>> next;
@@ -177,6 +232,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         Record record;
         for (const auto& slot : description.local_state) record.values.emplace(slot.name, placeholder(slot.initial_value));
         record.cleanups.insert(description.cleanups.begin(), description.cleanups.end());
+        for (const auto& effect : description.effects) record.effects.emplace(effect.name, std::pair{effect.type, effect.phase});
         const auto* previous = keyed_.find(mount.key);
         if (previous && previous->kind == description.kind) {
             const auto& accepted = records_.at(mount.key);
@@ -191,7 +247,10 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
             if (record.cleanups != accepted.cleanups)
                 error(errors, "component_cleanup_schema", path + "/cleanups",
                     "Preserve named cleanup declarations or change kind to recreate the component.");
-            if (compatible && record.cleanups == accepted.cleanups) record = accepted;
+            if (record.effects != accepted.effects)
+                error(errors, "component_effect_schema", path + "/effects",
+                    "Preserve named effect types and phases or change kind to recreate the component.");
+            if (compatible && record.cleanups == accepted.cleanups && record.effects == accepted.effects) record = accepted;
         }
         next.emplace(mount.key, std::move(record));
     }
@@ -235,6 +294,33 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
                         "/components/" + std::to_string(i) + "/setup", "Component setup threw an unknown exception.", {}});
                 }
                 (void)runtime.faulted(instance.owner); // Setup must leave its owner live.
+            }
+            // Factories can capture fresh state or calculations created by setup.
+            // Registration never invokes their calculation or external application.
+            for (const auto i : update.value->created) {
+                const auto& instance = update.value->instances[i];
+                const ComponentSetup setup(instance, next.at(instance.key).values);
+                for (const auto& effect : mounts[i].component->effects) {
+                    const auto path = "/components/" + std::to_string(i) + "/effects/" + detail::pointer_token(effect.name);
+                    ComponentEffectBinding binding;
+                    try { binding = mounts[i].effects.at(effect.name)(setup); }
+                    catch (const std::bad_alloc&) { throw; }
+                    catch (const ReactiveError&) { throw; }
+                    catch (const std::exception& e) {
+                        throw ReactiveError({"component_effect_factory_failure", Severity::error, path, e.what(), {}});
+                    } catch (...) {
+                        throw ReactiveError({"component_effect_factory_failure", Severity::error, path, "Effect factory threw an unknown exception.", {}});
+                    }
+                    if (binding.calculate.index() != static_cast<std::size_t>(effect.type))
+                        throw ReactiveError({"component_effect_type", Severity::error, path, "Return the declared exact calculation type.", {}});
+                    if (!binding.apply || !std::visit([](const auto& calculate) { return bool(calculate); }, binding.calculate))
+                        throw ReactiveError({"component_effect_binding", Severity::error, path, "Return nonempty calculation and application operations.", {}});
+                    std::visit([&](auto calculate) {
+                        using T = std::invoke_result_t<decltype(calculate)&>;
+                        runtime.effect<T>(instance.owner, effect.name, effect.phase, std::move(calculate),
+                            [apply = std::move(binding.apply)](const T& value) mutable { return apply(Property{value}); });
+                    }, std::move(binding.calculate));
+                }
             }
             for (const auto& instance : update.value->instances) (void)runtime.faulted(instance.owner);
         } catch (...) {

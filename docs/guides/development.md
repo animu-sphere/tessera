@@ -38,6 +38,8 @@ Before publishing each selection generation, the tool panel captures its full-tr
 
 The same scope declares a synthetic [gamepad shortcut](../design/commands.md#implemented-gamepad-shortcut-boundary): left shoulder held while pressing west. Its normalized request resolves the same inspection command, owner and arguments as Control+I, then executes with a fresh sequence. Physical button mapping and polling belong to the host. The inspection button's event comes from a [declared component action](../design/ui-model.md#implemented-component-actions-and-events) supplied by a panel-owned string source; the host lowers the settled component before applying command eligibility and building the presentation.
 
+The tool-panel rows bind a [declared notification effect](../design/ui-model.md#implemented-declared-component-effects) to their pinned state through a fresh-setup factory. After accepting the full presentation, the host publishes and delivers notifications; compatible reorder retains the original registration, changed state replaces its previous application cleanup, and row removal or shutdown delivers the last cleanup explicitly. The printed notification count and host observations follow component lifetimes.
+
 ## Scalar CPU capture workflow
 
 The [CPU renderer and capture adapter](../design/rendering.md#implemented-scalar-cpu-reference-backend) are part of `tessera::core`, with no optional dependency discovery. Run their pixel/resource/runner checks through the ordinary core workflow, or isolate them:

@@ -94,6 +94,11 @@ struct ComponentTreeCollection::Impl {
                 if (names != group->collection.records_.at(mounts[i].key).cleanups)
                     errors.push_back({"component_cleanup_schema", Severity::error, path + "/cleanups",
                         "Preserve named cleanup declarations or change kind to recreate this subtree.", {}});
+                std::map<std::string, std::pair<PropertyType, EffectPhase>, std::less<>> effects;
+                for (const auto& effect : invocations[i].component.effects) effects.emplace(effect.name, std::pair{effect.type, effect.phase});
+                if (effects != group->collection.records_.at(mounts[i].key).effects)
+                    errors.push_back({"component_effect_schema", Severity::error, path + "/effects",
+                        "Preserve named effect types and phases or change kind to recreate this subtree.", {}});
             }
             for (const auto& declaration : invocations[i].component.slots) {
                 const auto found = invocations[i].invocation_slots.find(declaration.name);
@@ -109,7 +114,16 @@ struct ComponentTreeCollection::Impl {
         std::vector<ReactiveOwner>& fresh) {
         std::vector<ComponentMount> candidate;
         candidate.reserve(indices.size());
-        for (const auto i : indices) candidate.push_back({mounts[i].key, &invocations[i].component,
+        for (const auto i : indices) {
+            ComponentEffectBindings effects;
+            for (const auto& [name, factory] : mounts[i].effects) {
+                (void)factory;
+                effects.emplace(name, [&, i, name](const ComponentSetup&) {
+                    // Give factories the same tree-issued lifetime as initial setup.
+                    return mounts[i].effects.at(name)(group.nodes.at(mounts[i].key).context);
+                });
+            }
+            candidate.push_back({mounts[i].key, &invocations[i].component,
             [&, i](ReactiveRuntime& r, const ComponentSetup& setup) {
                 fresh.push_back(setup.instance().owner);
                 auto identity = setup.instance();
@@ -129,8 +143,15 @@ struct ComponentTreeCollection::Impl {
                             "/invocations/" + std::to_string(i) + "/setup", "Component setup threw an unknown exception.", {}});
                     }
                 }
-            }, mounts[i].cleanups});
-        const auto update = group.collection.reconcile(runtime, candidate);
+            }, mounts[i].cleanups, std::move(effects)});
+        }
+        Result<KeyedUpdate> update;
+        try { update = group.collection.reconcile(runtime, candidate); }
+        catch (const ReactiveError& e) {
+            std::vector<Diagnostic> errors{e.diagnostic()};
+            locate(errors, indices);
+            throw ReactiveError(std::move(errors.front()));
+        }
         if (!update) {
             auto errors = update.diagnostics;
             locate(errors, indices);
@@ -195,6 +216,7 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
     std::vector<Diagnostic> errors;
     std::size_t states = 0;
     std::size_t cleanups = 0;
+    std::size_t effects = 0;
     for (std::size_t i = 0; i < invocations.size(); ++i) {
         const auto path = "/invocations/" + std::to_string(i);
         const auto& component = invocations[i].component;
@@ -204,6 +226,9 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
         errors.insert(errors.end(), schema.begin(), schema.end());
         auto operations = detail::validate_component_cleanup_bindings(component.cleanups, mounts[i].cleanups, path + "/cleanups");
         errors.insert(errors.end(), operations.begin(), operations.end());
+        auto effect_errors = detail::validate_component_effect_bindings(component.effects, mounts[i].effects, path + "/effects");
+        errors.insert(errors.end(), effect_errors.begin(), effect_errors.end());
+        if (component.effects.size() <= max_component_effects) effects += component.effects.size();
         if (component.cleanups.size() <= max_component_cleanups) cleanups += component.cleanups.size();
         states += component.local_state.size();
         std::set<std::string_view, std::less<>> names;
@@ -217,6 +242,9 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
         "Keep all invocation state slots within the runtime's 4096 value budget.", {}});
     if (cleanups > max_reactive_cleanups) errors.push_back({"component_cleanup_limit", Severity::error, "/invocations",
         "Keep all invocation cleanup operations within the runtime's 4096 live and pending budget.", {}});
+    if (states + effects > max_reactive_nodes || cleanups + effects > max_reactive_cleanups)
+        errors.push_back({"component_effect_limit", Severity::error, "/invocations",
+            "State plus effects and cleanup plus effects must each fit the runtime's 4096-entry budgets.", {}});
     const std::span<const std::size_t> roots = invocations.empty() ? std::span<const std::size_t>{} : std::span<const std::size_t>{&root, 1};
     if (errors.empty()) Impl::compatibility(&impl_->roots, roots, invocations, mounts, errors);
     if (!errors.empty()) return {{}, std::move(errors)};

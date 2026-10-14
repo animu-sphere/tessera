@@ -228,6 +228,8 @@ int main() {
     row_definition.kind = "item-row";
     row_definition.local_state = {{"pinned", PropertyType::boolean, Property{false}}};
     std::map<std::uint64_t, Row> row_state; // By instance lifetime.
+    std::map<std::uint64_t, bool> observed_pins;
+    int pin_notifications = 0, pin_detached = 0;
     int label_evaluations = 0;
     std::vector<std::string> unsubscribed;
     std::vector<std::pair<std::uint64_t, AsyncAttempt>> detached_names;
@@ -265,6 +267,7 @@ int main() {
             item_component.kind = row_definition.kind;
             item_component.local_state = row_definition.local_state;
             item_component.cleanups = {"thumbnail"};
+            item_component.effects = {{"pin-notify", PropertyType::boolean, EffectPhase::notify}};
             auto item_template = load_document_with_sources(
                 R"({"version":1,"root":{"type":"Text","properties":{"text":""}}})", "fixture:inventory-row");
             if (!item_template) return 30;
@@ -310,7 +313,16 @@ int main() {
                     return std::get<std::string>(name.read().value->value) + (pinned.read() ? " (pinned)" : "");
                 });
                 row_state.insert_or_assign(row.lifetime, Row{name, pinned, label});
-            }, {{"thumbnail", [&unsubscribed, key = item.first] { unsubscribed.push_back(key); }}}});
+            }, {{"thumbnail", [&unsubscribed, key = item.first] { unsubscribed.push_back(key); }}},
+            {{"pin-notify", [&](const ComponentSetup& setup) {
+                const auto pinned = *setup.state<bool>("pinned").value;
+                const auto lifetime = setup.instance().lifetime;
+                return component_effect<bool>([pinned] { return pinned.read(); }, [&, lifetime](bool value) {
+                    observed_pins[lifetime] = value;
+                    ++pin_notifications;
+                    return [&pin_detached] { ++pin_detached; };
+                });
+            }}}});
         const auto update = rows.reconcile(runtime, invocations, children);
         if (!update) return 14;
         row_lifetimes.clear();
@@ -366,8 +378,18 @@ int main() {
         }
         const HitTestInput hit{tree.value->get(), styles, &*layout.value};
         const auto focused = lantern == 0 ? row_focus.focus(hit, *(*tree.value)->find("item-7")) : row_focus.refresh(hit);
-        if (!focused || !focused.value->focused || runtime.publish() != 0) return 18;
+        std::size_t changed_pins = 0;
+        for (const auto& [key, lifetime] : row_lifetimes) {
+            (void)key;
+            const auto previous = observed_pins.find(lifetime);
+            if (previous == observed_pins.end() || previous->second != row_state.at(lifetime).pinned.read()) ++changed_pins;
+        }
+        if (!focused || !focused.value->focused || runtime.publish() != changed_pins) return 18;
         if (!runtime.deliver_effects(EffectPhase::notify).empty() || !runtime.deliver_cleanups().empty()) return 19;
+        for (const auto& [key, lifetime] : row_lifetimes) {
+            (void)key;
+            if (observed_pins.at(lifetime) != row_state.at(lifetime).pinned.read()) return 32;
+        }
         if (lantern == 0) {
             lantern = row_lifetimes.at("item-7");
             row_state.at(lantern).pinned.write(true); // A user toggle on this row, flushed next generation.
@@ -378,13 +400,13 @@ int main() {
         std::cout << "Rows:";
         for (const auto& node : list.root.children) std::cout << ' ' << *node.id << "=\"" << std::get<std::string>(node.properties.at("text")) << '"';
         std::cout << " focus=" << *(*tree.value)->get(*focused.value->focused)->id
-                  << " theme-size=" << styles[0].text.size << '\n';
+                  << " theme-size=" << styles[0].text.size << " pin-notifications=" << pin_notifications << '\n';
     }
     // Reorder kept the pinned Lantern row and its focus; removal unsubscribed it,
     // and reinsertion created a new lifetime, so a late result for the old row is stale.
     const auto lantern_row = row_lifetimes.find("item-7");
     if (lantern_row == row_lifetimes.end() || lantern_row->second == lantern || row_state.at(lantern_row->second).pinned.read() ||
-        unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6 ||
+        unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6 || pin_notifications != 5 || pin_detached != 2 ||
         detached_names.size() != 1 || detached_names[0].first != lantern || !lantern_attempt ||
         detached_names[0].second.request() != lantern_attempt->request() ||
         detached_names[0].second.sequence() != lantern_attempt->sequence() ||
@@ -452,6 +474,6 @@ int main() {
     panel_owner.dispose();
     runtime.flush();
     if (!selection_observer_connected || !runtime.deliver_cleanups().empty() || selection_observer_connected ||
-        status_detached != 3 || unsubscribed.size() != 4) return 11;
+        status_detached != 3 || unsubscribed.size() != 4 || pin_detached != 5) return 11;
     std::cout << "Host inspected " << *command_host.inspected_item << ". Synthetic core-only panel; placeholder text, no native window.\n";
 }

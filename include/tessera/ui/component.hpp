@@ -13,6 +13,7 @@ inline constexpr std::size_t max_component_styles = 256;
 inline constexpr std::size_t max_component_invocations = 4096;
 inline constexpr std::size_t max_component_local_state = 256;
 inline constexpr std::size_t max_component_cleanups = 256;
+inline constexpr std::size_t max_component_effects = 256;
 inline constexpr std::size_t max_component_state_text_bytes = 4096;
 
 // Named view state initialized once per mounted component lifetime. Declaration
@@ -21,6 +22,14 @@ struct ComponentLocalState {
     std::string name;
     PropertyType type = PropertyType::boolean;
     Property initial_value = false;
+};
+
+// Named pure calculation and explicit host delivery phase. Callables are bound
+// only by mounting; declarations are outside document serialization.
+struct ComponentEffect {
+    std::string name;
+    PropertyType type = PropertyType::boolean;
+    EffectPhase phase = EffectPhase::notify;
 };
 
 // Required unless a literal default is supplied. Types are never coerced.
@@ -79,6 +88,7 @@ struct ComponentDescription {
     std::vector<ComponentLocalState> local_state;
     // Named external operations bound by mounting, outside document serialization.
     std::vector<std::string> cleanups;
+    std::vector<ComponentEffect> effects;
 };
 // Reactive alternatives are weak references to the host's instance owner.
 using ComponentValue = std::variant<Property,
