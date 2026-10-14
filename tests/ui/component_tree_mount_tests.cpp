@@ -46,10 +46,12 @@ void lifecycle_and_presentation() {
     std::map<std::uint64_t, AsyncValue> resources;
     std::map<std::uint64_t, Computed<std::string>> captions;
     std::vector<std::uint64_t> detached;
+    std::vector<std::pair<std::uint64_t, AsyncAttempt>> async_detached;
     int evaluated = 0, notified = 0;
     const auto setup = [&](ReactiveRuntime& runtime, const ComponentSetup& context) {
         const auto lifetime = context.instance().lifetime;
         AsyncValue name(runtime, context.instance().owner, "name", PropertyType::string);
+        name.on_detach(runtime, [&, lifetime](const AsyncAttempt& attempt) { async_detached.emplace_back(lifetime, attempt); });
         check(bool(name.ready_cached("name", std::string("Row"))), "Cache initializes row observation");
         const auto pinned = *context.state<bool>("pinned").value;
         auto caption = runtime.computed<std::string>(context.instance().owner, "caption", [&, name, pinned] {
@@ -89,7 +91,7 @@ void lifecycle_and_presentation() {
     v[0].invocation_slots["body"] = {2, 1};
     auto reordered = tree.reconcile(r, v, m);
     check(reordered && reordered.value->created.empty() && reordered.value->instances[3].instance().lifetime == a &&
-          reordered.value->instances[3].state<bool>("pinned").value->read(), "Parent reorder retains subtree state and work");
+          reordered.value->instances[3].state<bool>("pinned").value->read() && async_detached.empty(), "Parent reorder retains subtree state and work");
     r.flush();
     const auto reordered_bound = lower_component_tree(r, v);
     const auto reordered_ui = UiTree::create(reordered_bound.value->document);
@@ -111,8 +113,10 @@ void lifecycle_and_presentation() {
     check(!resources.at(a).complete(pending.value->attempt, std::string("Late")) && detached.empty(), "Disposed subtree rejects old async completion before cleanup delivery");
     r.deliver_cleanups();
     check(detached == std::vector<std::uint64_t>{a}, "Subtree detachment delivers once after reconciliation");
+    check(async_detached.size() == 1 && async_detached[0].first == a && async_detached[0].second.request() == "new-name" &&
+          async_detached[0].second.sequence() == pending.value->attempt.sequence(), "Replaced component automatically queues only its loading observation");
     check(bool(tree.reconcile(r, {}, {})), "Empty candidate unmounts the complete tree");
-    r.deliver_cleanups(); check(detached.size() == 3, "All row cleanup registrations close exactly once");
+    r.deliver_cleanups(); check(detached.size() == 3 && async_detached.size() == 1, "Row cleanup closes once while cached observations require no detachment");
     const auto fresh = tree.reconcile(r, v, m, 1);
     check(fresh && fresh.value->instances[3].instance().lifetime > replaced.value->instances[3].instance().lifetime,
           "Recreated slots cannot reuse public tree lifetimes");
@@ -157,6 +161,9 @@ void preflight_and_failure_repair() {
     m[3].setup = [&](ReactiveRuntime& runtime, const ComponentSetup& context) {
         failed.push_back(context);
         runtime.on_cleanup(context.instance().owner, "close", [&] { closed.push_back("child"); });
+        AsyncValue name(runtime, context.instance().owner, "name", PropertyType::string);
+        name.on_detach(runtime, [&](const AsyncAttempt&) { closed.push_back("async-child"); });
+        check(bool(name.begin("setup-work")), "Failed setup can register active host work");
         throw std::runtime_error("Synthetic nested failure");
     };
     try { tree.reconcile(r, v, m); check(false, "Nested setup must throw"); }
@@ -165,7 +172,7 @@ void preflight_and_failure_repair() {
     rejects([&] { old.state<bool>("pinned").value->read(); }, "disposed_reactive_value");
     rejects([&] { failed.back().state<bool>("pinned").value->read(); }, "disposed_reactive_value");
     r.deliver_cleanups();
-    check(closed == std::vector<std::string>{"child", "parent"}, "Failure closes every fresh lifetime with child-first cleanup");
+    check(closed == std::vector<std::string>{"child", "async-child", "parent"}, "Failure closes fresh lifetimes and active observations with child-first cleanup");
     m[3].setup = {};
     const auto retried = tree.reconcile(r, v, m);
     check(retried && retried.value->instances[4].instance().lifetime == accepted.value->instances[4].instance().lifetime &&

@@ -15,11 +15,32 @@ template<class T> Result<T> rejected(Diagnostic diagnostic) {
 }
 }
 AsyncValue::AsyncValue(ReactiveRuntime& runtime, const ReactiveOwner& owner, std::string value_name, PropertyType type)
-    : path_("/async/" + detail::pointer_token(value_name)), type_(type), identity_(std::make_shared<const char>('\0')) {
+    : path_("/async/" + detail::pointer_token(value_name)), cleanup_name_(value_name), type_(type),
+      identity_(std::make_shared<const char>('\0')), detachment_(std::make_shared<Detachment>()), owner_(owner) {
     if (!name(value_name)) throw ReactiveError(error("async_name", "", "Supply a name of 1 to 256 UTF-8 bytes without control characters."));
     if (type != PropertyType::boolean && type != PropertyType::number && type != PropertyType::string && type != PropertyType::reference)
         throw ReactiveError(error("async_type", "/type", "Use boolean, number, string or reference."));
     state_ = runtime.signal(owner, std::move(value_name), AsyncObservation{});
+}
+void AsyncValue::on_detach(ReactiveRuntime& runtime, std::function<void(const AsyncAttempt&)> callback) const {
+    try {
+        // Check thread/lifetime before inspecting shared registration state.
+        const auto state = state_.read();
+        if (!callback) throw ReactiveError(error("async_detach_callback", "/detach", "Supply a nonempty host detachment operation."));
+        if (detachment_->registered) throw ReactiveError(error("async_detach_registered", "/detach", "Register detachment once per observation lifetime, including copied handles."));
+        std::optional<AsyncAttempt> active;
+        if (state.status == AsyncStatus::loading) active = token(state);
+        runtime.on_cleanup(owner_, cleanup_name_, [shared = detachment_, callback = std::move(callback)] {
+            // Consume before invoking: failures cannot retry an external operation.
+            auto attempt = std::exchange(shared->active, std::nullopt);
+            if (attempt) callback(*attempt);
+        });
+        detachment_->active.swap(active);
+        detachment_->registered = true;
+    } catch (const ReactiveError& failure) {
+        if (failure.diagnostic().path.starts_with(path_ + "/")) throw;
+        throw ReactiveError(located(failure));
+    }
 }
 Diagnostic AsyncValue::error(std::string code, std::string field, std::string message) const {
     return {std::move(code), Severity::error, path_ + field, std::move(message), {}};
@@ -62,7 +83,24 @@ std::optional<Diagnostic> AsyncValue::payload(const Property& value) const {
     return {};
 }
 Result<bool> AsyncValue::write(AsyncObservation state) const {
-    try { return {state_.write(std::move(state)), {}}; }
+    try {
+        // Allocate the delivery token before accepting the source write. The
+        // shared mirror follows accepted revisions and needs no reactive read later.
+        std::optional<AsyncAttempt> active;
+        if (detachment_->registered && state.status == AsyncStatus::loading) active = token(state);
+        const auto revision = detachment_->registered ? state_.revision() : 0;
+        bool changed;
+        try { changed = state_.write(std::move(state)); }
+        catch (...) {
+            // The kernel can accept a source, then fail while allocating its
+            // invalidation walk. Keep cleanup consistent with that accepted
+            // revision even though the host receives the original exception.
+            if (detachment_->registered && state_.revision() != revision) detachment_->active.swap(active);
+            throw;
+        }
+        if (detachment_->registered) detachment_->active.swap(active);
+        return {changed, {}};
+    }
     catch (const ReactiveError& failure) { return rejected<bool>(located(failure)); }
 }
 Result<AsyncStart> AsyncValue::begin(std::string request) const {
