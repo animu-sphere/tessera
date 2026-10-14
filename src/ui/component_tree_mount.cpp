@@ -89,6 +89,11 @@ struct ComponentTreeCollection::Impl {
                 }
                 if (!compatible) errors.push_back({"component_state_schema", Severity::error, path + "/local_state",
                     "Preserve named state types or change the component kind to recreate this subtree.", {}});
+                std::map<std::string, PropertyType, std::less<>> async_schema;
+                for (const auto& declaration : invocations[i].component.async) async_schema.emplace(declaration.name, declaration.type);
+                if (async_schema != group->collection.records_.at(mounts[i].key).async_schema)
+                    errors.push_back({"component_async_schema", Severity::error, path + "/async",
+                        "Preserve named async types or change kind to recreate this subtree.", {}});
                 const auto& declarations = invocations[i].component.cleanups;
                 const std::set<std::string, std::less<>> names(declarations.begin(), declarations.end());
                 if (names != group->collection.records_.at(mounts[i].key).cleanups)
@@ -128,7 +133,7 @@ struct ComponentTreeCollection::Impl {
                 fresh.push_back(setup.instance().owner);
                 auto identity = setup.instance();
                 identity.lifetime = next_lifetime++;
-                ComponentSetup context(std::move(identity), setup.values_);
+                ComponentSetup context(std::move(identity), setup.values_, setup.async_values_);
                 group.nodes.insert_or_assign(mounts[i].key, Node{setup.instance().lifetime, context, {}, 0});
                 created.push_back(i);
                 if (mounts[i].setup) {
@@ -143,7 +148,7 @@ struct ComponentTreeCollection::Impl {
                             "/invocations/" + std::to_string(i) + "/setup", "Component setup threw an unknown exception.", {}});
                     }
                 }
-            }, mounts[i].cleanups, std::move(effects)});
+            }, mounts[i].cleanups, std::move(effects), mounts[i].async});
         }
         Result<KeyedUpdate> update;
         try { update = group.collection.reconcile(runtime, candidate); }
@@ -217,6 +222,7 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
     std::size_t states = 0;
     std::size_t cleanups = 0;
     std::size_t effects = 0;
+    std::size_t observations = 0;
     for (std::size_t i = 0; i < invocations.size(); ++i) {
         const auto path = "/invocations/" + std::to_string(i);
         const auto& component = invocations[i].component;
@@ -228,6 +234,9 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
         errors.insert(errors.end(), operations.begin(), operations.end());
         auto effect_errors = detail::validate_component_effect_bindings(component.effects, mounts[i].effects, path + "/effects");
         errors.insert(errors.end(), effect_errors.begin(), effect_errors.end());
+        auto async_errors = detail::validate_component_async_bindings(component, mounts[i].async, path + "/async");
+        errors.insert(errors.end(), async_errors.begin(), async_errors.end());
+        if (component.async.size() <= max_component_async) observations += component.async.size();
         if (component.effects.size() <= max_component_effects) effects += component.effects.size();
         if (component.cleanups.size() <= max_component_cleanups) cleanups += component.cleanups.size();
         states += component.local_state.size();
@@ -245,6 +254,9 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
     if (states + effects > max_reactive_nodes || cleanups + effects > max_reactive_cleanups)
         errors.push_back({"component_effect_limit", Severity::error, "/invocations",
             "State plus effects and cleanup plus effects must each fit the runtime's 4096-entry budgets.", {}});
+    if (states + effects + observations > max_reactive_nodes || cleanups + effects + observations > max_reactive_cleanups)
+        errors.push_back({"component_async_limit", Severity::error, "/invocations",
+            "State, effects and async values, and cleanup, effects and async detachment must fit the 4096-entry budgets.", {}});
     const std::span<const std::size_t> roots = invocations.empty() ? std::span<const std::size_t>{} : std::span<const std::size_t>{&root, 1};
     if (errors.empty()) Impl::compatibility(&impl_->roots, roots, invocations, mounts, errors);
     if (!errors.empty()) return {{}, std::move(errors)};

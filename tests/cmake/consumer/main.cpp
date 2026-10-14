@@ -85,6 +85,7 @@ int main() {
         !components.state<bool>("panel", "pinned").value->read()) return 13;
     tessera::ComponentTreeCollection invocation_tree(runtime.owner(runtime.root(), "invocations"));
     tessera::ComponentInvocation invocation{component, {}, {}};
+    invocation.component.async = {{"work", tessera::PropertyType::boolean}};
     invocation.component.effects = {{"observe-pin", tessera::PropertyType::boolean, tessera::EffectPhase::notify}};
     invocation.arguments.props["caption"] = title.properties.at("text");
     int detached = 0;
@@ -93,11 +94,8 @@ int main() {
     const std::vector<tessera::ComponentInvocationMount> invocation_mounts{{"panel",
         [&](tessera::ReactiveRuntime& setup_runtime, const tessera::ComponentSetup& setup) {
             setup.state<bool>("pinned").value->write(true);
-            tessera::AsyncValue work(setup_runtime, setup.instance().owner, "work", tessera::PropertyType::boolean);
-            work.on_detach(setup_runtime, [&](const tessera::AsyncAttempt& address) {
-                if (address.request() != "host-request" || address.sequence() != 1) throw std::runtime_error("Wrong work address");
-                ++detached;
-            });
+            const auto work = *setup.async("work").value;
+            (void)setup_runtime;
             if (!work.begin("host-request")) throw std::runtime_error("Invalid host request");
         }, {{"detach", [&] { ++declared_cleanups; }}},
         {{"observe-pin", [&](const tessera::ComponentSetup& setup) {
@@ -108,6 +106,9 @@ int main() {
                 ++notifications;
                 return [&] { ++effect_closed; };
             });
+        }}}, {{"work", [&](const tessera::AsyncAttempt& address) {
+            if (address.request() != "host-request" || address.sequence() != 1) throw std::runtime_error("Wrong work address");
+            ++detached;
         }}}}};
     const auto mounted = invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts);
     if (!mounted || !mounted.value->instances[0].state<bool>("pinned").value->read() ||
@@ -119,5 +120,5 @@ int main() {
     if (!invocation_tree.reconcile(runtime, {}, {}) || detached != 0 || declared_cleanups != 0 ||
         !runtime.deliver_cleanups().empty() || detached != 1 || declared_cleanups != 1 ||
         !runtime.deliver_cleanups().empty() || detached != 1 || declared_cleanups != 1 || effect_closed != 1) return 16;
-    std::cout << "Source consumer: JSON, tree, CPU capture, async detachment, declared cleanup/effects, theme, component origins, diagnostics and invocation setup agree.\n";
+    std::cout << "Source consumer: JSON, tree, CPU capture, async detachment, declared cleanup/effects/async, theme, component origins, diagnostics and invocation setup agree.\n";
 }
