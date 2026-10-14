@@ -8,6 +8,7 @@ namespace tessera {
 struct ComponentInvocationMount {
     std::string key;
     std::function<void(ReactiveRuntime&, const ComponentSetup&)> setup;
+    ComponentCleanupBindings cleanups;
 };
 struct ComponentTreeUpdate {
     std::vector<ComponentSetup> instances; // Input index order; owned weak contexts.

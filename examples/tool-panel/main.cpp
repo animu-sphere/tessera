@@ -264,6 +264,7 @@ int main() {
             ComponentDescription item_component;
             item_component.kind = row_definition.kind;
             item_component.local_state = row_definition.local_state;
+            item_component.cleanups = {"thumbnail"};
             auto item_template = load_document_with_sources(
                 R"({"version":1,"root":{"type":"Text","properties":{"text":""}}})", "fixture:inventory-row");
             if (!item_template) return 30;
@@ -309,8 +310,7 @@ int main() {
                     return std::get<std::string>(name.read().value->value) + (pinned.read() ? " (pinned)" : "");
                 });
                 row_state.insert_or_assign(row.lifetime, Row{name, pinned, label});
-                row_runtime.on_cleanup(row.owner, "thumbnail", [&unsubscribed, key = row.key] { unsubscribed.push_back(key); });
-            }});
+            }, {{"thumbnail", [&unsubscribed, key = item.first] { unsubscribed.push_back(key); }}}});
         const auto update = rows.reconcile(runtime, invocations, children);
         if (!update) return 14;
         row_lifetimes.clear();

@@ -12,6 +12,7 @@ inline constexpr std::size_t max_component_actions = 256;
 inline constexpr std::size_t max_component_styles = 256;
 inline constexpr std::size_t max_component_invocations = 4096;
 inline constexpr std::size_t max_component_local_state = 256;
+inline constexpr std::size_t max_component_cleanups = 256;
 inline constexpr std::size_t max_component_state_text_bytes = 4096;
 
 // Named view state initialized once per mounted component lifetime. Declaration
@@ -76,6 +77,8 @@ struct ComponentDescription {
     std::vector<ComponentStyleBinding> style_bindings;
     std::optional<DocumentSourceMap> sources; // Template preorder, outside serialization.
     std::vector<ComponentLocalState> local_state;
+    // Named external operations bound by mounting, outside document serialization.
+    std::vector<std::string> cleanups;
 };
 // Reactive alternatives are weak references to the host's instance owner.
 using ComponentValue = std::variant<Property,

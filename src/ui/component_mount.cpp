@@ -56,6 +56,53 @@ std::vector<Diagnostic> detail::validate_component_local_state(std::span<const C
     return errors;
 }
 
+std::vector<Diagnostic> detail::validate_component_cleanups(std::span<const std::string> declarations,
+                                                          const std::string& path) {
+    std::vector<Diagnostic> errors;
+    if (declarations.size() > max_component_cleanups) {
+        error(errors, "component_cleanup_limit", path, "Declare at most 256 cleanup operations per component.");
+        return errors;
+    }
+    std::set<std::string_view, std::less<>> names;
+    for (std::size_t i = 0; i < declarations.size(); ++i) {
+        const auto location = path + "/" + std::to_string(i);
+        name(errors, declarations[i], location);
+        if (!names.insert(declarations[i]).second)
+            error(errors, "component_duplicate_cleanup", location, "Declare each cleanup name once.");
+    }
+    return errors;
+}
+
+std::vector<Diagnostic> detail::validate_component_cleanup_bindings(std::span<const std::string> declarations,
+    const ComponentCleanupBindings& bindings, const std::string& path) {
+    auto errors = validate_component_cleanups(declarations, path);
+    if (bindings.size() > max_component_cleanups) {
+        error(errors, "component_cleanup_limit", path, "Bind at most 256 cleanup operations per component.");
+        return errors;
+    }
+    if (!errors.empty()) return errors;
+    std::size_t index = 0;
+    for (const auto& [key, callback] : bindings) {
+        (void)callback;
+        name(errors, key, path + "/bindings/" + std::to_string(index++));
+    }
+    if (!errors.empty()) return errors;
+    const std::set<std::string_view, std::less<>> names(declarations.begin(), declarations.end());
+    for (const auto& declaration : declarations) {
+        const auto found = bindings.find(declaration);
+        if (found == bindings.end() || !found->second)
+            error(errors, "component_cleanup_binding", path + "/" + pointer_token(declaration),
+                "Supply a nonempty host operation for each declared cleanup.");
+    }
+    for (const auto& [key, callback] : bindings) {
+        (void)callback;
+        if (!names.contains(key))
+            error(errors, "component_unknown_cleanup", path + "/" + pointer_token(key),
+                "Bind only declared cleanup names.");
+    }
+    return errors;
+}
+
 void ComponentCollection::prune(ReactiveRuntime& runtime) {
     // Keyed reconciliation can fail after committing owner replacements (for
     // example, while allocating its returned records). Do not retain an owner
@@ -92,6 +139,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
     }
     std::vector<KeyedChild> children;
     std::size_t slots = 0;
+    std::size_t cleanups = 0;
     std::set<std::string_view, std::less<>> seen;
     // Validate the complete candidate and its aggregate state budget before
     // constructing copied schemas or entering any runtime.
@@ -109,10 +157,15 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         name(errors, description.kind, path + "/kind");
         auto schema_errors = detail::validate_component_local_state(description.local_state, path + "/local_state");
         errors.insert(errors.end(), schema_errors.begin(), schema_errors.end());
+        auto cleanup_errors = detail::validate_component_cleanup_bindings(description.cleanups, mount.cleanups, path + "/cleanups");
+        errors.insert(errors.end(), cleanup_errors.begin(), cleanup_errors.end());
+        if (description.cleanups.size() <= max_component_cleanups) cleanups += description.cleanups.size();
         if (description.local_state.size() <= max_component_local_state) slots += description.local_state.size();
     }
     if (slots > max_reactive_nodes)
         error(errors, "component_state_limit", "/components", "Keep the collection's declared local-state slots within 4096; runtime values share that budget.");
+    if (cleanups > max_reactive_cleanups)
+        error(errors, "component_cleanup_limit", "/components", "Keep the collection's declared cleanup operations within 4096; live and pending operations share that budget.");
     if (!errors.empty()) return {{}, std::move(errors)};
     children.reserve(mounts.size());
     std::map<std::string, Record, std::less<>> next;
@@ -123,6 +176,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         children.push_back({mount.key, description.kind});
         Record record;
         for (const auto& slot : description.local_state) record.values.emplace(slot.name, placeholder(slot.initial_value));
+        record.cleanups.insert(description.cleanups.begin(), description.cleanups.end());
         const auto* previous = keyed_.find(mount.key);
         if (previous && previous->kind == description.kind) {
             const auto& accepted = records_.at(mount.key);
@@ -134,7 +188,10 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
             if (!compatible)
                 error(errors, "component_state_schema", path + "/local_state",
                       "Preserve the named state types for this kind, or change kind to recreate the component.");
-            else record = accepted;
+            if (record.cleanups != accepted.cleanups)
+                error(errors, "component_cleanup_schema", path + "/cleanups",
+                    "Preserve named cleanup declarations or change kind to recreate the component.");
+            if (compatible && record.cleanups == accepted.cleanups) record = accepted;
         }
         next.emplace(mount.key, std::move(record));
     }
@@ -158,6 +215,11 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
             // Every fresh schema is registered before host setup starts. Records
             // stay provisional until all callbacks succeed; the context carries
             // its own weak handles instead of observing the previous collection.
+            for (const auto i : update.value->created) {
+                const auto& instance = update.value->instances[i];
+                for (const auto& cleanup : mounts[i].component->cleanups)
+                    runtime.on_cleanup(instance.owner, cleanup, mounts[i].cleanups.at(cleanup));
+            }
             for (const auto i : update.value->created) {
                 if (!mounts[i].setup) continue;
                 const auto& instance = update.value->instances[i];
