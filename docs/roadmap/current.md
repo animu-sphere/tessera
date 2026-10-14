@@ -12,9 +12,9 @@ author -> reload -> inspect -> operate -> capture -> verify
 
 ### Current slice
 
-Build one small editor fixture with a toolbar, keyed hierarchy, central preview, schema-driven Inspector for one editable string property, and one host-driven async observation. Use the [tool panel](../../examples/tool-panel/main.cpp) as the starting consumer of keyed components and host-owned state. Keep application state, selection, resource execution, and edit history host-owned; use the same UI document and runtime for execution and preview.
+Carry the [editor fixture](../../examples/editor-prototype/main.cpp) from panel selection into source editing, using the [tool panel](../../examples/tool-panel/main.cpp) for command gesture patterns. Keep application state, selection, resource execution, and edit history host-owned; use the same UI document and runtime for execution and preview.
 
-First connect these panels and inspect/select one preview node using existing public APIs. Then carry one label edit through reload, Inspector operation, deterministic capture, and verification. The broader [integration design](../integrations/path-finder.md#proposed-mini-prototype) is context; its entire widget and tooling inventory is not an exit gate.
+Carry one label edit through reload, Inspector operation, deterministic capture, and verification. Extend the fixture's schema-selected string observation with insertion, deletion and caret/selection operations through the ordinary edit boundary; preserve compatible keys, focus and host selection during accepted reload, and leave the accepted generation usable on invalid source. Exercise async owner removal/recreation as part of that loop. The broader [integration design](../integrations/path-finder.md#proposed-mini-prototype) is context; its entire widget and tooling inventory is not an exit gate.
 
 ### Implementation rule
 

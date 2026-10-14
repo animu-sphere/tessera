@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "extensions": {"path-finder:editor": {"name": "Editor preview"}},
+  "root": {
+    "type": "Box",
+    "id": "preview",
+    "children": [
+      {
+        "type": "Text",
+        "id": "headline",
+        "properties": {"text": "Hello Tessera"},
+        "extensions": {"path-finder:editor": {"label": "Heading"}}
+      },
+      {
+        "type": "Text",
+        "id": "subtitle",
+        "properties": {"text": "Shared runtime preview"}
+      },
+      {
+        "type": "Text",
+        "id": "asset-status",
+        "properties": {"text": "Idle"}
+      }
+    ]
+  }
+}

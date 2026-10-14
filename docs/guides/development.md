@@ -40,6 +40,19 @@ The same scope declares a synthetic [gamepad shortcut](../architecture/commands.
 
 The tool-panel rows bind a [declared notification effect](../architecture/ui-model.md#implemented-declared-component-effects) to their pinned state through a fresh-setup factory. After accepting the full presentation, the host publishes and delivers notifications; compatible reorder retains the original registration, changed state replaces its previous application cleanup, and row removal or shutdown delivers the last cleanup explicitly. The printed notification count and host observations follow component lifetimes.
 
+## Editor panel fixture
+
+The [editor prototype](../../examples/editor-prototype/main.cpp) is a scripted core-only consumer of ordinary components, inspection and commands. Its [consumer boundary](../integrations/path-finder.md#implemented-in-process-panel-fixture) describes the panels and observation-only Inspector. The preview loads the committed JSON path supplied by CMake, so execution does not depend on the working directory.
+
+After the core build above, run it directly or through CTest:
+
+```powershell
+& .\build\Debug\tessera_editor_prototype.exe
+ctest --test-dir build -C Debug -R '^editor_prototype$' --output-on-failure
+```
+
+Use `Release` for the other configuration. The executable checks panel invariants, schema/value/source observation, metadata preservation, shared selection eligibility, keyed state/focus retention, stale targets and host-driven async transitions/shutdown. It prints a compact result and exits nonzero on a failed assertion; it opens no window and writes no image. Evidence and configuration limits belong to [support](../reference/support-matrix.md#editor-panel-fixture-evidence--2026-10-15).
+
 ## Scalar CPU capture workflow
 
 The [CPU renderer and capture adapter](../architecture/rendering.md#implemented-scalar-cpu-reference-backend) are part of `tessera::core`, with no optional dependency discovery. Run their pixel/resource/runner checks through the ordinary core workflow, or isolate them:
