@@ -89,6 +89,11 @@ struct ComponentTreeCollection::Impl {
                 }
                 if (!compatible) errors.push_back({"component_state_schema", Severity::error, path + "/local_state",
                     "Preserve named state types or change the component kind to recreate this subtree.", {}});
+                const auto& declarations = invocations[i].component.cleanups;
+                const std::set<std::string, std::less<>> names(declarations.begin(), declarations.end());
+                if (names != group->collection.records_.at(mounts[i].key).cleanups)
+                    errors.push_back({"component_cleanup_schema", Severity::error, path + "/cleanups",
+                        "Preserve named cleanup declarations or change kind to recreate this subtree.", {}});
             }
             for (const auto& declaration : invocations[i].component.slots) {
                 const auto found = invocations[i].invocation_slots.find(declaration.name);
@@ -124,7 +129,7 @@ struct ComponentTreeCollection::Impl {
                             "/invocations/" + std::to_string(i) + "/setup", "Component setup threw an unknown exception.", {}});
                     }
                 }
-            }});
+            }, mounts[i].cleanups});
         const auto update = group.collection.reconcile(runtime, candidate);
         if (!update) {
             auto errors = update.diagnostics;
@@ -189,6 +194,7 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
     } else if (root != 0) return {{}, {{"component_invocation_index", Severity::error, "/root", "Use root zero for empty input.", {}}}};
     std::vector<Diagnostic> errors;
     std::size_t states = 0;
+    std::size_t cleanups = 0;
     for (std::size_t i = 0; i < invocations.size(); ++i) {
         const auto path = "/invocations/" + std::to_string(i);
         const auto& component = invocations[i].component;
@@ -196,6 +202,9 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
         Impl::name(errors, component.kind, path + "/kind");
         auto schema = detail::validate_component_local_state(component.local_state, path + "/local_state");
         errors.insert(errors.end(), schema.begin(), schema.end());
+        auto operations = detail::validate_component_cleanup_bindings(component.cleanups, mounts[i].cleanups, path + "/cleanups");
+        errors.insert(errors.end(), operations.begin(), operations.end());
+        if (component.cleanups.size() <= max_component_cleanups) cleanups += component.cleanups.size();
         states += component.local_state.size();
         std::set<std::string_view, std::less<>> names;
         for (const auto& slot : component.slots) {
@@ -206,6 +215,8 @@ Result<ComponentTreeUpdate> ComponentTreeCollection::reconcile(ReactiveRuntime& 
     }
     if (states > max_reactive_nodes) errors.push_back({"component_state_limit", Severity::error, "/invocations",
         "Keep all invocation state slots within the runtime's 4096 value budget.", {}});
+    if (cleanups > max_reactive_cleanups) errors.push_back({"component_cleanup_limit", Severity::error, "/invocations",
+        "Keep all invocation cleanup operations within the runtime's 4096 live and pending budget.", {}});
     const std::span<const std::size_t> roots = invocations.empty() ? std::span<const std::size_t>{} : std::span<const std::size_t>{&root, 1};
     if (errors.empty()) Impl::compatibility(&impl_->roots, roots, invocations, mounts, errors);
     if (!errors.empty()) return {{}, std::move(errors)};

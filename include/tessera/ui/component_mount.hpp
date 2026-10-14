@@ -2,10 +2,12 @@
 
 #include <tessera/ui/component.hpp>
 #include <tessera/ui/keyed.hpp>
+#include <set>
 
 namespace tessera {
 using ComponentStateValue = std::variant<Signal<bool>, Signal<double>,
     Signal<std::string>, Signal<NodeReference>>;
+using ComponentCleanupBindings = std::map<std::string, std::function<void()>, std::less<>>;
 
 // Owned identity and weak state handles for one fresh lifetime. Copies may be
 // retained by the host; they neither retain the owner nor refresh after reset.
@@ -43,6 +45,9 @@ struct ComponentMount {
     // mounting batch. Register work on setup.instance().owner; publication and
     // external work remain explicit host operations. Never retained by mounting.
     std::function<void(ReactiveRuntime&, const ComponentSetup&)> setup;
+    // One nonempty operation for each declared cleanup. Fresh lifetimes retain
+    // copies; compatible reuse keeps the original operations until disposal.
+    ComponentCleanupBindings cleanups;
 };
 
 // One keyed sibling collection beneath a host scope. Compatible schemas match
@@ -82,6 +87,7 @@ private:
     struct Record {
         std::uint64_t lifetime = 0;
         std::map<std::string, ComponentStateValue, std::less<>> values;
+        std::set<std::string, std::less<>> cleanups;
     };
     Result<const ComponentStateValue*> lookup(std::string_view key, std::string_view name) const;
     static Diagnostic state_error(std::string code, std::string_view key,

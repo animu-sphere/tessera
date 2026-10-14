@@ -68,6 +68,7 @@ int main() {
     if (!tessera::locate_diagnostics(bound.value->document, *bound.value->sources, diagnostics).empty() ||
         !diagnostics[0].source || diagnostics[0].source->location != origin) return 11;
     component.local_state = {{"pinned", tessera::PropertyType::boolean, tessera::Property{false}}};
+    component.cleanups = {"detach"};
     tessera::ComponentCollection components(runtime.owner(runtime.root(), "components"));
     int setups = 0;
     const std::vector<tessera::ComponentMount> mounts{{"panel", &component,
@@ -76,8 +77,8 @@ int main() {
             const auto pinned = setup.state<bool>("pinned");
             if (!pinned || setup.instance().key != "panel") throw std::runtime_error("Invalid setup state");
             pinned.value->write(true);
-            setup_runtime.on_cleanup(setup.instance().owner, "detach", [] {});
-        }}};
+            (void)setup_runtime;
+        }, {{"detach", [] {}}}}};
     if (!components.reconcile(runtime, mounts)) return 12;
     const auto local = components.state<bool>("panel", "pinned");
     if (!local || !local.value->read() || !components.reconcile(runtime, mounts) || setups != 1 ||
@@ -86,6 +87,7 @@ int main() {
     tessera::ComponentInvocation invocation{component, {}, {}};
     invocation.arguments.props["caption"] = title.properties.at("text");
     int detached = 0;
+    int declared_cleanups = 0;
     const std::vector<tessera::ComponentInvocationMount> invocation_mounts{{"panel",
         [&](tessera::ReactiveRuntime& setup_runtime, const tessera::ComponentSetup& setup) {
             setup.state<bool>("pinned").value->write(true);
@@ -95,13 +97,14 @@ int main() {
                 ++detached;
             });
             if (!work.begin("host-request")) throw std::runtime_error("Invalid host request");
-        }}};
+        }, {{"detach", [&] { ++declared_cleanups; }}}}};
     const auto mounted = invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts);
     if (!mounted || !mounted.value->instances[0].state<bool>("pinned").value->read() ||
         !invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts).value->created.empty()) return 14;
     runtime.flush();
     if (!tessera::lower_component_tree(runtime, {&invocation, 1})) return 15;
-    if (!invocation_tree.reconcile(runtime, {}, {}) || detached != 0 ||
-        !runtime.deliver_cleanups().empty() || detached != 1 || !runtime.deliver_cleanups().empty() || detached != 1) return 16;
-    std::cout << "Source consumer: JSON, tree, CPU capture, async detachment, theme, component origins, diagnostics and invocation setup agree.\n";
+    if (!invocation_tree.reconcile(runtime, {}, {}) || detached != 0 || declared_cleanups != 0 ||
+        !runtime.deliver_cleanups().empty() || detached != 1 || declared_cleanups != 1 ||
+        !runtime.deliver_cleanups().empty() || detached != 1 || declared_cleanups != 1) return 16;
+    std::cout << "Source consumer: JSON, tree, CPU capture, async detachment, declared cleanup, theme, component origins, diagnostics and invocation setup agree.\n";
 }
