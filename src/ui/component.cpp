@@ -13,7 +13,7 @@ using ComposedSlots = std::map<std::string, std::span<const BoundComponent>, std
 bool input_limit(const ComponentDescription& description, const ComponentArguments& arguments, std::size_t composed_slots) {
     return description.local_state.size() > max_component_local_state ||
         description.cleanups.size() > max_component_cleanups ||
-        description.effects.size() > max_component_effects ||
+        description.effects.size() > max_component_effects || description.async.size() > max_component_async ||
         description.props.size() > max_component_props || arguments.props.size() > max_component_props ||
         description.slots.size() > max_component_slots || arguments.slots.size() > max_component_slots ||
         composed_slots > max_component_slots - arguments.slots.size() ||
@@ -274,7 +274,7 @@ Result<BoundComponent> lower_component_candidate(const ReactiveRuntime& runtime,
     const ComponentArguments& arguments, const ComposedSlots& composed_slots, const ValidationContext& context) {
     Errors errors;
     if (input_limit(description, arguments, composed_slots.size())) {
-        error(errors, "component_limit", "/component", "Supply at most 256 props, slots, actions, styles, local-state, cleanup and effect declarations each, and 4096 combined property/event/style mappings.");
+        error(errors, "component_limit", "/component", "Supply at most 256 props, slots, actions, styles, local-state, cleanup, effect and async declarations each, and 4096 combined property/event/style mappings.");
         return {{}, std::move(errors)};
     }
     errors = argument_sources(arguments);
@@ -284,6 +284,8 @@ Result<BoundComponent> lower_component_candidate(const ReactiveRuntime& runtime,
     errors = detail::validate_component_cleanups(description.cleanups, "/component/cleanups");
     if (!errors.empty()) return {{}, std::move(errors)};
     errors = detail::validate_component_effects(description.effects, "/component/effects");
+    if (!errors.empty()) return {{}, std::move(errors)};
+    errors = detail::validate_component_async(description, "/component/async");
     if (!errors.empty()) return {{}, std::move(errors)};
     name(errors, description.kind, "/component/kind");
     auto template_errors = validate(description.document, context);
@@ -640,7 +642,7 @@ Result<std::vector<std::size_t>> detail::component_tree_order(std::span<const Co
         const auto& arguments = invocation.arguments;
         if (input_limit(invocation.component, arguments, arguments.composed_slots.size()) ||
             invocation.invocation_slots.size() > max_component_slots - arguments.slots.size() - arguments.composed_slots.size()) {
-            error(errors, "component_limit", location(i) + "/component", "Supply at most 256 props, slots, actions, styles, local-state, cleanup and effect declarations each, and 4096 combined mappings; all three slot maps share the slot budget.");
+            error(errors, "component_limit", location(i) + "/component", "Supply at most 256 props, slots, actions, styles, local-state, cleanup, effect and async declarations each, and 4096 combined mappings; all three slot maps share the slot budget.");
             return false;
         }
         auto source_errors = argument_sources(arguments, location(i) + "/sources");

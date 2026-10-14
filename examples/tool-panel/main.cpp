@@ -267,6 +267,7 @@ int main() {
             item_component.kind = row_definition.kind;
             item_component.local_state = row_definition.local_state;
             item_component.cleanups = {"thumbnail"};
+            item_component.async = {{"name", PropertyType::string}};
             item_component.effects = {{"pin-notify", PropertyType::boolean, EffectPhase::notify}};
             auto item_template = load_document_with_sources(
                 R"({"version":1,"root":{"type":"Text","properties":{"text":""}}})", "fixture:inventory-row");
@@ -296,13 +297,13 @@ int main() {
             invocations.push_back({std::move(item_component), std::move(item_arguments), {}});
         }
         std::vector<ComponentInvocationMount> children{{"inventory"}};
-        for (const auto& item : items) children.push_back({item.first,
-            [&, caption = item.second](ReactiveRuntime& row_runtime, const ComponentSetup& setup) {
+        for (const auto& item : items) {
+            const auto lifetime = std::make_shared<std::uint64_t>(0);
+            children.push_back({item.first,
+            [&, caption = item.second, lifetime](ReactiveRuntime& row_runtime, const ComponentSetup& setup) {
                 const auto& row = setup.instance();
-                const AsyncValue name(row_runtime, row.owner, "name", PropertyType::string);
-                name.on_detach(row_runtime, [&, lifetime = row.lifetime](const AsyncAttempt& attempt) {
-                    detached_names.emplace_back(lifetime, attempt);
-                });
+                *lifetime = row.lifetime;
+                const auto name = *setup.async("name").value;
                 // Synthetic host cache; no file/network work runs in the runtime.
                 if (!name.ready_cached("item-data", caption)) throw std::runtime_error("Invalid cached row name");
                 const auto local = setup.state<bool>("pinned");
@@ -322,7 +323,10 @@ int main() {
                     ++pin_notifications;
                     return [&pin_detached] { ++pin_detached; };
                 });
+            }}}, {{"name", [&, lifetime](const AsyncAttempt& attempt) {
+                detached_names.emplace_back(*lifetime, attempt);
             }}}});
+        }
         const auto update = rows.reconcile(runtime, invocations, children);
         if (!update) return 14;
         row_lifetimes.clear();

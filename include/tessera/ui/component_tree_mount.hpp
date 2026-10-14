@@ -10,6 +10,7 @@ struct ComponentInvocationMount {
     std::function<void(ReactiveRuntime&, const ComponentSetup&)> setup;
     ComponentCleanupBindings cleanups;
     ComponentEffectBindings effects;
+    ComponentAsyncBindings async;
 };
 struct ComponentTreeUpdate {
     std::vector<ComponentSetup> instances; // Input index order; owned weak contexts.

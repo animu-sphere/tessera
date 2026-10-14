@@ -3,6 +3,9 @@
 #include <tessera/ui/component_mount.hpp>
 
 namespace tessera::detail {
+std::vector<Diagnostic> validate_component_async(const ComponentDescription&, const std::string& path);
+std::vector<Diagnostic> validate_component_async_bindings(const ComponentDescription&,
+    const ComponentAsyncBindings&, const std::string& path);
 // Shared pre-read validation for lowering and owner/state registration.
 std::vector<Diagnostic> validate_component_local_state(std::span<const ComponentLocalState>,
                                                      const std::string& path);

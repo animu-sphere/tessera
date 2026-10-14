@@ -152,6 +152,57 @@ std::vector<Diagnostic> detail::validate_component_effect_bindings(std::span<con
     return errors;
 }
 
+std::vector<Diagnostic> detail::validate_component_async(const ComponentDescription& description, const std::string& path) {
+    std::vector<Diagnostic> errors;
+    if (description.async.size() > max_component_async) {
+        error(errors, "component_async_limit", path, "Declare at most 256 async observations per component.");
+        return errors;
+    }
+    std::set<std::string_view, std::less<>> names;
+    for (std::size_t i = 0; i < description.async.size(); ++i) {
+        const auto& declaration = description.async[i];
+        const auto location = path + "/" + std::to_string(i);
+        name(errors, declaration.name, location + "/name");
+        if (!names.insert(declaration.name).second)
+            error(errors, "component_duplicate_async", location + "/name", "Declare each async name once.");
+        if (declaration.type != PropertyType::boolean && declaration.type != PropertyType::number &&
+            declaration.type != PropertyType::string && declaration.type != PropertyType::reference)
+            error(errors, "component_async_type", location + "/type", "Declare one of the four exact semantic property types.");
+        if (std::any_of(description.local_state.begin(), description.local_state.end(), [&](const auto& state) {
+            return state.name == declaration.name;
+        }) || std::find(description.cleanups.begin(), description.cleanups.end(), declaration.name) != description.cleanups.end())
+            error(errors, "component_async_name_conflict", location + "/name",
+                "Use an async name distinct from local-state and declared cleanup names.");
+    }
+    return errors;
+}
+
+std::vector<Diagnostic> detail::validate_component_async_bindings(const ComponentDescription& description,
+    const ComponentAsyncBindings& bindings, const std::string& path) {
+    auto errors = validate_component_async(description, path);
+    if (bindings.size() > max_component_async) {
+        error(errors, "component_async_limit", path, "Bind at most 256 async detachment operations per component.");
+        return errors;
+    }
+    if (!errors.empty()) return errors;
+    std::set<std::string_view, std::less<>> names;
+    for (const auto& declaration : description.async) {
+        names.insert(declaration.name);
+        const auto found = bindings.find(declaration.name);
+        if (found == bindings.end() || !found->second)
+            error(errors, "component_async_binding", path + "/" + pointer_token(declaration.name),
+                "Supply a nonempty host detachment operation for each declared observation.");
+    }
+    std::size_t index = 0;
+    for (const auto& [key, callback] : bindings) {
+        (void)callback;
+        name(errors, key, path + "/bindings/" + std::to_string(index++));
+        if (!names.contains(key)) error(errors, "component_unknown_async", path + "/" + pointer_token(key),
+            "Bind only declared async names.");
+    }
+    return errors;
+}
+
 void ComponentCollection::prune(ReactiveRuntime& runtime) {
     // Keyed reconciliation can fail after committing owner replacements (for
     // example, while allocating its returned records). Do not retain an owner
@@ -190,6 +241,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
     std::size_t slots = 0;
     std::size_t cleanups = 0;
     std::size_t effects = 0;
+    std::size_t observations = 0;
     std::set<std::string_view, std::less<>> seen;
     // Validate the complete candidate and its aggregate state budget before
     // constructing copied schemas or entering any runtime.
@@ -211,6 +263,9 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         errors.insert(errors.end(), cleanup_errors.begin(), cleanup_errors.end());
         auto effect_errors = detail::validate_component_effect_bindings(description.effects, mount.effects, path + "/effects");
         errors.insert(errors.end(), effect_errors.begin(), effect_errors.end());
+        auto async_errors = detail::validate_component_async_bindings(description, mount.async, path + "/async");
+        errors.insert(errors.end(), async_errors.begin(), async_errors.end());
+        if (description.async.size() <= max_component_async) observations += description.async.size();
         if (description.effects.size() <= max_component_effects) effects += description.effects.size();
         if (description.cleanups.size() <= max_component_cleanups) cleanups += description.cleanups.size();
         if (description.local_state.size() <= max_component_local_state) slots += description.local_state.size();
@@ -221,6 +276,8 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         error(errors, "component_cleanup_limit", "/components", "Keep the collection's declared cleanup operations within 4096; live and pending operations share that budget.");
     if (slots + effects > max_reactive_nodes || cleanups + effects > max_reactive_cleanups)
         error(errors, "component_effect_limit", "/components", "State plus effects and cleanup plus effects must each fit the runtime's 4096-entry budgets.");
+    if (slots + effects + observations > max_reactive_nodes || cleanups + effects + observations > max_reactive_cleanups)
+        error(errors, "component_async_limit", "/components", "State, effects and async values, and cleanup, effects and async detachment must fit the 4096-entry budgets.");
     if (!errors.empty()) return {{}, std::move(errors)};
     children.reserve(mounts.size());
     std::map<std::string, Record, std::less<>> next;
@@ -233,6 +290,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         for (const auto& slot : description.local_state) record.values.emplace(slot.name, placeholder(slot.initial_value));
         record.cleanups.insert(description.cleanups.begin(), description.cleanups.end());
         for (const auto& effect : description.effects) record.effects.emplace(effect.name, std::pair{effect.type, effect.phase});
+        for (const auto& declaration : description.async) record.async_schema.emplace(declaration.name, declaration.type);
         const auto* previous = keyed_.find(mount.key);
         if (previous && previous->kind == description.kind) {
             const auto& accepted = records_.at(mount.key);
@@ -250,7 +308,10 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
             if (record.effects != accepted.effects)
                 error(errors, "component_effect_schema", path + "/effects",
                     "Preserve named effect types and phases or change kind to recreate the component.");
-            if (compatible && record.cleanups == accepted.cleanups && record.effects == accepted.effects) record = accepted;
+            if (record.async_schema != accepted.async_schema)
+                error(errors, "component_async_schema", path + "/async", "Preserve named async types or change kind to recreate the component.");
+            if (compatible && record.cleanups == accepted.cleanups && record.effects == accepted.effects &&
+                record.async_schema == accepted.async_schema) record = accepted;
         }
         next.emplace(mount.key, std::move(record));
     }
@@ -271,6 +332,15 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
                 for (const auto& slot : mounts[i].component->local_state)
                     record.values.at(slot.name) = create(runtime, instance.owner, slot);
             }
+            for (const auto i : update.value->created) {
+                const auto& instance = update.value->instances[i];
+                auto& record = next.at(instance.key);
+                for (const auto& declaration : mounts[i].component->async) {
+                    AsyncValue value(runtime, instance.owner, declaration.name, declaration.type);
+                    value.on_detach(runtime, mounts[i].async.at(declaration.name));
+                    record.async_values.emplace(declaration.name, std::move(value));
+                }
+            }
             // Every fresh schema is registered before host setup starts. Records
             // stay provisional until all callbacks succeed; the context carries
             // its own weak handles instead of observing the previous collection.
@@ -282,7 +352,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
             for (const auto i : update.value->created) {
                 if (!mounts[i].setup) continue;
                 const auto& instance = update.value->instances[i];
-                const ComponentSetup setup(instance, next.at(instance.key).values);
+                const ComponentSetup setup(instance, next.at(instance.key).values, next.at(instance.key).async_values);
                 try { mounts[i].setup(runtime, setup); }
                 catch (const std::bad_alloc&) { throw; }
                 catch (const ReactiveError&) { throw; }
@@ -299,7 +369,7 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
             // Registration never invokes their calculation or external application.
             for (const auto i : update.value->created) {
                 const auto& instance = update.value->instances[i];
-                const ComponentSetup setup(instance, next.at(instance.key).values);
+                const ComponentSetup setup(instance, next.at(instance.key).values, next.at(instance.key).async_values);
                 for (const auto& effect : mounts[i].component->effects) {
                     const auto path = "/components/" + std::to_string(i) + "/effects/" + detail::pointer_token(effect.name);
                     ComponentEffectBinding binding;
@@ -340,6 +410,22 @@ Result<KeyedUpdate> ComponentCollection::reconcile(ReactiveRuntime& runtime, std
         records_.swap(next);
     });
     return update;
+}
+
+Result<AsyncValue> ComponentSetup::async(std::string_view name) const {
+    const auto found = async_values_.find(name);
+    if (found != async_values_.end()) return {found->second, {}};
+    return {{}, {{"component_unknown_async", Severity::error,
+        "/components/" + detail::pointer_token(instance_.key) + "/async/" + detail::pointer_token(name),
+        "Use a declared async name.", {}}}};
+}
+Result<AsyncValue> ComponentCollection::async(std::string_view key, std::string_view name) const {
+    const auto record = records_.find(key);
+    const auto path = "/components/" + detail::pointer_token(key) + "/async/" + detail::pointer_token(name);
+    if (record == records_.end()) return {{}, {{"component_instance", Severity::error, path, "Use a mounted component key.", {}}}};
+    const auto found = record->second.async_values.find(name);
+    if (found == record->second.async_values.end()) return {{}, {{"component_unknown_async", Severity::error, path, "Use a declared async name.", {}}}};
+    return {found->second, {}};
 }
 
 Diagnostic ComponentSetup::error(std::string code, std::string_view slot, std::string message) const {

@@ -2,18 +2,22 @@
 
 #include <tessera/ui/component.hpp>
 #include <tessera/ui/keyed.hpp>
+#include <tessera/ui/async.hpp>
 #include <set>
 
 namespace tessera {
 using ComponentStateValue = std::variant<Signal<bool>, Signal<double>,
     Signal<std::string>, Signal<NodeReference>>;
 using ComponentCleanupBindings = std::map<std::string, std::function<void()>, std::less<>>;
+using ComponentAsyncBindings = std::map<std::string,
+    std::function<void(const AsyncAttempt&)>, std::less<>>;
 
 // Owned identity and weak state handles for one fresh lifetime. Copies may be
 // retained by the host; they neither retain the owner nor refresh after reset.
 class ComponentSetup final {
 public:
     const KeyedInstance& instance() const noexcept { return instance_; }
+    Result<AsyncValue> async(std::string_view name) const;
     template<class T>
     Result<Signal<T>> state(std::string_view name) const {
         static_assert(std::is_same_v<T, bool> || std::is_same_v<T, double> ||
@@ -29,11 +33,13 @@ public:
 private:
     friend class ComponentCollection;
     friend class ComponentTreeCollection;
-    ComponentSetup(KeyedInstance instance, const std::map<std::string, ComponentStateValue, std::less<>>& values)
-        : instance_(std::move(instance)), values_(values) {}
+    ComponentSetup(KeyedInstance instance, const std::map<std::string, ComponentStateValue, std::less<>>& values,
+        const std::map<std::string, AsyncValue, std::less<>>& async_values)
+        : instance_(std::move(instance)), values_(values), async_values_(async_values) {}
     Diagnostic error(std::string code, std::string_view name, std::string message) const;
     KeyedInstance instance_;
     std::map<std::string, ComponentStateValue, std::less<>> values_;
+    std::map<std::string, AsyncValue, std::less<>> async_values_;
 };
 
 using ComponentEffectCalculation = std::variant<std::function<bool()>, std::function<double()>,
@@ -77,6 +83,7 @@ struct ComponentMount {
     // copies; compatible reuse keeps the original operations until disposal.
     ComponentCleanupBindings cleanups;
     ComponentEffectBindings effects;
+    ComponentAsyncBindings async;
 };
 
 // One keyed sibling collection beneath a host scope. Compatible schemas match
@@ -98,6 +105,7 @@ public:
     const std::vector<KeyedInstance>& instances() const noexcept { return keyed_.instances(); }
     const KeyedInstance* find(std::string_view key) const noexcept { return keyed_.find(key); }
     bool current(std::string_view key, std::uint64_t lifetime) const noexcept { return keyed_.current(key, lifetime); }
+    Result<AsyncValue> async(std::string_view key, std::string_view name) const;
 
     // Returns a weak, exact-type source without reading it. Copied handles expire
     // on owner disposal, including when a key is subsequently recreated.
@@ -118,6 +126,8 @@ private:
         std::map<std::string, ComponentStateValue, std::less<>> values;
         std::set<std::string, std::less<>> cleanups;
         std::map<std::string, std::pair<PropertyType, EffectPhase>, std::less<>> effects;
+        std::map<std::string, PropertyType, std::less<>> async_schema;
+        std::map<std::string, AsyncValue, std::less<>> async_values;
     };
     Result<const ComponentStateValue*> lookup(std::string_view key, std::string_view name) const;
     static Diagnostic state_error(std::string code, std::string_view key,
