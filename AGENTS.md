@@ -3,9 +3,10 @@
 ## Read first
 
 - `README.md` and `docs/README.md` provide navigation and canonical document ownership.
+- `docs/agent-policy.md` defines implementation authority and the subsystem stop rule.
+- `docs/roadmap/current.md` identifies the active integration slice and its exit criteria; read it before choosing feature work.
 - `docs/reference/support-matrix.md` is the sole live implementation/validation status record.
 - `docs/design/architecture.md` defines subsystem and ecosystem boundaries.
-- `docs/roadmap/current.md` identifies active implementation scope.
 - Read the relevant subsystem design before changing its contract.
 
 ## Implementation constraints
@@ -18,6 +19,8 @@
 - Isolate text shaping and external asset loading behind interfaces.
 - Build the runtime IR before introducing a DSL, JSX frontend, or JavaScript runtime.
 - Follow the current milestone; avoid unrelated widgets, frameworks, and optimization work.
+- Designs, proposals, integrations, and backlog entries do not independently authorize implementation. Promote only the minimum change required by the active fixture, or fix an existing contract/test.
+- Stop subsystem expansion when the active fixture can proceed and its required invariants and exit criteria are satisfied. Return to integration instead of implementing adjacent proposals for completeness.
 
 ## Documentation and checks
 
