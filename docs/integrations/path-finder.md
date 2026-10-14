@@ -21,6 +21,14 @@ An embedded Tessera project defaults its tests and examples off independently of
 
 The [consumer fixture](../../tests/cmake/consumer/CMakeLists.txt) imports the source in both modes beneath a separately named host project with its own tests enabled. Its core executable exercises ordinary document serialization and tree creation. Its optional backend executable checks linkage and empty-context rejection without creating a device or window; GPU behavior follows [rendering](../architecture/rendering.md#implemented-vulkan-primitive-boundary). The [driver](../../tests/cmake/run-consumer.cmake) keeps configure/build/test logs in isolated build directories and uses an existing local source path for FetchContent.
 
+## Implemented in-process panel fixture
+
+The [editor fixture](../../examples/editor-prototype/main.cpp) composes a toolbar, keyed hierarchy, central preview and Inspector through ordinary component invocations and full-tree style/layout/semantic/paint evaluation. Its [preview document](../../examples/editor-prototype/preview.json) loads through JSON v1 with source records; runtime serialization preserves document and node editor extensions, and composition preserves the preview subtree's node metadata. Host-owned selection points to preview author IDs, independently of hierarchy row keys and runtime generation handles.
+
+The Inspector selects one authored content string using public property descriptors and joins its effective value and template source span from the accepted inspection generation. It displays these observations as ordinary Text nodes; it has no text-editing buffer, caret, history or source mutation operation. Selection requests from synthetic pointer, keyboard, logical gamepad and semantic input resolve and execute the same declared command after dispatch. Command eligibility governs each path. Keyed hierarchy state and focus survive reorder; previous-generation semantic targets reject.
+
+One declared preview async string is driven by explicit host start/failure/retry/completion operations and projected into the preview status. Scope shutdown queues latest-attempt detachment for explicit once-only host delivery. The fixture uses placeholder text, no native window or renderer, and provides no atomic source reload or editor transport. The [active slice](../roadmap/current.md#current-slice) owns the edit/reload/capture work; [development](../guides/development.md#editor-panel-fixture) owns execution procedures.
+
 ## Proposed editor bridge
 
 Expose narrow operations for document/schema inspection, validation diagnostics, reload requests, and preview results. The [source diagnostic boundary](../architecture/inspection.md#implemented-source-diagnostic-boundary) allows Path-finder to link validation errors back to authored text using the runtime's owned records. Avoid adding editor SDKs or reflection frameworks to the core.
