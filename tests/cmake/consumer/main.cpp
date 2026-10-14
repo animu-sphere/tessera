@@ -6,6 +6,7 @@
 #include <tessera/ui/component_tree_mount.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/style/style_sheet.hpp>
+#include <tessera/input/text_edit.hpp>
 #include <concepts>
 #include <iostream>
 
@@ -13,6 +14,12 @@
 static_assert(std::equality_comparable<tessera::UiDocument>);
 
 int main() {
+    const auto editing = tessera::make_text_edit_state(1, "日本😀");
+    if (!editing) return 40;
+    const auto erased = tessera::edit_text(*editing.value,
+        {1, editing.value->revision, tessera::TextEditErase{}});
+    if (!erased || erased.value->text != "日本" ||
+        tessera::edit_text(*erased.value, {1, editing.value->revision, tessera::TextEditInsert{"stale"}})) return 41;
     tessera::UiDocument document;
     document.root.id = "panel";
     tessera::UiNode title;

@@ -1,6 +1,9 @@
-#include <tessera/commands/execution.hpp>
+#include <tessera/commands/gestures.hpp>
 #include <tessera/input/focus.hpp>
+#include <tessera/input/text_edit.hpp>
 #include <tessera/inspection/invariants.hpp>
+#include <tessera/inspection/offscreen_runner.hpp>
+#include <tessera/render/cpu_renderer.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/component_tree_mount.hpp>
 #include <fstream>
@@ -70,17 +73,47 @@ InspectorField inspect_string(const InspectionSnapshot& snapshot, NodeHandle tar
     check(result.has_value(), "No content string editor applies to target"); return *result;
 }
 
-struct EditorHost final : CommandHost {
+struct EditorHost final : TransactionHost {
     InspectionSnapshot accepted;
     std::optional<std::string> selection;
     std::optional<InspectorField> field;
     std::vector<CommandSource> sources;
+    std::optional<TextEditState> editing, saved_edit;
+    std::vector<std::pair<std::string, std::string>> history;
+    std::uint64_t edit_owner = 0;
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         const auto& id = std::get<CommandObjectId>(invocation.arguments.at("node")).value;
         const auto target = take(resolve_target(accepted, AuthorIdTarget{id}));
         auto candidate = inspect_string(accepted, target);
+        if (selection != id || !editing) editing = take(make_text_edit_state(++edit_owner, candidate.value));
         selection = id; field = std::move(candidate); sources.push_back(invocation.source);
         return {};
+    }
+    CommandOutcome begin(const TransactionRecord&) override {
+        check(editing && !saved_edit, "One host-owned label gesture"); saved_edit = editing; return {};
+    }
+    CommandOutcome execute_edit(const CommandInvocationRecord& invocation, const TransactionRecord&) override {
+        check(selection == std::get<CommandObjectId>(invocation.arguments.at("node")).value, "Edit targets selected owner");
+        auto candidate = take(edit_text(*editing, {editing->owner, editing->revision,
+            TextEditSelection{0, editing->text.size()}}));
+        candidate = take(edit_text(candidate, {candidate.owner, candidate.revision,
+            TextEditInsert{std::get<std::string>(invocation.arguments.at("value"))}}));
+        const auto anchor = std::get<double>(invocation.arguments.at("anchor"));
+        const auto caret = std::get<double>(invocation.arguments.at("caret"));
+        check(anchor == static_cast<std::size_t>(anchor) && caret == static_cast<std::size_t>(caret), "Integral selection offsets");
+        candidate = take(edit_text(candidate, {candidate.owner, candidate.revision,
+            TextEditSelection{static_cast<std::size_t>(anchor), static_cast<std::size_t>(caret)}}));
+        editing = std::move(candidate); return {};
+    }
+    CommandOutcome commit(const TransactionRecord&) override {
+        check(saved_edit && editing, "Commit requires open host edit");
+        history.emplace_back(saved_edit->text, editing->text); saved_edit.reset(); return {};
+    }
+    CommandOutcome rollback(const TransactionRecord&, TransactionCancel) override {
+        check(saved_edit && editing, "Rollback requires open host edit");
+        // Restore bytes/selection while advancing revision; old requests stay stale.
+        auto restored = *saved_edit; restored.revision = editing->revision + 1;
+        editing = std::move(restored); saved_edit.reset(); return {};
     }
 };
 struct Presentation {
@@ -94,18 +127,40 @@ struct Presentation {
     SemanticInput ui() const { return {tree.get(), styles, &layout}; }
 };
 
+// Declared synthetic raster input for placeholder scalars. This is a compact
+// deterministic image fixture, not evidence about installed font rendering.
+struct FixtureGlyphs final : GlyphRasterizer {
+    std::uint64_t face_revision(FontId font) const override { return font.value == 0 ? 1 : 0; }
+    Result<GlyphBitmap> rasterize(const GlyphRasterRequest& request) override {
+        GlyphBitmap bitmap{5, 7, 0, 7, std::vector<std::uint8_t>(35)};
+        for (std::size_t i = 0; i < bitmap.coverage.size(); ++i)
+            bitmap.coverage[i] = (request.glyph >> (i % 21)) & 1 ? 255 : 0;
+        return {std::move(bitmap), {}};
+    }
+};
+OffscreenRun capture(const Presentation& presentation, const ValidationContext& context) {
+    ReplayRecording recording; recording.context = context; recording.viewport = {760, 320};
+    recording.document = presentation.component.document; recording.styles = presentation.styles;
+    recording.steps = {ReplayFocus{AuthorIdTarget{"inspector-value"}},
+        ReplaySemanticAction{AuthorIdTarget{"row-headline"}}, ReplayTick{10us}};
+    PlaceholderTextShaper shaper; FixtureGlyphs glyphs; GlyphCache cache(glyphs);
+    CpuFrameCapture frames(&cache);
+    return take(run_offscreen({&recording, &shaper, frames.backend(), &frames}));
+}
+
 struct Editor {
     EditorHost host; // Outlives all callbacks and their explicit shutdown delivery.
     ReactiveRuntime runtime;
     ReactiveOwner scope = runtime.owner(runtime.root(), "editor");
     ComponentTreeCollection mounted{scope};
     FocusDispatcher focus;
-    CommandExecutor executor;
+    CommandTransactions transactions;
+    CommandGestures gestures{transactions};
     PlaceholderTextShaper shaper;
     SourcedDocument preview;
     std::string source;
     CommandRegistry registry;
-    ValidationContext actions{{"select-headline", "select-subtitle"}};
+    ValidationContext actions{{"select-headline", "select-subtitle", "edit-label"}};
     std::map<std::string, ComponentSetup> rows;
     std::optional<AsyncValue> asset;
     std::vector<AsyncAttempt> detached;
@@ -115,8 +170,14 @@ struct Editor {
         CommandDescriptor select; select.id = "editor.select"; select.label = "Select preview node";
         CommandParameter node; node.name = "node"; node.type = CommandParameterType::object_id;
         select.parameters = {node};
-        return take(CommandRegistry::create({select},
-            {{"select-headline", select.id}, {"select-subtitle", select.id}}));
+        CommandDescriptor edit; edit.id = "editor.label"; edit.label = "Edit selected string";
+        CommandParameter value; value.name = "value"; value.type = CommandParameterType::string;
+        CommandParameter anchor; anchor.name = "anchor"; anchor.type = CommandParameterType::number;
+        anchor.minimum = 0; anchor.maximum = double(max_text_edit_bytes);
+        auto caret = anchor; caret.name = "caret";
+        edit.parameters = {node, value, anchor, caret};
+        return take(CommandRegistry::create({select, edit},
+            {{"select-headline", select.id}, {"select-subtitle", select.id}, {"edit-label", edit.id}}));
     }
     Editor() : registry(commands()) {
         std::ifstream file(TESSERA_EDITOR_FIXTURE, std::ios::binary);
@@ -127,7 +188,19 @@ struct Editor {
             "Runtime loading must preserve editor document and node metadata");
     }
 
-    Presentation present(std::vector<std::string> order = {"headline", "subtitle"}, bool enabled = true) {
+    Presentation present(std::vector<std::string> order = {"headline", "subtitle"}, bool enabled = true,
+                         const SourcedDocument* candidate = nullptr, bool staging = false,
+                         bool preview_active = true, std::optional<SourceSpan> changed_origin = {}) {
+        auto commands = take(CommandSnapshot::publish(registry, generation + 1, CommandMode::production,
+            {{"editor.select", {enabled && preview_active}}, {"editor.label", {enabled && host.selection.has_value() && preview_active}}},
+            {"headline", "subtitle"}));
+        if (!staging) {
+            // Edits are node-free author-ID transactions. Every publication
+            // rechecks command eligibility before deriving the Inspector draft.
+            const auto refresh = gestures.refresh(commands, host);
+            check(bool(refresh) || !gestures.active(), "Invalidation must close an edit");
+            if (!preview_active) { host.selection.reset(); host.field.reset(); host.editing.reset(); }
+        }
         auto root = component("editor", box("editor", {box("toolbar-slot"), box("workspace", {
             box("hierarchy-slot"), box("preview-slot"), box("inspector-slot")})}));
         root.slots = {{"toolbar", "toolbar-slot"}, {"hierarchy", "hierarchy-slot"},
@@ -142,20 +215,33 @@ struct Editor {
         action(toolbar, "inspect-selection", "select-headline");
         auto hierarchy = component("hierarchy", box("hierarchy", {text("hierarchy-title", "Hierarchy"), box("rows")}));
         hierarchy.slots = {{"rows", "rows", NodeKinds::text}};
-        auto central = component("preview", preview.document.root);
-        central.document = preview.document; central.sources = preview.sources;
-        central.async = {{"asset", PropertyType::string}};
-        central.props = {{"status", PropertyType::string, Property{std::string("Idle")}}};
-        central.properties = {{"status", "asset-status", "text"}};
+        const auto& displayed = candidate ? *candidate : preview;
+        auto central = component(preview_active ? "preview" : "empty-preview", box("preview"));
+        if (preview_active) {
+            central.document = displayed.document; central.sources = displayed.sources;
+            central.async = {{"asset", PropertyType::string}};
+            central.props = {{"status", PropertyType::string, Property{std::string("Idle")}}};
+            central.properties = {{"status", "asset-status", "text"}};
+        } else {
+            StyleDeclarations empty; empty.width = Dimension::points(20); empty.height = Dimension::points(20);
+            style(central, "preview", empty);
+        }
         auto inspector = component("inspector", box("inspector", {text("inspector-title", "Inspector"),
             text("inspector-property", host.field ? host.field->property + " (string)" : "Select a node"),
-            text("inspector-value", host.field ? host.field->value : ""),
-            text("inspector-origin", host.field ? "preview.json:" + std::to_string(host.field->span.begin) : "")}));
+            text("inspector-value", host.editing ? host.editing->text : ""),
+            text("inspector-selection", host.editing ? std::to_string(host.editing->anchor) + ":" +
+                std::to_string(host.editing->caret) : ""),
+            text("inspector-origin", host.field ? "preview.json:" +
+                std::to_string(changed_origin.value_or(host.field->span).begin) : "")}));
+        inspector.document.root.children[2].properties["focusable"] = true;
+        inspector.document.root.children[2].properties["disabled"] = false;
+        inspector.actions = {{"edit", "edit-label"}};
+        inspector.events = {{"edit", "inspector-value", "activate"}};
         std::vector<ComponentInvocation> calls{{std::move(root), {}, {}}, {std::move(toolbar), {}, {}},
             {std::move(hierarchy), {}, {}}, {std::move(central), {}, {}}, {std::move(inspector), {}, {}}};
         calls[0].invocation_slots = {{"toolbar", {1}}, {"hierarchy", {2}}, {"preview", {3}}, {"inspector", {4}}};
         std::vector<ComponentInvocationMount> mounts{{"editor"}, {"toolbar"}, {"hierarchy"}, {"preview"}, {"inspector"}};
-        mounts[3].async = {{"asset", [&](const AsyncAttempt& attempt) { detached.push_back(attempt); }}};
+        if (preview_active) mounts[3].async = {{"asset", [&](const AsyncAttempt& attempt) { detached.push_back(attempt); }}};
         for (const auto& id : order) {
             auto row = component("hierarchy-row", text("row-" + id, id));
             row.local_state = {{"pinned", PropertyType::boolean, Property{false}}};
@@ -165,33 +251,35 @@ struct Editor {
             calls[2].invocation_slots["rows"].push_back(calls.size());
             calls.push_back({std::move(row), {}, {}}); mounts.push_back({id});
         }
-        const auto update = take(mounted.reconcile(runtime, calls, mounts));
-        rows.clear();
-        for (std::size_t i = 0; i < order.size(); ++i) rows.emplace(order[i], update.instances[i + 5]);
-        asset = take(update.instances[3].async("asset"));
-        check(runtime.flush().empty(), "Editor reactive evaluation failed");
+        if (!staging) {
+            const auto update = take(mounted.reconcile(runtime, calls, mounts));
+            rows.clear();
+            for (std::size_t i = 0; i < order.size(); ++i) rows.emplace(order[i], update.instances[i + 5]);
+            if (preview_active) asset = take(update.instances[3].async("asset"));
+            else asset.reset();
+            check(runtime.flush().empty(), "Editor reactive evaluation failed");
+        }
         for (std::size_t i = 0; i < order.size(); ++i) {
             StyleDeclarations row_style; row_style.height = Dimension::points(32);
             row_style.background = take(rows.at(order[i]).state<bool>("pinned")).read()
                 ? Color{0.2f, 0.4f, 0.8f, 1} : Color{0.9f, 0.9f, 0.9f, 1};
             calls[i + 5].arguments.styles["row-" + order[i]] = row_style;
         }
-        const auto observation = asset->read();
+        const auto observation = asset ? asset->read() : AsyncObservation{};
         std::string status = "Idle";
         if (observation.status == AsyncStatus::loading) status = "Loading";
         if (observation.status == AsyncStatus::failed) status = "Failed: " + observation.failure->message;
         if (observation.status == AsyncStatus::ready) status = std::get<std::string>(observation.value->value);
-        calls[3].arguments.props["status"] = Property{status};
+        if (preview_active) calls[3].arguments.props["status"] = Property{status};
         auto lowered = take(lower_component_tree(runtime, calls, 0, actions));
-        auto commands = take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
-            {{"editor.select", {enabled}}}, {"headline", "subtitle"}));
         lowered.document = take(commands.apply_eligibility(lowered.document, actions));
         auto tree = take(UiTree::create(lowered.document, actions));
         const StyleSheet sheet;
         auto styles = take(resolve_styles({tree.get(), &sheet, {}, lowered.overrides}));
         auto layout = take(compute_layout({tree.get(), styles, {760, 320}, &shaper}));
-        const auto focused = take(focus.refresh({tree.get(), styles, &layout})).focused;
-        auto inspection = take(capture_inspection({tree.get(), styles, &layout, &*lowered.sources, focused}));
+        auto candidate_focus = focus;
+        const auto focused = take(candidate_focus.refresh({tree.get(), styles, &layout})).focused;
+        auto inspection = take(capture_inspection({tree.get(), styles, &layout, lowered.sources ? &*lowered.sources : nullptr, focused}));
         std::vector<UiInvariant> invariants;
         for (const auto& id : {"inspect-selection", "hierarchy", "preview", "inspector"}) {
             invariants.push_back({std::string(id) + "-visible", VisibleInvariant{AuthorIdTarget{id}}});
@@ -199,17 +287,124 @@ struct Editor {
         }
         check(take(evaluate_invariants({&inspection, invariants, Size{760, 320}})).passed(), "Editor panel invariant failed");
         take(build_paint_list({tree.get(), styles, &layout, &shaper}));
-        check(runtime.publish() == 0 && runtime.deliver_cleanups().empty(), "Editor publication failed");
-        host.accepted = inspection;
+        if (!staging) {
+            ++generation; focus = std::move(candidate_focus);
+            check(runtime.publish() == 0 && runtime.deliver_cleanups().empty(), "Editor publication failed");
+            host.accepted = inspection;
+        }
         return {std::move(lowered), std::move(commands), std::move(tree), std::move(styles), std::move(layout), std::move(inspection)};
     }
     void operate(const Presentation& presentation, const ActionRequest& action_request, CommandSource source_kind) {
         const std::string target = action_request.action == "select-headline" ? "headline" : "subtitle";
+        if (host.selection != target && gestures.active())
+            take(gestures.cancel(*gestures.active(), TransactionCancel::owner_changed, host));
         const auto ui = presentation.ui();
         const auto invocation = take(presentation.commands.resolve_action(ui, action_request, presentation.commands.generation(),
             {{"node", CommandObjectId{target}}}, source_kind, ++sequence));
-        check(take(executor.execute(presentation.commands, invocation, host, &ui)).outcome.status == CommandOutcomeStatus::success,
+        check(take(transactions.execute(presentation.commands, invocation, host, &ui)).outcome.status == CommandOutcomeStatus::success,
             "Selection command failed");
+    }
+    Result<TextEditState> edit(const Presentation& presentation, TextEditRequest request, std::uint64_t gesture_id) {
+        check(host.editing && host.selection && host.accepted.generation == presentation.inspection.generation,
+            "Editing requires a current selected observation");
+        const auto target = *presentation.tree->find("inspector-value");
+        const auto ui = presentation.ui();
+        auto action_request = request_semantic_action(ui, target, "activate");
+        if (!action_request) return {std::nullopt, std::move(action_request.diagnostics)};
+        auto candidate = edit_text(*host.editing, request);
+        if (!candidate) return candidate;
+        if (candidate.value->text == host.editing->text) {
+            host.editing = *candidate.value; return candidate; // Caret changes create no history.
+        }
+        // The host edit targets a permitted author ID, not a transient display
+        // handle. The Inspector action above gates UI eligibility; the ordinary
+        // node-free command keeps its transaction through full-tree replacement.
+        const auto invocation = take(presentation.commands.resolve({presentation.commands.generation(), "editor.label",
+            {{"node", CommandObjectId{*host.selection}}, {"value", candidate.value->text},
+                {"anchor", double(candidate.value->anchor)}, {"caret", double(candidate.value->caret)}}, CommandSource::keyboard, ++sequence}));
+        const EditGesture gesture{gesture_id, {}, PointerButton::primary, {"Edit label", "label", {*host.selection}, {}}};
+        check(take(gestures.edit(gesture, presentation.commands, invocation, host, &ui)).outcome.status == CommandOutcomeStatus::success,
+            "Ordinary label transaction failed");
+        return {*host.editing, {}};
+    }
+    Result<bool> edit_input(const Presentation& presentation, const InputEvent& event, std::uint64_t gesture_id) {
+        if (auto diagnostics = validate(event); !diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
+        if (!host.editing) return {false, {}};
+        if (take(focus.refresh(presentation.hit())).focused != presentation.tree->find("inspector-value")) return {false, {}};
+        std::optional<TextEditRequest> request;
+        if (const auto* input = std::get_if<TextInput>(&event.data))
+            request = TextEditRequest{host.editing->owner, host.editing->revision, TextEditInsert{input->text}};
+        if (const auto* key = std::get_if<KeyDown>(&event.data)) {
+            if (key->modifiers.control || key->modifiers.alt || key->modifiers.super) return {false, {}};
+            std::optional<TextMove> move;
+            switch (key->key) {
+            case Key::left: move = TextMove::left; break;
+            case Key::right: move = TextMove::right; break;
+            case Key::home: move = TextMove::home; break;
+            case Key::end: move = TextMove::end; break;
+            case Key::backspace:
+            case Key::delete_key:
+                request = TextEditRequest{host.editing->owner, host.editing->revision,
+                    TextEditErase{key->key == Key::backspace ? TextErase::backward : TextErase::forward}}; break;
+            default: break;
+            }
+            if (move) request = TextEditRequest{host.editing->owner, host.editing->revision, TextEditMove{*move, key->modifiers.shift}};
+        }
+        if (!request) return {false, {}};
+        auto result = edit(presentation, std::move(*request), gesture_id);
+        if (!result) return {std::nullopt, std::move(result.diagnostics)};
+        return {true, {}}; // The host suppresses shortcut/focus routing for consumed input.
+    }
+    // Only the selected property's string bytes change. Runtime serialization is
+    // the escaping authority; no private JSON encoder or editor property schema.
+    std::string edited_source() const {
+        UiDocument literal; literal.root = text("literal", host.editing->text);
+        const auto json = take(save_document(literal));
+        const auto sourced = take(load_document_with_sources(json, "literal"));
+        const auto span = sourced.sources.nodes[0].properties.at("text");
+        auto changed = source;
+        changed.replace(host.field->span.begin, host.field->span.end - host.field->span.begin,
+            json.substr(span.begin, span.end - span.begin));
+        return changed;
+    }
+    Result<Presentation> reload_label(const Presentation& current, std::string changed, std::uint64_t gesture_id) {
+        auto candidate = load_document_with_sources(changed, TESSERA_EDITOR_FIXTURE);
+        if (!candidate) return {std::nullopt, std::move(candidate.diagnostics)};
+        // This consumer admits a compatible one-string edit only, not arbitrary
+        // topology/type migration. Stage ordinary full-tree output before commit.
+        auto expected = preview.document;
+        auto tree = take(UiTree::create(expected));
+        const auto selected = *tree->find(*host.selection);
+        auto replacement = take(UiTree::create(candidate.value->document));
+        const auto replacement_target = replacement->find(*host.selection);
+        auto unsupported = [&]() -> Result<Presentation> {
+            Diagnostic diagnostic{"unsupported_reload", Severity::error, "/root",
+                "This fixture admits only its selected compatible string edit.", {}};
+            diagnostic.source = DiagnosticSource{{TESSERA_EDITOR_FIXTURE, candidate.value->sources.nodes[0].span}, DiagnosticOrigin::node};
+            return {std::nullopt, {std::move(diagnostic)}};
+        };
+        if (!replacement_target || replacement->get(*replacement_target)->kind != tree->get(selected)->kind)
+            return unsupported();
+        const auto& properties = replacement->get(*replacement_target)->properties;
+        const auto changed_property = properties.find(host.field->property);
+        if (changed_property == properties.end() || !std::holds_alternative<std::string>(changed_property->second)) return unsupported();
+        const auto& value = changed_property->second;
+        const auto pointer = candidate.value->sources.nodes[replacement_target->index].properties.at(host.field->property);
+        // The fixture's preview children are its authored label targets.
+        for (auto& node : expected.root.children) if (node.id == host.selection) node.properties[host.field->property] = value;
+        if (expected != candidate.value->document || std::get<std::string>(value) != host.editing->text) return unsupported();
+        auto staged = present({"headline", "subtitle"}, true, &*candidate.value, true, true, pointer);
+        auto selected_field = inspect_string(staged.inspection,
+            take(resolve_target(staged.inspection, AuthorIdTarget{*host.selection})));
+        check(selected_field.span == pointer, "Reload joins new source bytes");
+        const auto ui = current.ui();
+        check(take(gestures.complete(gesture_id, current.commands, host, &ui)).status == CommandOutcomeStatus::success,
+            "Label gesture commits once");
+        source = std::move(changed); preview = std::move(*candidate.value);
+        generation = staged.commands.generation(); host.field = std::move(selected_field);
+        take(focus.refresh(staged.hit())); host.accepted = staged.inspection;
+        check(runtime.publish() == 0, "Reload publication failed");
+        return {std::move(staged), {}};
     }
 };
 
@@ -277,30 +472,142 @@ void run() {
     const auto status = *ready.tree->find("asset-status");
     check(std::get<std::string>(ready.tree->get(status)->properties.at("text")) == "Resource ready", "Ready value appears in preview");
 
+    // Drive the schema-selected string through the core edit transform and the
+    // same command/gesture boundary used by other application edits.
+    const auto editor_node = *ready.tree->find("inspector-value");
+    take(editor.focus.focus(ready.hit(), editor_node));
+    const auto accepted_source = editor.source;
+    const auto selected_owner = editor.host.editing->owner;
+    const auto before = *editor.host.editing;
+    const auto baseline_capture = capture(ready, editor.actions);
+    auto edit = [&](const Presentation& p, auto operation, std::uint64_t gesture = 1) {
+        return take(editor.edit(p, {editor.host.editing->owner, editor.host.editing->revision, std::move(operation)}, gesture));
+    };
+    check(take(editor.edit_input(ready, {10us, KeyDown{Key::home}}, 1)) &&
+        take(editor.edit_input(ready, {11us, KeyDown{Key::right, {true}}}, 1)), "Editing navigation consumes normalized keys");
+    check(editor.host.editing->anchor == 0 && editor.host.editing->caret == 1 && editor.host.history.empty(),
+        "Caret/selection operations create no edit history");
+    check(take(editor.edit_input(ready, {12us, TextInput{"h"}}, 1)) &&
+        take(editor.focus.refresh(ready.hit())).focused == ready.tree->find("inspector-value"),
+        "Committed text consumes input without navigating or activating surrounding UI");
+    auto draft = editor.present();
+    check(editor.host.history.empty() && editor.source == accepted_source &&
+        std::get<std::string>(draft.tree->get(*draft.tree->find("inspector-value"))->properties.at("text")) == "hello Tessera",
+        "Draft updates Inspector while the accepted source stays intact");
+    check(take(editor.edit_input(draft, {13us, KeyDown{Key::end}}, 1)) &&
+        take(editor.edit_input(draft, {14us, TextInput{"日本😀\"\\"}}, 1)) &&
+        take(editor.edit_input(draft, {15us, KeyDown{Key::backspace}}, 1)), "Committed Unicode and deletion use normalized input");
+    edit(draft, TextEditMove{TextMove::left, true});
+    edit(draft, TextEditInsert{"!"}); // Replace the quote selection.
+    const auto final_value = editor.host.editing->text;
+    check(final_value == "hello Tessera日本😀!", "Scalar insertion, deletion and selection replacement");
+    check(!editor.edit(draft, {before.owner, before.revision, TextEditInsert{"stale"}}, 1), "Stale edit revision rejects");
+    const auto draft_state = *editor.host.editing;
+    check(!editor.edit(draft, {draft_state.owner, draft_state.revision, TextEditInsert{"\n"}}, 1) &&
+        editor.host.editing == draft_state && editor.host.history.empty(), "Invalid text creates no command/history change");
+    const auto generation_before_rejection = editor.host.accepted.generation;
+    const auto command_generation_before_rejection = editor.generation;
+    const auto rejected = editor.reload_label(draft, "{", 1);
+    check(!rejected && !rejected.diagnostics.empty() && rejected.diagnostics[0].source &&
+        editor.host.accepted.generation == generation_before_rejection && editor.source == accepted_source &&
+        editor.generation == command_generation_before_rejection && editor.gestures.active() == 1,
+        "Invalid source is located and leaves accepted generation and gesture usable");
+    check(capture(draft, editor.actions) == capture(draft, editor.actions), "Rejected reload retains deterministic observations");
+    auto incompatible = take(load_document(editor.source));
+    incompatible.root.children.erase(incompatible.root.children.begin());
+    check(!editor.reload_label(draft, take(save_document(incompatible)), 1) &&
+        editor.host.accepted.generation == generation_before_rejection && editor.source == accepted_source,
+        "Unsupported topology rejects atomically rather than retargeting the selected property");
+    const auto row_lifetime = editor.rows.at("headline").instance().lifetime;
+    const auto asset_observation = editor.asset->read();
+    auto edited = take(editor.reload_label(draft, editor.edited_source(), 1));
+    check(editor.host.history == std::vector<std::pair<std::string, std::string>>{{"Hello Tessera", final_value}} &&
+        editor.host.field->value == final_value && editor.host.selection == "headline" &&
+        editor.host.editing->owner == selected_owner && editor.rows.at("headline").instance().lifetime == row_lifetime &&
+        pinned.read() && editor.asset->read() == asset_observation &&
+        take(editor.focus.refresh(edited.hit())).focused == edited.tree->find("inspector-value"),
+        "One gesture commits one history entry and compatible reload retains keys, state, focus, selection and async owner");
+    check(std::get<std::string>(edited.tree->get(*edited.tree->find("headline"))->properties.at("text")) == final_value &&
+        editor.generation == command_generation_before_rejection + 1 &&
+        !request_semantic_action(edited.ui(), editor_node, "activate"), "Reload publishes edited property once and invalidates old targets");
+    const auto authored = editor.host.field->span;
+    check(editor.source.substr(authored.begin, authored.end - authored.begin) == "\"hello Tessera日本😀!\"",
+        "Reload Inspector points at accepted source bytes");
+    const auto edited_capture = capture(edited, editor.actions);
+    const auto repeated_capture = capture(edited, editor.actions);
+    check(edited_capture == repeated_capture && compare_replay(edited_capture.output, repeated_capture.output).empty(),
+        "Fixed document/state/input/time/viewport/font and CPU images reproduce exactly");
+    check(edited_capture.frames[0].image && baseline_capture.frames[0].image &&
+        edited_capture.frames[0].image != baseline_capture.frames[0].image,
+        "Accepted label source change reaches deterministic CPU pixels");
+    check(edited_capture.output.actions.size() == 1 &&
+        edited_capture.output.generations[0].boxes.size() == edited.layout.boxes.size(), "Replay operates and observes the accepted document");
+    for (std::size_t i = 0; i < edited.layout.boxes.size(); ++i)
+        check(edited_capture.output.generations[0].boxes[i].border_box == edited.layout.boxes[i].border_box,
+            "Replay geometry equals accepted full-tree geometry");
+    edit(edited, TextEditInsert{" temporary"}, 2);
+    const auto cancellation_request = *editor.host.editing;
+    const auto ui = edited.ui();
+    const auto cancelled = take(editor.gestures.handle_input(edited.commands, {30us, KeyDown{Key::escape}}, editor.host, &ui));
+    check(cancelled.consumed && cancelled.closure && editor.host.editing->text == final_value &&
+        editor.host.history.size() == 1 && editor.source.substr(authored.begin, authored.end - authored.begin) == "\"hello Tessera日本😀!\"" &&
+        !editor.edit(edited, {cancellation_request.owner, cancellation_request.revision, TextEditInsert{"late"}}, 2),
+        "Escape restores accepted value, advances revision and adds no history");
+    edit(edited, TextEditInsert{" selection draft"}, 3);
+    editor.operate(edited, take(request_semantic_action(edited.ui(), *edited.tree->find("row-subtitle"), "activate")), CommandSource::agent);
+    check(!editor.gestures.active() && !editor.host.saved_edit && editor.host.selection == "subtitle" &&
+        editor.host.editing->text == "Shared runtime preview" && editor.host.history.size() == 1,
+        "Selecting another owner cancels the draft before replacing the editing lifetime");
+
     auto disabled = editor.present({"headline", "subtitle"}, false);
     const auto disabled_row = *disabled.tree->find("row-headline");
     check(!request_semantic_action(disabled.ui(), disabled_row, "activate") &&
         !editor.focus.focus(disabled.hit(), disabled_row), "Disabled selection rejects semantic and focus requests");
-    check(take(editor.focus.dispatch(disabled.hit(), {6us, Activate{}})).actions.empty(), "Disabled logical activation is inert");
+    check(take(editor.focus.dispatch(disabled.hit(), {31us, Activate{}})).actions.empty(), "Disabled logical activation is inert");
     const auto bounds = disabled.inspection.elements[disabled_row.index].geometry->border_box;
     const Point disabled_point{bounds.origin.x + 4, bounds.origin.y + 4};
-    take(pointer.dispatch(disabled.hit(), {7us, PointerDown{{1}, disabled_point}}));
-    check(take(pointer.dispatch(disabled.hit(), {8us, PointerUp{{1}, disabled_point}})).actions.empty(), "Disabled pointer activation is inert");
+    take(pointer.dispatch(disabled.hit(), {32us, PointerDown{{1}, disabled_point}}));
+    check(take(pointer.dispatch(disabled.hit(), {33us, PointerUp{{1}, disabled_point}})).actions.empty(), "Disabled pointer activation is inert");
     check(!disabled.commands.resolve_action(disabled.ui(), {"activate", "select-headline", disabled_row},
         disabled.commands.generation(), {{"node", CommandObjectId{"headline"}}}, CommandSource::agent, ++editor.sequence),
         "Direct command adaptation cannot bypass disabled eligibility");
+    const auto disabled_edit_state = *editor.host.editing;
+    check(!editor.edit(disabled, {disabled_edit_state.owner, disabled_edit_state.revision, TextEditInsert{"hidden"}}, 4) &&
+        editor.host.editing == disabled_edit_state && editor.host.history.size() == 1,
+        "Disabled Inspector cannot bypass ordinary action eligibility");
+
+    const auto removed_work = take(editor.asset->begin("removed-preview"));
+    const auto removed_asset = *editor.asset;
+    const auto removed_editing = *editor.host.editing;
+    auto removed = editor.present({"headline", "subtitle"}, true, nullptr, false, false);
+    check(!editor.asset && !editor.host.selection && !editor.host.editing && editor.detached.size() == 1 &&
+        editor.detached[0].sequence() == removed_work.attempt.sequence() &&
+        !removed_asset.complete(removed_work.attempt, std::string("Late removed")) &&
+        !request_semantic_action(removed.ui(), *disabled.tree->find("inspector-value"), "activate"),
+        "Preview owner removal detaches once, clears selection/editor and rejects old targets and completion");
+    auto recreated = editor.present();
+    const auto fresh_work = take(editor.asset->begin("removed-preview"));
+    check(fresh_work.attempt.sequence() == 1 && !editor.asset->complete(removed_work.attempt, std::string("Foreign lifetime")),
+        "Recreated observation rejects old owner even with a reused request and attempt sequence");
+    editor.operate(recreated, take(request_semantic_action(recreated.ui(), *recreated.tree->find("row-headline"), "activate")), CommandSource::agent);
+    check(editor.host.editing->owner != removed_editing.owner &&
+        !edit_text(*editor.host.editing, {removed_editing.owner, removed_editing.revision, TextEditInsert{"old owner"}}),
+        "Recreated selected editor rejects old editing owner");
+    check(static_cast<bool>(editor.asset->complete(fresh_work.attempt, std::string("Recreated ready"))) &&
+        editor.runtime.deliver_cleanups().empty() && editor.detached.size() == 1,
+        "Fresh owner completes and removed cleanup stays once-only");
 
     const auto pending = take(editor.asset->begin("shutdown-resource"));
     const auto old_asset = *editor.asset;
     editor.scope.dispose(); editor.runtime.flush();
-    check(editor.detached.empty(), "Disposal queues host work until explicit delivery");
-    check(editor.runtime.deliver_cleanups().empty() && editor.detached.size() == 1 &&
-        editor.detached[0].sequence() == pending.attempt.sequence(), "Shutdown detaches the latest work once");
-    check(editor.runtime.deliver_cleanups().empty() && editor.detached.size() == 1 &&
+    check(editor.detached.size() == 1, "Disposal queues host work until explicit delivery");
+    check(editor.runtime.deliver_cleanups().empty() && editor.detached.size() == 2 &&
+        editor.detached[1].sequence() == pending.attempt.sequence(), "Shutdown detaches the latest work once");
+    check(editor.runtime.deliver_cleanups().empty() && editor.detached.size() == 2 &&
         !old_asset.complete(pending.attempt, std::string("Late")), "Late completion and duplicate cleanup reject");
-    std::cout << "Editor panels: shared JSON preview + keyed hierarchy + schema Inspector; "
-        "pointer/keyboard/gamepad/semantic selection, focus/state retention and host async checks passed.\n"
-        "Core-only scripted fixture with placeholder text; Inspector displays source/value observations.\n";
+    std::cout << "Editor panels: shared JSON preview + keyed hierarchy + schema string editor; "
+        "selection, scalar editing, gesture history/cancellation, compatible source reload, async lifetimes and CPU replay checks passed.\n"
+        "Core-only scripted fixture with placeholder text/synthetic glyphs; source edits and CPU images are in memory.\n";
 }
 } // namespace
 
