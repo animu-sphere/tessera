@@ -2,6 +2,8 @@
 
 Inactive milestone candidates live here; [current](current.md) owns the active scope. Versions are candidates without committed dates. Implementation and validation status is owned by the [support matrix](../reference/support-matrix.md).
 
+Everything here is planning context and does not authorize implementation during the active milestone. Promote only a demonstrated fixture requirement into current, with a minimum fix, observable acceptance and a stop condition under the [agent policy](../agent-policy.md). A detailed design or a candidate's dependencies do not activate adjacent work.
+
 Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below. External strategy phase numbers do not replace these candidate scopes.
 
 Choose follow-up scope from the Path-finder mini prototype's measured application requirements and authoring friction. Candidate themes include richer layout, incremental stage evaluation, retained rendering, accessibility, animation, broader platform adapters, application bindings, and advanced agent authoring. Generalized virtualization, typed drag and drop, data grids, and context depend on the active application primitives; generation history, timeline/plotting, collaboration, Web/WASM, and world-space UI follow concrete consumers. Items within a candidate are listed in dependency order, without making every theme a committed next-release requirement.
@@ -9,6 +11,19 @@ Choose follow-up scope from the Path-finder mini prototype's measured applicatio
 ## v0.3.0 — Active milestone
 
 The dynamic UI/editor scope and exit criteria are owned by [current](current.md#v030--dynamic-ui-and-editor-prototype).
+
+## Unscheduled editor extensions
+
+These broader mechanisms are inactive. The [current slice](current.md#current-slice) owns the bounded label-edit/reload/Inspector/async/capture loop; only behavior beyond that slice belongs here. Reconsider these candidates from concrete fixture friction instead of treating them as a prerequisite sequence:
+
+- **Lifecycle automation and UI fallback:** generalized [declarations](../design/ui-model.md#proposed-automatic-component-lifecycle), declaration/default origins, setup/cleanup conveniences and [contained UI fallback](../design/ui-model.md#proposed-error-boundaries) beyond the fixture's owner/state/disposal requirements.
+- **Resource observations:** [owned resource payloads](../design/ui-model.md#proposed-async-state), real thumbnail/image loading, provider integration and completion-safe retirement beyond a host-driven fixture observation; cancellation and logical ownership must preserve the [frame lifetime](../design/rendering.md#implemented-frame-contract).
+- **Broader reload and reflection:** [state-schema migrations and compatibility](../design/path-finder-integration.md#live-reload-transaction) across scroll anchors, accepted resources and command owners; richer [declaration/default origins and typed diagnostic context](../design/inspection.md#proposed-inspection-records-and-source-mapping); [reflection observations](../design/ui-model.md#proposed-property-reflection) for inherited/resolved/read-only values and new property kinds. Preserve affected-stage metadata without making incremental evaluation a prerequisite.
+- **Overlays and palette:** shared [Portal ownership](../design/ui-model.md#proposed-overlays-and-portals), [placement](../design/layout.md#scrolling-and-overlay-geometry), [focus/targeting](../design/input.md#proposed-overlay-interaction), [semantic relationships](../design/semantics.md#proposed-semantic-projection), composed Tooltip/Dropdown/Modal and [command palette](../design/commands.md#proposed-command-palette). Include native capture/cancellation and platform shortcut conventions only for an explicit consumer, with transform hit/render agreement and ordinary command eligibility.
+- **Large editor lists:** bounded [VirtualList realization](../design/layout.md#proposed-virtualization-foundation) over thousands of keyed logical rows, deterministic measurement, focus/selection/scroll anchors, async rows and an explicit semantic virtualization policy. A small keyed hierarchy does not require this mechanism.
+- **Editing expansion:** multiline convenience, host clipboard adapters and platform composition integration beyond the active single-string operation; preserve the [revisioned editing boundary](../design/input.md#proposed-editing-ime-and-clipboard-boundary) and [logical replay inputs](../design/replay.md#proposed-editor-workflow-inputs).
+- **Packaged verification and discovery:** [versioned snapshot bundle/CLI](../design/inspection.md#proposed-runner-and-snapshot-bundle), machine-readable differences, selective visual comparisons and source-edit-to-verification instrumentation; [agent capability manifest](../design/inspection.md#proposed-agent-capability-manifest) for ordinary inspect/invoke/replay/capture/invariant/source-edit/reload/comparison operations. An in-process fixture is sufficient before a concrete consumer needs packaging or discovery.
+- **Broader performance evidence:** representative application profiling, Vulkan/CPU scene comparisons across declared configurations and authoring-friction measurements to select follow-up scope. Do not turn profiling infrastructure or aggressive evaluation/GPU optimization into editor completion prerequisites.
 
 ## v0.4.0 candidate — Productive tool UI
 
@@ -20,10 +35,10 @@ Candidates:
 
 - [Generalized virtualization](../design/layout.md#proposed-virtualization-foundation) with production VirtualList and tree/hierarchy primitives, then DataGrid/TreeTable composed from primitives: resizable, sortable, pinned, and hideable columns; single and multi-selection; editable cells; keyboard navigation; row hierarchy; context menus.
 - Resizable split panels and a minimal docking subset.
-- Extend the [active string editor](current.md#remaining-work-in-priority-order) with platform IME/clipboard hardening and richer selection/multiline behavior where consumers require it; [typed drag and drop](../design/input.md#proposed-typed-drag-and-drop).
+- Extend the [active string-editing slice](current.md#exit-criteria) with platform IME/clipboard hardening and richer selection/multiline behavior where consumers require it; [typed drag and drop](../design/input.md#proposed-typed-drag-and-drop).
 - [Context](../design/ui-model.md#proposed-context) for subtree services, including [theme scopes](../design/styling.md#proposed-theme-scopes); transaction/undo integration hardening.
 - Canvas/custom paint, [performance instrumentation](../design/inspection.md#proposed-performance-metrics), and a timeline/profiling primitive.
-- Broader consumer-specific UI invariants and regression budgets over the active headless bundle/CI loop.
+- Broader consumer-specific UI invariants and regression budgets over the prototype's verification loop; packaged bundles and CI consumers need explicit promotion.
 - [Stage invalidation](../design/styling.md#proposed-stage-invalidation) and incremental style, measure/placement, [text](../design/text.md#proposed-incremental-text-invalidation), input, semantic, and paint evaluation over the active milestone's reactive kernel, verified against full-tree output.
 - Bounded [reactive observations](../design/inspection.md#proposed-reactive-observations), owner/dependency inspection and update-cause traces, plus graph/work-proportionality benchmarks without fixed illustrative scale targets.
 - Representative dense/high-frequency tool benchmarks, measured iteration latency, and consumer-specific regression budgets after recording a baseline; thin scenario tooling and compact CI reports/artifacts.
@@ -43,9 +58,9 @@ Candidates:
 - Native accessibility adapters and external semantic invocation using the earlier shared inspection foundation.
 - Replay recording tools, focus recovery/modal navigation hardening.
 - Resource/device-loss diagnostics, install/export packaging, downstream integration checks.
-- [Agent capability manifest](../design/inspection.md#proposed-agent-capability-manifest) v1, command discovery, and semantic automation through the shared command path.
+- [Agent capability manifest](../design/inspection.md#proposed-agent-capability-manifest), command discovery, and semantic automation through the shared command path; choose the first version's scope from an explicit consumer.
 - [Generation history](../design/inspection.md#proposed-generation-history) for time-travel inspection, failure reproduction bundles, and performance regression bundles.
-- Persistent automation adapters built on the earlier inspection/action API: bounded stdin/stdout JSON-RPC first, local RPC/subscriptions only for a consumer, optional MCP last; explicit development enablement and production exclusion.
+- Persistent automation adapters built on the ordinary inspection/action API: bounded stdin/stdout JSON-RPC first, local RPC/subscriptions only for a consumer, optional MCP last; explicit development enablement and production exclusion.
 
 Exit criteria to refine per adapter: external automation handles inspect, invoke, replay, capture, diff, and assert consistently; semantic invocation obeys ordinary action and command eligibility, stale identities fail safely, adapter behavior has platform-specific evidence, replay reproduces failures, and downstream consumers exercise documented lifetime boundaries. Transport validation must cover request limits, cancellation/teardown, permitted state slots, and exclusion of development mutation/source exports from production.
 
@@ -122,7 +137,7 @@ Owners: [reactive runtime](../design/reactive-runtime.md), [UI model](../design/
 
 ## Later — Analytic primitives and CPU compatibility performance
 
-Prerequisites: the v0.3.0 CPU reference backend, and v0.4.0 dirty tracking for damage-based repaint.
+Prerequisites: the [CPU reference contract](../design/rendering.md#implemented-scalar-cpu-reference-backend), and measured need plus dirty tracking for damage-based repaint.
 
 Candidates:
 

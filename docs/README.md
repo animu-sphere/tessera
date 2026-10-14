@@ -4,16 +4,23 @@ Repository documents are the only maintained plan and contract. Owner-provided d
 
 ## Reading order
 
-1. [Architecture](design/architecture.md): purpose, principles, ownership, dependency direction, and frame lifecycle.
-2. [UI model](design/ui-model.md): common representation beneath authoring frontends.
-3. [Reactive runtime](design/reactive-runtime.md): proposed dependency, ownership, batching, and effect semantics beneath components.
-4. [Current work](roadmap/current.md): active scope and exit criteria.
-5. The relevant subsystem contract and [testing strategy](guides/testing.md).
+1. [Agent implementation policy](agent-policy.md): implementation authority, fixture-driven work, and subsystem stop rule.
+2. [Current work](roadmap/current.md): one integration target, bounded supporting work, and observable exit criteria.
+3. [Support matrix](reference/support-matrix.md): implementation and validation evidence.
+4. [Architecture](design/architecture.md): purpose, principles, ownership, dependency direction, and frame lifecycle.
+5. The relevant subsystem contract and [testing strategy](guides/testing.md); start with the [UI model](design/ui-model.md) and [reactive runtime](design/reactive-runtime.md) when component or update boundaries are affected.
+
+## Documentation authority
+
+Product intent explains why; architecture and subsystem designs constrain behavior; reference records what exists; current roadmap scope authorizes repository-planned feature work; proposals explore possible mechanisms; guides explain supported workflows; integrations describe consumer requirements. These roles apply even when several kinds of material share a design page.
+
+Detailed Proposed sections are intentionally non-actionable unless the active fixture requires the specific behavior. Backlog candidates and integration examples do not expand active scope. The [agent policy](agent-policy.md) owns the authority and stop rules; current work owns the concrete slice. Follow links for constraints without treating the linked page as a task list.
 
 ## Canonical owners
 
 | Document | Owns | Does not own |
 | --- | --- | --- |
+| [Agent policy](agent-policy.md) | Implementation authority, fixture-driven task selection, subsystem stop rule | Feature scheduling, subsystem contracts, or capability evidence |
 | [Architecture](design/architecture.md) | Purpose and differentiation, core scope, principles, ecosystem boundaries, determinism, update/snapshot lifecycle | Capability status, subsystem rules, or directory inventory |
 | [Reactive runtime](design/reactive-runtime.md) | Dependency graph, revisions/equality, reactive owner lifetimes, update batches, evaluation/effect scheduling | Application data/history, component keys, layout/text algorithms, renderer resources, or inspection schema |
 | [UI model](design/ui-model.md) | Tree/identity, semantic properties, reflection metadata, components, reconciliation, async state, error boundaries, context, portal ownership, frontend lowering | Encoded fields, editor transport, interaction policy |
@@ -43,7 +50,7 @@ Repository documents are the only maintained plan and contract. Owner-provided d
 
 ## Contract labels
 
-Sections named **Implemented ... contract/boundary/algorithm** describe identifiable source APIs, with header links. Sections named **Proposed ...** describe designs to validate, not usable APIs. Architectural direction is a constraint; an open decision is unresolved. These labels distinguish contract maturity without turning each page into a progress dashboard. Implementation and validation vocabulary is defined only in the [support matrix](reference/support-matrix.md#evidence-vocabulary).
+Sections named **Implemented ... contract/boundary/algorithm** describe identifiable source APIs, with header links. Sections named **Proposed ...** describe designs to validate, not usable APIs or scheduled work. Accepted architectural direction constrains future choices; open decisions are exploration and must not be implemented directly as settled contracts. Keep the Implemented/Proposed labels distinct from implementation authority: neither a detailed mechanism nor an unresolved idea authorizes work without the active roadmap's specific requirement. Implementation and validation vocabulary is defined only in the [support matrix](reference/support-matrix.md#evidence-vocabulary).
 
 ## Status and wording rules
 
@@ -59,7 +66,7 @@ Status drifts when it is written in more than one place, so it is written only i
 ## Change routing
 
 - Contract change: update its owner and link to it from consumers. Keep exact rules, fields, defaults, and lifetimes in that owner.
-- Scope change: edit current or backlog. When a candidate becomes active, move its complete scope to current; leave a link in backlog.
+- Scope change: edit current or backlog. Promote only the behavior required by an integration fixture, with observable acceptance and a stop condition; leave broader candidate scope in backlog. When a whole candidate becomes active, move its complete scope to current and leave a link in backlog. Do not maintain the same active task in both.
 - Delivery: remove finished tasks from current, append history to the changelog, and update affected support rows with source/evidence. Contract pages change only when their contract or maturity changes.
 - Validation: update support evidence only. Build instructions change only when the procedure changes.
 - Index/README: change for navigation or ownership, not each implementation slice.

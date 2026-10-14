@@ -9,12 +9,13 @@ The host owns application state, windows, devices, and frame scheduling. Tessera
 ## Start here
 
 - [Documentation index and ownership](docs/README.md)
+- [Agent implementation policy](docs/agent-policy.md): authority, fixture-driven work, and subsystem stop rule
 - [Implementation and validation status](docs/reference/support-matrix.md)
 - [Active work](docs/roadmap/current.md) and [future candidates](docs/roadmap/backlog.md)
 - [Build workflow](docs/guides/development.md) and [testing strategy](docs/guides/testing.md)
 - [Delivery history](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 
-The roadmap's version labels are planning candidates. Consult the support matrix for actual capabilities and configurations.
+The roadmap's version labels are planning candidates. Only active roadmap scope authorizes repository-planned feature work; detailed designs and proposals do not schedule implementation. Consult the support matrix for actual capabilities and configurations.
 
 ## Community
 
