@@ -9,4 +9,8 @@ std::vector<Diagnostic> validate_component_local_state(std::span<const Component
 std::vector<Diagnostic> validate_component_cleanups(std::span<const std::string>, const std::string& path);
 std::vector<Diagnostic> validate_component_cleanup_bindings(std::span<const std::string>,
     const ComponentCleanupBindings&, const std::string& path);
+std::vector<Diagnostic> validate_component_effects(std::span<const ComponentEffect>,
+    const std::string& path);
+std::vector<Diagnostic> validate_component_effect_bindings(std::span<const ComponentEffect>,
+    const ComponentEffectBindings&, const std::string& path);
 } // namespace tessera::detail

@@ -36,8 +36,36 @@ private:
     std::map<std::string, ComponentStateValue, std::less<>> values_;
 };
 
+using ComponentEffectCalculation = std::variant<std::function<bool()>, std::function<double()>,
+    std::function<std::string()>, std::function<NodeReference()>>;
+struct ComponentEffectBinding {
+    ComponentEffectCalculation calculate;
+    std::function<std::function<void()>(const Property&)> apply;
+};
+// Factories run once after fresh setup, inside the mounting batch. They return
+// pure tracked calculations and external applications, never perform delivery.
+using ComponentEffectBindings = std::map<std::string,
+    std::function<ComponentEffectBinding(const ComponentSetup&)>, std::less<>>;
+
+template<class T, class Calculate, class Apply>
+ComponentEffectBinding component_effect(Calculate calculate, Apply apply) {
+    static_assert(std::is_same_v<T, bool> || std::is_same_v<T, double> ||
+                  std::is_same_v<T, std::string> || std::is_same_v<T, NodeReference>,
+                  "Component effects use the four exact semantic property types.");
+    static_assert(std::is_same_v<std::invoke_result_t<Calculate&>, T>,
+                  "Effect calculations must return the declared exact type.");
+    return {std::function<T()>(std::move(calculate)),
+        [apply = std::move(apply)](const Property& value) mutable -> std::function<void()> {
+            const auto& typed = std::get<T>(value);
+            if constexpr (std::is_void_v<std::invoke_result_t<Apply&, const T&>>) {
+                std::invoke(apply, typed);
+                return {};
+            } else return std::function<void()>(std::invoke(apply, typed));
+        }};
+}
+
 // Borrows a description only during reconciliation; mounting registers its kind
-// and local-state schema. Ordinary lowering validates the presentation separately.
+// and state/cleanup/effect schemas. Lowering validates presentation separately.
 struct ComponentMount {
     std::string key;
     const ComponentDescription* component = nullptr;
@@ -48,6 +76,7 @@ struct ComponentMount {
     // One nonempty operation for each declared cleanup. Fresh lifetimes retain
     // copies; compatible reuse keeps the original operations until disposal.
     ComponentCleanupBindings cleanups;
+    ComponentEffectBindings effects;
 };
 
 // One keyed sibling collection beneath a host scope. Compatible schemas match
@@ -88,6 +117,7 @@ private:
         std::uint64_t lifetime = 0;
         std::map<std::string, ComponentStateValue, std::less<>> values;
         std::set<std::string, std::less<>> cleanups;
+        std::map<std::string, std::pair<PropertyType, EffectPhase>, std::less<>> effects;
     };
     Result<const ComponentStateValue*> lookup(std::string_view key, std::string_view name) const;
     static Diagnostic state_error(std::string code, std::string_view key,
