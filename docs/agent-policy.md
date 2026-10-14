@@ -14,7 +14,7 @@ Do not implement a Proposed section merely because its API has no code. Read [su
 
 ## Choose work from the integration fixture
 
-Read [current work](roadmap/current.md) first, then support, [architecture](design/architecture.md), the relevant subsystem contract, and [testing](guides/testing.md). Prefer the next observable step in the active author/reload/inspect/operate/capture/verify loop.
+Read [current work](roadmap/current.md) first, then support, [architecture](architecture/overview.md), the relevant subsystem contract, and [testing](guides/testing.md). Prefer the next observable step in the active author/reload/inspect/operate/capture/verify loop.
 
 Before extending a subsystem, identify the fixture operation that cannot proceed, the expected observable behavior, and the smallest required change. Use existing APIs to construct the fixture before treating a possible design gap as a blocker. Record a demonstrated blocker and its bounded acceptance condition in current work; promote only that part of an inactive candidate.
 

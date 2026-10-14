@@ -1,6 +1,6 @@
 # Tessera UI JSON v1
 
-This page defines the implemented encoding contract, not a stable release format. Model and lifetime rules belong to [UI model](../../docs/design/ui-model.md); validation/configuration evidence belongs to [support](../../docs/reference/support-matrix.md).
+This page defines the implemented encoding contract, not a stable release format. Model and lifetime rules belong to [UI model](../../docs/architecture/ui-model.md); validation/configuration evidence belongs to [support](../../docs/reference/support-matrix.md).
 
 ## Envelope and nodes
 
@@ -23,7 +23,7 @@ This page defines the implemented encoding contract, not a stable release format
 }
 ```
 
-The caller must supply `start_game` in `ValidationContext.actions` to accept this example. Bindings serialize names only; runtime [pointer dispatch](../../docs/design/input.md) returns host action requests after [layout](../../docs/design/layout.md). No callback is serialized.
+The caller must supply `start_game` in `ValidationContext.actions` to accept this example. Bindings serialize names only; runtime [pointer dispatch](../../docs/architecture/input.md) returns host action requests after [layout](../../docs/architecture/layout.md). No callback is serialized.
 
 | Field | Required | Type / rule |
 | --- | --- | --- |

@@ -67,15 +67,29 @@ foreach ($file in $documents) {
     if ($relative -eq 'docs/roadmap/current.md' -and $body -match '(?im)^##\s+(Delivered|Phase [01]|Documentation foundation)') {
         $issues.Add("${relative}: current must contain remaining work, not foundation history")
     }
-    # Contract and guide pages express maturity only through Implemented/Proposed labels.
-    if ($relative -match '^(docs/design/|docs/guides/|formats/)' -or $relative -eq 'docs/reference/dependencies.md') {
+    # Maturity and design authority must not become rolling capability status.
+    if ($relative -match '^(docs/(architecture|proposals|integrations|product|guides)/|formats/)' -or $relative -eq 'docs/reference/dependencies.md') {
         $progress = [regex]::Match($body, '(?i)\b(not yet|yet|currently|still needs?|remains? (a )?proposals?|remains? planned|(is|are) planned|no [a-z/ -]{1,40} (API|CLI|implementation) exists)\b')
         if ($progress.Success) {
             $issues.Add("${relative}: progress wording '$($progress.Value)' belongs in support; state the contract or link the proposal")
         }
     }
-    if ($relative -match '^docs/design/' -and $body -match '(?i)\b(v\d+\.\d+(\.\d+)?|Phase \d+)\b') {
+    if ($relative -match '^docs/(architecture|proposals|integrations)/' -and $body -match '(?i)\b(v\d+\.\d+(\.\d+)?|Phase \d+)\b') {
         $issues.Add("${relative}: version/milestone labels belong in current or backlog")
+    }
+    if ($relative -match '^docs/architecture/' -and $body -notmatch '(?m)^## Core invariants$') {
+        $issues.Add("${relative}: architecture must state core invariants")
+    }
+    if ($relative -match '^docs/proposals/') {
+        foreach ($marker in @('Maturity: Proposed', 'Default scheduling: Unscheduled. Implementation authority: None.', '## Promotion criteria')) {
+            if (-not $body.Contains($marker)) { $issues.Add("${relative}: missing proposal authority/promotion marker '$marker'") }
+        }
+        foreach ($target in @('../roadmap/current.md', '../agent-policy.md')) {
+            if (-not $body.Contains('](' + $target + ')')) { $issues.Add("${relative}: missing proposal authority link '$target'") }
+        }
+    }
+    if ($body -match '(?i)docs/design/|(?<![\w/])(?:\.\./)*design/[a-z][a-z-]*\.md') {
+        $issues.Add("${relative}: obsolete design path; use the canonical architecture, proposal, integration or product owner")
     }
     if ($relative -eq 'docs/reference/support-matrix.md' -and $body -match '(?im)^\|[^|\r\n]+\|\s*Planned\b') {
         $issues.Add("${relative}: capabilities without implementation have no row")

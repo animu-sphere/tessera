@@ -1,5 +1,14 @@
 # Layout
 
+## Core invariants
+
+- Layout consumes nodes, resolved styles, available size and injected text metrics without renderer or application state access.
+- Logical geometry and clip/scroll observations are shared by paint, hit testing and semantic bounds; physical conversion belongs to rendering/host boundaries.
+- Full-tree calculation defines correctness for any incremental or virtualized path.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Implemented foundation contract
 
 The public headers are [geometry.hpp](../../include/tessera/layout/geometry.hpp) and [layout_box.hpp](../../include/tessera/layout/layout_box.hpp). Geometry uses `float` logical units with the origin at the top left, positive X right, and positive Y down. `Point`, `Size`, `Rect`, and `Edges` are plain values. `inset(rect, edges)` moves each side inward; an overconstrained axis keeps its origin offset and clamps its size to zero. `intersect(a, b)` returns the overlap; a disjoint axis keeps the larger origin with zero size. Device scale belongs to the renderer's frame information, not layout.
@@ -53,7 +62,7 @@ Scale/viewport changes must be supplied coherently at an update boundary. Specif
 | 6 | Absolute/anchored positioning | Position against a declared containing box or anchor |
 | 7 | Richer intrinsic sizing | Content-driven sizing with explicit constraints |
 | 8 | Grid | Explicit rows/columns before advanced placement |
-| 9 | [Virtualization](#proposed-virtualization-foundation) | Realized keyed items, estimated extents, stable scrolling |
+| 9 | [Virtualization](../proposals/virtualization.md#proposed-virtualization-foundation) | Realized keyed items, estimated extents, stable scrolling |
 
 Extension order is a dependency guide; milestone scope lives in [current](../roadmap/current.md) and [backlog](../roadmap/backlog.md). Text measurement always goes through `TextShaper`.
 
@@ -61,7 +70,7 @@ Extension order is a dependency guide; milestone scope lives in [current](../roa
 
 The [prototype scrolling rule](#implemented-prototype-algorithm) makes viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing, including nested scroll boxes; [input](input.md#implemented-scroll-routing) turns wheel deltas and reveal requests into new requested offsets.
 
-Proposed: overlay placement supports a source anchor, the declared viewport, or explicit logical coordinates, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](ui-model.md#proposed-overlays-and-portals). Layout supplies shared geometry and effective clips; input and paint must not independently recompute popup positions. Missing or removed anchors follow a declared dismissal/fallback policy and cannot leave targeting at obsolete coordinates.
+Proposed: overlay placement supports a source anchor, the declared viewport, or explicit logical coordinates, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals). Layout supplies shared geometry and effective clips; input and paint must not independently recompute popup positions. Missing or removed anchors follow a declared dismissal/fallback policy and cannot leave targeting at obsolete coordinates.
 
 ## Proposed rules to settle
 
@@ -85,24 +94,15 @@ Verify logical-edge mapping, nested direction overrides, safe alignment, wrapped
 
 ## Proposed virtualization foundation
 
-Virtualization is one shared layer, not a VirtualList-specific implementation. VirtualList, VirtualTree, VirtualGrid, DataGrid, TreeTable, log views, and timelines build on it. It follows ordinary scrolling and realizes only items intersecting the viewport plus a declared overscan, exposing enough geometry for navigation and [reveal](input.md#implemented-scroll-routing).
+Virtualized geometry must match full realization within the viewport. Stable logical keys, explicit measurement/anchor policy and bounded realization cannot be replaced by recycled row indices.
 
-- **Keys and extents.** Every item has a stable key from [keyed identity](ui-model.md#state-and-reconciliation). Unrealized items use an estimated extent; a realized item's measured extent replaces the estimate. Grids and tables apply the same rule per axis, with row and column extents kept separately.
-- **Anchor.** Scroll position is restored from an anchor item key plus a local offset within that item, not a pixel offset, so prepending items, correcting estimates, or reloading does not move visible content. A follow-end policy keeps the trailing edge visible as content grows, ends when the user scrolls away, and resumes only on request.
-- **Recycling and generations.** Realized components may be recycled across keys, but identity, state, selection, and focus follow keys, never recycled instances. Realization changes settle in an update generation like any other change, and observations name the generation they belong to.
-- **Correctness reference.** Realizing every item is the reference: a virtualized frame must match the full frame within the viewport, as required by [architecture](architecture.md#frame-scheduling).
-
-For a bounded VirtualList consumer, declare a deterministic measurement/estimate policy, visible-range/overscan limits, and a semantic virtualization policy: which logical items are exposed and how navigation requests realization of an unrealized item. Semantic order and focus/selection use stable item keys rather than visible indices. State retained for unrealized keys has an explicit owner and bounded lifetime; destroying a realized row detaches its async observations, and remounting cannot accept a completion from the old lifetime. Keeping logical item state does not keep obsolete row resources alive. The concrete retention and semantic schemas are open decisions.
-
-Verify a fixture with thousands of logical items and a small bounded realized set, without treating its size as a performance guarantee. Reorder, scrolling, estimate correction, focus reveal, async row replacement, and reload must preserve declared keyed state and scroll identity and produce deterministic replay/inspection observations.
-
-Conversation, log, and terminal views motivate the anchor and follow-end rules under [conversational workspaces](conversational-ui.md#proposed-list-virtualization-requirements); spatial culling for 2D canvases follows the [graph editor](graph-editor.md#proposed-visibility-culling-and-lod).
+Possible mechanisms: [virtualization](../proposals/virtualization.md#proposed-virtualization-foundation). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Invalidation
 
-Full-tree calculation is the correctness reference. Proposed incremental calculation distinguishes intrinsic/text measurement from placement under [stage invalidation](styling.md#proposed-stage-invalidation). Size changes can invalidate ancestors and siblings; available size, inherited font metrics, flex allocation, scroll extents/clamping, and clips must be included in dependency propagation. An unchanged measured size may stop size propagation, but changed placement or clips must reach input, semantic bounds, and paint. Paint-only color changes do not require layout.
+Full-tree calculation is the correctness reference. Layout consumes resolved styles, constraints and text metrics independently of reactive graph storage and renderer objects.
 
-The [reactive scheduler](reactive-runtime.md#proposed-presentation-integration) selects work and publication boundaries; layout consumes nodes, resolved styles, constraints, and text metrics without accessing graph internals or a renderer. Incremental output must preserve the result of a full calculation.
+Possible mechanisms: [incremental evaluation](../proposals/incremental-evaluation.md#invalidation). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Verification
 

@@ -1,5 +1,14 @@
 # Deterministic UI replay
 
+## Core invariants
+
+- Replay supplies explicit document/state, logical input, time/readiness and rendering-environment inputs to ordinary runtime paths.
+- Recording versions and reproducibility conditions are validated; hidden wall-clock or external completion timing cannot determine expected output.
+- Observed generations, semantics, action order and completed captures must refer to the same declared execution conditions.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Proposed recording contract
 
 Replay reproduces a session through the ordinary runtime and injected host services. This is a versioned format/tool proposal: [prototype playback](#implemented-prototype-playback), [Replay JSON v1](#implemented-replay-json-v1), and explicit [Replay JSON v2](#implemented-replay-json-v2) implement the subsets described below, and recording/playback tools follow the [tooling boundary](#tooling-boundary).
@@ -20,7 +29,7 @@ Use fixture-owned resources and explicit readiness timing instead of relying on 
 
 Record logical text edits, selection/caret changes, composition start/update/commit/cancel, and owned clipboard results under the [editing boundary](input.md#proposed-editing-ime-and-clipboard-boundary). Each edit addresses a fixture-resolved owner lifetime and buffer revision; no replay event may read the live clipboard or redirect a stale completion to the new focus. Concrete event encoding, bounds, and schema versions must be specified before extending serialized recordings.
 
-Component mount/removal, compatible reload, portal open/close, and virtualized range changes are driven by declared source/state/input fixtures through ordinary runtime boundaries. Record resource identity and ordered readiness results for async rows, not wall-clock completion. Verify that rejected reloads preserve the previous generation and that accepted reload observations, semantic relationships, invariants, and capture refer to the same generation under [snapshot tooling](inspection.md#proposed-runner-and-snapshot-bundle).
+Component mount/removal, compatible reload, portal open/close, and virtualized range changes are driven by declared source/state/input fixtures through ordinary runtime boundaries. Record resource identity and ordered readiness results for async rows, not wall-clock completion. Verify that rejected reloads preserve the previous generation and that accepted reload observations, semantic relationships, invariants, and capture refer to the same generation under [snapshot tooling](../proposals/snapshot-bundles.md#proposed-runner-and-snapshot-bundle).
 
 ## Proposed localization inputs
 
@@ -52,7 +61,7 @@ Fixture identities are document-scoped author IDs and exact role/name matches, w
 
 ## Implemented controlled host updates
 
-[replay.hpp](../../include/tessera/replay/replay.hpp) defines a bounded fixture boundary through `ReplayHostSlot`, `ReplayReadiness`, and `ReplayHostUpdate`. It follows the [async ownership rules](ui-model.md#async-transition-and-ownership-rules), without implementing components, providers, resource loading, or a scheduler. The host constructs the replacement document/styles; core does not derive UI from the boolean value or execute callbacks.
+[replay.hpp](../../include/tessera/replay/replay.hpp) defines a bounded fixture boundary through `ReplayHostSlot`, `ReplayReadiness`, and `ReplayHostUpdate`. It follows the [async ownership rules](../proposals/async-resources.md#async-transition-and-ownership-rules), without implementing components, providers, resource loading, or a scheduler. The host constructs the replacement document/styles; core does not derive UI from the boolean value or execute callbacks.
 
 - **Declaration.** An explicit version 2 recording declares at most `max_replay_host_slots` (64) slots in `ReplayEnvironment::host`, in stable order. Each slot has a unique `id`, an authored `owner` ID, an unsigned 32-bit `request`, `readiness`, and a boolean `value`. IDs and owners are 1–256 UTF-8 bytes without ASCII controls. Initial slots are `idle` with request zero, and every owner exists in the initial document. Duplicate slots are `duplicate_state` at `/environment/host/<i>/id`; invalid initial states are `invalid_transition` at the slot; missing owners are `target_not_found` at its `/owner`. Version 1 requires no slots and rejects host updates as `unsupported_event`.
 - **Transition.** A `ReplayHostUpdate` contains one `slot` and a host-built `view` (`ReplayReload`). The slot ID must be declared (`undeclared_state` at `/steps/<i>/slot/id`), and its owner cannot change (`stale_owner` at `/owner`). `loading` requires a request strictly greater than the preceding request, superseding it. `ready`, `failed`, or `cancelled` completes only the current `loading` request with the same number; an old, duplicate, cancelled, or wrapped number is `stale_request` at `/request`. `idle` is not an update. Only `ready` may change the boolean; loading, failure, and cancellation retain the accepted value (`invalid_transition` at `/value` otherwise). No synchronous-cache shortcut or progress payload is defined here.
@@ -89,7 +98,7 @@ Load errors carry JSON pointers and UTF-8 byte offsets; schema errors use `missi
 
 ## Playback and outputs
 
-Playback injects recorded inputs at the [defined update points](architecture.md#frame-scheduling), using the same runtime as application and editor preview. It observes:
+Playback injects recorded inputs at the [defined update points](overview.md#frame-scheduling), using the same runtime as application and editor preview. It observes:
 
 - Layout geometry.
 - [Semantic projection](semantics.md).
@@ -101,7 +110,7 @@ Expect exact values where the numeric contract permits them; otherwise declare g
 
 GPU images are optional adapter evidence with target size, scale, color format, fonts, device and tolerance metadata. An image hash alone is not portable cross-driver equivalence. Core replay must remain runnable without a renderer; the [offscreen runner](inspection.md#implemented-prototype-offscreen-runner) plays a recording first and then captures each generation through a declared host adapter.
 
-[Inspection snapshot bundles](inspection.md#proposed-runner-and-snapshot-bundle) package observations at a selected generation; they do not replace the ordered recording. State restore uses the declared host adapter. Animation may be disabled or advanced at explicit fixture times, never read from an uncontrolled wall clock. Bundle exports and performance durations are separate from deterministic playback assertions.
+[Inspection snapshot bundles](../proposals/snapshot-bundles.md#proposed-runner-and-snapshot-bundle) package observations at a selected generation; they do not replace the ordered recording. State restore uses the declared host adapter. Animation may be disabled or advanced at explicit fixture times, never read from an uncontrolled wall clock. Bundle exports and performance durations are separate from deterministic playback assertions.
 
 ## Implemented Replay JSON v2
 

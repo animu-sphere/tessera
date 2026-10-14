@@ -1,5 +1,14 @@
 # Commands and transactions
 
+## Core invariants
+
+- Every input source shares command eligibility and typed argument validation; discovery does not bypass execution-time generation/owner checks.
+- Applications own command implementations, data mutations, transaction history and rollback outcomes.
+- Reactive update batches and application edit transactions are distinct; a non-editing action does not create an undo token.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Implemented in-process command boundary
 
 [commands.hpp](../../include/tessera/commands/commands.hpp) defines immutable owned `CommandRegistry`, `CommandSnapshot`, and `CommandInvocation` values. Registry copies share descriptor storage and a process-unique revision; replacement registries receive a distinct revision, even for equal descriptors. There is no global registry or callback. The host reserves command namespaces and passes the registry explicitly; subtree context follows the [context proposal](ui-model.md#proposed-context).
@@ -136,11 +145,13 @@ pointer / keyboard / gamepad / accessibility / agent / replay
 
 A document binding keeps naming an action. A host may declare that action name as a command ID, so bound widgets, shortcuts, and external requests converge on one descriptor without new document fields. Command enabled state composes with node eligibility: a disabled node cannot request a command, and a disabled command makes its bound nodes report the disabled state through [semantics](semantics.md) in the same generation. Each invocation records its source (pointer, keyboard, gamepad, accessibility, agent, or replay) for diagnostics, transactions, and [replay](replay.md).
 
-Commands evaluated or invoked from outside the UI tree, such as a palette or an agent, use the same eligibility query and argument validation. No source receives a private path or bypasses a disabled state. External discovery is exposed through the [agent capability manifest](inspection.md#proposed-agent-capability-manifest).
+Commands evaluated or invoked from outside the UI tree, such as a palette or an agent, use the same eligibility query and argument validation. No source receives a private path or bypasses a disabled state. External discovery is exposed through the [agent capability manifest](../proposals/agent-capability-manifest.md#proposed-agent-capability-manifest).
 
 ## Proposed command palette
 
-The command palette is the reference consumer of the registry and is composed from ordinary components, list virtualization, and text input; it is not a special runtime case. It provides fuzzy search over labels, categories, and descriptions; category grouping; shortcut display; recently used commands and command history; disabled reasons; and argument prompts generated from the argument schema. Search ranking and history storage are application- or library-owned policies. A [graph editor's](graph-editor.md#proposed-interaction-and-editing) node-creation search can reuse the same component with a filtered command set.
+A palette composes ordinary components and uses the same registry, argument validation and eligibility as other command requesters. Search ranking and history stay application-owned.
+
+Possible mechanisms: [command palette](../proposals/command-palette.md#proposed-command-palette). This direction is not an implementation task; only the active roadmap can require a bounded part.
 
 ## Proposed transaction boundary
 
@@ -154,7 +165,7 @@ An application adapter owns a transaction token and every mutation. A discrete e
 
 Transactions are single-level: nested begin requests fail with a located diagnostic. A command invoked within a gesture may join its explicitly supplied token but cannot implicitly begin or commit it. Each token belongs to one host session, command/gesture owner, and logical request sequence; a closed or foreign token rejects later edits and a late asynchronous completion cannot reopen it. Merge hints never merge in core; the application decides history coalescing after a successful commit. Rollback failure is reported as a host error, without claiming application state was restored.
 
-Long-running commands either perform no mutation until ready and then request a discrete transaction, or explicitly keep one gesture-owned token whose cancellation requests rollback. They use [async request identities](ui-model.md#proposed-async-state) and publish transitions only at update points. Pending execution grants no exemption from command eligibility, stale-owner rejection, or the transaction token rules.
+Long-running commands either perform no mutation until ready and then request a discrete transaction, or explicitly keep one gesture-owned token whose cancellation requests rollback. They use [async request identities](../proposals/async-resources.md#proposed-async-state) and publish transitions only at update points. Pending execution grants no exemption from command eligibility, stale-owner rejection, or the transaction token rules.
 
 Tessera does not own application data history. It provides a common boundary so that UI-driven edits group consistently:
 

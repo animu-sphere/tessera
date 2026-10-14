@@ -1,10 +1,15 @@
 # Web host and browser integration
 
+> [!IMPORTANT]
+> **Maturity: Proposed — Direction.** Open decisions are Exploration; do not implement them as settled APIs.
+> **Default scheduling: Unscheduled. Implementation authority: None.**
+> Implement only behavior explicitly required by [current work](../roadmap/current.md) or an accepted task linked there. Follow the [agent policy](../agent-policy.md); backend neutrality does not schedule a browser host.
+
 ## Proposed shared runtime
 
 Native and Web applications should share the same component model, backend-neutral document/IR, layout, style, semantic projection, and action rules. Web is an intended application host with WASM runtime and WebGPU canvas rendering; the Web path never changes runtime semantics. This is architectural direction, not a selected toolchain, supported browser configuration, or delivery commitment; [support](../reference/support-matrix.md) owns those claims.
 
-The intended workload is dense application UI: inspectors, timelines, node graphs, CAD/DCC tools, dashboards, and UI composed with a 3D viewport. Content sites, SEO, HTML/CSS compatibility, and a React-compatible API are outside the target. Host-owned viewport resources can compose with UI through [rendering boundaries](rendering.md); the world scene remains external to the UI tree under [architecture](architecture.md#ecosystem-ownership).
+The intended workload is dense application UI: inspectors, timelines, node graphs, CAD/DCC tools, dashboards, and UI composed with a 3D viewport. Content sites, SEO, HTML/CSS compatibility, and a React-compatible API are outside the target. Host-owned viewport resources can compose with UI through [rendering boundaries](../architecture/rendering.md); the world scene remains external to the UI tree under [architecture](../architecture/overview.md#ecosystem-ownership).
 
 ```text
 Authoring frontends / C++ construction -> common UI model -> WASM runtime
@@ -21,15 +26,15 @@ The WebGPU backend consumes resolved draw data. The browser host owns the canvas
 
 ## Proposed semantic DOM bridge
 
-DOM supplies browser accessibility and integration alongside GPU visuals. It projects the common [SemanticTree](semantics.md), not a second component model or visual renderer. Map roles/names/state/actions and semantic order from the settled generation. Bounds and visibility derive from shared logical geometry; the bridge must account for canvas placement and device scale.
+DOM supplies browser accessibility and integration alongside GPU visuals. It projects the common [SemanticTree](../architecture/semantics.md), not a second component model or visual renderer. Map roles/names/state/actions and semantic order from the settled generation. Bounds and visibility derive from shared logical geometry; the bridge must account for canvas placement and device scale.
 
-Synchronize browser focus with Tessera focus through [input](input.md#focus-and-navigation). Browser and runtime changes must not produce duplicate activation, recursive focus updates, or stale targets after reload. Removal, disabled/hidden content, modal scopes, and virtualized items require defined projection and focus recovery. Screen-reader behavior and browser navigation each need adapter evidence; creating DOM nodes alone proves neither.
+Synchronize browser focus with Tessera focus through [input](../architecture/input.md#focus-and-navigation). Browser and runtime changes must not produce duplicate activation, recursive focus updates, or stale targets after reload. Removal, disabled/hidden content, modal scopes, and virtualized items require defined projection and focus recovery. Screen-reader behavior and browser navigation each need adapter evidence; creating DOM nodes alone proves neither.
 
 ## Proposed text editing adapter
 
 A TextInput may use a browser input/textarea or an evaluated EditContext adapter for platform editing while Tessera paints its visuals. The authoring model exposes the shared editing contract, not a browser-specific widget. Choice, capability detection, and fallback require browser evidence; no particular API is assumed universally available.
 
-The adapter maps committed text, composition, replacement ranges, selection, and caret geometry through the [editing boundary](input.md#proposed-editing-ime-and-clipboard-boundary). Translate browser index units explicitly into the runtime's declared units. Synchronize Japanese IME, focus loss/cancellation, clipboard, asynchronous paste, and readonly/disabled behavior against a document revision. Deliver each edit once, even when keyboard, composition, and input events overlap.
+The adapter maps committed text, composition, replacement ranges, selection, and caret geometry through the [editing boundary](../architecture/input.md#proposed-editing-ime-and-clipboard-boundary). Translate browser index units explicitly into the runtime's declared units. Synchronize Japanese IME, focus loss/cancellation, clipboard, asynchronous paste, and readonly/disabled behavior against a document revision. Deliver each edit once, even when keyboard, composition, and input events overlap.
 
 Mobile keyboard, autofill, and password-manager integration are separate requirements to evaluate with a consumer. Password/private field values must not leak into semantic inspection, state exports, or snapshots. A semantic DOM projection does not by itself provide working text input.
 
@@ -49,4 +54,9 @@ Before moving work, define ordered messages, generation-tagged geometry/semantic
 
 Replay the same controlled fixtures through native and Web hosts. Compare document/state semantics, geometry, supported actions, paint output, and selective GPU images under declared tolerances. Test fractional scale, resize, focus round trips, Japanese composition, semantic DOM cleanup, invalid bridge input, teardown, and device/resource failure. Record fonts, toolchain, browser/version, backend/device, and threading mode in support.
 
-Measure application workloads and edit-to-snapshot latency through [inspection tooling](inspection.md#proposed-diagnostics-and-comparisons). Large/high-frequency UI and 60/120 Hz consumers motivate budgets; visual-element counts and DOM-framework speedup ratios are not support claims or universal targets. Scheduling and parity exit criteria belong in [backlog](../roadmap/backlog.md#later--webgpu-wasm-and-world-space-ui).
+Measure application workloads and edit-to-snapshot latency through [inspection tooling](../architecture/inspection.md#proposed-diagnostics-and-comparisons). Large/high-frequency UI and 60/120 Hz consumers motivate budgets; visual-element counts and DOM-framework speedup ratios are not support claims or universal targets. Scheduling and parity exit criteria belong in [backlog](../roadmap/backlog.md#later--webgpu-wasm-and-world-space-ui).
+
+
+## Promotion criteria
+
+Promote a specific Web host or adapter only for a concrete consumer with document/text/lifecycle prerequisites and declared native/Web parity fixtures. WASM packaging, native WebGPU, browser WebGPU, semantic DOM, editing and worker execution need separate scope and evidence; do not infer support from a shader target or backend name.

@@ -1,33 +1,25 @@
 # Architecture
 
+## Core invariants
+
+- The host owns application state, devices, external execution and frame scheduling; core APIs contain no platform, browser, GPU SDK, OpenUSD or editor SDK types.
+- Layout consumes resolved values independently of rendering; backends consume resolved draw data independently of application/component state.
+- Execution, preview, replay, inspection and agent operation share ordinary runtime generations and eligibility boundaries.
+
+> [!NOTE]
+> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
+
 ## Purpose and constraints
 
-Tessera is a deterministic GPU-native UI runtime for humans and agents. It is backend-neutral, declarative, deterministic, inspectable, replayable, and operable by people and by machines, for editors, games, DCC tools, and visualization. Its value is not a fast renderer alone: one runtime contract carries UI, meaning, operation, verification, and automation, so the loop of building, inspecting, semantically operating, replaying, verifying, and optimizing UI stays inside the runtime. The combination of [semantic projection](semantics.md), the [command registry](commands.md), [inspection](inspection.md), [replay](replay.md), snapshots, and [UI invariants](inspection.md#proposed-ui-invariants) is the core of that contract. Tessera does not aim to replace Qt completely or reimplement the Web.
-
-The retained, declarative component model targets dense application UI, including inspectors, timelines, data grids, node graphs, conversational/agent workspaces, and UI alongside 3D viewports. [Graph editors](graph-editor.md) and [conversational workspaces](conversational-ui.md) are reference workloads that stress text, virtualization, input, custom paint, commands, and automation together; they remain consumers of the common runtime rather than separate frameworks. Advanced UI is composed from small runtime primitives instead of a large widget catalog. Source review, reusable composition, predictable updates, live reload, accessibility, and machine observation/operation are design requirements.
+[Product vision](../product/vision.md), [principles](../product/principles.md), [intended use cases](../product/use-cases.md) and [non-goals](../product/non-goals.md) own product intent. This page owns subsystem boundaries, dependency direction and coherent runtime updates.
 
 The core concentrates on document and component identity, reactive view updates, style, layout, semantics, input and focus, actions, paint lists, the resource contract, inspection, and replay. OpenUSD, application asset systems, browser engines, editor SDKs, game engines, AI providers, and RPC transports reach it only through adapters, hosts, or optional modules.
 
 Model updates through dependency, identity, time, and ownership: what invalidates a value, what persists across updates, when work may run, and who disposes it. The [reactive kernel](reactive-runtime.md) sits beneath components and preserves application-state ownership. Its dependency graph is distinct from its owner tree. The long-term performance goal is work proportional to affected observable UI, measured against representative workloads while preserving full-tree correctness.
 
-Use real application workflows to choose runtime extensions. A new subsystem should close an authoring, interaction, observation, or verification loop, or satisfy a concrete requirement of the [Path-finder prototype](path-finder-integration.md#proposed-mini-prototype). Prefer connecting existing boundaries before deeper abstraction or optimization. Application traces and measured authoring friction guide broader layout, incremental evaluation, rendering retention, and backend work.
+Use real application workflows to choose runtime extensions. A new subsystem should close an authoring, interaction, observation, or verification loop, or satisfy a concrete requirement of the [Path-finder prototype](../integrations/path-finder.md#proposed-mini-prototype). Prefer connecting existing boundaries before deeper abstraction or optimization. Application traces and measured authoring friction guide broader layout, incremental evaluation, rendering retention, and backend work.
 
 [Localization](localization.md) treats locale as a first-class reactive subtree context and preserves message identity until resolution before text measurement. Message formatting, Unicode/font processing, logical layout and semantic naming participate in one coherent update while keeping separate interfaces. Direction-aware layout belongs in runtime primitives; translation resources reach the runtime through host services, and no concrete localization library enters the core API.
-
-Long-term constraints:
-
-1. Declarative composition above imperative execution.
-2. Layout is independent of rendering; rendering is independent of application state.
-3. UI documents are backend-neutral, serializable, deterministic, and versioned.
-4. The core has no browser engine, JavaScript VM, platform SDK, or OpenUSD requirement.
-5. Keyboard/gamepad interaction, text, and semantic metadata are first-class subsystems.
-6. Prefer composition, explicit ownership, small interfaces, and useful diagnostics.
-7. Keep dependencies modular; validate boundaries before optimizing draw calls.
-8. Path-finder edits Tessera documents and uses the same runtime for preview.
-9. DevTools, tests, and external agents share inspection and ordinary action boundaries; no agent SDK or AI model is required by core.
-10. Native and Web hosts share the runtime model; browser services belong to optional host adapters.
-11. Applications own their state, data, and edit history. Tessera provides view bindings and [command and transaction boundaries](commands.md), not an application model or undo store.
-12. Pointer, keyboard, gamepad, accessibility, and agent input reach the application through one semantic action and command path with the same eligibility; no input source gets a private route.
 
 ## Ecosystem ownership
 
@@ -65,9 +57,9 @@ Frontends and host adapters depend on the common runtime representation. Backend
 
 C++ construction, future DSLs, and visual authoring lower to the same [UI model](ui-model.md#common-representation). [Component descriptions](ui-model.md#implemented-component-description-and-lowering) lower into ordinary documents; composition extensions must not establish a second runtime. Dependency, owner, and batching semantics are defined by the [reactive runtime](reactive-runtime.md). Fine-grained layout/text evaluation and retained GPU updates require full-tree parity; they are not prerequisites for defining the IR or the reactive kernel's semantics.
 
-[Inspection](inspection.md) joins semantic, layout, property, and source observations for DevTools, testing, and agent adapters. It observes settled generations and invokes declared operations without exposing mutable internals. Action requests from every input source resolve to application [commands](commands.md), whose metadata also drives menus, shortcuts, palettes, and agent discovery. An agent follows the same loop as other tooling: inspect a generation, resolve a semantic/source target, invoke a declared operation or edit its source, reload, capture, run invariants, compare, and accept or iterate. Application execution, editor preview, tests, and agents share the ordinary generation/publication boundary, including [reload](path-finder-integration.md#live-reload-transaction). [Web hosting](web-host.md) projects the same semantics to DOM and renders resolved draw data to a WebGPU canvas, with platform editing handled at the host boundary.
+[Inspection](inspection.md) joins semantic, layout, property, and source observations for DevTools, testing, and agent adapters. It observes settled generations and invokes declared operations without exposing mutable internals. Action requests from every input source resolve to application [commands](commands.md), whose metadata also drives menus, shortcuts, palettes, and agent discovery. An agent follows the same loop as other tooling: inspect a generation, resolve a semantic/source target, invoke a declared operation or edit its source, reload, capture, run invariants, compare, and accept or iterate. Application execution, editor preview, tests, and agents share the ordinary generation/publication boundary, including [reload](../proposals/live-reload.md#live-reload-transaction). [Web hosting](../proposals/web-host.md) projects the same semantics to DOM and renders resolved draw data to a WebGPU canvas, with platform editing handled at the host boundary.
 
-The retained model may provide `Canvas` / custom paint callbacks for graphs, profilers, and debug drawing; the [graph canvas](graph-editor.md#proposed-canvas-structure) is the main proposed consumer. These callbacks emit the same bounded paint vocabulary described in [rendering](rendering.md). They do not create a second widget framework.
+The retained model may provide `Canvas` / custom paint callbacks for graphs, profilers, and debug drawing; the [graph canvas](../integrations/graph-editor.md#proposed-canvas-structure) is the main proposed consumer. These callbacks emit the same bounded paint vocabulary described in [rendering](rendering.md). They do not create a second widget framework.
 
 ## Frame scheduling
 
@@ -96,7 +88,7 @@ The immutable tree and per-call contracts do not constitute a scheduler. [Reacti
 
 ## Determinism
 
-For identical document/state, normalized input, time, viewport/scale, styles, locale, font/asset configuration, random seed when used, and resource readiness, require reproducible style results, layout geometry, semantic output, action order, and paint commands. Use declared numeric tolerances where exact geometry is inappropriate. The [CPU reference backend](rendering.md#implemented-scalar-cpu-reference-backend) in deterministic mode is the image reference for a declared configuration; GPU images are compared with it under backend/device tolerances. [Replay](replay.md) owns recording these inputs and observing outputs; [inspection](inspection.md#proposed-runner-and-snapshot-bundle) owns coherent observation bundles.
+For identical document/state, normalized input, time, viewport/scale, styles, locale, font/asset configuration, random seed when used, and resource readiness, require reproducible style results, layout geometry, semantic output, action order, and paint commands. Use declared numeric tolerances where exact geometry is inappropriate. The [CPU reference backend](rendering.md#implemented-scalar-cpu-reference-backend) in deterministic mode is the image reference for a declared configuration; GPU images are compared with it under backend/device tolerances. [Replay](replay.md) owns recording these inputs and observing outputs; [inspection](../proposals/snapshot-bundles.md#proposed-runner-and-snapshot-bundle) owns coherent observation bundles.
 
 ## Module organization
 
