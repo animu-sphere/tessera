@@ -8,13 +8,9 @@ Inspection foundations enter early so DevTools, accessibility, testing, and agen
 
 Choose follow-up scope from the Path-finder mini prototype's measured application requirements and authoring friction. Candidate themes include richer layout, incremental stage evaluation, retained rendering, accessibility, animation, broader platform adapters, application bindings, and advanced agent authoring. Generalized virtualization, typed drag and drop, data grids, and context depend on the active application primitives; generation history, timeline/plotting, collaboration, Web/WASM, and world-space UI follow concrete consumers. Items within a candidate are listed in dependency order, without making every theme a committed next-release requirement.
 
-## v0.3.0 — Active milestone
-
-The dynamic UI/editor scope and exit criteria are owned by [current](current.md#v030--dynamic-ui-and-editor-prototype).
-
 ## Unscheduled editor extensions
 
-These broader mechanisms are inactive. The [current slice](current.md#current-slice) owns the bounded label-edit/reload/Inspector/async/capture loop; only behavior beyond that slice belongs here. Reconsider these candidates from concrete fixture friction instead of treating them as a prerequisite sequence:
+These broader mechanisms are inactive. Use the [bounded editor fixture](../integrations/path-finder.md#implemented-in-process-panel-fixture) to select a follow-up under [current work](current.md#current-slice). Reconsider these candidates from concrete fixture friction instead of treating them as a prerequisite sequence:
 
 - **Lifecycle automation and UI fallback:** generalized [declarations](../proposals/automatic-component-lifecycle.md#proposed-automatic-component-lifecycle), declaration/default origins, setup/cleanup conveniences and [contained UI fallback](../proposals/error-boundaries.md#proposed-error-boundaries) beyond the fixture's owner/state/disposal requirements.
 - **Resource observations:** [owned resource payloads](../proposals/async-resources.md#proposed-async-state), real thumbnail/image loading, provider integration and completion-safe retirement beyond a host-driven fixture observation; cancellation and logical ownership must preserve the [frame lifetime](../architecture/rendering.md#implemented-frame-contract).
@@ -35,7 +31,7 @@ Candidates:
 
 - [Generalized virtualization](../proposals/virtualization.md#proposed-virtualization-foundation) with production VirtualList and tree/hierarchy primitives, then DataGrid/TreeTable composed from primitives: resizable, sortable, pinned, and hideable columns; single and multi-selection; editable cells; keyboard navigation; row hierarchy; context menus.
 - Resizable split panels and a minimal docking subset.
-- Extend the [active string-editing slice](current.md#exit-criteria) with platform IME/clipboard hardening and richer selection/multiline behavior where consumers require it; [typed drag and drop](../architecture/input.md#proposed-typed-drag-and-drop).
+- Extend the [string-editing consumer](../integrations/path-finder.md#implemented-in-process-panel-fixture) with platform IME/clipboard hardening and richer selection/multiline behavior where consumers require it; [typed drag and drop](../architecture/input.md#proposed-typed-drag-and-drop).
 - [Context](../architecture/ui-model.md#proposed-context) for subtree services, including [theme scopes](../architecture/styling.md#proposed-theme-scopes); transaction/undo integration hardening.
 - Canvas/custom paint, [performance instrumentation](../architecture/inspection.md#proposed-performance-metrics), and a timeline/profiling primitive.
 - Broader consumer-specific UI invariants and regression budgets over the prototype's verification loop; packaged bundles and CI consumers need explicit promotion.

@@ -2,9 +2,9 @@
 
 Inactive candidates and deferred scope are owned by [backlog](backlog.md). Implementation authority and the subsystem stop rule are owned by the [agent policy](../agent-policy.md).
 
-## v0.3.0 — Dynamic UI and editor prototype
+## Follow-up selection
 
-Objective: prove one Path-finder/editor workflow through the ordinary Tessera runtime:
+Objective: select the next bounded consumer operation from the Path-finder/editor workflow through the ordinary Tessera runtime:
 
 ```text
 author -> reload -> inspect -> operate -> capture -> verify
@@ -12,7 +12,7 @@ author -> reload -> inspect -> operate -> capture -> verify
 
 ### Current slice
 
-Review authoring friction in the [editor fixture](../../examples/editor-prototype/main.cpp) and choose a bounded follow-up integration operation, using the [consumer contract](../integrations/path-finder.md#implemented-in-process-panel-fixture) and [label rejection/retry evidence](../reference/support-matrix.md#editor-label-rejection-evidence--2026-10-15) as the acceptance basis. Keep application state, selection, resource execution and edit history host-owned; use the same UI document and runtime for execution and preview.
+Review authoring friction in the [editor fixture](../../examples/editor-prototype/main.cpp) and choose a bounded follow-up integration operation, using the [consumer contract](../integrations/path-finder.md#implemented-in-process-panel-fixture) and [stale reload evidence](../reference/support-matrix.md#editor-stale-reload-evidence--2026-10-16) as the acceptance basis. Keep application state, selection, resource execution and edit history host-owned; use the same UI document and runtime for execution and preview.
 
 This review schedules no additional feature implementation. Promote a follow-up only from an observed operation, its expected result and minimum required change. The broader [integration design](../integrations/path-finder.md#proposed-mini-prototype) is context; its widget and tooling inventory is not an exit gate.
 
@@ -26,7 +26,7 @@ Do not deepen component lifecycle because adjacent Proposed sections lack implem
 
 - Identify one concrete consumer operation or validation requirement that warrants a follow-up slice, with observable acceptance and a subsystem stop condition.
 - Route its minimum scope here and broader inactive mechanisms to backlog. Do not infer native/editor, real-font/GPU, arbitrary migration or serialized workflow requirements from the scripted fixture.
-- Preserve the label-edit/gesture/eligibility and source-replacement fixtures as regression constraints when selecting subsequent work.
+- Preserve the label-edit/gesture/eligibility, source-replacement and stale-reload fixtures as regression constraints when selecting subsequent work.
 
 ### Non-goals and stop condition
 

@@ -2,7 +2,13 @@
 
 Dated delivery history and release records. Each release is a `## vX.Y.Z — YYYY-MM-DD` section matching [VERSION](VERSION); unreleased entries collect under `## Unreleased`. Live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).
 
-## Unreleased
+## v0.3.0 — 2026-10-16
+
+Dynamic UI and editor prototype milestone: a reactive component runtime and one host-owned author/reload/inspect/operate/capture/verify loop through ordinary documents, commands, full-tree presentation and deterministic CPU capture. Fresh-build acceptance and limits are in the [support matrix](docs/reference/support-matrix.md#v030-release-acceptance--2026-10-16).
+
+This source-only release carries no API/ABI compatibility guarantee. The editor is an in-process scripted fixture with placeholder text and synthetic glyphs; native editor hosting, generalized migration, platform text composition and packaged inspection tooling are separate candidates in [backlog](docs/roadmap/backlog.md#unscheduled-editor-extensions).
+
+- Fixed delayed label and structure reload requests in the [editor fixture](docs/integrations/path-finder.md#implemented-in-process-panel-fixture): stale command generations and foreign inspection identities return diagnostics before changing drafts, history or owners. Retrying with the accepted presentation closes one gesture and publishes one generation. Validation and limits are in [support](docs/reference/support-matrix.md#editor-stale-reload-evidence--2026-10-16).
 
 - Fixed compatible label reload in the [editor fixture](docs/integrations/path-finder.md#implemented-in-process-panel-fixture) to return text measurement/paint staging failures as source-located diagnostics. Rejection preserves the accepted generation and open draft/gesture; retry commits one history entry. Focused Debug/Release validation and limits are in [support](docs/reference/support-matrix.md#editor-label-rejection-evidence--2026-10-15).
 
