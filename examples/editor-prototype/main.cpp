@@ -408,7 +408,8 @@ struct Editor {
             json.substr(span.begin, span.end - span.begin));
         return changed;
     }
-    Result<Presentation> reload_label(const Presentation& current, std::string changed, std::uint64_t gesture_id) {
+    Result<Presentation> reload_label(const Presentation& current, std::string changed, std::uint64_t gesture_id,
+                                      TextShaper* candidate_shaper = nullptr) {
         auto candidate = load_document_with_sources(changed, TESSERA_EDITOR_FIXTURE);
         if (!candidate) return {std::nullopt, std::move(candidate.diagnostics)};
         // This consumer admits a compatible one-string edit only, not arbitrary
@@ -434,18 +435,26 @@ struct Editor {
         // The fixture's preview children are its authored label targets.
         for (auto& node : expected.root.children) if (node.id == host.selection) node.properties[host.field->property] = value;
         if (expected != candidate.value->document || std::get<std::string>(value) != host.editing->text) return unsupported();
-        auto staged = present({"headline", "subtitle"}, true, &*candidate.value, true, true, pointer);
-        auto selected_field = inspect_string(staged.inspection,
-            take(resolve_target(staged.inspection, AuthorIdTarget{*host.selection})));
+        std::optional<Presentation> staged;
+        try {
+            staged = present({"headline", "subtitle"}, true, &*candidate.value, true, true, pointer, candidate_shaper);
+        } catch (const FixtureRejection& failure) {
+            auto diagnostics = failure.diagnostics;
+            for (auto& diagnostic : diagnostics) if (!diagnostic.source)
+                diagnostic.source = DiagnosticSource{{TESSERA_EDITOR_FIXTURE, pointer}, DiagnosticOrigin::value};
+            return {std::nullopt, std::move(diagnostics)};
+        }
+        auto selected_field = inspect_string(staged->inspection,
+            take(resolve_target(staged->inspection, AuthorIdTarget{*host.selection})));
         check(selected_field.span == pointer, "Reload joins new source bytes");
         const auto ui = current.ui();
         check(take(gestures.complete(gesture_id, current.commands, host, &ui)).status == CommandOutcomeStatus::success,
             "Label gesture commits once");
         source = std::move(changed); preview = std::move(*candidate.value);
-        generation = staged.commands.generation(); host.field = std::move(selected_field);
-        take(focus.refresh(staged.hit())); host.accepted = staged.inspection;
+        generation = staged->commands.generation(); host.field = std::move(selected_field);
+        take(focus.refresh(staged->hit())); host.accepted = staged->inspection;
         check(runtime.publish() == 0, "Reload publication failed");
-        return {std::move(staged), {}};
+        return {std::move(*staged), {}};
     }
     // Exact fixture compatibility, with no migration or new runtime transaction.
     // Presentation is prepared using retained weak state and fresh defaults;
@@ -508,12 +517,15 @@ struct Editor {
 struct RejectingShaper final : TextShaper {
     PlaceholderTextShaper fallback;
     bool reject_measure;
-    explicit RejectingShaper(bool layout) : reject_measure(layout) {}
+    std::string target;
+    explicit RejectingShaper(bool layout, std::string value = {}) : reject_measure(layout), target(std::move(value)) {}
     Result<TextMetrics> measure(std::string_view value, const TextStyle& style, const TextConstraints& constraints) override {
-        if (reject_measure) return {std::nullopt, {{"fixture_measure", Severity::error, "/text", "Synthetic layout rejection.", {}}}};
+        if (reject_measure && (target.empty() || value == target))
+            return {std::nullopt, {{"fixture_measure", Severity::error, "/text", "Synthetic layout rejection.", {}}}};
         return fallback.measure(value, style, constraints);
     }
-    Result<GlyphRun> shape(std::string_view, const TextStyle&, const TextConstraints&) override {
+    Result<GlyphRun> shape(std::string_view value, const TextStyle& style, const TextConstraints& constraints) override {
+        if (!target.empty() && value != target) return fallback.shape(value, style, constraints);
         return {std::nullopt, {{"fixture_shape", Severity::error, "/text", "Synthetic paint rejection.", {}}}};
     }
 };
@@ -772,6 +784,41 @@ void run() {
         "Unsupported topology rejects atomically rather than retargeting the selected property");
     const auto row_lifetime = editor.rows.at("headline").instance().lifetime;
     const auto asset_observation = editor.asset->read();
+    const auto accepted_snapshot = editor.host.accepted;
+    const auto accepted_preview = editor.preview.document;
+    const auto accepted_field = editor.host.field;
+    const auto saved_edit = editor.host.saved_edit;
+    const auto draft_capture = capture(draft, editor.actions);
+    const auto label_source = editor.edited_source();
+    const auto label_candidate = take(load_document_with_sources(label_source, TESSERA_EDITOR_FIXTURE));
+    const auto label_tree = take(UiTree::create(label_candidate.document));
+    const auto label_span = label_candidate.sources.nodes[label_tree->find("headline")->index].properties.at("text");
+    const auto rejected_presentation = [&](TextShaper& failing, std::string_view code) {
+        const auto result = editor.reload_label(draft, label_source, 1, &failing);
+        check(!result && !result.diagnostics.empty(), "Label presentation rejection returns through the result boundary");
+        bool found_cause = false;
+        for (const auto& diagnostic : result.diagnostics) {
+            found_cause = found_cause || diagnostic.code == code;
+            check(diagnostic.source && diagnostic.source->location.file == TESSERA_EDITOR_FIXTURE &&
+                diagnostic.source->location.span == label_span && diagnostic.source->origin == DiagnosticOrigin::value,
+                "Label presentation failure locates the candidate property value");
+        }
+        check(found_cause, "Label staging retains the measurement/paint failure cause");
+        check(editor.source == accepted_source && editor.preview.document == accepted_preview &&
+            editor.host.accepted == accepted_snapshot && editor.generation == command_generation_before_rejection &&
+            editor.host.selection == "headline" && editor.host.field == accepted_field && editor.host.editing == draft_state &&
+            editor.host.saved_edit == saved_edit && editor.gestures.active() == 1 && editor.host.history.empty() &&
+            editor.rows.at("headline").instance().lifetime == row_lifetime && pinned.read() &&
+            editor.asset->read() == asset_observation && editor.detached.empty() &&
+            take(editor.focus.refresh(draft.hit())).focused == draft.tree->find("inspector-value"),
+            "Label rejection preserves accepted source/generation, open draft/gesture, focus, keyed state and async owner");
+        check(editor.runtime.deliver_cleanups().empty() && editor.detached.empty() &&
+            capture(draft, editor.actions) == draft_capture,
+            "Label rejection queues no cleanup and preserves deterministic observations/pixels");
+    };
+    RejectingShaper layout_failure(true, final_value), paint_failure(false, final_value);
+    rejected_presentation(layout_failure, "fixture_measure");
+    rejected_presentation(paint_failure, "fixture_shape");
     auto edited = take(editor.reload_label(draft, editor.edited_source(), 1));
     check(editor.host.history == std::vector<std::pair<std::string, std::string>>{{"Hello Tessera", final_value}} &&
         editor.host.field->value == final_value && editor.host.selection == "headline" &&
