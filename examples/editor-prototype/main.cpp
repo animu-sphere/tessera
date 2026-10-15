@@ -408,8 +408,15 @@ struct Editor {
             json.substr(span.begin, span.end - span.begin));
         return changed;
     }
+    std::vector<Diagnostic> reload_identity(const Presentation& current) const {
+        if (current.commands.generation() != generation || current.inspection.generation != host.accepted.generation)
+            return {{"stale_generation", Severity::error, "/generation",
+                "Retry source reload using the accepted command and inspection presentation.", {}}};
+        return {};
+    }
     Result<Presentation> reload_label(const Presentation& current, std::string changed, std::uint64_t gesture_id,
                                       TextShaper* candidate_shaper = nullptr) {
+        if (auto diagnostics = reload_identity(current); !diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
         auto candidate = load_document_with_sources(changed, TESSERA_EDITOR_FIXTURE);
         if (!candidate) return {std::nullopt, std::move(candidate.diagnostics)};
         // This consumer admits a compatible one-string edit only, not arbitrary
@@ -461,6 +468,7 @@ struct Editor {
     // only acceptance enters ordinary owner reconciliation.
     Result<Presentation> reload_structure(const Presentation& current, std::string changed,
                                          TextShaper* candidate_shaper = nullptr) {
+        if (auto diagnostics = reload_identity(current); !diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
         auto candidate = load_document_with_sources(changed, TESSERA_EDITOR_FIXTURE);
         if (!candidate) return {std::nullopt, std::move(candidate.diagnostics)};
         auto expected = preview.document;
@@ -672,7 +680,74 @@ void run_source_replacement(bool type_change) {
         "Terminal restoration shutdown adds no detachment and closes retained owner once");
 }
 
+void run_stale_reload(bool structure) {
+    Editor editor;
+    auto initial = editor.present();
+    editor.operate(initial, take(request_semantic_action(initial.ui(), *initial.tree->find("row-headline"), "activate")), CommandSource::agent);
+    auto stale = editor.present();
+    const auto row = editor.rows.at("headline");
+    auto pinned = take(row.state<bool>("pinned")); pinned.write(true);
+    const auto pending = take(editor.asset->begin("delayed-reload"));
+    auto current = editor.present();
+    take(editor.focus.focus(current.hit(), *current.tree->find("inspector-value")));
+    const auto saved_edit = *editor.host.editing;
+    take(editor.edit(current, {saved_edit.owner, saved_edit.revision, TextEditInsert{" delayed"}}, 200));
+    current = editor.present();
+    auto replacement = editor.preview.document;
+    replacement.root.children.erase(replacement.root.children.begin());
+    const auto changed = structure ? take(save_document(replacement)) : editor.edited_source();
+    const auto source = editor.source;
+    const auto preview = editor.preview.document;
+    const auto snapshot = editor.host.accepted;
+    const auto field = editor.host.field;
+    const auto draft = editor.host.editing;
+    const auto observation = editor.asset->read();
+    const auto generation = editor.generation;
+    const auto image = capture(current, editor.actions);
+    auto reload = [&](const Presentation& observed, const std::string& bytes) {
+        return structure ? editor.reload_structure(observed, bytes) : editor.reload_label(observed, bytes, 200);
+    };
+    auto rejected = [&](const Presentation& observed, const std::string& bytes) {
+        const auto result = reload(observed, bytes);
+        check(!result && result.diagnostics.size() == 1 && result.diagnostics[0].code == "stale_generation" &&
+            result.diagnostics[0].path == "/generation", "Delayed source reload must return a stale-generation diagnostic");
+        check(editor.source == source && editor.preview.document == preview && editor.host.accepted == snapshot &&
+            editor.generation == generation && editor.host.selection == "headline" && editor.host.field == field &&
+            editor.host.editing == draft && editor.host.saved_edit == saved_edit && editor.gestures.active() == 200 &&
+            editor.host.history.empty() && editor.rows.at("headline").instance().lifetime == row.instance().lifetime &&
+            pinned.read() && editor.asset->read() == observation && editor.detached.empty() &&
+            take(editor.focus.refresh(current.hit())).focused == current.tree->find("inspector-value"),
+            "Stale reload preserves accepted state and the open draft without closing or mounting owners");
+        check(editor.runtime.deliver_cleanups().empty() && editor.detached.empty(), "Stale reload queues no cleanup");
+    };
+    rejected(stale, changed);
+    rejected(stale, "{"); // Request identity rejects before candidate parsing.
+    const auto current_commands = current.commands;
+    current.commands = stale.commands; // Isolate a stale command observation with current inspection.
+    rejected(current, changed);
+    current.commands = current_commands;
+    // Equal command counters do not identify a presentation from another host.
+    Editor foreign;
+    auto foreign_current = foreign.present();
+    while (foreign.generation < generation) foreign_current = foreign.present();
+    rejected(foreign_current, changed);
+    check(capture(current, editor.actions) == image, "Stale reload preserves deterministic observations and CPU bytes");
+    auto accepted = take(reload(current, changed));
+    check(editor.generation == generation + 1 && editor.host.accepted == accepted.inspection && editor.source == changed &&
+        !editor.gestures.active() && !editor.host.saved_edit, "Current-presentation retry accepts one generation and closes once");
+    check(structure ? (!editor.host.selection && !editor.host.editing && editor.host.history.empty() && editor.detached.size() == 1)
+        : (editor.host.editing == draft && editor.host.history == std::vector<std::pair<std::string, std::string>>{{saved_edit.text, draft->text}} &&
+            editor.rows.at("headline").instance().lifetime == row.instance().lifetime && pinned.read() && editor.asset->read() == observation),
+        "Retry follows ordinary removal cancellation or compatible label commit semantics");
+    check(structure ? !editor.asset->complete(pending.attempt, std::string("Late"))
+        : static_cast<bool>(editor.asset->complete(pending.attempt, std::string("Ready"))), "Retry preserves async lifetime rules");
+    editor.scope.dispose(); editor.runtime.flush();
+    check(editor.runtime.deliver_cleanups().empty(), "Delayed reload fixture shutdown succeeds");
+}
+
 void run() {
+    run_stale_reload(false);
+    run_stale_reload(true);
     Editor editor;
     auto first = editor.present();
     check(!editor.host.selection && !editor.host.field, "Selection is host-owned and initially empty");
