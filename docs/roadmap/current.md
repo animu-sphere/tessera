@@ -12,7 +12,7 @@ author -> reload -> inspect -> operate -> capture -> verify
 
 ### Current slice
 
-Review authoring friction in the [editor fixture](../../examples/editor-prototype/main.cpp) and choose a bounded follow-up integration operation, using the [consumer contract](../integrations/path-finder.md#implemented-in-process-panel-fixture) and [support evidence](../reference/support-matrix.md#editor-source-replacement-evidence--2026-10-15) as the acceptance basis. Keep application state, selection, resource execution and edit history host-owned; use the same UI document and runtime for execution and preview.
+Review authoring friction in the [editor fixture](../../examples/editor-prototype/main.cpp) and choose a bounded follow-up integration operation, using the [consumer contract](../integrations/path-finder.md#implemented-in-process-panel-fixture) and [label rejection/retry evidence](../reference/support-matrix.md#editor-label-rejection-evidence--2026-10-15) as the acceptance basis. Keep application state, selection, resource execution and edit history host-owned; use the same UI document and runtime for execution and preview.
 
 This review schedules no additional feature implementation. Promote a follow-up only from an observed operation, its expected result and minimum required change. The broader [integration design](../integrations/path-finder.md#proposed-mini-prototype) is context; its widget and tooling inventory is not an exit gate.
 
