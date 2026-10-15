@@ -12,9 +12,9 @@ author -> reload -> inspect -> operate -> capture -> verify
 
 ### Current slice
 
-Carry the [editor fixture](../../examples/editor-prototype/main.cpp) through source-authored node removal and type replacement at its staged reload boundary. Keep application state, selection, resource execution and edit history host-owned; use the same UI document and runtime for execution and preview.
+Review authoring friction in the [editor fixture](../../examples/editor-prototype/main.cpp) and choose a bounded follow-up integration operation, using the [consumer contract](../integrations/path-finder.md#implemented-in-process-panel-fixture) and [support evidence](../reference/support-matrix.md#editor-source-replacement-evidence--2026-10-15) as the acceptance basis. Keep application state, selection, resource execution and edit history host-owned; use the same UI document and runtime for execution and preview.
 
-Extend only the compatibility exercised by one label removal/type-change fixture. Reconcile affected owners after successful staging, recover focus and clear or re-resolve Inspector selection/editor lifetime, and reject old targets/completions. Keep rejected candidates on the exact accepted source/generation and compare deterministic observations through the same in-process capture path. The broader [integration design](../integrations/path-finder.md#proposed-mini-prototype) is context; its entire widget and tooling inventory is not an exit gate.
+This review schedules no additional feature implementation. Promote a follow-up only from an observed operation, its expected result and minimum required change. The broader [integration design](../integrations/path-finder.md#proposed-mini-prototype) is context; its widget and tooling inventory is not an exit gate.
 
 ### Implementation rule
 
@@ -22,20 +22,11 @@ Add runtime functionality only when this fixture cannot proceed without it, or a
 
 Do not deepen component lifecycle because adjacent Proposed sections lack implementations. Use the lifecycle foundation until the active fixture or an existing test demonstrates a concrete missing behavior. Stop subsystem work once the fixture can proceed and its required invariants pass. Preserve full-tree evaluation as the correctness reference.
 
-### Integration blockers and minimum fixes
-
-These are conditional work boundaries, not a subsystem priority queue. Establish each blocker in the fixture before selecting its supporting work.
-
-| If the fixture demonstrates this blocker | Minimum supporting work | Owning constraint |
-| --- | --- | --- |
-| A source node removal/type replacement cannot stage and commit without prematurely disposing retained owners | Stage the exact fixture candidate through ordinary lowering/presentation, commit its affected owner replacement, and preserve unaffected keyed state | [Reload transaction](../proposals/live-reload.md#live-reload-transaction), [invocation mounting](../architecture/ui-model.md#implemented-component-invocation-mounting) |
-| A removed/replaced source target retains Inspector editing state or redirects old work to its successor | Recover focus and host selection/editor lifetime at acceptance; exercise ordinary stale handle, edit-owner and async-attempt rejection with once-only cleanup | [Logical string editing](../architecture/input.md#implemented-logical-string-editing), [owner-bound detachment](../architecture/ui-model.md#implemented-owner-bound-async-detachment) |
-
 ### Exit criteria
 
-- **Source replacement:** one source-authored label removal and type change each publish one accepted generation through ordinary runtime loading/lowering. Dispose/recreate only affected owners, preserve unaffected keyed state, recover focus/Inspector selection and reject stale targets and editing requests.
-- **Rejected staging:** parse, validation or presentation failure preserves the exact accepted source/generation and owner lifetimes, with source-located diagnostics and no candidate cleanup/effect delivery to retained owners.
-- **Verification:** fixed document/state, logical input/readiness, time, viewport/scale and declared synthetic text inputs reproduce semantic/layout/invariant observations and CPU bytes for these accepted replacements. Removing/recreating the affected async owner rejects old completion and delivers required cleanup once. Preserve the label-edit/gesture/eligibility fixture as regression coverage; add no generalized migration or serialized editor protocol.
+- Identify one concrete consumer operation or validation requirement that warrants a follow-up slice, with observable acceptance and a subsystem stop condition.
+- Route its minimum scope here and broader inactive mechanisms to backlog. Do not infer native/editor, real-font/GPU, arbitrary migration or serialized workflow requirements from the scripted fixture.
+- Preserve the label-edit/gesture/eligibility and source-replacement fixtures as regression constraints when selecting subsequent work.
 
 ### Non-goals and stop condition
 
