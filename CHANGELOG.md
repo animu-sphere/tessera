@@ -2,6 +2,10 @@
 
 Dated delivery history and release records. Each release is a `## vX.Y.Z — YYYY-MM-DD` section matching [VERSION](VERSION); unreleased entries collect under `## Unreleased`. Live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).
 
+## Unreleased
+
+- Added host-owned label Undo/Redo to the [editor fixture](docs/integrations/path-finder.md#implemented-in-process-panel-fixture): ordinary toolbar commands restore exact source bytes through staged full-tree presentation, retain compatible selection/state/focus/async owners, reject stale requests and open drafts, and discard redo only after a new accepted edit. Multi-entry traversal, selection independence, staging rejection/retry and deterministic CPU/replay checks are recorded in [support](docs/reference/support-matrix.md#editor-label-history-evidence--2026-10-16). Core APIs and serialized formats are unchanged.
+
 ## v0.3.0 — 2026-10-16
 
 Dynamic UI and editor prototype milestone: a reactive component runtime and one host-owned author/reload/inspect/operate/capture/verify loop through ordinary documents, commands, full-tree presentation and deterministic CPU capture. Fresh-build acceptance and limits are in the [support matrix](docs/reference/support-matrix.md#v030-release-acceptance--2026-10-16).
