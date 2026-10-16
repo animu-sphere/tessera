@@ -10,24 +10,24 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Review the [Settings form](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring), then define the next bounded operation: edit a username through a composed single-line `TextInput` and observe the same host-owned value and derived summary.
+Review the [Settings form](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring), then define the next bounded operation: apply the edited username and feature setting through one host-owned command and observe its saved result.
 
 ```text
-compose TextInput in the Settings row -> focus / edit through normalized input
--> execute the host edit -> observe value / caret / selection / summary
+compose the editable form and Apply button -> edit username / toggle feature
+-> invoke Apply -> observe owned settings / save result
 -> inspect -> capture -> replay / verify
 ```
 
 Minimum scope:
 
-- Review composition and host scaffolding separately; preserve typed props/defaults, ordered children, explicit identity, state/computed and source diagnostics. Promote only conveniences needed to author this field.
-- Define the field's value, caret/selection observations, label, focus and disabled behavior before implementation. Start with ordinary Box/Text composition and the [logical string editing contract](../architecture/input.md#implemented-logical-string-editing); record a demonstrated consumer gap, minimum fix and focused regression here before adding a semantic/runtime field.
-- Declare the exact normalized insertion, caret movement, selection extension/replacement and deletion sequence with expected host value/summary observations. Retain the Checkbox's shared eligibility and command path; define disabled, stale owner and stale edit-revision rejection for the field. Keep keyboard/gamepad focus navigation on the common input boundary.
-- Preserve host-controlled full-tree preparation/publication, source-aware invalid-candidate rejection and accepted-snapshot ownership. Do not introduce dynamic mounting or lifecycle mechanisms for this single form operation.
+- Review composition and host scaffolding separately; preserve typed props/defaults, ordered children, explicit identity, state/computed, source diagnostics and the bounded field editing contract. Use the ordinary Button and command interfaces before promoting conveniences.
+- Compose username, Checkbox, derived summary and Apply in one host-owned settings workflow. Define the exact normalized editing/toggle/focus/activation sequence, the copied settings payload, save counter and visible result before implementation. An injected synchronous host save observation suffices; filesystem persistence is outside this slice.
+- Route keyboard/gamepad logical activation, pointer release and semantic Apply requests through one command descriptor/executor. Disabled or stale owners/invocations must change neither settings nor save observations; one accepted activation must call the host operation once.
+- Preserve host-controlled full-tree preparation/publication, source-aware invalid-candidate rejection and accepted-snapshot ownership. Record a demonstrated blocker and bounded regression before extending a subsystem; do not introduce dynamic mounting or lifecycle mechanisms for Apply.
 
-Slice acceptance: the field is authored through the form surface; bounded single-line scalar editing updates host value and derived summary coherently and exposes declared caret/selection observations. Inspection plus repeated CPU capture/replay agree under fixed inputs. Invalid candidates preserve the accepted presentation with located diagnostics; stale or disabled requests change no host state. Verify affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
+Slice acceptance: author the editable form and Apply through the form surface, edit/toggle through declared normalized input, and invoke one host save operation with an owned copy of the same accepted settings. Inspection, visible result and repeated CPU capture/replay must agree under fixed inputs; stale/disabled requests preserve host state and invalid candidates preserve the accepted presentation with located diagnostics. Verify affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
 
-Stop this slice when the field operation and its lifetime/identity invariants pass. Return to the application before selecting clipboard, undo/redo, multiline, IME or platform hardening; do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
+Stop this slice when editing, toggle, Apply and its shared eligibility/owned-result invariants pass. Return to the application before selecting conditional/repeated sections or scrolling; clipboard, undo/redo, multiline, IME and platform hardening need separate consumer scope. Do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
 
 ### Remaining milestone scope
 

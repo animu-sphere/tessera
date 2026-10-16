@@ -27,6 +27,10 @@ int main() {
         tessera::Property{std::string("[x]")}) return 43;
     const auto editing = tessera::make_text_edit_state(1, "日本😀");
     if (!editing) return 40;
+    const auto input = form.lower(tessera::authoring::TextInput("Username", *editing.value, "edit"), {{"edit"}});
+    if (!input || input.value->document.root.children[1].properties.at("text") !=
+        tessera::Property{editing.value->text} || input.value->document.root.children[2].properties.at("text") !=
+        tessera::Property{std::string("Selection 10:10")}) return 44;
     const auto erased = tessera::edit_text(*editing.value,
         {1, editing.value->revision, tessera::TextEditErase{}});
     if (!erased || erased.value->text != "日本" ||
