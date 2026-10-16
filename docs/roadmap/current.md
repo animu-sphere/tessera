@@ -10,34 +10,33 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Review the [section Settings workflow](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring) and [section consumer boundary](../integrations/settings-app.md#implemented-section-selection-boundary), then define the next bounded operation: reach the selected section's lower form controls and Apply in a constrained scrolling viewport while retaining selection, editable draft and saved result.
+Review the [scrolling Settings workflow](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring) and [consumer boundary](../integrations/settings-app.md#implemented-constrained-scrolling-boundary), then define a bounded reusable-style operation for the same application. Identify concrete repetition or friction in control/text/section styling before selecting an authoring convenience.
 
 ```text
-compose constrained Settings content -> scroll / navigate to a lower control
--> edit / Apply -> retain selection / draft / saved result
--> inspect visible bounds -> capture -> replay / verify
+identify repeated Settings styling -> compose reusable control/text styles
+-> change a declared style/theme input -> retain scrolling / focus / draft / saves
+-> inspect resolved values / bounds -> capture -> replay / verify
 ```
 
 Minimum scope:
 
-- Review application composition separately from host scrolling/offset scaffolding. Try the existing layout overflow, scroll routing, scroll-into-view and full-tree APIs before promoting an authoring convenience or runtime mechanism.
-- Define the viewport/content geometry, initial offsets, scroll owner, exact normalized scroll/navigation sequence and focus-reveal policy before implementation. Identify which lower control cannot be reached without scrolling; keep section identity distinct from offsets and handles.
-- Preserve username edit owner/revision/selection, feature draft, section selection and saved copies/result across scrolling and section replacement. Define offset retention or clamping when content changes and verify the affected bounds, hit testing, semantics and paint clips.
-- Route activation through the ordinary command host. Disabled/stale requests and rejected scroll/presentation candidates must preserve accepted observations with actionable diagnostics.
-- Record a demonstrated fixture blocker and bounded regression before extending a subsystem. Preserve full-tree publication and repeated CPU/replay parity; new editing behavior, style conveniences and generalized lifecycle mechanisms need their own operation.
+- Review ordinary application composition separately from command/capture/scroll host scaffolding. Try existing `Props::style`, classes, style sheets and theme variables before promoting public API additions from the [authoring proposal](../proposals/cpp-authoring.md).
+- Select the smallest application operation requiring reusable styling and specify exact control roles, resolved values, precedence and host style/theme input. Keep the [shared cascade/theme contract](../architecture/styling.md) authoritative; do not add a second style system.
+- Preserve username edit owner/revision/selection, feature draft, section selection, saved copies/result and focus. Define offset retention/clamping and focus reveal if typography or spacing changes content geometry; verify clips, hit testing and semantic observations.
+- Route activation through the ordinary command host. Invalid style/theme or rejected presentation candidates must preserve accepted values and observations with actionable diagnostics; disabled/stale guards must continue to agree with visible controls.
+- Record demonstrated authoring friction and a bounded acceptance condition before extending the public surface. Preserve full-tree publication and repeated CPU/replay parity; implement only the convenience required by the selected operation.
 
-Slice acceptance: first specify a bounded scrolling fixture and observable geometry/retention/rejection criteria. Then make its lower controls reachable through normalized scrolling and logical navigation, retaining the application workflow and coherent inspection/capture/replay. Verify affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
+Slice acceptance: first specify a bounded style fixture and observable resolved-value, geometry, retention and rejection criteria. Then express its repeated styles through the smallest ordinary authoring surface required by that operation. Verify affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
 
-Stop this slice when its declared scrolling, reachability and retention invariants pass. Return to the application before selecting style conveniences; clipboard, undo/redo, multiline, IME and platform hardening need separate consumer scope. Do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
+Stop this slice when its declared authoring, style and retention invariants pass. Return to the application before selecting more widgets or styling mechanisms; clipboard, undo/redo, multiline, IME and platform hardening need separate consumer scope. Do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
 
 ### Remaining milestone scope
 
 Extend that same application in consumer order, with a bounded acceptance condition before each implementation slice:
 
-1. Extend the [Settings workflow](../integrations/settings-app.md) with constrained scrolling, retaining section identity/selection, conditional content, editing and host-owned Apply. Define the exact normalized input and retained save observations before each operation. Extend field editing only as those operations demand; full native text integration is not a release gate.
-2. Add style conveniences needed by that application: reusable classes/objects, theme variables, hover/focus/pressed/disabled states, typography, spacing, border, background, sizing and alignment, all through the [ordinary style resolver](../architecture/styling.md). Strengthen Row/Column, min/max or intrinsic sizing, overflow, scrolling and text-driven sizing only for demonstrated form requirements.
-3. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.
-4. Review authoring friction and grow widgets only from the application's needs. Async observation, named slots, SplitPane, Stack/Overlay or bounded absolute positioning require their own consumer operation before becoming active work.
+1. Add style conveniences needed by the [Settings workflow](../integrations/settings-app.md): reusable classes/objects, theme variables, hover/focus/pressed/disabled states, typography, spacing, border, background, sizing and alignment, all through the [ordinary style resolver](../architecture/styling.md). Strengthen Row/Column, min/max or intrinsic sizing, overflow, scrolling and text-driven sizing only for demonstrated form requirements. Extend field editing only as application operations demand; full native text integration is not a release gate.
+2. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.
+3. Review authoring friction and grow widgets only from the application's needs. Async observation, named slots, SplitPane, Stack/Overlay or bounded absolute positioning require their own consumer operation before becoming active work.
 
 ### Release exit criteria
 
