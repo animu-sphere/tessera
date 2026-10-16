@@ -178,6 +178,52 @@ void lifetimes_and_recovery() {
     other.publish();
 }
 
+void controlled_text_input() {
+    Session ui;
+    const auto initial = take(make_text_edit_state(1, "日😀"));
+    const auto state = ui.state("editing", initial);
+    const auto disabled = ui.state("disabled", false);
+    const auto field = tessera::authoring::TextInput("Username", state, "toggle",
+        {.node = {.id = "username", .source = origin}, .disabled = disabled});
+    const auto first = take(ui.lower(field, actions));
+    check(first.document.root.children.size() == 3 && first.styles[0].direction == FlexDirection::column &&
+        first.document.root.children[1].properties.at("text") == Property{std::string("日😀")} &&
+        first.document.root.children[2].properties.at("text") == Property{std::string("Selection 7:7")},
+        "Field must compose label, value and byte selection through ordinary Text");
+    auto next = take(edit_text(initial, {1, 1, TextEditMove{TextMove::left, true}}));
+    ui.update([&] { state.write(next); disabled.write(true); });
+    const auto second = take(ui.lower(field, actions));
+    check(second.document.root.properties.at("disabled") == Property{true} &&
+        second.document.root.children[2].properties.at("text") == Property{std::string("Selection 7:3")} &&
+        first.document.root.children[2].properties.at("text") == Property{std::string("Selection 7:7")},
+        "Selection/disabled must settle coherently without mutating owned candidates");
+    check(second.sources.nodes[2].property_arguments.at("text") == origin &&
+        second.sources.nodes[3].property_arguments.at("text") == origin, "Field projections lost origins");
+    next.caret = 4;
+    ui.update([&] { state.write(next); });
+    const auto invalid = ui.lower(field, actions);
+    check(!invalid && has(invalid.diagnostics, "invalid_selection", "/root/children/1/properties/text") &&
+        invalid.diagnostics[0].source && invalid.diagnostics[0].source->location == origin,
+        "Malformed edit state needs a located field diagnostic");
+    Session foreign;
+    const auto wrong = foreign.state("editing", initial);
+    const auto rejected = ui.lower(tessera::authoring::TextInput("Foreign", wrong, "toggle",
+        {.node = {.source = origin}}), actions);
+    check(!rejected && rejected.diagnostics[0].path == "/root/children/1/properties/text" &&
+        rejected.diagnostics[0].source, "Foreign editing state accepted or unlocated");
+    int reads = 0;
+    const auto label = ui.computed("pending", [&] { ++reads; return std::string("Username"); });
+    auto bad = initial; bad.text = "multiline\n";
+    check(!ui.lower(tessera::authoring::TextInput(label, bad, "toggle"), actions) && reads == 0,
+        "Invalid literal edit state must fail before graph evaluation");
+    check(!ui.lower(tessera::authoring::TextInput("Username", initial, "unknown"), actions),
+        "Unknown TextInput action accepted");
+    auto deepest = tessera::authoring::TextInput("Username", initial, "toggle");
+    for (std::size_t i = 2; i < max_document_depth; ++i) deepest = Column({deepest});
+    check(bool(ui.lower(deepest, actions)) && !ui.lower(Column({deepest}), actions),
+        "TextInput generated children bypassed expanded bounds");
+}
+
 void bounded_descriptions() {
     Session ui;
     Element nested = Text("deep");
@@ -197,7 +243,8 @@ void bounded_descriptions() {
 
 int main() {
     try {
-        composition_and_updates(); rejection_and_preflight(); controlled_checkbox(); lifetimes_and_recovery(); bounded_descriptions();
+        composition_and_updates(); rejection_and_preflight(); controlled_checkbox(); controlled_text_input();
+        lifetimes_and_recovery(); bounded_descriptions();
         std::cout << "Authoring composition, state, diagnostics and lifetime checks passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <tessera/reactive/runtime.hpp>
+#include <tessera/input/text_edit.hpp>
 #include <tessera/style/style_sheet.hpp>
 #include <tessera/ui/serialization.hpp>
 
@@ -41,6 +42,10 @@ struct CheckboxProps {
     Props node;
     Value<bool> disabled = false;
 };
+struct TextInputProps {
+    Props node;
+    Value<bool> disabled = false;
+};
 
 // Immutable composition values. Copying shares descriptions, never state/owners.
 class Element final {
@@ -56,6 +61,7 @@ private:
     friend Element Text(Value<std::string>, Props);
     friend Element Button(Value<std::string>, std::string, ButtonProps);
     friend Element Checkbox(Value<std::string>, Value<bool>, std::string, CheckboxProps);
+    friend Element TextInput(Value<std::string>, Value<TextEditState>, std::string, TextInputProps);
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
 };
@@ -66,6 +72,9 @@ Element Button(Value<std::string> label, std::string action, ButtonProps = {});
 // Controlled value: activation only requests a host command. The Box/Text
 // composition exposes "[x]" / "[ ]" in its ordinary button semantic name.
 Element Checkbox(Value<std::string> label, Value<bool> checked, std::string action, CheckboxProps = {});
+// Controlled single-line observation: label, committed text, then byte selection
+// as ordinary Text children. The host routes edits through this activate owner.
+Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps = {});
 Element Row(std::vector<Element> children, Props = {});
 Element Column(std::vector<Element> children, Props = {});
 

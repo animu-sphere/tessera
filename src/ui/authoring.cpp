@@ -8,6 +8,8 @@ struct ElementData {
     std::optional<Value<std::string>> text;
     std::optional<Value<bool>> checked_marker;
     std::optional<Value<bool>> disabled;
+    std::optional<Value<TextEditState>> editing;
+    bool selection = false;
     std::optional<std::string> action;
     std::vector<Element> children;
 };
@@ -16,6 +18,22 @@ struct Lowerer {
     Presentation result;
     std::vector<const ElementData*> elements;
     std::vector<Diagnostic> errors;
+
+    bool editing_value(const ElementData& data, const TextEditState& state, UiNode& node, const std::string& path) {
+        // Reuse the logical editor's complete state validation without accepting
+        // its returned next revision. Lowering never mutates editing state.
+        auto checked = edit_text(state, {state.owner, state.revision, TextEditSelection{state.anchor, state.caret}});
+        if (!checked) {
+            for (auto& error : checked.diagnostics) {
+                error.path = path + "/properties/text";
+                errors.push_back(std::move(error));
+            }
+            return false;
+        }
+        node.properties["text"] = data.selection ? "Selection " + std::to_string(state.anchor) + ":" +
+            std::to_string(state.caret) : state.text;
+        return true;
+    }
 
     bool describe(const Element& element, UiNode& node, const std::string& path, std::size_t depth) {
         if (!element.data_) {
@@ -40,6 +58,11 @@ struct Lowerer {
         if (data.checked_marker) {
             const auto* literal = std::get_if<bool>(&data.checked_marker->value_);
             node.properties["text"] = std::string(literal && *literal ? "[x]" : "[ ]");
+        }
+        if (data.editing) {
+            node.properties["text"] = std::string{};
+            if (const auto* literal = std::get_if<TextEditState>(&data.editing->value_))
+                (void)editing_value(data, *literal, node, path);
         }
         if (data.action) {
             node.events["activate"] = *data.action;
@@ -90,6 +113,11 @@ struct Lowerer {
                 property = "disabled";
                 node.properties["disabled"] = data.disabled->snapshot(runtime);
             }
+            if (data.editing) {
+                property = "text";
+                if (!editing_value(data, data.editing->snapshot(runtime), node,
+                    result.sources.nodes[current].pointer)) return false;
+            }
         } catch (const ReactiveError& failure) {
             auto error = failure.diagnostic();
             error.message += " Binding graph location: " + error.path;
@@ -131,6 +159,23 @@ Element Checkbox(Value<std::string> label, Value<bool> checked, std::string acti
     data->action = std::move(action);
     data->children.push_back(Element(std::move(marker)));
     data->children.push_back(Text(std::move(label), {.source = data->props.source}));
+    return Element(std::move(data));
+}
+Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    data->props = std::move(props.node);
+    data->props.style.direction = FlexDirection::column;
+    data->disabled = std::move(props.disabled);
+    data->action = std::move(action);
+    data->children.push_back(Text(std::move(label), {.source = data->props.source}));
+    for (bool selection : {false, true}) {
+        auto child = std::make_shared<detail::ElementData>();
+        child->kind = NodeKind::text;
+        child->props.source = data->props.source;
+        child->editing = value;
+        child->selection = selection;
+        data->children.push_back(Element(std::move(child)));
+    }
     return Element(std::move(data));
 }
 Element Row(std::vector<Element> children, Props props) {
