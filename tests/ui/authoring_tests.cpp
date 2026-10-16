@@ -101,6 +101,46 @@ void rejection_and_preflight() {
     check(reads == 1, "Preflight rejection must permit repair");
 }
 
+void controlled_checkbox() {
+    Session ui;
+    const auto checked = ui.state("checked", false);
+    const auto disabled = ui.state("disabled", false);
+    const auto label = ui.state("checkbox-label", std::string("Enable feature"));
+    const auto form = Checkbox(label, checked, "toggle", {.node = {.id = "feature", .source = origin},
+        .disabled = disabled});
+    const auto first = take(ui.lower(form, actions));
+    check(first.document.root.children[0].properties.at("text") == Property{std::string("[ ]")},
+        "Unchecked control must expose its value through ordinary Text");
+    ui.update([&] { checked.write(true); disabled.write(true); label.write("Feature"); });
+    const auto second = take(ui.lower(form, actions));
+    check(second.document.root.children[0].properties.at("text") == Property{std::string("[x]")} &&
+        second.document.root.children[1].properties.at("text") == Property{std::string("Feature")} &&
+        second.document.root.properties.at("disabled") == Property{true},
+        "Checked, label and disabled bindings must settle in one candidate");
+    check(first.document.root.children[0].properties.at("text") == Property{std::string("[ ]")},
+        "Controlled value update mutated the accepted snapshot");
+    check(validate_sources(second.document, second.sources).empty() &&
+        second.sources.nodes[1].property_arguments.at("text") == origin,
+        "Generated checked marker needs its caller's source origin");
+    Session foreign;
+    const auto wrong = foreign.state("checked", true);
+    auto rejected = ui.lower(Checkbox("Foreign", wrong, "toggle", {.node = {.source = origin}}), actions);
+    check(!rejected && rejected.diagnostics[0].source &&
+        rejected.diagnostics[0].path == "/root/children/0/properties/text" &&
+        rejected.diagnostics[0].source->location == origin,
+        "Foreign checked observation needs a located rejection");
+    int reads = 0;
+    const auto pending = ui.computed("pending-check", [&] { ++reads; return true; });
+    check(!ui.lower(Checkbox(std::string("\xff"), pending, "toggle"), actions) && reads == 0,
+        "Invalid Checkbox label must reject before checked evaluation");
+    check(!ui.lower(Checkbox("Unknown", true, "unknown", {.node = {.source = origin}}), actions),
+        "Unregistered Checkbox command accepted");
+    auto deepest = Checkbox("Bounded", true, "toggle");
+    for (std::size_t i = 2; i < max_document_depth; ++i) deepest = Column({deepest});
+    check(bool(ui.lower(deepest, actions)) && !ui.lower(Column({deepest}), actions),
+        "Generated Checkbox children must count against depth bounds");
+}
+
 void lifetimes_and_recovery() {
     Signal<std::string> expired;
     std::optional<Element> description;
@@ -157,7 +197,7 @@ void bounded_descriptions() {
 
 int main() {
     try {
-        composition_and_updates(); rejection_and_preflight(); lifetimes_and_recovery(); bounded_descriptions();
+        composition_and_updates(); rejection_and_preflight(); controlled_checkbox(); lifetimes_and_recovery(); bounded_descriptions();
         std::cout << "Authoring composition, state, diagnostics and lifetime checks passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

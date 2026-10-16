@@ -21,6 +21,10 @@ int main() {
     const auto authored = form.lower(tessera::authoring::Column({tessera::authoring::Text(label)}));
     if (!authored || authored.value->document.root.children[0].properties.at("text") !=
         tessera::Property{std::string("Ready!")}) return 42;
+    const auto checked = form.state("checked", true);
+    const auto checkbox = form.lower(tessera::authoring::Checkbox("Feature", checked, "toggle"), {{"toggle"}});
+    if (!checkbox || checkbox.value->document.root.children[0].properties.at("text") !=
+        tessera::Property{std::string("[x]")}) return 43;
     const auto editing = tessera::make_text_edit_state(1, "日本😀");
     if (!editing) return 40;
     const auto erased = tessera::edit_text(*editing.value,
