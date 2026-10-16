@@ -50,6 +50,7 @@ Detailed Proposed sections are intentionally non-actionable unless the active fi
 | [Graph editor](integrations/graph-editor.md) | Graph model/view split, canvas layers, graph coordinate spaces, culling/LOD, port/edge hit rules, graph editing and automation identities | Domain graph schemas, general custom-paint vocabulary, or transform hit-test rules |
 | [Conversational UI](integrations/conversational-ui.md) | Conversational/agent workspace workload, structured content model, streaming/async boundaries, provider independence, reference fixtures | Virtualization geometry, text/editing contracts, or provider adapters |
 | [Path-finder integration](integrations/path-finder.md) | Shared-schema editing consumer, source-consumption boundary, diagnostics and preview bridge requirements | A second property/semantic schema or runtime, reload mechanisms, or active scope |
+| [Settings application](integrations/settings-app.md) | Proposed ordinary-authoring reference workflow, host interaction and consumer verification requirements | Public API syntax, implementation status or active scheduling |
 | [Development](guides/development.md) | Build/run commands and workflow | Test-result history or subsystem contracts |
 | [Testing](guides/testing.md) | Verification methods and documentation checks | Test-target inventory or capability status |
 | [Dependencies](reference/dependencies.md) | Adopted/candidate choices, acquisition and licensing policy, including font licensing | Validated configuration claims |
@@ -66,6 +67,7 @@ Proposals own possible mechanisms and promotion criteria. Their detailed section
 | Document | Owns | Does not own |
 | --- | --- | --- |
 | [Automatic component lifecycle](proposals/automatic-component-lifecycle.md) | Proposed mechanisms and promotion criteria for automatic component lifecycle | Active scope or implementation evidence |
+| [C++ authoring](proposals/cpp-authoring.md) | Proposed public authoring, state/component/widget/style conveniences and promotion criteria | A second runtime/style model, settled syntax, scheduling or support claims |
 | [Async resources](proposals/async-resources.md) | Proposed mechanisms and promotion criteria for async resources | Active scope or implementation evidence |
 | [UI error boundaries](proposals/error-boundaries.md) | Proposed mechanisms and promotion criteria for UI error boundaries | Active scope or implementation evidence |
 | [Property reflection](proposals/property-reflection.md) | Proposed mechanisms and promotion criteria for property reflection | Active scope or implementation evidence |

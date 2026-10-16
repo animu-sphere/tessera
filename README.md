@@ -2,6 +2,8 @@
 
 Tessera is a deterministic GPU-native UI runtime for humans and agents, built for the animu-sphere ecosystem. It combines declarative, backend-neutral documents with explicit C++ ownership, and is designed so that people and machines inspect, operate, replay, and verify the same UI through one semantic model.
 
+The product goal is to make ordinary application UI easy to author through a high-level C++ surface and composed widgets, backed by that same runtime. See the [authoring direction](docs/product/vision.md) and [active reference-application scope](docs/roadmap/current.md); usable capabilities and validation evidence are recorded in the support matrix below.
+
 Intended uses include game HUDs and menus, editor panels, inspectors, overlays, in-world UI, Mimikuri application UI, Path-finder previews, and OpenUSD utility applications. These are intended consumers, not support claims.
 
 The host owns application state, windows, devices, and frame scheduling. Tessera owns the UI runtime; Path-finder owns authoring and uses the same runtime for preview. The core stays independent of browser engines, GPU/platform SDKs, OpenUSD, and editor SDKs. See [architecture](docs/architecture/overview.md).

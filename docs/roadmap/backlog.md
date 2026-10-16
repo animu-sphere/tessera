@@ -6,44 +6,114 @@ Everything here is planning context and does not authorize implementation during
 
 Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below. External strategy phase numbers do not replace these candidate scopes.
 
-Choose follow-up scope from the Path-finder mini prototype's measured application requirements and authoring friction. Candidate themes include richer layout, incremental stage evaluation, retained rendering, accessibility, animation, broader platform adapters, application bindings, and advanced agent authoring. Generalized virtualization, typed drag and drop, data grids, and context depend on the active application primitives; generation history, timeline/plotting, collaboration, Web/WASM, and world-space UI follow concrete consumers. Items within a candidate are listed in dependency order, without making every theme a committed next-release requirement.
+Choose follow-up scope from real applications and their measured authoring friction, beginning with the [Settings reference application](../integrations/settings-app.md). The candidate sequence moves from a practical UI kit through tooling, language boundaries and larger applications to measured scale. Each candidate below defines its own proof; its inventory is not an all-features release gate.
+
+## Widget candidates beyond the reference application
+
+The [active authoring milestone](current.md) owns only its reference application's required controls. Additional baseline candidates are a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView and a basic List, plus Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Text, Button, Checkbox, TextInput, Row and Column requirements are defined in current work rather than duplicated here.
+
+Promote additional widgets from an application operation; do not implement this inventory for completeness. Prefer ordinary components and the [shared authoring/lowering model](../proposals/cpp-authoring.md); a full generalized API per widget is not required.
+
+## v0.5.0 candidate — Application UI Kit
+
+Objective: **Tessera で小〜中規模のデスクトップツールを作れる。** Build an editor-like desktop tool without custom framework infrastructure.
+
+Depends on the high-level C++ authoring surface, reusable components and the reference application's input/style contracts.
+
+Candidates:
+
+- Grow the [widget inventory](#widget-candidates-beyond-the-reference-application) from the desktop tool's operations; mature TextInput, clipboard, undo/redo, multiline and IME under declared platform boundaries.
+- Menus, dropdowns, context menus, dialogs, richer Inspector controls and application themes.
+- List/tree selection, TreeView, better scrolling, keyboard/gamepad navigation and focus scopes where an interaction demonstrates the need.
+- Introduce the minimum overlay mechanism for a real Dropdown or ContextMenu, then extract a shared abstraction only from required behavior; see [overlays](../proposals/overlays-and-portals.md).
+- A first practical DevTools/inspection UI using ordinary semantics, commands and observations.
+
+Exit criteria to refine per consumer: the tool's editing, selection, scrolling, menu/dialog and navigation operations compose through public APIs without private framework plumbing; focus and command eligibility survive popup dismissal and keyed changes; replay/CPU-reference observations reproduce. Platform text claims require dedicated evidence.
+
+Owners: [authoring](../proposals/cpp-authoring.md), [UI model](../architecture/ui-model.md), [input](../architecture/input.md), [styling](../architecture/styling.md), [layout](../architecture/layout.md), [inspection](../architecture/inspection.md).
+
+## v0.6.0 candidate — Authoring and Tooling
+
+Objective: **Tessera UI を作る・調べる・修正する体験を成立させる。** Make `edit -> reload -> inspect -> interact -> capture -> verify` a normal developer workflow.
+
+Depends on an application-shaped consumer, stable source/semantic identity and ordinary inspection/replay boundaries.
+
+Candidates:
+
+- [Path-finder integration](../integrations/path-finder.md), source-aware editing, hierarchy/property editing, style inspection, source navigation, live reload and actionable validation diagnostics.
+- UI capture/comparison, reusable snapshot/replay workflows, a component browser/widget gallery and authoring metadata only where tooling requires it.
+- Select bounded mechanisms from [editor extensions](#unscheduled-editor-extensions), preserving source ownership, atomic acceptance and the shared runtime. The earlier editor shortcut follow-up is also owned there.
+
+Exit criteria to refine per workflow: a developer edits source, reloads, inspects its hierarchy/style/property, locates the source target, interacts, captures and verifies through one generation model. Invalid edits preserve the accepted state with located diagnostics; representative replay and capture comparisons reproduce without a separate editor execution model.
+
+Owners: [Path-finder](../integrations/path-finder.md), [inspection](../architecture/inspection.md), [reload](../proposals/live-reload.md), [replay](../architecture/replay.md).
+
+## v0.7.0 candidate — Language Bindings and Stable Host Boundary
+
+Objective: **C++ 以外から Tessera を安全に利用できる境界を作る。** Establish a minimal host-facing boundary suitable for non-C++ consumers.
+
+Depends on practical high-level authoring, demonstrated host ownership and a concrete scripting/tooling consumer.
+
+Candidates, in priority order:
+
+- Define opaque handles, ownership/lifetime and error/result rules, plus a C ABI facade where useful; choose compatibility commitments from downstream evidence.
+- Prototype Python first, evaluate Rust second and Go third. Bind the high-level authoring/host model with native-feeling language APIs rather than mirroring every internal C++ type.
+- Evaluate serialized/document interfaces for foreign languages. Each language frontend must lower into the same runtime; illustrative binding syntax is not a contract.
+
+Exit criteria to refine per binding: an independent non-C++ consumer authors and operates a small application, handles errors and teardown safely, rejects stale/foreign handles, and matches ordinary semantic/replay observations. Do not promise all three bindings or a stable ABI before a validated consumer requires them.
+
+Owners: [UI model](../architecture/ui-model.md), [architecture](../architecture/overview.md), [dependencies](../reference/dependencies.md).
+
+## v0.8.0 candidate — Broader Application Model
+
+Objective: **より大きなアプリケーションを構成できる。** Compose larger applications from consumer-proven UI and host boundaries.
+
+Depends on reference applications that demonstrate needs beyond a small tool.
+
+Possible scope:
+
+- Richer application shells, [command palette](../proposals/command-palette.md), docking/pane management where demanded, larger virtualized collections, TreeTable/DataGrid, resizable/sortable/pinned/hidden columns, editable cells and typed drag and drop.
+- Background data/resources, async application patterns, subtree [context](../architecture/ui-model.md#proposed-context), application themes, localization integration and accessibility adapter maturation.
+- Custom canvas/graph-editor integration and plugin/extension boundaries only where real consumers exist. Applications retain domain data, history and external execution.
+
+Exit criteria to refine per application: its multi-pane/data/async operations remain composable through public boundaries; selection, focus, scroll anchors and ownership survive changes; resource replacement/cancellation and adapters preserve coherent generations and reproducible observations. Promote only the required part of this scope.
+
+Owners: [UI model](../architecture/ui-model.md), [layout](../architecture/layout.md), [input](../architecture/input.md), [commands](../architecture/commands.md), [localization](../architecture/localization.md), [semantics](../architecture/semantics.md), [graph editor](../integrations/graph-editor.md).
+
+## v0.9.0 candidate — Performance and Scale
+
+Objective: **Correctness-first runtime を保ちながら、大規模 UI へ拡張する。** Optimize measured application workloads while retaining the full-tree/scalar correctness references.
+
+Prerequisites: representative applications, recorded traces, a baseline, an identified bottleneck and explicit correctness parity.
+
+Candidates, selected by measurement:
+
+- [Stage dirtiness and incremental evaluation](../proposals/incremental-evaluation.md): style, measure/placement, text, input, semantic and paint work; paint reuse and list virtualization for representative large collections.
+- [Retained display items and partial uploads](../proposals/incremental-evaluation.md#proposed-retained-render-updates), completion-safe GPU buffers/atlases, batching and allocation reductions. Bindless or GPU-driven scene caches require a demonstrated bottleneck.
+- Bounded [reactive observations](../architecture/inspection.md#proposed-reactive-observations), owner/dependency/update-cause traces and work-proportionality benchmarks; dense/high-frequency tool baselines and compact regression reports.
+- Host-driven animation, priority/frame queues or visibility-aware evaluation only without losing input, semantics or lifetime work. Selective parallel text/layout/resource preparation requires owned inputs and deterministic publication; general concurrent mutation needs separate justification.
+
+For each significant optimization define the workload, baseline, metric, expected improvement, correctness reference and regression check before implementation. Follow correctness -> real application -> measurement -> bottleneck -> minimum optimization -> reference parity.
+
+Exit criteria to refine per optimization: full-tree geometry/semantics/paint and scalar-reference images agree under declared tolerances; changed work is measured separately from total size; queues/cancellation/retirement stay bounded. Reports declare hardware/build/fonts/backend, timing noise and deterministic counter regressions separately. No universal speedup or platform claim follows from one workload.
+
+Owners: [reactive runtime](../architecture/reactive-runtime.md), [incremental evaluation](../proposals/incremental-evaluation.md), [rendering](../architecture/rendering.md), [inspection](../architecture/inspection.md), [testing](../guides/testing.md).
 
 ## Unscheduled editor extensions
 
-These broader mechanisms are inactive. Use the [bounded editor fixture](../integrations/path-finder.md#implemented-in-process-panel-fixture) to select a follow-up under [current work](current.md#current-slice). Reconsider these candidates from concrete fixture friction instead of treating them as a prerequisite sequence:
+These broader mechanisms are inactive. Use the [bounded editor fixture](../integrations/path-finder.md#implemented-in-process-panel-fixture) to identify a concrete consumer operation before promoting its minimum scope into [current work](current.md). Reconsider these candidates from concrete fixture friction instead of treating them as a prerequisite sequence:
 
 - **Lifecycle automation and UI fallback:** generalized [declarations](../proposals/automatic-component-lifecycle.md#proposed-automatic-component-lifecycle), declaration/default origins, setup/cleanup conveniences and [contained UI fallback](../proposals/error-boundaries.md#proposed-error-boundaries) beyond the fixture's owner/state/disposal requirements.
 - **Resource observations:** [owned resource payloads](../proposals/async-resources.md#proposed-async-state), real thumbnail/image loading, provider integration and completion-safe retirement beyond a host-driven fixture observation; cancellation and logical ownership must preserve the [frame lifetime](../architecture/rendering.md#implemented-frame-contract).
 - **Broader reload and reflection:** [state-schema migrations and compatibility](../proposals/live-reload.md#live-reload-transaction) across scroll anchors, accepted resources and command owners; richer [declaration/default origins and typed diagnostic context](../architecture/inspection.md#proposed-inspection-records-and-source-mapping); [reflection observations](../proposals/property-reflection.md#proposed-property-reflection) for inherited/resolved/read-only values and new property kinds. Preserve affected-stage metadata without making incremental evaluation a prerequisite.
 - **Overlays and palette:** shared [Portal ownership](../proposals/overlays-and-portals.md#proposed-overlays-and-portals), [placement](../architecture/layout.md#scrolling-and-overlay-geometry), [focus/targeting](../architecture/input.md#proposed-overlay-interaction), [semantic relationships](../architecture/semantics.md#proposed-semantic-projection), composed Tooltip/Dropdown/Modal and [command palette](../proposals/command-palette.md#proposed-command-palette). Include native capture/cancellation and platform shortcut conventions only for an explicit consumer, with transform hit/render agreement and ordinary command eligibility.
 - **Large editor lists:** bounded [VirtualList realization](../proposals/virtualization.md#proposed-virtualization-foundation) over thousands of keyed logical rows, deterministic measurement, focus/selection/scroll anchors, async rows and an explicit semantic virtualization policy. A small keyed hierarchy does not require this mechanism.
-- **Editing expansion:** multiline convenience, host clipboard adapters and platform composition integration beyond the active single-string operation; preserve the [revisioned editing boundary](../architecture/input.md#proposed-editing-ime-and-clipboard-boundary) and [logical replay inputs](../architecture/replay.md#proposed-editor-workflow-inputs). Native shortcut adapters, additional platform/gamepad chords, customization, draft-local undo and generalized input routing stay here; only the two normalized label-history chords are scoped in [current work](current.md#current-slice).
+- **Editor history shortcut follow-up:** defer the earlier regression-first connection of normalized Control+Z/Control+Shift+Z from Inspector focus to ordinary label-history commands. Preserve editing-first consumption, toolbar activation owners/root scope, immutable replacement-tree shortcut maps, shared execution sequences and accepted identities. Acceptance must cover exact source/preview/Inspector restoration, retained selection/state/focus/async owners, toolbar/replay parity, empty/mismatched/open-draft rejection, repeat/consumed input, stale requests and staging-failure retry. The [source review](../reference/support-matrix.md#editor-history-shortcut-review--2026-10-16) owns the observed gap and evidence limits; promotion needs renewed consumer need.
+- **Editing expansion:** multiline convenience, host clipboard adapters and platform composition integration beyond the bounded string operation; preserve the [revisioned editing boundary](../architecture/input.md#proposed-editing-ime-and-clipboard-boundary) and [logical replay inputs](../architecture/replay.md#proposed-editor-workflow-inputs). Native shortcut adapters, extra platform/gamepad chords, customization, draft-local undo and generalized input routing need a separate editor operation.
 - **Packaged verification and discovery:** [versioned snapshot bundle/CLI](../proposals/snapshot-bundles.md#proposed-runner-and-snapshot-bundle), machine-readable differences, selective visual comparisons and source-edit-to-verification instrumentation; [agent capability manifest](../proposals/agent-capability-manifest.md#proposed-agent-capability-manifest) for ordinary inspect/invoke/replay/capture/invariant/source-edit/reload/comparison operations. An in-process fixture is sufficient before a concrete consumer needs packaging or discovery.
 - **Broader performance evidence:** representative application profiling, Vulkan/CPU scene comparisons across declared configurations and authoring-friction measurements to select follow-up scope. Do not turn profiling infrastructure or aggressive evaluation/GPU optimization into editor completion prerequisites.
 
-## v0.4.0 candidate — Productive tool UI
-
-Objective: extend primitives required by measured editor/utility workloads without growing a general widget catalog. Refine the candidate scope after the Path-finder prototype; Mimikuri and utility applications provide additional consumer requirements.
-
-Depends on component identity, text/editing boundaries, and the Path-finder prototype.
-
-Candidates:
-
-- [Generalized virtualization](../proposals/virtualization.md#proposed-virtualization-foundation) with production VirtualList and tree/hierarchy primitives, then DataGrid/TreeTable composed from primitives: resizable, sortable, pinned, and hideable columns; single and multi-selection; editable cells; keyboard navigation; row hierarchy; context menus.
-- Resizable split panels and a minimal docking subset.
-- Extend the [string-editing consumer](../integrations/path-finder.md#implemented-in-process-panel-fixture) with platform IME/clipboard hardening and richer selection/multiline behavior where consumers require it; [typed drag and drop](../architecture/input.md#proposed-typed-drag-and-drop).
-- [Context](../architecture/ui-model.md#proposed-context) for subtree services, including [theme scopes](../architecture/styling.md#proposed-theme-scopes); transaction/undo integration beyond the [bounded editor label history](../integrations/path-finder.md#implemented-in-process-panel-fixture).
-- Canvas/custom paint, [performance instrumentation](../architecture/inspection.md#proposed-performance-metrics), and a timeline/profiling primitive.
-- Broader consumer-specific UI invariants and regression budgets over the prototype's verification loop; packaged bundles and CI consumers need explicit promotion.
-- [Stage invalidation](../proposals/incremental-evaluation.md#proposed-stage-invalidation) and incremental style, measure/placement, [text](../proposals/incremental-evaluation.md#proposed-incremental-text-invalidation), input, semantic, and paint evaluation over the active milestone's reactive kernel, verified against full-tree output.
-- Bounded [reactive observations](../architecture/inspection.md#proposed-reactive-observations), owner/dependency inspection and update-cause traces, plus graph/work-proportionality benchmarks without fixed illustrative scale targets.
-- Representative dense/high-frequency tool benchmarks, measured iteration latency, and consumer-specific regression budgets after recording a baseline; thin scenario tooling and compact CI reports/artifacts.
-
-Exit criteria to refine from a consumer prototype: long lists, trees, and grids preserve keyed selection/focus and scroll anchors, Japanese composition and clipboard work under declared platform evidence, custom paint respects the common draw/resource contract, and incremental results match full-tree output. Benchmark/iteration reports identify representative fixtures and measurement conditions; consumer budgets and CI reports distinguish timing noise from deterministic counter regressions.
-
-Owners: [reactive runtime](../architecture/reactive-runtime.md), [UI model](../architecture/ui-model.md), [layout](../architecture/layout.md), [input](../architecture/input.md), [commands](../architecture/commands.md), [text](../architecture/text.md), [rendering](../architecture/rendering.md), [styling](../architecture/styling.md), [inspection](../architecture/inspection.md).
-
-## v0.5.0 candidate — Accessibility, automation, and robust runtime
+## Unscheduled accessibility, automation, and runtime adapters
 
 Objective: make UI reliably inspectable and operable through accessibility and external automation adapters.
 
@@ -64,9 +134,9 @@ Owners: [semantics](../architecture/semantics.md), [input](../architecture/input
 
 ## Later — WebGPU, WASM, and world-space UI
 
-Prerequisites: stable document, draw/resource and text boundaries, and replay fixtures suitable for parity checks.
+Prerequisites: stable common UI semantics, high-level authoring and backend-neutral widgets, then stable document/draw/resource/text boundaries and replay fixtures suitable for parity checks. Browser support is a strategic direction, not an early authoring-release blocker.
 
-Evaluate native WebGPU, browser WebGPU hosting, and WASM separately. The intended Web path is the shared runtime in WASM, WebGPU canvas visuals, and semantic DOM/browser editing adapters under [Web host](../proposals/web-host.md).
+Evaluate native WebGPU, browser WebGPU hosting, and WASM separately. The intended sequence is a Web host adapter, WebGPU rendering, then browser text/input integration under [Web host](../proposals/web-host.md). Project the same components, state, semantics, commands, inspection and replay model where technically appropriate; do not create a separate Web runtime.
 
 Candidates:
 
@@ -85,7 +155,7 @@ Owners: [architecture](../architecture/overview.md), [Web host](../proposals/web
 
 Objective: [localized messages](../architecture/localization.md) and runtime language changes participate in the same reactive, semantic, layout and verification contracts as other UI values.
 
-Prerequisites: reactive bindings and coherent publication, the v0.4.0 subtree context, host resource/reload ownership, and text measurement/paint agreement. Contract design can inform those foundations without adding the external direction's implementation phases to the active milestone.
+Prerequisites: reactive bindings and coherent publication, consumer-required subtree context, host resource/reload ownership, and text measurement/paint agreement. Preserve localization compatibility from the common model onward; complete tooling is not an early authoring-release gate, and a concrete translation library must not enter core.
 
 Candidates, in dependency order:
 
@@ -102,11 +172,11 @@ Owners: [localization](../architecture/localization.md), [UI model](../architect
 
 ## Later — Typography expansion
 
-Prerequisites: v0.2.0 real text (faces, shaping, bitmap glyph cache, fallback, wrapping, deterministic fixtures) and the v0.4.0 editing/selection work.
+Prerequisites: faces, shaping, bitmap glyph cache, fallback, wrapping, deterministic fixtures and consumer-required editing/selection boundaries; consult support for implementation evidence.
 
 Candidates, in dependency order:
 
-- Caret and selection geometry for text inputs; authored font-alias syntax and bundled alias mappings.
+- Real-font caret/selection geometry beyond the reference application's bounded editing needs; authored font-alias syntax and bundled alias mappings.
 - Read-only rich text spans, MSDF glyphs with size/scale-dependent [raster mode selection](../architecture/text.md#proposed-glyph-raster-strategy) sampled by GPU and CPU backends, and variable font instances.
 - [International text layout](../architecture/text.md#proposed-international-text-layout): Unicode line breaking, script segmentation and bidirectional layout coordinated with [localization](#later--localization-and-international-layout); color emoji and advanced OpenType features.
 - Font asset metadata, license metadata hooks, and packaging warnings under [font licensing](../reference/dependencies.md#font-licensing).
@@ -114,22 +184,6 @@ Candidates, in dependency order:
 Exit criteria to refine per item: measurement/paint agreement holds across fallback and variation changes, zoomed text meets declared image tolerances, and each script or emoji format claim has dedicated fixtures.
 
 Owners: [text](../architecture/text.md), [rendering](../architecture/rendering.md), [dependencies](../reference/dependencies.md).
-
-## Later — Reactive scheduling and retained render performance
-
-Prerequisites: the [active application/editor verification loop](current.md), measured tool workloads, and full-tree parity for each proposed incremental stage. Aggressive evaluation/rendering optimization follows the integration proof rather than blocking it.
-
-Candidates, in dependency order:
-
-- [Retained display items and partial uploads](../proposals/incremental-evaluation.md#proposed-retained-render-updates), with completion-safe buffer/atlas reuse and full paint/image agreement.
-- Bindless rendering, retained GPU scene caches, GPU-driven UI, and deeper batching only when profiling a real Tessera application justifies the complexity.
-- Host-driven animation integration, then priority/frame queues or visibility-aware evaluation only when needed without losing input, semantic, or lifetime work.
-- Selective parallel text/layout/resource preparation with owned inputs and ordered publication; general concurrent reactive mutation and compiler dependency hints require separate justification.
-- Optional immediate authoring facades or observable collection helpers over the common IR/kernel only when a consumer needs them.
-
-Exit criteria to refine per consumer: deterministic observations and full-tree/render-reference output agree; changed-region work is measured separately from total UI size; queues, cancellation, and retirement stay bounded under replacement and owner churn. Optimization results cannot imply platform support or universal timing guarantees.
-
-Owners: [reactive runtime](../architecture/reactive-runtime.md), [UI model](../architecture/ui-model.md), [styling](../architecture/styling.md), [layout](../architecture/layout.md), [text](../architecture/text.md), [rendering](../architecture/rendering.md), [inspection](../architecture/inspection.md).
 
 ## Later — Analytic primitives and CPU compatibility performance
 
@@ -183,14 +237,14 @@ Owners: [conversational UI](../integrations/conversational-ui.md), [layout](../a
 
 ## Unscheduled extensions
 
-- Timeline and plotting primitives beyond the v0.4.0 profiling primitive.
+- Timeline and plotting primitives, selected from a concrete profiling/tool workload.
 - Collaboration and multi-user presence, after commands, transactions, and generation history.
 - Host-clock property animation after baseline style/layout correctness; see [styling](../proposals/animation.md#proposed-animation).
 - Richer layout algorithms in the order owned by [layout](../architecture/layout.md#extension-order).
 - Finer dirty-subtree/reactive updates after measured need and full-tree parity.
 - TypeScript-inspired DSL, then optional JSX/TSX compilation after the IR stabilizes; no JavaScript VM requirement.
 - Broader editor bridge transport/process choices driven by actual consumers.
-- Python/application bindings after component/runtime lifecycle stabilization and a concrete scripting or tooling consumer.
+- Additional language/application bindings beyond the [binding candidate](#v070-candidate--language-bindings-and-stable-host-boundary), driven by a concrete consumer.
 - Responsive viewport/container rules and general constraint/flow layout after the existing [layout extension order](../architecture/layout.md#extension-order), when a tool consumer requires them.
 - Gradients, paths (through a path rasterizer), richer composition, and retained/partial GPU updates after bounded paint/resource contracts and measured workloads; blur/complex filters stay outside early/mid scope. Simple shadows are in the analytic primitives candidate above.
 
