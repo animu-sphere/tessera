@@ -4,6 +4,7 @@
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/render/paint.hpp>
 #include <iostream>
+#include <algorithm>
 #include <charconv>
 #include <functional>
 #include <tuple>
@@ -24,7 +25,8 @@ template<class T> T take(Result<T> result) {
     }
     return std::move(*result.value);
 }
-const ValidationContext actions{{"settings.toggle", "settings.edit", "settings.apply"}};
+const ValidationContext actions{{"settings.toggle", "settings.edit", "settings.apply",
+    "settings.section.account", "settings.section.feature", "settings.section.about"}};
 constexpr Size viewport{480, 240};
 // Opaque fixture expression identity; the runtime opens no source file.
 const SourceLocation form_source{"fixture://settings-form", {0, 20}};
@@ -438,6 +440,317 @@ struct SettingsOperation final : CommandHost {
     CommandOutcome execute(const CommandInvocationRecord& invocation) override { return run(invocation); }
 };
 
+// Application section IDs are data, separate from runtime handles and text
+// selection. Only the selected branch is authored; all draft state is host/session owned.
+struct SettingsSections {
+    std::vector<std::string> order{"account", "feature", "about"};
+    std::string selected = "account";
+    bool operator==(const SettingsSections&) const = default;
+};
+std::vector<Diagnostic> validate_sections(const SettingsSections& sections) {
+    const std::set<std::string> known{"account", "feature", "about"};
+    const std::set<std::string> unique(sections.order.begin(), sections.order.end());
+    if (unique.empty() || unique.size() != sections.order.size() ||
+        !std::includes(known.begin(), known.end(), unique.begin(), unique.end()) || !unique.contains(sections.selected))
+        return {{"settings_sections", Severity::error, "/sections",
+            "Use a nonempty unique list of account, feature, about and select one of its members.", {},
+            DiagnosticSource{form_source, DiagnosticOrigin::argument}}};
+    return {};
+}
+ui::Element SectionSettings(const SettingsSections& sections, ui::Value<TextEditState> username,
+    ui::Value<bool> enabled, ui::Value<std::string> caption, ui::Value<std::string> saved, bool disabled = false) {
+    std::vector<ui::Element> choices;
+    for (const auto& id : sections.order)
+        choices.push_back(ui::Button((id == sections.selected ? "* " : "") + id, "settings.section." + id,
+            {.node = {.id = "section-" + id, .source = form_source}, .disabled = disabled}));
+    std::vector<ui::Element> rows{
+        ui::Text("Settings", {.id = "heading"}),
+        ui::Row(std::move(choices), {.id = "sections", .style = {.gap = 12.f}, .source = form_source}),
+        ui::Text("Section " + sections.selected, {.id = "selected-section", .source = form_source})};
+    if (sections.selected == "account")
+        rows.push_back(SettingsRow({"Account", "username-row"}, {
+            ui::TextInput("Username", username, "settings.edit", {.node = {.id = "username", .source = form_source}})}));
+    else if (sections.selected == "feature")
+        rows.push_back(SettingsRow({"Feature", "feature-row"}, {
+            ui::Checkbox("Enable feature", enabled, "settings.toggle", {.node = {.id = "toggle", .source = form_source}})}));
+    else rows.push_back(ui::Text("Choose Account to edit; Apply saves the whole draft.", {.id = "section-help", .source = form_source}));
+    rows.push_back(ui::Text(caption, {.id = "summary", .source = form_source}));
+    rows.push_back(ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .source = form_source}}));
+    rows.push_back(ui::Text(saved, {.id = "save-result", .source = form_source}));
+    return ui::Column(std::move(rows), {.id = "settings", .style = {
+        .padding = Edges{12, 12, 12, 12}, .gap = 12.f, .background = Color{0.94f, 0.94f, 0.96f, 1}}, .source = form_source});
+}
+
+void run_sections() {
+    constexpr Size form_viewport{720, 440};
+    ui::Session view;
+    SettingsSections sections;
+    auto username = take(make_text_edit_state(1, "Ada"));
+    SettingsData draft{username.text, false};
+    SaveObservation saves;
+    std::string result = "Not saved";
+    const auto observed = view.state("username", username);
+    const auto enabled = view.state("enabled", false);
+    const auto saved = view.state("save-result", result);
+    const auto caption = view.computed("summary", [observed, enabled] {
+        return "User " + observed.read().text + (enabled.read() ? "; feature enabled" : "; feature disabled");
+    });
+    const auto registry = take(CommandRegistry::create({
+        {"settings.toggle", "Toggle feature"}, {"settings.edit", "Edit username"}, {"settings.apply", "Apply settings"},
+        {"settings.section.account", "Account"}, {"settings.section.feature", "Feature"}, {"settings.section.about", "About"}},
+        {{"settings.toggle", "settings.toggle"}, {"settings.edit", "settings.edit"}, {"settings.apply", "settings.apply"},
+        {"settings.section.account", "settings.section.account"}, {"settings.section.feature", "settings.section.feature"},
+        {"settings.section.about", "settings.section.about"}}));
+    std::uint64_t generation = 0, sequence = 0;
+    PlaceholderTextShaper text;
+    auto stage = [&](const SettingsSections& candidate, TextShaper& shaper, bool authored_disabled = false, bool allowed = true)
+        -> Result<Snapshot> {
+        auto errors = validate_sections(candidate);
+        if (!errors.empty()) return {std::nullopt, std::move(errors)};
+        CommandStates states{{"settings.toggle", {true}}, {"settings.edit", {true}}, {"settings.apply", {true}}};
+        for (const auto& id : {"account", "feature", "about"})
+            states.emplace(std::string("settings.section.") + id, CommandState{allowed});
+        auto commands = take(CommandSnapshot::publish(registry, ++generation, CommandMode::production, std::move(states)));
+        return prepare_candidate(view, SectionSettings(candidate, observed, enabled, caption, saved, authored_disabled),
+            std::move(commands), shaper, form_viewport);
+    };
+    auto accepted = take(stage(sections, text));
+    view.publish();
+    FocusDispatcher focus;
+    CommandExecutor executor;
+    ReplayRecording recording;
+    recording.context = actions; recording.viewport = form_viewport;
+    recording.document = accepted.tree->document(); recording.styles = accepted.styles;
+    recording.environment.scale = 1.25f; recording.environment.locale = "en";
+    FixtureGlyphs raster; GlyphCache cache(raster); CpuFrameCapture frames(&cache);
+    const auto extent = take(capture_extent(form_viewport, recording.environment.scale));
+    using Names = std::map<std::string, std::string>;
+    auto observations = [](const Snapshot& snapshot) {
+        Names values;
+        for (const auto& node : snapshot.inspection.semantics.nodes) if (node.id) values.emplace(*node.id, node.name);
+        return values;
+    };
+    std::vector<UiDrawList> paints;
+    std::vector<std::vector<ReplayBox>> boxes;
+    std::vector<CapturedImage> images;
+    std::vector<Names> names;
+    auto remember = [&] {
+        const auto values = observations(accepted);
+        require(values.at("selected-section") == "Section " + sections.selected &&
+            values.at("summary") == "User " + draft.username + (draft.feature ? "; feature enabled" : "; feature disabled") &&
+            values.at("save-result") == result && username.text == draft.username,
+            "Section, draft, derived summary or save result differs");
+        require(values.contains("username") == (sections.selected == "account") &&
+            values.contains("toggle") == (sections.selected == "feature") &&
+            values.contains("section-help") == (sections.selected == "about"), "Conditional branch differs from selection");
+        if (sections.selected == "account") require(values.at("username") == "Username " + username.text + " Selection " +
+            std::to_string(username.anchor) + ":" + std::to_string(username.caret), "Restored field observation differs");
+        if (sections.selected == "feature") require(values.at("toggle") == (draft.feature ? "[x] Enable feature" : "[ ] Enable feature"),
+            "Restored Checkbox observation differs");
+        std::vector<std::string> order;
+        for (const auto& element : accepted.inspection.elements) if (element.id && element.id->starts_with("section-")) {
+            const auto id = element.id->substr(8);
+            if (id == "help") continue;
+            order.push_back(id);
+            require(values.at(*element.id) == (id == sections.selected ? "* " : "") + id && element.source &&
+                element.source->event_arguments.at("activate") == form_source, "Section identity, marker or origin differs");
+        }
+        require(order == sections.order, "Repeated section order differs");
+        if (!saves.calls.empty()) require(result == saved_caption(static_cast<unsigned>(saves.calls.size()), saves.calls.back()),
+            "Saved observation differs from owned settings");
+        paints.push_back(accepted.paint); boxes.push_back(geometry(accepted)); names.push_back(values);
+        images.push_back(take(frames.capture({images.size(), form_viewport, recording.environment.scale, extent, &accepted.paint})));
+    };
+    remember();
+    auto stable = [&] { return std::tuple{sections, username, draft, saves.calls, result, accepted.tree->document(),
+        accepted.inspection, accepted.commands.generation(), accepted.paint}; };
+    unsigned entered = 0;
+    std::vector<CommandInvocationRecord> selections;
+    std::optional<CommandInvocation> pending;
+    std::optional<ActionRequest> old_owner;
+    auto operate = [&](const ActionRequest& action, CommandSource source, std::optional<TextEditRequest> request = {},
+        TextShaper* rejecting = nullptr) {
+        const auto before = stable();
+        const auto current_ui = accepted.semantic();
+        const auto invocation = take(accepted.commands.resolve_action(current_ui, action, accepted.commands.generation(), {}, source, ++sequence));
+        SettingsOperation host([&, request = std::move(request)](const CommandInvocationRecord& call) -> CommandOutcome {
+            ++entered;
+            auto next_sections = sections;
+            auto next_username = username;
+            auto next_draft = draft;
+            auto next_result = result;
+            const bool select = call.command.starts_with("settings.section.");
+            if (select) next_sections.selected = call.command.substr(17);
+            else if (call.command == "settings.edit") {
+                require(request.has_value(), "Section field edit needs a request");
+                auto edited = edit_text(username, *request);
+                if (!edited) return {CommandOutcomeStatus::error, {}, std::move(edited.diagnostics)};
+                next_username = std::move(*edited.value); next_draft.username = next_username.text;
+            } else if (call.command == "settings.toggle") next_draft.feature = !next_draft.feature;
+            else {
+                require(call.command == "settings.apply", "Unexpected section command");
+                next_result = saved_caption(static_cast<unsigned>(saves.calls.size()) + 1, next_draft);
+            }
+            auto restore = [&] { view.update([&] { observed.write(username); enabled.write(draft.feature); saved.write(result); }); };
+            view.update([&] { observed.write(next_username); enabled.write(next_draft.feature); saved.write(next_result); });
+            auto staged = [&] {
+                try { return stage(next_sections, rejecting ? *rejecting : text); }
+                catch (...) { restore(); throw; }
+            }();
+            if (!staged) { restore(); return {CommandOutcomeStatus::error, {}, std::move(staged.diagnostics)}; }
+            pending = take(accepted.commands.resolve_action(current_ui, action, accepted.commands.generation(), {}, source, ++sequence));
+            old_owner = action;
+            if (select) selections.push_back(call);
+            if (call.command == "settings.apply") saves.save(next_draft);
+            sections = std::move(next_sections); username = std::move(next_username);
+            draft = std::move(next_draft); result = std::move(next_result);
+            view.publish(); accepted = std::move(*staged.value);
+            return {};
+        });
+        const auto execution = take(executor.execute(accepted.commands, invocation, host, &current_ui));
+        if (rejecting) require(execution.outcome.status == CommandOutcomeStatus::error && !execution.outcome.diagnostics.empty() &&
+            execution.outcome.diagnostics[0].source && execution.outcome.diagnostics[0].source->location == form_source && before == stable(),
+            "Rejected selection changed accepted state or lost located diagnostics");
+        else require(execution.outcome.status == CommandOutcomeStatus::success, "Section operation failed");
+        const auto after = stable();
+        const auto refreshed = accepted.semantic();
+        const auto duplicate = executor.execute(accepted.commands, invocation, host, &refreshed);
+        require(!duplicate && duplicate.diagnostics[0].code == "consumed_sequence" && stable() == after, "Section request executed twice");
+        if (!rejecting) {
+            recording.steps.push_back(ReplayReload{accepted.tree->document(), accepted.styles}); remember();
+        }
+    };
+    auto logical = [&](InputEvent event, CommandSource source = CommandSource::keyboard) {
+        const auto dispatched = take(focus.dispatch(accepted.hit(), event));
+        recording.steps.push_back(event);
+        for (const auto& action : dispatched.actions) operate(action, source);
+    };
+    auto semantic = [&](const std::string& id) {
+        recording.steps.push_back(ReplaySemanticAction{AuthorIdTarget{id}});
+        operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find(id), "activate")), CommandSource::agent);
+    };
+    auto focused = [&](const std::string& id) {
+        const auto current = take(focus.refresh(accepted.hit())).focused;
+        if (current != accepted.tree->find(id)) throw std::runtime_error("Expected focus " + id + ", got " +
+            (current ? accepted.tree->get(*current)->id.value_or("<anonymous>") : "<none>"));
+    };
+    logical({1us, FocusNext{}}); focused("section-account");
+    for (int i = 0; i < 3; ++i) logical({2us, FocusNext{}});
+    focused("username");
+    const InputEvent committed{3us, tessera::TextInput{"本"}};
+    require(validate(committed).empty(), "Malformed section text input");
+    operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find("username"), "activate")), CommandSource::keyboard,
+        TextEditRequest{username.owner, username.revision, TextEditInsert{std::get<tessera::TextInput>(committed.data).text}});
+    const auto retained_edit = username;
+    const auto removed_edit_owner = take(request_semantic_action(accepted.semantic(), *accepted.tree->find("username"), "activate"));
+    logical({4us, FocusPrevious{}}); logical({4us, FocusPrevious{}}); focused("section-feature");
+    logical({5us, Activate{}}); focused("section-feature");
+    logical({6us, FocusNext{}}); logical({6us, FocusNext{}}); focused("toggle");
+    logical({7us, Activate{}}); logical({8us, FocusNext{}}); logical({9us, Activate{}}); focused("apply");
+    require(draft == SettingsData{"Ada本", true} && saves.calls == std::vector<SettingsData>{draft}, "Section draft or save differs");
+    logical({10us, FocusPrevious{}}); logical({10us, FocusPrevious{}}); focused("section-about");
+    logical({11us, Activate{}}, CommandSource::gamepad); focused("section-about");
+    const auto saved_state = std::tuple{username, draft, saves.calls, result};
+    const auto box = accepted.layout.boxes[accepted.tree->find("section-account")->index].border_box;
+    const Point point{box.origin.x + 1, box.origin.y + 1};
+    PointerDispatcher pointer;
+    const InputEvent down{12us, PointerDown{{1}, point}}, up{13us, PointerUp{{1}, point}};
+    const auto before_press = stable();
+    require(take(pointer.dispatch(accepted.hit(), down)).actions.empty() && stable() == before_press, "Section pointer press selected");
+    recording.steps.push_back(down);
+    const auto click = take(pointer.dispatch(accepted.hit(), up)); recording.steps.push_back(up);
+    require(click.actions.size() == 1, "Section pointer release did not request once");
+    operate(click.actions[0], CommandSource::pointer); focused("section-about");
+    semantic("section-feature"); focused("section-about");
+    require(std::tuple{username, draft, saves.calls, result} == saved_state, "Selection changed draft or saved settings");
+    require(selections.size() == 4, "Missing four section input routes");
+    const std::vector<CommandSource> sources{CommandSource::keyboard, CommandSource::gamepad, CommandSource::pointer, CommandSource::agent};
+    for (std::size_t i = 0; i < sources.size(); ++i)
+        require(selections[i].source == sources[i] && selections[i].owner && selections[i].owner->action == selections[i].command,
+            "Section routes did not share ordinary commands and owners");
+    for (bool measure : {true, false}) {
+        RejectingShaper rejecting(measure, "Section about");
+        operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find("section-about"), "activate")),
+            CommandSource::agent, {}, &rejecting);
+    }
+    semantic("section-about"); semantic("section-account");
+    logical({14us, FocusNext{}}); focused("username");
+    auto replace_list = [&](SettingsSections candidate, bool valid) {
+        const auto before = stable();
+        auto staged = stage(candidate, text);
+        if (!valid) {
+            require(!staged && !staged.diagnostics.empty() && staged.diagnostics[0].source &&
+                staged.diagnostics[0].source->location == form_source && before == stable(), "Invalid section list changed accepted state");
+            return;
+        }
+        accepted = take(std::move(staged)); sections = std::move(candidate); view.publish();
+        recording.steps.push_back(ReplayReload{accepted.tree->document(), accepted.styles}); remember();
+        require(std::tuple{username, draft, saves.calls, result} == saved_state, "List replacement changed host observations");
+    };
+    replace_list({{"about", "account", "feature"}, "account"}, true); focused("username");
+    replace_list({{"account", "feature"}, "account"}, true); focused("username");
+    replace_list({{"feature"}, "feature"}, true); focused("toggle");
+    replace_list({{"account", "feature", "about"}, "feature"}, true); focused("toggle");
+    semantic("section-account"); focused("username");
+    require(username == retained_edit, "Removed/reinserted Account lost its host edit lifetime");
+    for (const auto& invalid : std::vector<SettingsSections>{{{}, "account"}, {{"account", "account"}, "account"},
+        {{"unknown"}, "unknown"}, {{"account"}, "about"}}) replace_list(invalid, false);
+    const auto before_rejections = stable();
+    const auto entered_before = entered;
+    SettingsOperation forbidden([&](const CommandInvocationRecord&) { ++entered; return CommandOutcome{}; });
+    const auto current_ui = accepted.semantic();
+    require(pending && old_owner && !executor.execute(accepted.commands, *pending, forbidden, &current_ui) &&
+        !accepted.commands.resolve_action(current_ui, *old_owner, accepted.commands.generation(), {}, CommandSource::agent, ++sequence) &&
+        !accepted.commands.resolve_action(current_ui, removed_edit_owner, accepted.commands.generation(), {}, CommandSource::keyboard, ++sequence),
+        "Stale section invocation/owner or removed field owner accepted");
+    const auto live_action = take(request_semantic_action(current_ui, *accepted.tree->find("section-feature"), "activate"));
+    const auto live = take(accepted.commands.resolve_action(current_ui, live_action, accepted.commands.generation(), {}, CommandSource::agent, ++sequence));
+    const auto foreign = take(prepare_candidate(view, SectionSettings(sections, observed, enabled, caption, saved), accepted.commands, text, form_viewport));
+    const auto foreign_ui = foreign.semantic();
+    require(!executor.execute(foreign.commands, live, forbidden, &foreign_ui), "Foreign section tree accepted equal command counters");
+    for (bool authored : {false, true}) {
+        const auto denied = take(stage(sections, text, authored, authored));
+        const auto denied_ui = denied.semantic();
+        for (const auto& id : sections.order) {
+            const auto owner = *denied.tree->find("section-" + id);
+            require(!request_semantic_action(denied_ui, owner, "activate") &&
+                !denied.commands.resolve_action(denied_ui, {"activate", "settings.section." + id, owner}, denied.commands.generation(), {},
+                    CommandSource::agent, ++sequence), "Disabled section resolved");
+            FocusDispatcher denied_focus;
+            require(!denied_focus.focus(denied.hit(), owner) &&
+                take(denied_focus.dispatch(denied.hit(), {15us, Activate{}})).actions.empty(), "Disabled section focused or activated");
+            const auto bounds = denied.layout.boxes[owner.index].border_box;
+            const Point at{bounds.origin.x + 1, bounds.origin.y + 1};
+            PointerDispatcher denied_pointer;
+            require(take(denied_pointer.dispatch(denied.hit(), {16us, PointerDown{{2}, at}})).actions.empty() &&
+                take(denied_pointer.dispatch(denied.hit(), {17us, PointerUp{{2}, at}})).actions.empty(), "Disabled section clicked");
+        }
+        require(!executor.execute(denied.commands, live, forbidden, &denied_ui), "Disabled selection entered host");
+    }
+    require(stable() == before_rejections && entered == entered_before &&
+        observations(take(stage(sections, text))) == names.back(), "Rejected section request changed host or reactive state");
+    recording.steps.push_back(ReplayTick{18us});
+    const auto first = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
+    const auto repeated = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
+    require(first == repeated && first.frames.size() == paints.size() + 1, "Section CPU/replay differs");
+    for (std::size_t i = 0; i < paints.size(); ++i)
+        require(first.output.generations[i].paint == paints[i] && first.output.generations[i].boxes == boxes[i] &&
+            first.frames[i].image == images[i], "Accepted section presentation differs from replay/capture");
+    for (const auto& observation : first.output.semantics) {
+        Names values;
+        for (const auto& node : observation.nodes) if (node.id) values.emplace(*node.id, node.name);
+        require(values == names[std::min(observation.generation, names.size() - 1)], "Section replay inspection differs");
+    }
+    const std::vector<std::string> expected_actions{"settings.section.feature", "settings.toggle", "settings.apply", "settings.section.about",
+        "settings.section.account", "settings.section.feature", "settings.section.about", "settings.section.account", "settings.section.account"};
+    require(first.output.actions.size() == expected_actions.size(), "Section replay action count differs");
+    for (std::size_t i = 0; i < expected_actions.size(); ++i)
+        require(first.output.actions[i].action == expected_actions[i], "Section replay action order differs");
+    require(images[1] != images[2] && images[2] != images[4], "Conditional content absent from CPU capture");
+    std::cout << "Settings sections: repeated/conditional composition, four selection routes, draft/save/focus retention and rejection; "
+        << first.frames.size() << " deterministic CPU/replay frames\n";
+}
+
 void run_apply() {
     constexpr Size form_viewport{640, 360};
     ui::Session view;
@@ -700,6 +1013,7 @@ void run_apply() {
 
 int main() {
     try {
+        run_sections();
         run_apply();
         run_username();
         ui::Session view;
