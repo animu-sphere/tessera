@@ -25,6 +25,7 @@ add_library(tessera_core
     src/ui/property_metadata.cpp
     src/ui/keyed.cpp
     src/ui/bindings.cpp
+    src/ui/authoring.cpp
     src/ui/component.cpp
     src/ui/component_mount.cpp
     src/ui/component_tree_mount.cpp
@@ -86,6 +87,8 @@ if(TESSERA_BUILD_EXAMPLES)
     target_link_libraries(tessera_editor_prototype PRIVATE tessera::core)
     target_compile_definitions(tessera_editor_prototype PRIVATE
         TESSERA_EDITOR_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/examples/editor-prototype/preview.json")
+    add_executable(tessera_settings examples/settings/main.cpp)
+    target_link_libraries(tessera_settings PRIVATE tessera::core)
 endif()
 
 option(TESSERA_BUILD_VULKAN "Build the optional Vulkan renderer and GPU fixtures" OFF)
@@ -97,6 +100,9 @@ if(TESSERA_BUILD_FONTS)
     add_subdirectory(modules/fonts)
 endif()
 if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
+    add_executable(tessera_authoring_tests tests/ui/authoring_tests.cpp)
+    target_link_libraries(tessera_authoring_tests PRIVATE tessera::core)
+    add_test(NAME authoring COMMAND tessera_authoring_tests)
     add_executable(tessera_document_tests tests/serialization/document_tests.cpp)
     target_link_libraries(tessera_document_tests PRIVATE tessera::core)
     target_compile_definitions(tessera_document_tests PRIVATE
@@ -115,6 +121,7 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         add_test(NAME pointer_menu COMMAND tessera_pointer_menu)
         add_test(NAME tool_panel COMMAND tessera_tool_panel)
         add_test(NAME editor_prototype COMMAND tessera_editor_prototype)
+        add_test(NAME settings COMMAND tessera_settings)
     endif()
     include(tests/cmake/register.cmake)
 endif()

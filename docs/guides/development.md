@@ -53,6 +53,19 @@ ctest --test-dir build -C Debug -R '^editor_prototype$' --output-on-failure
 
 Use `Release` for the other configuration. The executable checks panel invariants, schema/value/source observations, metadata preservation, shared eligibility, scalar editing, gesture history/cancellation, label Undo/Redo and branch truncation, label edit/removal/type replacement/restoration, parse/validation/layout/paint rejection, keyed state/focus retention, stale targets, async removal/recreation/shutdown and deterministic replay/CPU comparison. It prints a compact result and exits nonzero on a failed assertion. Source edits and images stay in memory; it opens no window and changes no fixture file. Evidence and configuration limits belong to [support](../reference/support-matrix.md#editor-label-history-evidence--2026-10-16).
 
+## Settings form fixture
+
+The [Settings example](../../examples/settings/main.cpp) uses the [C++ form authoring API](../architecture/ui-model.md#implemented-c-form-authoring) for composition, named state and derived text. The application form and reusable row function are separate from its scripted host/verification code. The host executes commands after normalized input dispatch and publishes only after preparing the complete presentation.
+
+Run it through the ordinary core build:
+
+```powershell
+& .\build\Debug\tessera_settings.exe
+ctest --test-dir build -C Debug -R '^(authoring|settings)$' --output-on-failure
+```
+
+Use `Release` for the other configuration. The executable prints its command/frame observations and exits nonzero on a failed check. It uses placeholder text and synthetic glyph coverage, captures in memory, and opens no window. The [consumer boundary](../integrations/settings-app.md#implemented-form-skeleton-boundary) owns its operations and replay limits; [support](../reference/support-matrix.md#c-form-authoring-evidence--2026-10-16) owns configuration/results.
+
 ## Scalar CPU capture workflow
 
 The [CPU renderer and capture adapter](../architecture/rendering.md#implemented-scalar-cpu-reference-backend) are part of `tessera::core`, with no optional dependency discovery. Run their pixel/resource/runner checks through the ordinary core workflow, or isolate them:

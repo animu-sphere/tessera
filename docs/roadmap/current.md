@@ -10,31 +10,30 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Build the first authoring path for the Settings reference application. Start with a small form skeleton, rather than an independent widget catalog:
+Review the [Settings form](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring), then define the next bounded operation: toggle its feature through a composed `Checkbox` and observe the same host-owned value and derived summary.
 
 ```text
-write a Settings component -> compose Text / Row / Column / Button
--> change state -> observe a derived value -> invoke a command
+compose Checkbox in the Settings row -> activate through ordinary input
+-> execute the host command -> observe value / summary / eligibility
 -> inspect -> capture -> replay / verify
 ```
 
 Minimum scope:
 
-- Define the smallest typed C++ construction surface needed for this form: primitive construction, ordered children, props/defaults, command binding, reusable composition, style attachment and explicit identity where required. Keep source/inspection visibility and actionable diagnostics.
-- Implement `Text`, `Button`, `Row` and `Column` as authoring conveniences/components over the [UI model](../architecture/ui-model.md#primitives-and-components). New privileged node kinds require a demonstrated shared low-level need that ordinary composition cannot express.
-- Give the form a simple state and derived-value surface, conceptually `state()` and `computed()`/`bind()`, over the [reactive runtime](../architecture/reactive-runtime.md). An ordinary author should not wire owner registration, binding tables, setup/cleanup or effect delivery by hand. The underlying ownership and host publication rules must remain explicit in the implementation.
-- Exercise the API from application code: change a setting through an ordinary command, display its derived summary, and reuse a component with typed props and children. Keep application data and command execution host-owned.
-- Build the fixture with existing runtime boundaries first. Before each runtime extension, record the blocked application operation, expected observation, minimum fix and focused regression. Do not infer a missing core feature from an inconvenient wrapper alone.
+- Review composition and host scaffolding separately; preserve the typed props/defaults, ordered children, explicit identity, state/computed and source diagnostics of the form surface. Promote only conveniences needed to author the Checkbox operation.
+- Define the Checkbox's observable checked value, label, focus and disabled behavior before implementation. Use ordinary Box/Text composition, styles and host commands first; before adding any semantic/runtime field, record the demonstrated consumer gap, minimum fix and focused regression here.
+- Keep pointer press/release, normalized keyboard/gamepad activation and semantic requests on the shared command eligibility/execution path. Declare the exact input sequence and expected host value/summary observations, including disabled and stale-owner rejection.
+- Preserve host-controlled full-tree preparation/publication, source-aware invalid-candidate rejection and accepted-snapshot ownership. Do not introduce dynamic mounting or lifecycle mechanisms for this single form operation.
 
-Slice acceptance: the form skeleton is authored through the high-level surface, a command updates state and its derived presentation coherently, a reusable component composes without manual mounting plumbing, and inspection plus repeated CPU capture/replay agree under declared fixed inputs. Invalid authoring inputs produce located diagnostics without replacing the accepted presentation. Verify the affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
+Slice acceptance: the Checkbox is authored through the form surface, its command changes the host value and checked/summary presentation coherently, all declared input routes share eligibility, and inspection plus repeated CPU capture/replay agree under fixed inputs. Invalid candidates preserve the accepted presentation with located diagnostics; stale or disabled requests change no host state. Verify the affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
 
-Stop this slice when those operations and lifetime/identity invariants pass. Review the application before expanding the API; do not generalize lifecycle, resources, layout or rendering to complete a proposal.
+Stop this slice when this operation and its lifetime/identity invariants pass. Return to the application before selecting bounded TextInput; do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
 
 ### Remaining milestone scope
 
 Extend that same application in consumer order, with a bounded acceptance condition before each implementation slice:
 
-1. Add `Checkbox`, then a bounded `TextInput` for the Settings fields. Prioritize caret, selection and editing, followed by clipboard, undo/redo, multiline, IME and platform hardening as actual application operations demand. Full native text integration is not a release gate.
+1. Add a bounded `TextInput` for the Settings fields after the Checkbox slice. Prioritize caret, selection and editing, followed by clipboard, undo/redo, multiline, IME and platform hardening as actual application operations demand. Full native text integration is not a release gate.
 2. Complete the [Settings workflow](../integrations/settings-app.md): multiple widgets, editable settings, conditional and repeated UI with stable identity, a selectable settings section, scrolling, commands and a host save/apply interaction. Define the exact normalized input and save observations before implementation.
 3. Add style conveniences needed by that application: reusable classes/objects, theme variables, hover/focus/pressed/disabled states, typography, spacing, border, background, sizing and alignment, all through the [ordinary style resolver](../architecture/styling.md). Strengthen Row/Column, min/max or intrinsic sizing, overflow, scrolling and text-driven sizing only for demonstrated form requirements.
 4. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.

@@ -1,6 +1,14 @@
 # Settings reference application
 
-This consumer design is **Proposed — Direction**. It defines an application workflow, not a public API or support claim. [Current work](../roadmap/current.md) owns the active subset; broader requirements need explicit promotion under the [agent policy](../agent-policy.md).
+The Proposed sections define application direction; the Implemented section describes the source-backed consumer boundary. [Current work](../roadmap/current.md) owns the active subset; broader requirements need explicit promotion under the [agent policy](../agent-policy.md). Capability and validation evidence belongs in [support](../reference/support-matrix.md).
+
+## Implemented form skeleton boundary
+
+The [Settings fixture](../../examples/settings/main.cpp) composes Text, Button, Row and Column through the [C++ form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring). `SettingsRow` is an ordinary C++ function with typed label/identity props, a default gap and ordered child content. The Settings form composes it twice, without component mounting records or binding tables. A session owns a named enabled observation and a derived summary; a host command owns the application boolean and writes that observation after dispatch.
+
+The host prepares command eligibility, full-tree styles/layout/semantics/paint and source inspection before graph publication. Logical focus/activation events exercise the keyboard/gamepad route; pointer press/release and semantic activation reach the same command descriptor and executor. Disabled command snapshots suppress activation, and old-tree owners fail resolution. An invalid style candidate returns a supplied source expression origin while the host retains its accepted snapshot.
+
+The scripted consumer uses a fixed logical viewport, explicit scale/locale/clock, placeholder text metrics and synthetic glyph coverage. It records normalized actions plus the host's accepted document/style replacements, then compares replay geometry, semantics, paint and CPU images. Replay reproduces recorded views; it does not execute the application's C++ command host. Images and source replacements stay in memory; no window, installed font, file save, native input device or GPU is implied.
 
 ## Proposed application workflow
 

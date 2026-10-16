@@ -9,6 +9,8 @@
 
 Ordinary application authors construct UI through a small typed C++ surface and a component/widget library. The surface should minimize boilerplate, support ordinary C++ composition and predictable ownership, and lower into the [common representation](../architecture/ui-model.md#common-representation). It must not introduce an execution, reconciliation or styling model of its own.
 
+The source-backed form vocabulary, session state/lifetime and lowering rules are owned by [Implemented C++ form authoring](../architecture/ui-model.md#implemented-c-form-authoring). The broader mechanisms and syntax below are Proposed, independent of that bounded contract.
+
 Illustrative syntax, not a public API contract:
 
 ```cpp

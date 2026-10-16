@@ -1,5 +1,6 @@
 #include <tessera/ui/serialization.hpp>
 #include <tessera/ui/tree.hpp>
+#include <tessera/ui/authoring.hpp>
 #include <tessera/ui/async.hpp>
 #include <tessera/ui/component.hpp>
 #include <tessera/ui/component_mount.hpp>
@@ -14,6 +15,12 @@
 static_assert(std::equality_comparable<tessera::UiDocument>);
 
 int main() {
+    tessera::authoring::Session form;
+    const auto field = form.state("field", std::string("Ready"));
+    const auto label = form.computed("label", [field] { return field.read() + "!"; });
+    const auto authored = form.lower(tessera::authoring::Column({tessera::authoring::Text(label)}));
+    if (!authored || authored.value->document.root.children[0].properties.at("text") !=
+        tessera::Property{std::string("Ready!")}) return 42;
     const auto editing = tessera::make_text_edit_state(1, "日本😀");
     if (!editing) return 40;
     const auto erased = tessera::edit_text(*editing.value,
