@@ -6,6 +6,7 @@ struct ElementData {
     NodeKind kind = NodeKind::box;
     Props props;
     std::optional<Value<std::string>> text;
+    std::optional<Value<bool>> checked_marker;
     std::optional<Value<bool>> disabled;
     std::optional<std::string> action;
     std::vector<Element> children;
@@ -35,6 +36,10 @@ struct Lowerer {
         if (data.text) {
             const auto* literal = std::get_if<std::string>(&data.text->value_);
             node.properties["text"] = literal ? *literal : std::string{};
+        }
+        if (data.checked_marker) {
+            const auto* literal = std::get_if<bool>(&data.checked_marker->value_);
+            node.properties["text"] = std::string(literal && *literal ? "[x]" : "[ ]");
         }
         if (data.action) {
             node.events["activate"] = *data.action;
@@ -77,6 +82,10 @@ struct Lowerer {
                 property = "text";
                 node.properties["text"] = data.text->snapshot(runtime);
             }
+            if (data.checked_marker) {
+                property = "text";
+                node.properties["text"] = std::string(data.checked_marker->snapshot(runtime) ? "[x]" : "[ ]");
+            }
             if (data.disabled) {
                 property = "disabled";
                 node.properties["disabled"] = data.disabled->snapshot(runtime);
@@ -106,6 +115,21 @@ Element Button(Value<std::string> label, std::string action, ButtonProps props) 
     data->props = std::move(props.node);
     data->disabled = std::move(props.disabled);
     data->action = std::move(action);
+    data->children.push_back(Text(std::move(label), {.source = data->props.source}));
+    return Element(std::move(data));
+}
+Element Checkbox(Value<std::string> label, Value<bool> checked, std::string action, CheckboxProps props) {
+    auto marker = std::make_shared<detail::ElementData>();
+    marker->kind = NodeKind::text;
+    marker->props.source = props.node.source;
+    marker->checked_marker = std::move(checked);
+    auto data = std::make_shared<detail::ElementData>();
+    data->props = std::move(props.node);
+    data->props.style.direction = FlexDirection::row;
+    if (!data->props.style.gap) data->props.style.gap = 8.f;
+    data->disabled = std::move(props.disabled);
+    data->action = std::move(action);
+    data->children.push_back(Element(std::move(marker)));
     data->children.push_back(Text(std::move(label), {.source = data->props.source}));
     return Element(std::move(data));
 }

@@ -37,6 +37,10 @@ struct ButtonProps {
     Props node;
     Value<bool> disabled = false;
 };
+struct CheckboxProps {
+    Props node;
+    Value<bool> disabled = false;
+};
 
 // Immutable composition values. Copying shares descriptions, never state/owners.
 class Element final {
@@ -51,6 +55,7 @@ private:
     friend struct detail::Lowerer;
     friend Element Text(Value<std::string>, Props);
     friend Element Button(Value<std::string>, std::string, ButtonProps);
+    friend Element Checkbox(Value<std::string>, Value<bool>, std::string, CheckboxProps);
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
 };
@@ -58,6 +63,9 @@ private:
 Element Text(Value<std::string>, Props = {});
 // An ordinary activate action; the host maps it to a CommandRegistry descriptor.
 Element Button(Value<std::string> label, std::string action, ButtonProps = {});
+// Controlled value: activation only requests a host command. The Box/Text
+// composition exposes "[x]" / "[ ]" in its ordinary button semantic name.
+Element Checkbox(Value<std::string> label, Value<bool> checked, std::string action, CheckboxProps = {});
 Element Row(std::vector<Element> children, Props = {});
 Element Column(std::vector<Element> children, Props = {});
 

@@ -10,34 +10,33 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Review the [Settings form](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring), then define the next bounded operation: toggle its feature through a composed `Checkbox` and observe the same host-owned value and derived summary.
+Review the [Settings form](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring), then define the next bounded operation: edit a username through a composed single-line `TextInput` and observe the same host-owned value and derived summary.
 
 ```text
-compose Checkbox in the Settings row -> activate through ordinary input
--> execute the host command -> observe value / summary / eligibility
+compose TextInput in the Settings row -> focus / edit through normalized input
+-> execute the host edit -> observe value / caret / selection / summary
 -> inspect -> capture -> replay / verify
 ```
 
 Minimum scope:
 
-- Review composition and host scaffolding separately; preserve the typed props/defaults, ordered children, explicit identity, state/computed and source diagnostics of the form surface. Promote only conveniences needed to author the Checkbox operation.
-- Define the Checkbox's observable checked value, label, focus and disabled behavior before implementation. Use ordinary Box/Text composition, styles and host commands first; before adding any semantic/runtime field, record the demonstrated consumer gap, minimum fix and focused regression here.
-- Keep pointer press/release, normalized keyboard/gamepad activation and semantic requests on the shared command eligibility/execution path. Declare the exact input sequence and expected host value/summary observations, including disabled and stale-owner rejection.
+- Review composition and host scaffolding separately; preserve typed props/defaults, ordered children, explicit identity, state/computed and source diagnostics. Promote only conveniences needed to author this field.
+- Define the field's value, caret/selection observations, label, focus and disabled behavior before implementation. Start with ordinary Box/Text composition and the [logical string editing contract](../architecture/input.md#implemented-logical-string-editing); record a demonstrated consumer gap, minimum fix and focused regression here before adding a semantic/runtime field.
+- Declare the exact normalized insertion, caret movement, selection extension/replacement and deletion sequence with expected host value/summary observations. Retain the Checkbox's shared eligibility and command path; define disabled, stale owner and stale edit-revision rejection for the field. Keep keyboard/gamepad focus navigation on the common input boundary.
 - Preserve host-controlled full-tree preparation/publication, source-aware invalid-candidate rejection and accepted-snapshot ownership. Do not introduce dynamic mounting or lifecycle mechanisms for this single form operation.
 
-Slice acceptance: the Checkbox is authored through the form surface, its command changes the host value and checked/summary presentation coherently, all declared input routes share eligibility, and inspection plus repeated CPU capture/replay agree under fixed inputs. Invalid candidates preserve the accepted presentation with located diagnostics; stale or disabled requests change no host state. Verify the affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
+Slice acceptance: the field is authored through the form surface; bounded single-line scalar editing updates host value and derived summary coherently and exposes declared caret/selection observations. Inspection plus repeated CPU capture/replay agree under fixed inputs. Invalid candidates preserve the accepted presentation with located diagnostics; stale or disabled requests change no host state. Verify affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
 
-Stop this slice when this operation and its lifetime/identity invariants pass. Return to the application before selecting bounded TextInput; do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
+Stop this slice when the field operation and its lifetime/identity invariants pass. Return to the application before selecting clipboard, undo/redo, multiline, IME or platform hardening; do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
 
 ### Remaining milestone scope
 
 Extend that same application in consumer order, with a bounded acceptance condition before each implementation slice:
 
-1. Add a bounded `TextInput` for the Settings fields after the Checkbox slice. Prioritize caret, selection and editing, followed by clipboard, undo/redo, multiline, IME and platform hardening as actual application operations demand. Full native text integration is not a release gate.
-2. Complete the [Settings workflow](../integrations/settings-app.md): multiple widgets, editable settings, conditional and repeated UI with stable identity, a selectable settings section, scrolling, commands and a host save/apply interaction. Define the exact normalized input and save observations before implementation.
-3. Add style conveniences needed by that application: reusable classes/objects, theme variables, hover/focus/pressed/disabled states, typography, spacing, border, background, sizing and alignment, all through the [ordinary style resolver](../architecture/styling.md). Strengthen Row/Column, min/max or intrinsic sizing, overflow, scrolling and text-driven sizing only for demonstrated form requirements.
-4. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.
-5. Review authoring friction and grow widgets only from the application's needs. Async observation, named slots, SplitPane, Stack/Overlay or bounded absolute positioning require their own consumer operation before becoming active work.
+1. Complete the [Settings workflow](../integrations/settings-app.md): multiple widgets, editable settings, conditional and repeated UI with stable identity, a selectable settings section, scrolling, commands and a host save/apply interaction. Define the exact normalized input and save observations before implementation. Extend field editing only as those operations demand; full native text integration is not a release gate.
+2. Add style conveniences needed by that application: reusable classes/objects, theme variables, hover/focus/pressed/disabled states, typography, spacing, border, background, sizing and alignment, all through the [ordinary style resolver](../architecture/styling.md). Strengthen Row/Column, min/max or intrinsic sizing, overflow, scrolling and text-driven sizing only for demonstrated form requirements.
+3. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.
+4. Review authoring friction and grow widgets only from the application's needs. Async observation, named slots, SplitPane, Stack/Overlay or bounded absolute positioning require their own consumer operation before becoming active work.
 
 ### Release exit criteria
 

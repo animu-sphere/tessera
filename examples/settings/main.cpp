@@ -36,15 +36,15 @@ ui::Element SettingsRow(SettingsRowProps props, std::vector<ui::Element> childre
     return ui::Row({ui::Text(std::move(props.label)), ui::Column(std::move(children))},
         {.id = std::move(props.id), .style = {.gap = props.gap}, .source = form_source});
 }
-ui::Element Settings(ui::Value<std::string> summary) {
+ui::Element Settings(ui::Value<bool> checked, ui::Value<std::string> summary, ui::Value<bool> disabled) {
     return ui::Column({
         ui::Text("Settings", {.id = "heading"}),
         SettingsRow({"Feature", "feature-row"}, {
-            ui::Text(summary, {.id = "summary", .source = form_source})}),
-        SettingsRow({"Action", "action-row"}, {
-            ui::Button("Toggle feature", "settings.toggle", {.node = {
+            ui::Checkbox("Enable feature", checked, "settings.toggle", {.node = {
                 .id = "toggle", .style = {.padding = Edges{6, 8, 6, 8},
-                    .background = Color{0.2f, 0.35f, 0.6f, 1}}, .source = form_source}})})},
+                    .background = Color{0.2f, 0.35f, 0.6f, 1}}, .source = form_source}, .disabled = disabled})}),
+        SettingsRow({"Status", "status-row"}, {
+            ui::Text(summary, {.id = "summary", .source = form_source})})},
         {.id = "settings", .style = {.padding = Edges{12, 12, 12, 12}, .gap = 12.f,
             .background = Color{0.94f, 0.94f, 0.96f, 1}}, .source = form_source});
 }
@@ -97,6 +97,23 @@ void verify(const Snapshot& snapshot, bool enabled) {
     for (const auto& semantic : snapshot.inspection.semantics.nodes)
         if (semantic.id == "summary") { found = true; require(semantic.name == expected, "Semantic summary differs"); }
     require(found, "Derived summary missing from inspection");
+    const auto control = *snapshot.tree->find("toggle");
+    const auto& children = snapshot.tree->get(control)->children;
+    const auto marker = enabled ? "[x]" : "[ ]";
+    require(std::get<std::string>(children[0].properties.at("text")) == marker &&
+        std::get<std::string>(children[1].properties.at("text")) == "Enable feature",
+        "Controlled checked value or label differs from host state");
+    found = false;
+    for (const auto& semantic : snapshot.inspection.semantics.nodes) if (semantic.id == "toggle") {
+        found = true;
+        require(semantic.role == SemanticRole::button && semantic.name == std::string(marker) + " Enable feature" &&
+            semantic.enabled && semantic.focusable && semantic.actions.size() == 1,
+            "Checkbox composition must expose checked text and ordinary activation eligibility");
+    }
+    require(found, "Checkbox missing from inspection");
+    const auto& marker_source = snapshot.inspection.elements[control.index + 1].source;
+    require(marker_source && marker_source->property_arguments.at("text") == form_source,
+        "Checked marker lost its source origin");
     const auto index = snapshot.tree->find("summary")->index;
     require(snapshot.inspection.elements[index].source &&
         snapshot.inspection.elements[index].source->property_arguments.at("text") == form_source,
@@ -126,10 +143,11 @@ int main() {
     try {
         ui::Session view;
         const auto enabled = view.state("enabled", false);
+        const auto disabled = view.state("disabled", false);
         const auto caption = view.computed("summary", [enabled] {
             return enabled.read() ? std::string("Feature enabled") : std::string("Feature disabled");
         });
-        const auto form = Settings(caption);
+        const auto form = Settings(enabled, caption, disabled);
         SettingsHost host(view, enabled);
         const auto registry = take(CommandRegistry::create({{"settings.toggle", "Toggle feature"}},
             {{"settings.toggle", "settings.toggle"}}));
@@ -154,12 +172,16 @@ int main() {
 
         CommandExecutor executor;
         FocusDispatcher focus;
+        std::optional<CommandInvocation> retained;
         auto operate = [&](const ActionRequest& action, CommandSource source) {
             const auto current_ui = accepted.semantic();
             auto invocation = take(accepted.commands.resolve_action(current_ui, action,
                 accepted.commands.generation(), {}, source, ++sequence));
             require(take(executor.execute(accepted.commands, invocation, host, &current_ui)).outcome.status ==
                 CommandOutcomeStatus::success, "Host command failed");
+            // Keep a fresh unexecuted request to check stale ownership after replacement.
+            retained = take(accepted.commands.resolve_action(current_ui, action,
+                accepted.commands.generation(), {}, source, ++sequence));
             auto candidate = prepare(view, form, commands(), text);
             verify(candidate, host.feature);
             view.publish();
@@ -176,7 +198,8 @@ int main() {
         logical({1us, FocusNext{}}, CommandSource::keyboard);
         logical({2us, Activate{}}, CommandSource::keyboard);
         require(host.feature, "Keyboard command did not change host state");
-        (void)take(focus.refresh(accepted.hit()));
+        require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find("toggle"),
+            "Checkbox author identity must restore keyboard/gamepad focus");
         logical({3us, Activate{}}, CommandSource::gamepad);
         require(!host.feature, "Gamepad logical activation did not change host state");
 
@@ -191,7 +214,9 @@ int main() {
         PointerDispatcher pointer;
         const InputEvent down{4us, PointerDown{{1}, point}};
         const InputEvent up{5us, PointerUp{{1}, point}};
-        (void)take(pointer.dispatch(accepted.hit(), down)); recording.steps.push_back(down);
+        const auto press = take(pointer.dispatch(accepted.hit(), down)); recording.steps.push_back(down);
+        require(press.actions.empty() && host.feature && host.executions == 3,
+            "Pointer press must not activate a controlled Checkbox");
         const auto click = take(pointer.dispatch(accepted.hit(), up)); recording.steps.push_back(up);
         require(click.actions.size() == 1, "Pointer must request exactly one activation");
         operate(click.actions[0], CommandSource::pointer);
@@ -204,11 +229,39 @@ int main() {
         require(!invalid && invalid.diagnostics[0].source &&
             invalid.diagnostics[0].source->location == form_source && accepted.tree->document() == accepted_document &&
             accepted.inspection.generation == accepted_generation, "Invalid candidate replaced accepted presentation");
-        const auto disabled = prepare(view, form, commands(false), text);
-        const auto denied = request_semantic_action(disabled.semantic(), *disabled.tree->find("toggle"), "activate");
-        require(!denied && host.executions == 4, "Command eligibility must disable ordinary activation");
+        auto reject_disabled = [&](const Snapshot& snapshot) {
+            const auto owner = *snapshot.tree->find("toggle");
+            const auto ui = snapshot.semantic();
+            const auto semantics = take(build_semantic_tree(ui));
+            for (const auto& node : semantics.nodes) if (node.id == "toggle")
+                require(!node.enabled && !node.focusable && node.actions.empty(), "Disabled Checkbox eligibility differs");
+            require(!request_semantic_action(ui, owner, "activate"), "Disabled semantic activation accepted");
+            require(!snapshot.commands.resolve_action(ui, {"activate", "settings.toggle", owner},
+                snapshot.commands.generation(), {}, CommandSource::agent, ++sequence),
+                "Disabled direct command request accepted");
+            FocusDispatcher denied_focus;
+            require(!take(denied_focus.dispatch(snapshot.hit(), {6us, FocusNext{}})).focused &&
+                take(denied_focus.dispatch(snapshot.hit(), {7us, Activate{}})).actions.empty(),
+                "Disabled Checkbox received logical focus/activation");
+            PointerDispatcher denied_pointer;
+            require(take(denied_pointer.dispatch(snapshot.hit(), {8us, PointerDown{{2}, point}})).actions.empty() &&
+                take(denied_pointer.dispatch(snapshot.hit(), {9us, PointerUp{{2}, point}})).actions.empty(),
+                "Disabled Checkbox received pointer activation");
+            require(!host.feature && host.executions == 4, "Disabled request changed host state");
+        };
+        const auto command_disabled = prepare(view, form, commands(false), text);
+        reject_disabled(command_disabled);
+        view.update([&] { disabled.write(true); });
+        const auto authored_disabled = prepare(view, form, commands(), text);
+        reject_disabled(authored_disabled);
+        view.update([&] { disabled.write(false); });
         require(!accepted.commands.resolve_action(accepted.semantic(), {"activate", "settings.toggle", target},
             accepted.commands.generation(), {}, CommandSource::agent, ++sequence), "Stale owner accepted");
+        const auto current_ui = accepted.semantic();
+        require(retained.has_value(), "Missing pending invocation fixture");
+        const auto stale = executor.execute(accepted.commands, *retained, host, &current_ui);
+        require(!stale && stale.diagnostics.front().code != "consumed_sequence" &&
+            !host.feature && host.executions == 4, "Stale retained invocation entered the host");
 
         recording.steps.push_back(ReplayTick{10us});
         FixtureGlyphs raster;
@@ -226,13 +279,19 @@ int main() {
         }
         for (const auto& observation : first.output.semantics) {
             bool found = false;
+            bool found_check = false;
+            const bool enabled_generation = observation.generation == 1 || observation.generation == 3;
+            for (const auto& node : observation.nodes) if (node.id == "toggle") {
+                found_check = true;
+                require(node.name == (enabled_generation ? "[x] Enable feature" : "[ ] Enable feature"),
+                    "Replay checked observation differs from accepted host state");
+            }
             for (const auto& node : observation.nodes) if (node.id == "summary") {
                 found = true;
-                const bool enabled_generation = observation.generation == 1 || observation.generation == 3;
                 const auto expected = enabled_generation ? "Feature enabled" : "Feature disabled";
                 require(node.name == expected, "Replay semantic summary differs from accepted host state");
             }
-            require(found, "Replay omitted summary semantics");
+            require(found && found_check, "Replay omitted summary or checked semantics");
         }
         const std::vector<std::size_t> action_steps{1, 3, 5, 8};
         for (std::size_t i = 0; i < first.output.actions.size(); ++i)
@@ -241,7 +300,7 @@ int main() {
         require(first.frames.front().image != first.frames[1].image &&
             first.frames.front().image == first.frames[2].image &&
             first.frames.front().image == first.frames[4].image, "CPU pixels do not follow host setting updates");
-        std::cout << "Settings: 4 host commands, coherent derived summary, source inspection, candidate rejection; "
+        std::cout << "Settings Checkbox: 4 host commands, coherent checked value/summary, focus, disabled/stale rejection; "
             << first.frames.size() << " deterministic CPU/replay frames (placeholder text, synthetic glyphs)\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
