@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Documentation: reviewed the editor's keyboard history route and selected two normalized Inspector-focus Undo/Redo chords as the next [bounded consumer slice](docs/roadmap/current.md#current-slice), with regression-first acceptance and an explicit stop condition. The [source review](docs/reference/support-matrix.md#editor-history-shortcut-review--2026-10-16) records the inspection limits; broader input mechanisms stay in backlog.
+
 - Added host-owned label Undo/Redo to the [editor fixture](docs/integrations/path-finder.md#implemented-in-process-panel-fixture): ordinary toolbar commands restore exact source bytes through staged full-tree presentation, retain compatible selection/state/focus/async owners, reject stale requests and open drafts, and discard redo only after a new accepted edit. Multi-entry traversal, selection independence, staging rejection/retry and deterministic CPU/replay checks are recorded in [support](docs/reference/support-matrix.md#editor-label-history-evidence--2026-10-16). Core APIs and serialized formats are unchanged.
 
 ## v0.3.0 — 2026-10-16
