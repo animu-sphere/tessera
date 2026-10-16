@@ -5,6 +5,8 @@
 #include <tessera/render/paint.hpp>
 #include <iostream>
 #include <charconv>
+#include <functional>
+#include <tuple>
 #include <stdexcept>
 
 using namespace tessera;
@@ -22,7 +24,7 @@ template<class T> T take(Result<T> result) {
     }
     return std::move(*result.value);
 }
-const ValidationContext actions{{"settings.toggle", "settings.edit"}};
+const ValidationContext actions{{"settings.toggle", "settings.edit", "settings.apply"}};
 constexpr Size viewport{480, 240};
 // Opaque fixture expression identity; the runtime opens no source file.
 const SourceLocation form_source{"fixture://settings-form", {0, 20}};
@@ -38,7 +40,7 @@ ui::Element SettingsRow(SettingsRowProps props, std::vector<ui::Element> childre
         {.id = std::move(props.id), .style = {.gap = props.gap}, .source = form_source});
 }
 ui::Element Settings(ui::Value<bool> checked, ui::Value<std::string> summary, ui::Value<bool> disabled,
-    std::optional<ui::Element> username = {}) {
+    std::optional<ui::Element> username = {}, std::vector<ui::Element> footer = {}) {
     std::vector<ui::Element> rows{
         ui::Text("Settings", {.id = "heading"}),
         SettingsRow({"Feature", "feature-row"}, {
@@ -48,6 +50,7 @@ ui::Element Settings(ui::Value<bool> checked, ui::Value<std::string> summary, ui
         SettingsRow({"Status", "status-row"}, {
             ui::Text(summary, {.id = "summary", .source = form_source})})};
     if (username) rows.insert(rows.begin() + 2, SettingsRow({"Account", "username-row"}, {*username}));
+    for (auto& element : footer) rows.push_back(std::move(element));
     return ui::Column(std::move(rows),
         {.id = "settings", .style = {.padding = Edges{12, 12, 12, 12}, .gap = 12.f,
             .background = Color{0.94f, 0.94f, 0.96f, 1}}, .source = form_source});
@@ -78,7 +81,8 @@ struct Snapshot {
     SemanticInput semantic() const { return {tree.get(), styles, &layout}; }
     HitTestInput hit() const { return {tree.get(), styles, &layout}; }
 };
-Result<Snapshot> prepare_candidate(ui::Session& view, const ui::Element& form, CommandSnapshot commands, TextShaper& text) {
+Result<Snapshot> prepare_candidate(ui::Session& view, const ui::Element& form, CommandSnapshot commands, TextShaper& text,
+    Size logical_viewport = viewport) {
     auto lowered = view.lower(form, actions);
     if (!lowered) return {std::nullopt, std::move(lowered.diagnostics)};
     auto authored = std::move(*lowered.value);
@@ -105,7 +109,7 @@ Result<Snapshot> prepare_candidate(ui::Session& view, const ui::Element& form, C
     const StyleSheet sheet;
     auto styles = resolve_styles({tree.get(), &sheet, {}, authored.styles});
     if (!styles) return fail(std::move(styles.diagnostics));
-    auto layout = compute_layout({tree.get(), *styles.value, viewport, &text});
+    auto layout = compute_layout({tree.get(), *styles.value, logical_viewport, &text});
     if (!layout) return fail(std::move(layout.diagnostics));
     auto inspection = capture_inspection({tree.get(), *styles.value, &*layout.value, &authored.sources});
     if (!inspection) return fail(std::move(inspection.diagnostics));
@@ -188,14 +192,15 @@ struct UsernameEdit final : CommandHost {
 struct RejectingShaper final : TextShaper {
     PlaceholderTextShaper fallback;
     bool layout;
-    explicit RejectingShaper(bool measure) : layout(measure) {}
+    std::string rejected;
+    explicit RejectingShaper(bool measure, std::string value = "rejected") : layout(measure), rejected(std::move(value)) {}
     Result<TextMetrics> measure(std::string_view value, const TextStyle& style, const TextConstraints& constraints) override {
-        if (layout && value == "rejected") return {std::nullopt,
+        if (layout && value == rejected) return {std::nullopt,
             {{"fixture_measure", Severity::error, "", "Injected measurement rejection."}}};
         return fallback.measure(value, style, constraints);
     }
     Result<GlyphRun> shape(std::string_view value, const TextStyle& style, const TextConstraints& constraints) override {
-        if (!layout && value == "rejected") return {std::nullopt,
+        if (!layout && value == rejected) return {std::nullopt,
             {{"fixture_shape", Severity::error, "", "Injected paint rejection."}}};
         return fallback.shape(value, style, constraints);
     }
@@ -411,10 +416,291 @@ void run_username() {
     std::cout << "Settings TextInput: " << edits << " staged host edits, UTF-8 value/selection/summary, disabled/stale rejection; "
         << first.frames.size() << " deterministic CPU/replay frames\n";
 }
+struct SettingsData {
+    std::string username;
+    bool feature = false;
+    bool operator==(const SettingsData&) const = default;
+};
+std::string saved_caption(unsigned count, const SettingsData& settings) {
+    return "Saved " + std::to_string(count) + ": " + settings.username +
+        (settings.feature ? "; feature enabled" : "; feature disabled");
+}
+// Injected synchronous application operation. It owns copies, never UI handles
+// or references into the editable draft. No filesystem service is involved.
+struct SaveObservation {
+    std::vector<SettingsData> calls;
+    void save(SettingsData settings) { calls.push_back(std::move(settings)); }
+};
+struct SettingsOperation final : CommandHost {
+    std::function<CommandOutcome(const CommandInvocationRecord&)> run;
+    explicit SettingsOperation(std::function<CommandOutcome(const CommandInvocationRecord&)> operation)
+        : run(std::move(operation)) {}
+    CommandOutcome execute(const CommandInvocationRecord& invocation) override { return run(invocation); }
+};
+
+void run_apply() {
+    constexpr Size form_viewport{640, 360};
+    ui::Session view;
+    auto username = take(make_text_edit_state(1, "Ada"));
+    SettingsData draft{username.text, false};
+    SaveObservation saves;
+    std::string result = "Not saved";
+    const auto observed = view.state("username", username);
+    const auto enabled = view.state("enabled", draft.feature);
+    const auto saved = view.state("save-result", result);
+    const auto disabled = view.state("apply-disabled", false);
+    const auto caption = view.computed("summary", [observed, enabled] {
+        return "User " + observed.read().text + (enabled.read() ? "; feature enabled" : "; feature disabled");
+    });
+    const auto form = Settings(enabled, caption, false,
+        ui::TextInput("Username", observed, "settings.edit", {.node = {.id = "username", .source = form_source}}), {
+            ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .source = form_source}, .disabled = disabled}),
+            ui::Text(saved, {.id = "save-result", .source = form_source})});
+    const auto registry = take(CommandRegistry::create(
+        {{"settings.toggle", "Toggle feature"}, {"settings.edit", "Edit username"}, {"settings.apply", "Apply settings"}},
+        {{"settings.toggle", "settings.toggle"}, {"settings.edit", "settings.edit"}, {"settings.apply", "settings.apply"}}));
+    std::uint64_t generation = 0, sequence = 0;
+    auto commands = [&](bool allowed = true) {
+        return take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
+            {{"settings.toggle", {true}}, {"settings.edit", {true}}, {"settings.apply", {allowed}}}));
+    };
+    PlaceholderTextShaper text;
+    auto accepted = take(prepare_candidate(view, form, commands(), text, form_viewport));
+    view.publish();
+    ReplayRecording recording;
+    recording.context = actions; recording.viewport = form_viewport;
+    recording.document = accepted.tree->document(); recording.styles = accepted.styles;
+    recording.environment.scale = 1.25f; recording.environment.locale = "en";
+    FixtureGlyphs raster; GlyphCache cache(raster); CpuFrameCapture frames(&cache);
+    const auto extent = take(capture_extent(form_viewport, recording.environment.scale));
+    std::vector<UiDrawList> paints;
+    std::vector<std::vector<ReplayBox>> boxes;
+    std::vector<CapturedImage> images;
+    using Names = std::map<std::string, std::string>;
+    std::vector<Names> names;
+    auto observations = [](const Snapshot& snapshot) {
+        Names values;
+        for (const auto& node : snapshot.inspection.semantics.nodes)
+            if (node.id) values.emplace(*node.id, node.name);
+        return values;
+    };
+    auto remember = [&] {
+        const auto values = observations(accepted);
+        require(draft.username == username.text && values.at("summary") ==
+            "User " + draft.username + (draft.feature ? "; feature enabled" : "; feature disabled") &&
+            values.at("save-result") == result && values.at("apply") == "Apply" &&
+            values.at("toggle") == (draft.feature ? "[x] Enable feature" : "[ ] Enable feature"),
+            "Settings draft, saved result and inspection disagree");
+        require(values.at("username") == "Username " + username.text + " Selection " +
+            std::to_string(username.anchor) + ":" + std::to_string(username.caret), "Combined field projection differs");
+        if (!saves.calls.empty()) require(result == saved_caption(static_cast<unsigned>(saves.calls.size()), saves.calls.back()),
+            "Saved result must describe the owned host copy");
+        const auto owner = *accepted.tree->find("save-result");
+        require(accepted.inspection.elements[owner.index].source &&
+            accepted.inspection.elements[owner.index].source->property_arguments.at("text") == form_source,
+            "Save observation lost its source expression");
+        paints.push_back(accepted.paint); boxes.push_back(geometry(accepted)); names.push_back(values);
+        images.push_back(take(frames.capture({images.size(), form_viewport, recording.environment.scale,
+            extent, &accepted.paint})));
+    };
+    remember();
+    FocusDispatcher focus;
+    CommandExecutor executor;
+    std::optional<CommandInvocation> pending;
+    std::optional<ActionRequest> old_owner;
+    std::vector<CommandInvocationRecord> applied;
+    unsigned entered = 0;
+    auto stable = [&] { return std::tuple{draft, username, saves.calls, result, accepted.tree->document(),
+        accepted.inspection.generation, accepted.commands.generation(), accepted.paint}; };
+    auto operate = [&](const ActionRequest& action, CommandSource source,
+        std::optional<TextEditRequest> request = {}, TextShaper* rejecting = nullptr) {
+        const auto before = stable();
+        const auto current_ui = accepted.semantic();
+        const auto invocation = take(accepted.commands.resolve_action(current_ui, action,
+            accepted.commands.generation(), {}, source, ++sequence));
+        // The synchronous host request owns the edit envelope and copies its
+        // accepted settings. Stage every observable before calling save once.
+        SettingsOperation host([&, request = std::move(request)](const CommandInvocationRecord& call) -> CommandOutcome {
+            ++entered;
+            auto next_username = username;
+            auto next_draft = draft;
+            auto next_result = result;
+            const bool apply = call.command == "settings.apply";
+            if (call.command == "settings.edit") {
+                require(request.has_value(), "Editing requires an owned request");
+                auto edited = edit_text(username, *request);
+                if (!edited) return {CommandOutcomeStatus::error, {}, std::move(edited.diagnostics)};
+                next_username = std::move(*edited.value); next_draft.username = next_username.text;
+            } else if (call.command == "settings.toggle") next_draft.feature = !next_draft.feature;
+            else {
+                require(apply, "Unexpected Settings command");
+                next_result = saved_caption(static_cast<unsigned>(saves.calls.size()) + 1, next_draft);
+            }
+            auto restore = [&] { view.update([&] { observed.write(username); enabled.write(draft.feature); saved.write(result); }); };
+            view.update([&] { observed.write(next_username); enabled.write(next_draft.feature); saved.write(next_result); });
+            auto staged = [&] {
+                try { return prepare_candidate(view, form, commands(), rejecting ? *rejecting : text, form_viewport); }
+                catch (...) { restore(); throw; }
+            }();
+            if (!staged) { restore(); return {CommandOutcomeStatus::error, {}, std::move(staged.diagnostics)}; }
+            pending = take(accepted.commands.resolve_action(current_ui, action,
+                accepted.commands.generation(), {}, source, ++sequence));
+            old_owner = action;
+            if (apply) { saves.save(next_draft); applied.push_back(call); }
+            username = std::move(next_username); draft = std::move(next_draft); result = std::move(next_result);
+            view.publish(); accepted = std::move(*staged.value);
+            return {};
+        });
+        const auto execution = take(executor.execute(accepted.commands, invocation, host, &current_ui));
+        if (rejecting) {
+            require(execution.outcome.status == CommandOutcomeStatus::error && !execution.outcome.diagnostics.empty() &&
+                execution.outcome.diagnostics[0].source && execution.outcome.diagnostics[0].source->location == form_source &&
+                before == stable(), "Rejected Apply changed settings/save/presentation or lost its source");
+            // The failed request is consumed even though its presentation was retained.
+            const auto duplicate = executor.execute(accepted.commands, invocation, host, &current_ui);
+            require(!duplicate && duplicate.diagnostics[0].code == "consumed_sequence", "Failed Apply entered twice");
+            return;
+        }
+        require(execution.outcome.status == CommandOutcomeStatus::success, "Combined settings command failed");
+        const auto after = stable();
+        const auto refreshed_ui = accepted.semantic();
+        const auto duplicate = executor.execute(accepted.commands, invocation, host, &refreshed_ui);
+        require(!duplicate && duplicate.diagnostics[0].code == "consumed_sequence" && stable() == after,
+            "Accepted Settings command executed twice");
+        recording.steps.push_back(ReplayReload{accepted.tree->document(), accepted.styles});
+        remember();
+    };
+    auto logical = [&](InputEvent event, CommandSource source = CommandSource::keyboard) {
+        const auto dispatched = take(focus.dispatch(accepted.hit(), event));
+        recording.steps.push_back(event);
+        for (const auto& action : dispatched.actions) operate(action, source);
+    };
+    auto insert = [&](InputEvent event) {
+        require(validate(event).empty() && take(focus.refresh(accepted.hit())).focused == accepted.tree->find("username"),
+            "Text insertion must target the accepted focused username");
+        const auto& input = std::get<tessera::TextInput>(event.data);
+        operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find("username"), "activate")),
+            CommandSource::keyboard, TextEditRequest{username.owner, username.revision, TextEditInsert{input.text}});
+    };
+    auto semantic_apply = [&] {
+        recording.steps.push_back(ReplaySemanticAction{AuthorIdTarget{"apply"}});
+        operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find("apply"), "activate")), CommandSource::agent);
+    };
+    logical({1us, FocusNext{}}); logical({2us, FocusNext{}});
+    insert({3us, tessera::TextInput{"本"}});
+    require(draft == SettingsData{"Ada本", false} && saves.calls.empty(), "Editing saved prematurely");
+    logical({4us, FocusPrevious{}}); logical({5us, Activate{}});
+    logical({6us, FocusNext{}}); logical({7us, FocusNext{}});
+    require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find("apply"), "Apply focus order differs");
+    logical({8us, Activate{}});
+    require(saves.calls == std::vector<SettingsData>{{"Ada本", true}}, "Keyboard Apply payload differs");
+    require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find("apply"), "Apply replacement lost focus");
+    logical({9us, Activate{}}, CommandSource::gamepad);
+    const auto box = accepted.layout.boxes[accepted.tree->find("apply")->index].border_box;
+    const Point point{box.origin.x + 1, box.origin.y + 1};
+    PointerDispatcher pointer;
+    const InputEvent down{10us, PointerDown{{1}, point}}, up{11us, PointerUp{{1}, point}};
+    const auto before_press = stable();
+    require(take(pointer.dispatch(accepted.hit(), down)).actions.empty() && stable() == before_press,
+        "Pointer press saved before release");
+    recording.steps.push_back(down);
+    const auto click = take(pointer.dispatch(accepted.hit(), up)); recording.steps.push_back(up);
+    require(click.actions.size() == 1, "Apply release must request one command");
+    operate(click.actions[0], CommandSource::pointer);
+    semantic_apply();
+    require(saves.calls.size() == 4, "Four Apply routes did not save once each");
+    for (const auto& payload : saves.calls) require(payload == SettingsData{"Ada本", true}, "Apply routes copied different settings");
+    logical({12us, FocusPrevious{}}); insert({13us, tessera::TextInput{"!"}});
+    logical({14us, FocusPrevious{}}); logical({15us, Activate{}});
+    require(draft == SettingsData{"Ada本!", false} && saves.calls.back() == SettingsData{"Ada本", true} &&
+        result == "Saved 4: Ada本; feature enabled", "Draft mutation changed the owned saved payload/result");
+    logical({16us, FocusNext{}}); logical({17us, FocusNext{}});
+    for (bool measure : {true, false}) {
+        RejectingShaper rejecting(measure, saved_caption(5, draft));
+        operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find("apply"), "activate")),
+            CommandSource::agent, {}, &rejecting);
+    }
+    semantic_apply();
+    require(saves.calls.size() == 5 && saves.calls.back() == draft && result == "Saved 5: Ada本!; feature disabled",
+        "Retry did not save the edited draft once");
+    const auto before_rejections = stable();
+    SettingsOperation forbidden([&](const CommandInvocationRecord&) { ++entered; saves.save(draft); return CommandOutcome{}; });
+    const auto entered_before = entered;
+    const auto current_ui = accepted.semantic();
+    require(pending && old_owner, "Missing pending Apply guards");
+    const auto stale = executor.execute(accepted.commands, *pending, forbidden, &current_ui);
+    require(!stale && stale.diagnostics[0].code != "consumed_sequence" &&
+        !accepted.commands.resolve_action(current_ui, *old_owner, accepted.commands.generation(), {}, CommandSource::agent, ++sequence),
+        "Stale Apply invocation or owner accepted");
+    // Even equal command counters cannot make an invocation's tree owner live.
+    const auto live_action = take(request_semantic_action(current_ui, *accepted.tree->find("apply"), "activate"));
+    const auto live_invocation = take(accepted.commands.resolve_action(current_ui, live_action,
+        accepted.commands.generation(), {}, CommandSource::agent, ++sequence));
+    const auto replacement = take(prepare_candidate(view, form, accepted.commands, text, form_viewport));
+    const auto replacement_ui = replacement.semantic();
+    require(!executor.execute(replacement.commands, live_invocation, forbidden, &replacement_ui), "Foreign tree accepted equal counters");
+    for (bool authored : {false, true}) {
+        view.update([&] { disabled.write(authored); });
+        const auto denied = take(prepare_candidate(view, form, commands(authored), text, form_viewport));
+        const auto owner = *denied.tree->find("apply");
+        const auto denied_ui = denied.semantic();
+        require(!request_semantic_action(denied_ui, owner, "activate") &&
+            !denied.commands.resolve_action(denied_ui, {"activate", "settings.apply", owner}, denied.commands.generation(), {},
+                CommandSource::agent, ++sequence), "Disabled Apply resolved");
+        require(!executor.execute(denied.commands, live_invocation, forbidden, &denied_ui), "Disabled execution entered host");
+        for (const auto& node : denied.inspection.semantics.nodes) if (node.id == "apply")
+            require(!node.enabled && !node.focusable && node.actions.empty(), "Disabled Apply semantics disagree");
+        FocusDispatcher denied_focus;
+        require(!denied_focus.focus(denied.hit(), owner), "Disabled Apply acquired focus");
+        // Keyboard and gamepad host routes both normalize to Activate.
+        require(take(denied_focus.dispatch(denied.hit(), {18us, Activate{}})).actions.empty(), "Disabled logical Apply activated");
+        PointerDispatcher denied_pointer;
+        require(take(denied_pointer.dispatch(denied.hit(), {19us, PointerDown{{2}, point}})).actions.empty() &&
+            take(denied_pointer.dispatch(denied.hit(), {20us, PointerUp{{2}, point}})).actions.empty(), "Disabled pointer Apply activated");
+    }
+    view.update([&] { disabled.write(false); });
+    auto malformed = username; malformed.caret = 4; // Inside 本 at bytes 3..6.
+    view.update([&] { observed.write(malformed); });
+    const auto invalid = prepare_candidate(view, form, commands(), text, form_viewport);
+    require(!invalid && invalid.diagnostics[0].source && invalid.diagnostics[0].source->location == form_source,
+        "Invalid combined form lost located diagnostics");
+    view.update([&] { observed.write(username); });
+    require(stable() == before_rejections && entered == entered_before, "Rejected request changed host state or entered save");
+    require(observations(take(prepare_candidate(view, form, commands(), text, form_viewport))) == names.back(),
+        "Rejected candidate left stale reactive observations");
+    recording.steps.push_back(ReplayTick{21us});
+    const auto first = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
+    const auto repeated = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
+    require(first == repeated && first.frames.size() == paints.size() + 1 && first.output.actions.size() == 7,
+        "Combined Apply CPU/replay or action count differs");
+    for (std::size_t i = 0; i < paints.size(); ++i)
+        require(first.output.generations[i].paint == paints[i] && first.output.generations[i].boxes == boxes[i] &&
+            first.frames[i].image == images[i], "Accepted presentation/capture differs from Apply replay");
+    for (const auto& observation : first.output.semantics) {
+        Names values;
+        for (const auto& node : observation.nodes) if (node.id) values.emplace(*node.id, node.name);
+        require(values == names[std::min(observation.generation, names.size() - 1)], "Apply replay semantics differ");
+    }
+    const std::vector<std::string> expected_actions{"settings.toggle", "settings.apply", "settings.apply", "settings.apply",
+        "settings.apply", "settings.toggle", "settings.apply"};
+    for (std::size_t i = 0; i < expected_actions.size(); ++i)
+        require(first.output.actions[i].action == expected_actions[i] && first.output.actions[i].id ==
+            (expected_actions[i] == "settings.apply" ? "apply" : "toggle"), "Apply replay action target/order differs");
+    const std::vector<CommandSource> sources{CommandSource::keyboard, CommandSource::gamepad, CommandSource::pointer,
+        CommandSource::agent, CommandSource::agent};
+    require(applied.size() == sources.size(), "Apply execution count differs from host saves");
+    for (std::size_t i = 0; i < applied.size(); ++i)
+        require(applied[i].command == "settings.apply" && applied[i].source == sources[i] && applied[i].owner &&
+            applied[i].owner->action == "settings.apply", "Apply did not share a descriptor/executor/owner");
+    require(images[2] != images[3] && images[3] != images[4], "Saved result changes are absent from CPU capture");
+    std::cout << "Settings Apply: 5 owned host saves, shared keyboard/gamepad/pointer/semantic command, staged/disabled/stale rejection; "
+        << first.frames.size() << " deterministic CPU/replay frames\n";
+}
 } // namespace
 
 int main() {
     try {
+        run_apply();
         run_username();
         ui::Session view;
         const auto enabled = view.state("enabled", false);
