@@ -7,6 +7,7 @@
 #include <tessera/render/paint.hpp>
 #include <tessera/ui/component_tree_mount.hpp>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
@@ -169,12 +170,25 @@ struct Editor {
     UiNode authored_label;
     std::string source;
     CommandRegistry registry;
-    ValidationContext actions{{"select-headline", "select-subtitle", "edit-label"}};
+    ValidationContext actions{{"select-headline", "select-subtitle", "edit-label", "undo-label", "redo-label"}};
+    struct SourceEdit {
+        std::string before, after;
+        bool operator==(const SourceEdit&) const = default;
+    };
+    std::vector<SourceEdit> source_history;
+    std::size_t history_position = 0;
     std::map<std::string, ComponentSetup> rows;
     std::optional<AsyncValue> asset;
     std::vector<AsyncAttempt> detached;
     std::uint64_t generation = 0, sequence = 0;
     std::vector<std::size_t> created;
+
+    std::pair<bool, bool> history_available(std::optional<std::string_view> candidate = {}) const {
+        if (host.saved_edit) return {};
+        const auto bytes = candidate.value_or(source);
+        return {history_position > 0 && source_history[history_position - 1].after == bytes,
+            history_position < source_history.size() && source_history[history_position].before == bytes};
+    }
 
     static const UiNode* label(const UiDocument& document, std::string_view id) {
         for (const auto& node : document.root.children) if (node.id == id) return &node;
@@ -209,8 +223,11 @@ struct Editor {
         anchor.minimum = 0; anchor.maximum = double(max_text_edit_bytes);
         auto caret = anchor; caret.name = "caret";
         edit.parameters = {node, value, anchor, caret};
-        return take(CommandRegistry::create({select, edit},
-            {{"select-headline", select.id}, {"select-subtitle", select.id}, {"edit-label", edit.id}}));
+        CommandDescriptor undo; undo.id = "editor.undo"; undo.label = "Undo label edit";
+        CommandDescriptor redo; redo.id = "editor.redo"; redo.label = "Redo label edit";
+        return take(CommandRegistry::create({select, edit, undo, redo},
+            {{"select-headline", select.id}, {"select-subtitle", select.id}, {"edit-label", edit.id},
+                {"undo-label", undo.id}, {"redo-label", redo.id}}));
     }
     Editor() : registry(commands()) {
         std::ifstream file(TESSERA_EDITOR_FIXTURE, std::ios::binary);
@@ -225,7 +242,8 @@ struct Editor {
     Presentation present(std::vector<std::string> order = {"headline", "subtitle"}, bool enabled = true,
                          const SourcedDocument* candidate = nullptr, bool staging = false,
                          bool preview_active = true, std::optional<SourceSpan> changed_origin = {},
-                         TextShaper* candidate_shaper = nullptr) {
+                         TextShaper* candidate_shaper = nullptr,
+                         std::optional<std::pair<bool, bool>> history_state = {}, const TextEditState* displayed_edit = nullptr) {
         const auto& displayed = candidate ? *candidate : preview;
         std::erase_if(order, [&](const auto& id) { return !label(displayed.document, id); });
         std::set<std::string, std::less<>> targets;
@@ -233,8 +251,10 @@ struct Editor {
         const bool selected = preview_active && host.selection && targets.contains(*host.selection);
         const bool retained_preview = preview_active && preview_kind(displayed.document) == preview_kind(preview.document);
         auto& text_shaper = candidate_shaper ? *candidate_shaper : static_cast<TextShaper&>(shaper);
+        const auto [undo, redo] = history_state.value_or(history_available());
         auto commands = take(CommandSnapshot::publish(registry, generation + 1, CommandMode::production,
-            {{"editor.select", {enabled && preview_active}}, {"editor.label", {enabled && selected}}}, targets));
+            {{"editor.select", {enabled && preview_active}}, {"editor.label", {enabled && selected}},
+                {"editor.undo", {enabled && preview_active && undo}}, {"editor.redo", {enabled && preview_active && redo}}}, targets));
         if (!staging) {
             // Edits are node-free author-ID transactions. Every publication
             // rechecks command eligibility before deriving the Inspector draft.
@@ -252,8 +272,14 @@ struct Editor {
             StyleDeclarations panel; panel.width = Dimension::points(240); panel.height = Dimension::points(240);
             panel.overflow = Overflow::clip; style(root, id, panel);
         }
-        auto toolbar = component("toolbar", text("inspect-selection", "Inspect heading"));
-        if (targets.contains("headline")) action(toolbar, "inspect-selection", "select-headline");
+        auto toolbar = component("toolbar", box("toolbar", {text("inspect-selection", "Inspect heading"),
+            text("undo-label", "Undo"), text("redo-label", "Redo")}));
+        for (auto& item : toolbar.document.root.children) {
+            if (item.id == "inspect-selection" && !targets.contains("headline")) continue;
+            item.properties["focusable"] = true; item.properties["disabled"] = false;
+            const auto binding = item.id == "inspect-selection" ? "select-headline" : *item.id;
+            toolbar.actions.push_back({*item.id, binding}); toolbar.events.push_back({*item.id, *item.id, "activate"});
+        }
         auto hierarchy = component("hierarchy", box("hierarchy", {text("hierarchy-title", "Hierarchy"), box("rows")}));
         hierarchy.slots = {{"rows", "rows", NodeKinds::text}};
         auto central = component(preview_active ? preview_kind(displayed.document) : "empty-preview", box("preview"));
@@ -266,11 +292,12 @@ struct Editor {
             StyleDeclarations empty; empty.width = Dimension::points(20); empty.height = Dimension::points(20);
             style(central, "preview", empty);
         }
+        const auto* draft = displayed_edit ? displayed_edit : (host.editing ? &*host.editing : nullptr);
         auto inspector = component("inspector", box("inspector", {text("inspector-title", "Inspector"),
             text("inspector-property", selected && host.field ? host.field->property + " (string)" : "Select a node"),
-            text("inspector-value", selected && host.editing ? host.editing->text : ""),
-            text("inspector-selection", selected && host.editing ? std::to_string(host.editing->anchor) + ":" +
-                std::to_string(host.editing->caret) : ""),
+            text("inspector-value", selected && draft ? draft->text : ""),
+            text("inspector-selection", selected && draft ? std::to_string(draft->anchor) + ":" +
+                std::to_string(draft->caret) : ""),
             text("inspector-origin", selected && host.field ? "preview.json:" +
                 std::to_string(changed_origin.value_or(host.field->span).begin) : "")}));
         inspector.document.root.children[2].properties["focusable"] = true;
@@ -442,9 +469,15 @@ struct Editor {
         // The fixture's preview children are its authored label targets.
         for (auto& node : expected.root.children) if (node.id == host.selection) node.properties[host.field->property] = value;
         if (expected != candidate.value->document || std::get<std::string>(value) != host.editing->text) return unsupported();
+        // Prepare the host-owned branch before accepting the gesture. Traversal
+        // never creates another transaction or appends to the commit audit.
+        auto history = source_history;
+        history.resize(history_position);
+        history.push_back({source, changed});
         std::optional<Presentation> staged;
         try {
-            staged = present({"headline", "subtitle"}, true, &*candidate.value, true, true, pointer, candidate_shaper);
+            staged = present(current.order, true, &*candidate.value, true, true, pointer, candidate_shaper,
+                std::pair{true, false});
         } catch (const FixtureRejection& failure) {
             auto diagnostics = failure.diagnostics;
             for (auto& diagnostic : diagnostics) if (!diagnostic.source)
@@ -458,10 +491,88 @@ struct Editor {
         check(take(gestures.complete(gesture_id, current.commands, host, &ui)).status == CommandOutcomeStatus::success,
             "Label gesture commits once");
         source = std::move(changed); preview = std::move(*candidate.value);
+        source_history = std::move(history); history_position = source_history.size();
         generation = staged->commands.generation(); host.field = std::move(selected_field);
         take(focus.refresh(staged->hit())); host.accepted = staged->inspection;
         check(runtime.publish() == 0, "Reload publication failed");
         return {std::move(*staged), {}};
+    }
+    Result<Presentation> restore_history(const Presentation& current, bool redo, TextShaper* candidate_shaper) {
+        const auto available = history_available();
+        if (!(redo ? available.second : available.first))
+            return {std::nullopt, {{"history_unavailable", Severity::error, "/history",
+                "Finish the draft and use history matching the accepted source.", {}}}};
+        const auto next = redo ? history_position + 1 : history_position - 1;
+        auto changed = redo ? source_history[history_position].after : source_history[next].before;
+        auto candidate = take(load_document_with_sources(changed, TESSERA_EDITOR_FIXTURE));
+        std::optional<InspectorField> field;
+        auto editing = host.editing;
+        std::optional<SourceSpan> origin;
+        if (host.selection) {
+            const auto tree = take(UiTree::create(candidate.document));
+            const auto target = *tree->find(*host.selection);
+            origin = candidate.sources.nodes[target.index].properties.at(host.field->property);
+            const auto& value = std::get<std::string>(tree->get(target)->properties.at(host.field->property));
+            // Use the same bounded revisioned transform as live editing, but
+            // keep this candidate private until the full presentation succeeds.
+            auto restored = edit_text(*editing, {editing->owner, editing->revision,
+                editing->text == value ? TextEditSelection{editing->anchor, editing->caret} : TextEditSelection{0, editing->text.size()}});
+            if (restored && editing->text != value)
+                restored = edit_text(*restored.value, {restored.value->owner, restored.value->revision, TextEditInsert{value}});
+            if (!restored) {
+                for (auto& diagnostic : restored.diagnostics) if (!diagnostic.source)
+                    diagnostic.source = DiagnosticSource{{TESSERA_EDITOR_FIXTURE, *origin}, DiagnosticOrigin::value};
+                return {std::nullopt, std::move(restored.diagnostics)};
+            }
+            editing = std::move(*restored.value);
+        }
+        std::optional<Presentation> staged;
+        try {
+            staged = present(current.order, true, &candidate, true, true, origin, candidate_shaper,
+                std::pair{next > 0 && source_history[next - 1].after == changed,
+                    next < source_history.size() && source_history[next].before == changed}, editing ? &*editing : nullptr);
+        } catch (const FixtureRejection& failure) {
+            auto diagnostics = failure.diagnostics;
+            for (auto& diagnostic : diagnostics) if (!diagnostic.source)
+                diagnostic.source = DiagnosticSource{{TESSERA_EDITOR_FIXTURE,
+                    origin.value_or(candidate.sources.nodes[0].span)}, origin ? DiagnosticOrigin::value : DiagnosticOrigin::node};
+            return {std::nullopt, std::move(diagnostics)};
+        }
+        if (host.selection) field = inspect_string(staged->inspection,
+            take(resolve_target(staged->inspection, AuthorIdTarget{*host.selection})));
+        source = std::move(changed); preview = std::move(candidate); history_position = next;
+        host.field = std::move(field); host.editing = std::move(editing);
+        generation = staged->commands.generation(); host.accepted = staged->inspection;
+        take(focus.refresh(staged->hit()));
+        check(runtime.publish() == 0, "History publication failed");
+        return {std::move(*staged), {}};
+    }
+    Result<Presentation> history_command(const Presentation& current, const CommandInvocation& invocation,
+                                        TextShaper* candidate_shaper = nullptr) {
+        if (auto diagnostics = reload_identity(current); !diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
+        // Share the selection/edit execution sequence and ordinary eligibility.
+        // Host staging occurs only after the invocation has been revalidated.
+        struct Operation final : CommandHost {
+            std::function<CommandOutcome(const CommandInvocationRecord&)> apply;
+            CommandOutcome execute(const CommandInvocationRecord& record) override { return apply(record); }
+        } operation;
+        Result<Presentation> result;
+        operation.apply = [&](const CommandInvocationRecord& record) {
+            if (record.command != "editor.undo" && record.command != "editor.redo")
+                return CommandOutcome{CommandOutcomeStatus::error, {}, {{"unsupported_command", Severity::error,
+                    "/command", "Use editor.undo or editor.redo for label history.", {}}}};
+            result = restore_history(current, record.command == "editor.redo", candidate_shaper);
+            if (result) return CommandOutcome{};
+            auto diagnostics = result.diagnostics;
+            if (diagnostics.size() > max_command_result_diagnostics) diagnostics.resize(max_command_result_diagnostics);
+            return CommandOutcome{CommandOutcomeStatus::error, {}, std::move(diagnostics)};
+        };
+        const auto ui = current.ui();
+        auto executed = transactions.execute(current.commands, invocation, operation, &ui);
+        if (!executed) return {std::nullopt, std::move(executed.diagnostics)};
+        if (executed.value->outcome.status != CommandOutcomeStatus::success)
+            return {std::nullopt, std::move(executed.value->outcome.diagnostics)};
+        return result;
     }
     // Exact fixture compatibility, with no migration or new runtime transaction.
     // Presentation is prepared using retained weak state and fresh defaults;
@@ -501,7 +612,8 @@ struct Editor {
         }
         std::optional<Presentation> staged;
         try {
-            staged = present({"headline", "subtitle"}, true, &*candidate.value, true, true, selected_origin, candidate_shaper);
+            staged = present({"headline", "subtitle"}, true, &*candidate.value, true, true, selected_origin, candidate_shaper,
+                history_available(changed));
         } catch (const FixtureRejection& failure) {
             return located(failure.diagnostics);
         }
@@ -537,6 +649,199 @@ struct RejectingShaper final : TextShaper {
         return {std::nullopt, {{"fixture_shape", Severity::error, "/text", "Synthetic paint rejection.", {}}}};
     }
 };
+
+void run_label_history() {
+    Editor editor;
+    auto current = editor.present();
+    auto command = [&](const Presentation& observed, bool redo, CommandSource source = CommandSource::agent) {
+        const auto id = redo ? "redo-label" : "undo-label";
+        const auto action = take(request_semantic_action(observed.ui(), *observed.tree->find(id), "activate"));
+        return take(observed.commands.resolve_action(observed.ui(), action, observed.commands.generation(),
+            {}, source, ++editor.sequence));
+    };
+    auto unavailable = [&](const Presentation& observed, bool redo) {
+        check(!observed.commands.resolve({observed.commands.generation(), redo ? "editor.redo" : "editor.undo", {},
+            CommandSource::agent, ++editor.sequence}) &&
+            !request_semantic_action(observed.ui(), *observed.tree->find(redo ? "redo-label" : "undo-label"), "activate"),
+            "History command and semantic eligibility agree");
+    };
+    unavailable(current, false); unavailable(current, true);
+    auto select = [&](std::string_view id) {
+        editor.operate(current, take(request_semantic_action(current.ui(), *current.tree->find("row-" + std::string(id)), "activate")),
+            CommandSource::agent);
+        current = editor.present();
+        take(editor.focus.focus(current.hit(), *current.tree->find("inspector-value")));
+        current = editor.present();
+    };
+    select("headline");
+    const auto row = editor.rows.at("headline");
+    auto pinned = take(row.state<bool>("pinned")); pinned.write(true);
+    const auto pending = take(editor.asset->begin("history-resource"));
+    current = editor.present({"subtitle", "headline"});
+    const auto observation = editor.asset->read();
+    const auto initial_source = editor.source;
+    const auto initial_image = capture(current, editor.actions);
+    std::uint64_t gesture = 300;
+    auto commit = [&](std::string value, bool reject_branch = false) {
+        ++gesture;
+        take(editor.edit(current, {editor.host.editing->owner, editor.host.editing->revision,
+            TextEditSelection{0, editor.host.editing->text.size()}}, gesture));
+        take(editor.edit(current, {editor.host.editing->owner, editor.host.editing->revision, TextEditInsert{std::move(value)}}, gesture));
+        current = editor.present(current.order);
+        unavailable(current, false); unavailable(current, true);
+        if (reject_branch) {
+            const auto history = editor.source_history;
+            const auto cursor = editor.history_position;
+            const auto source = editor.source;
+            RejectingShaper failing(false, editor.host.editing->text);
+            check(!editor.reload_label(current, editor.edited_source(), gesture, &failing) &&
+                editor.source_history == history && editor.history_position == cursor && editor.source == source &&
+                editor.gestures.active() == gesture, "Rejected branch edit retains the redo branch and open gesture");
+        }
+        current = take(editor.reload_label(current, editor.edited_source(), gesture));
+    };
+    auto coherent = [&] {
+        const auto target = take(resolve_target(current.inspection, AuthorIdTarget{*editor.host.selection}));
+        check(inspect_string(current.inspection, target) == editor.host.field &&
+            editor.host.field->value == editor.host.editing->text &&
+            std::get<std::string>(current.tree->get(*current.tree->find("inspector-value"))->properties.at("text")) == editor.host.editing->text,
+            "History publishes coherent preview, Inspector value and source span");
+        check(editor.rows.at("headline").instance().lifetime == row.instance().lifetime && pinned.read() &&
+            editor.asset->read() == observation && editor.detached.empty() &&
+            take(editor.focus.refresh(current.hit())).focused == current.tree->find("inspector-value") &&
+            !editor.gestures.active() && !editor.host.saved_edit && editor.runtime.deliver_cleanups().empty(),
+            "History retains keyed state, focus and async lifetime without new transactions or cleanup");
+        const auto captured = capture(current, editor.actions);
+        check(captured == capture(current, editor.actions), "History replay observations and CPU bytes reproduce");
+        for (std::size_t i = 0; i < current.layout.boxes.size(); ++i)
+            check(captured.output.generations[0].boxes[i].border_box == current.layout.boxes[i].border_box,
+                "History replay geometry equals accepted full-tree geometry");
+    };
+    commit("日本😀 \"edited\"");
+    coherent();
+    const auto edited_source = editor.source;
+    const auto edited_image = capture(current, editor.actions);
+    const auto old_edit = *editor.host.editing;
+    check(editor.source_history.size() == 1 && editor.history_position == 1 && editor.host.history.size() == 1,
+        "One committed gesture produces one traversable source entry");
+    unavailable(current, true);
+    // A consumed failure uses a new request sequence on retry, while preserving
+    // the entire accepted host presentation and its owned observations.
+    auto reject_presentation = [&](bool redo, bool layout) {
+        const auto source = editor.source;
+        const auto preview = editor.preview.document;
+        const auto generation = editor.generation;
+        const auto accepted = editor.host.accepted.generation;
+        const auto editing = editor.host.editing;
+        const auto field = editor.host.field;
+        const auto history = editor.source_history;
+        const auto cursor = editor.history_position;
+        const auto audit = editor.host.history;
+        const auto focused = take(editor.focus.refresh(current.hit())).focused;
+        const auto image = capture(current, editor.actions);
+        RejectingShaper failing(layout);
+        const auto invocation = command(current, redo);
+        const auto result = editor.history_command(current, invocation, &failing);
+        check(!result && !result.diagnostics.empty() && result.diagnostics.size() <= max_command_result_diagnostics &&
+            result.diagnostics[0].source && result.diagnostics[0].code == (layout ? "fixture_measure" : "fixture_shape"),
+            "History staging failure returns a located result diagnostic: " +
+                (result.diagnostics.empty() ? std::string("no diagnostic") : result.diagnostics[0].code + ": " + result.diagnostics[0].message));
+        check(editor.source == source && editor.preview.document == preview && editor.generation == generation &&
+            editor.host.accepted.generation == accepted && editor.host.editing == editing && editor.host.field == field &&
+            editor.source_history == history && editor.history_position == cursor && editor.host.history == audit &&
+            editor.asset->read() == observation && pinned.read() && editor.detached.empty() &&
+            editor.rows.at("headline").instance().lifetime == row.instance().lifetime &&
+            take(editor.focus.refresh(current.hit())).focused == focused &&
+            capture(current, editor.actions) == image, "History rejection leaves accepted state and cursor intact");
+        check(!editor.history_command(current, invocation), "Failed entered history request cannot execute twice");
+    };
+    reject_presentation(false, true); reject_presentation(false, false);
+    const auto delayed = command(current, false);
+    const auto retained_generation = current.commands.generation();
+    auto previous = std::move(current);
+    current = take(editor.history_command(previous, command(previous, false)));
+    check(editor.source == initial_source && editor.history_position == 0 && editor.host.history.size() == 1 &&
+        current.commands.generation() == retained_generation + 1 && current.order == previous.order,
+        "Undo restores exact bytes once and preserves hierarchy order without another history entry");
+    coherent();
+    check(!editor.edit(current, {old_edit.owner, old_edit.revision, TextEditInsert{"late"}}, gesture) &&
+        !editor.history_command(current, delayed) && !editor.history_command(previous, delayed),
+        "Undo invalidates previous edit revisions, invocations and presentation requests");
+    Editor foreign;
+    auto foreign_view = foreign.present();
+    while (foreign_view.commands.generation() < current.commands.generation()) foreign_view = foreign.present();
+    check(!editor.history_command(foreign_view, delayed), "Foreign editor presentations cannot traverse history");
+    unavailable(current, false);
+    reject_presentation(true, true); reject_presentation(true, false);
+    // Synthetic pointer and logical keyboard activation return ordinary actions.
+    const auto redo_box = current.inspection.elements[current.tree->find("redo-label")->index].geometry->border_box;
+    const Point point{redo_box.origin.x + 2, redo_box.origin.y + 2};
+    PointerDispatcher pointer;
+    take(pointer.dispatch(current.hit(), {1us, PointerDown{{1}, point}}));
+    const auto click = take(pointer.dispatch(current.hit(), {2us, PointerUp{{1}, point}}));
+    check(click.actions.size() == 1 && click.actions[0].action == "redo-label", "Pointer produces ordinary Redo action");
+    auto clicked = take(current.commands.resolve_action(current.ui(), click.actions[0], current.commands.generation(),
+        {}, CommandSource::pointer, ++editor.sequence));
+    const auto before_redo = editor.generation;
+    current = take(editor.history_command(current, clicked));
+    coherent();
+    check(editor.source == edited_source && editor.history_position == 1 && editor.host.history.size() == 1 &&
+        editor.generation == before_redo + 1 &&
+        capture(current, editor.actions) == edited_image && initial_image.frames[0].image != edited_image.frames[0].image,
+        "Redo reproduces exact accepted source, observations and CPU pixels");
+    // Live host state also gates a command resolved before a draft was opened.
+    const auto before_draft = command(current, false);
+    take(editor.edit(current, {editor.host.editing->owner, editor.host.editing->revision, TextEditInsert{" draft"}}, ++gesture));
+    const auto draft = editor.host.editing;
+    check(!editor.history_command(current, before_draft) && editor.host.editing == draft && editor.history_position == 1 &&
+        editor.source == edited_source && editor.gestures.active() == gesture, "History cannot close or replace an open draft");
+    take(editor.gestures.cancel(gesture, TransactionCancel::user, editor.host));
+    select("subtitle");
+    const auto subtitle_edit = *editor.host.editing;
+    take(editor.focus.focus(current.hit(), *current.tree->find("undo-label")));
+    const auto keyboard = take(editor.focus.dispatch(current.hit(), {3us, Activate{}}));
+    check(keyboard.actions.size() == 1, "Keyboard activates eligible Undo");
+    auto activated = take(current.commands.resolve_action(current.ui(), keyboard.actions[0], current.commands.generation(),
+        {}, CommandSource::keyboard, ++editor.sequence));
+    current = take(editor.history_command(current, activated));
+    check(editor.source == initial_source && editor.host.selection == "subtitle" &&
+        editor.host.editing->text == subtitle_edit.text && editor.host.editing->owner == subtitle_edit.owner &&
+        inspect_string(current.inspection, *current.tree->find("subtitle")) == editor.host.field,
+        "Undo targets history independently of current Inspector selection");
+    current = take(editor.history_command(current, command(current, true)));
+    // Multiple labels form one linear host branch; a new edit after undo drops redo.
+    commit("Second label");
+    const auto second_source = editor.source;
+    check(editor.history_position == 2 && editor.source_history.size() == 2, "Two labels share host source history");
+    current = take(editor.history_command(current, command(current, false)));
+    check(editor.source == edited_source, "Undo second label restores first edit exactly");
+    current = take(editor.history_command(current, command(current, false)));
+    check(editor.source == initial_source, "Undo first label restores original document");
+    current = take(editor.history_command(current, command(current, true)));
+    current = take(editor.history_command(current, command(current, true)));
+    check(editor.source == second_source && editor.host.history.size() == 2, "Multi-entry redo creates no edit audit entries");
+    current = take(editor.history_command(current, command(current, false)));
+    commit("Branched label", true);
+    check(editor.source_history.size() == 2 && editor.history_position == 2 && editor.host.history.size() == 3 &&
+        editor.source_history.back().after != second_source, "Accepted edit discards the redo branch");
+    unavailable(current, true);
+    // Topology replacement is outside label history. Its source mismatch must
+    // make even an already-resolved history command harmless.
+    const auto before_structure = command(current, false);
+    auto changed = editor.preview.document;
+    std::erase_if(changed.root.children, [](const auto& node) { return node.id == "headline"; });
+    current = take(editor.reload_structure(current, take(save_document(changed))));
+    unavailable(current, false); unavailable(current, true);
+    check(!editor.history_command(current, before_structure), "Structure reload cannot be undone through label history");
+    const auto old_asset = *editor.asset;
+    const auto shutdown = take(editor.asset->begin("history-shutdown"));
+    editor.scope.dispose(); editor.runtime.flush();
+    check(editor.runtime.deliver_cleanups().empty() && editor.detached.size() == 2 &&
+        editor.detached[0].sequence() == pending.attempt.sequence() && editor.detached[1].sequence() == shutdown.attempt.sequence() &&
+        editor.runtime.deliver_cleanups().empty() && editor.detached.size() == 2 &&
+        !old_asset.complete(shutdown.attempt, std::string("late")), "History retains ordinary once-only async cleanup");
+    foreign.scope.dispose(); foreign.runtime.flush(); check(foreign.runtime.deliver_cleanups().empty(), "Foreign fixture shutdown");
+}
 
 void run_source_replacement(bool type_change) {
     Editor editor;
@@ -746,6 +1051,7 @@ void run_stale_reload(bool structure) {
 }
 
 void run() {
+    run_label_history();
     run_stale_reload(false);
     run_stale_reload(true);
     Editor editor;
@@ -982,7 +1288,7 @@ void run() {
     run_source_replacement(false);
     run_source_replacement(true);
     std::cout << "Editor panels: shared JSON preview + keyed hierarchy + schema string editor; "
-        "selection, scalar editing, gesture history/cancellation, source label edit/removal/type replacement, async lifetimes and CPU replay checks passed.\n"
+        "selection, scalar editing, gesture history/cancellation, label Undo/Redo, source label edit/removal/type replacement, async lifetimes and CPU replay checks passed.\n"
         "Core-only scripted fixture with placeholder text/synthetic glyphs; source edits and CPU images are in memory.\n";
 }
 } // namespace
