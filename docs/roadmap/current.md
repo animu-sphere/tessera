@@ -2,45 +2,56 @@
 
 Inactive candidates and deferred scope are owned by [backlog](backlog.md). Implementation authority and the subsystem stop rule are owned by the [agent policy](../agent-policy.md).
 
-## v0.4.0 — Productive tool UI
+## v0.4.0 — Practical UI Authoring
 
-Objective: extend one bounded consumer operation from the Path-finder/editor workflow through the ordinary Tessera runtime:
+Objective: **Tessera で普通に UI を書ける。** Prove that a developer can build a small application through a high-level C++ API and reusable widgets, without assembling reactive graph nodes, component mounting records, owner registrations, reconciliation tables or renderer internals for ordinary UI composition.
 
-```text
-author -> reload -> inspect -> operate -> capture -> verify
-```
+The runtime is the deterministic foundation. This milestone prioritizes authoring experience, composition, practical widgets and feedback from a real application. The [authoring proposal](../proposals/cpp-authoring.md) owns possible API mechanisms; the [Settings application design](../integrations/settings-app.md) owns the consumer workflow. Exact public syntax is open, and every convenience must lower into the ordinary runtime.
 
 ### Current slice
 
-Route label history shortcuts from the focused Inspector in the [editor fixture](../../examples/editor-prototype/main.cpp). The bounded operation is: commit a label, retain Inspector focus, send normalized Control+Z to undo, then Control+Shift+Z to redo. Use these as explicit fixture chords, without imposing platform conventions. The [source review](../reference/support-matrix.md#editor-history-shortcut-review--2026-10-16) owns the observed routing gap and its evidence limits; the [consumer contract](../integrations/path-finder.md#implemented-in-process-panel-fixture) owns accepted label history behavior.
+Build the first authoring path for the Settings reference application. Start with a small form skeleton, rather than an independent widget catalog:
+
+```text
+write a Settings component -> compose Text / Row / Column / Button
+-> change state -> observe a derived value -> invoke a command
+-> inspect -> capture -> replay / verify
+```
 
 Minimum scope:
 
-- First add a focused regression to `run_label_history` demonstrating that normalized chords from Inspector focus must reach the existing history command. Establish the failure before adding routing; do not infer a core defect from the consumer gap.
-- Compose existing [logical editing](../architecture/input.md#implemented-logical-string-editing), [keyboard shortcuts](../architecture/commands.md#implemented-keyboard-shortcut-boundary) and ordinary `history_command` execution in the host. Editing gets first refusal; pass its consumed result to shortcut routing, execute returned invocations after dispatch, and stop routing consumed input.
-- Bind the two history commands to their toolbar activation owners in the editor root scope, rebuilding the immutable shortcut map for each replacement tree. Share the host sequence stream and accepted command/inspection identity checks with other history requests.
-- Keep source snapshots, cursor, selection, resource execution and edit history host-owned. Use the same document, full-tree staging and runtime for execution and preview. Add no core API or encoded input format unless the focused regression demonstrates an existing contract failure.
+- Define the smallest typed C++ construction surface needed for this form: primitive construction, ordered children, props/defaults, command binding, reusable composition, style attachment and explicit identity where required. Keep source/inspection visibility and actionable diagnostics.
+- Implement `Text`, `Button`, `Row` and `Column` as authoring conveniences/components over the [UI model](../architecture/ui-model.md#primitives-and-components). New privileged node kinds require a demonstrated shared low-level need that ordinary composition cannot express.
+- Give the form a simple state and derived-value surface, conceptually `state()` and `computed()`/`bind()`, over the [reactive runtime](../architecture/reactive-runtime.md). An ordinary author should not wire owner registration, binding tables, setup/cleanup or effect delivery by hand. The underlying ownership and host publication rules must remain explicit in the implementation.
+- Exercise the API from application code: change a setting through an ordinary command, display its derived summary, and reuse a component with typed props and children. Keep application data and command execution host-owned.
+- Build the fixture with existing runtime boundaries first. Before each runtime extension, record the blocked application operation, expected observation, minimum fix and focused regression. Do not infer a missing core feature from an inconvenient wrapper alone.
 
-The broader [productive tool candidates](backlog.md#v040-candidate--productive-tool-ui) and [integration design](../integrations/path-finder.md#proposed-mini-prototype) are context; their widget and tooling inventories are not exit gates.
+Slice acceptance: the form skeleton is authored through the high-level surface, a command updates state and its derived presentation coherently, a reusable component composes without manual mounting plumbing, and inspection plus repeated CPU capture/replay agree under declared fixed inputs. Invalid authoring inputs produce located diagnostics without replacing the accepted presentation. Verify the affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
 
-### Implementation rule
+Stop this slice when those operations and lifetime/identity invariants pass. Review the application before expanding the API; do not generalize lifecycle, resources, layout or rendering to complete a proposal.
 
-Add runtime functionality only when this fixture cannot proceed without it, or a failing test demonstrates a correctness gap required by an existing contract. Record the failing operation, its observable expected result, the minimum fix, and its focused regression check before extending a subsystem. Consult the [support matrix](../reference/support-matrix.md) for capability evidence; this roadmap does not assert which blocker has been reproduced.
+### Remaining milestone scope
 
-Do not deepen component lifecycle because adjacent Proposed sections lack implementations. Use the lifecycle foundation until the active fixture or an existing test demonstrates a concrete missing behavior. Stop subsystem work once the fixture can proceed and its required invariants pass. Preserve full-tree evaluation as the correctness reference.
+Extend that same application in consumer order, with a bounded acceptance condition before each implementation slice:
 
-### Exit criteria
+1. Add `Checkbox`, then a bounded `TextInput` for the Settings fields. Prioritize caret, selection and editing, followed by clipboard, undo/redo, multiline, IME and platform hardening as actual application operations demand. Full native text integration is not a release gate.
+2. Complete the [Settings workflow](../integrations/settings-app.md): multiple widgets, editable settings, conditional and repeated UI with stable identity, a selectable settings section, scrolling, commands and a host save/apply interaction. Define the exact normalized input and save observations before implementation.
+3. Add style conveniences needed by that application: reusable classes/objects, theme variables, hover/focus/pressed/disabled states, typography, spacing, border, background, sizing and alignment, all through the [ordinary style resolver](../architecture/styling.md). Strengthen Row/Column, min/max or intrinsic sizing, overflow, scrolling and text-driven sizing only for demonstrated form requirements.
+4. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.
+5. Review authoring friction and grow widgets only from the application's needs. Async observation, named slots, SplitPane, Stack/Overlay or bounded absolute positioning require their own consumer operation before becoming active work.
 
-- With Inspector focus retained, the two normalized chords restore exact before/after source, preview and Inspector values through ordinary history commands. Each successful traversal publishes one generation, moves the cursor once, records keyboard source, and creates no edit transaction or additional history entry.
-- Selection, compatible edit owner, keyed state, focus and async observation identity survive traversal. Repeated CPU capture/replay agrees with the corresponding toolbar history result under the fixture's fixed inputs.
-- Empty or mismatched history, disabled commands and an open draft cannot change source, cursor or draft. Consumed input and repeat-suppressed matching keys execute no history command; unmatched modifier combinations leave history unchanged.
-- Replaced-tree shortcut maps and stale invocations reject without mutation. A layout/paint staging failure preserves accepted source, cursor, focus and owners, returns the ordinary located diagnostic, and permits retry with a fresh request.
-- Preserve label editing, Undo/Redo branching, gesture cancellation/eligibility, source replacement and stale reload regressions. Validate the editor and affected input/shortcut/transaction boundaries in Debug and Release, record evidence only in support, and run documentation checks.
+### Release exit criteria
+
+- A developer can create a small application through a high-level C++ API without low-level runtime assembly for ordinary UI composition; permanent syntax stability is not required.
+- A basic component/widget library supports the reference application, including Text, Button, Row, Column, Checkbox and bounded TextInput. A complete widget inventory is not required.
+- State and derived state have a simple public interface; reusable components support typed props/defaults, children, local state, command output, style attachment and stable identity where used. Conditional and repeated UI use the same runtime model.
+- Common application styles are expressed without manually constructing low-level style machinery, and still resolve through the shared cascade/theme model.
+- At least one application-shaped, copyable example exercises editing, scrolling, selection, styling, layout and host interaction through ordinary normalized input. Keyboard/gamepad navigation and command eligibility follow the common input boundary; platform claims require their own evidence.
+- Deterministic replay, inspection and CPU-reference validation reproduce the application's accepted state, semantic observations, geometry and paint under declared inputs. Existing contract regressions remain covered.
+- The runtime has one execution model for C++, documents, editor preview and automation. Run affected checks in Debug and Release and documentation checks; put configuration/results only in support and delivery history in the [changelog](../../CHANGELOG.md).
 
 ### Non-goals and stop condition
 
-A complete visual editor, generalized lifecycle declarations, resource payload/provider frameworks, arbitrary reload migrations, full reflection, Portal/OverlayRoot and a Tooltip/Dropdown/Modal catalog, command palette, VirtualList, platform IME/clipboard hardening, versioned snapshot bundle/CLI, capability manifest, and performance optimization are not prerequisites. Promote only a bounded part if the fixture demonstrates a blocker; otherwise their scope stays in [unscheduled editor extensions](backlog.md#unscheduled-editor-extensions) or the other backlog candidates.
+Do not make generalized lifecycle redesign, a new reactive graph, arbitrary reload migration, full reflection, generalized resource providers, complete Portal/OverlayRoot, full CSS/Grid, retained/incremental rendering, generalized multithreading, stable C ABI, Python/Rust/Go bindings, browser/WebGPU hosting, plugin frameworks, complete native accessibility, IDE tooling or a visual editor prerequisites for this release.
 
-Stop when these two chords complete the existing label history loop and its required invariants pass; return to consumer review. Native shortcut adapters, extra platform/gamepad chords, shortcut customization, draft-local undo and generalized input routing are outside this slice. Web/browser hosts, Python/application bindings, broader layout/animation and retained/incremental rendering stay in backlog.
-
-Live capability and validation evidence belongs to the [support matrix](../reference/support-matrix.md); delivery history belongs to the [changelog](../../CHANGELOG.md).
+Stop milestone expansion when ordinary application authoring and the reference workflow meet these exit criteria. The [broader widget candidates](backlog.md#widget-candidates-beyond-the-reference-application), [editor extensions](backlog.md#unscheduled-editor-extensions), other language/platform work and performance candidates stay inactive until a concrete consumer promotes a bounded operation.

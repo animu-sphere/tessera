@@ -14,6 +14,8 @@ Version labels are candidate scopes without committed dates or release promises.
 - Establish full-tree correctness before incremental invalidation or aggressive batching.
 - Read the relevant reflection, semantic, replay, coordinate, event/action, and command/transaction constraints before changing a boundary; a design dependency does not schedule an implementation.
 - Prioritize keyboard/gamepad operation, mixed Latin/Japanese text, and consumer-driven editor primitives.
+- Choose authoring and widget priorities from a real application. Keep normal application code above runtime plumbing and lower every frontend into one runtime/style model; candidate syntax and widget inventories are not permanent contracts or completion queues.
+- Measure representative applications and recorded traces before performance work. Define workload, baseline, metric, expected improvement, reference parity and a regression check for each significant optimization.
 - Promote optional work explicitly before making it an exit gate.
 - Move the required portion of a candidate between backlog and current when scheduling changes; do not copy active scope or promote adjacent mechanisms automatically.
 - Remove completed tasks from current and record delivery/evidence with the [change-routing rules](../README.md#change-routing).

@@ -66,6 +66,8 @@ Scale/viewport changes must be supplied coherently at an update boundary. Specif
 
 Extension order is a dependency guide; milestone scope lives in [current](../roadmap/current.md) and [backlog](../roadmap/backlog.md). Text measurement always goes through `TextShaper`.
 
+Concrete application/widget requirements choose each extension. Strengthen Row/Column, min/max and intrinsic sizing, overflow, scrolling, split panes, stack/overlay placement and text-driven sizing only as those operations require. Bounded absolute positioning, flex wrapping, grid and richer constraints need their own consumer evidence; this sequence does not schedule a complete CSS layout model.
+
 ## Scrolling and overlay geometry
 
 The [prototype scrolling rule](#implemented-prototype-algorithm) makes viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing, including nested scroll boxes; [input](input.md#implemented-scroll-routing) turns wheel deltas and reveal requests into new requested offsets.

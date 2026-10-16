@@ -33,12 +33,16 @@ Tessera can expose optional adapters for engine or USD-backed data. A world scen
 
 ## Pipeline and dependency direction
 
+Applications primarily depend on an authoring surface and composed widget/component library above the runtime. The [C++ authoring proposal](../proposals/cpp-authoring.md) explores that surface. Runtime details such as reactive graph records, component mounting and reconciliation stay behind it for ordinary authoring; ownership and lifetime remain defined by the common contracts.
+
 ```text
 Host application state <- command registry / transaction API
           |                       ^
      view model                   | semantic actions
           |                       |
-Authoring frontend -> UiDocument / retained nodes
+Authoring API / DSL / bindings
+          |
+Component / widget library -> UiDocument / retained nodes
                             |
                     components + reactive bindings/events
                             |
@@ -54,6 +58,8 @@ Authoring frontend -> UiDocument / retained nodes
 ```
 
 Frontends and host adapters depend on the common runtime representation. Backend implementations consume resolved draw data; they do not reach back into layout, event dispatch, or component state. Text and asset interfaces inject external services without importing their implementation types into UI contracts.
+
+Language frontends expose the public authoring/host model with language-appropriate APIs, rather than mechanically mirroring internal C++ classes. Any C ABI facade requires explicit handle, lifetime and result rules. C++, JSON, Path-finder, foreign-language bindings, Web hosts and agent operation share runtime semantics, inspection and replay; different authoring surfaces cannot establish separate execution models.
 
 C++ construction, future DSLs, and visual authoring lower to the same [UI model](ui-model.md#common-representation). [Component descriptions](ui-model.md#implemented-component-description-and-lowering) lower into ordinary documents; composition extensions must not establish a second runtime. Dependency, owner, and batching semantics are defined by the [reactive runtime](reactive-runtime.md). Fine-grained layout/text evaluation and retained GPU updates require full-tree parity; they are not prerequisites for defining the IR or the reactive kernel's semantics.
 

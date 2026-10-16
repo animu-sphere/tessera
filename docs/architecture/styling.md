@@ -40,6 +40,8 @@ The resolver does not invalidate anything: after a state or sheet change the hos
 
 ## Property vocabulary
 
+The [proposed authoring surface](../proposals/cpp-authoring.md#proposed-widgets-and-styles) can attach reusable style objects/classes, theme variables and interaction styles. It lowers to the same declarations, overrides and resolver; widget-specific styling engines are excluded. Convenience names must preserve exact value types, cascade order and affected-stage metadata.
+
 | Group | Initial candidates |
 | --- | --- |
 | Layout | width/height, min/max width/height, margin, padding, gap, display, flex-direction, justify-content, align-items; grid rows/columns later |

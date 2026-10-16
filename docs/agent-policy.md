@@ -20,6 +20,8 @@ Before extending a subsystem, identify the fixture operation that cannot proceed
 
 Full-tree evaluation is the correctness reference. Convenience APIs, adjacent mechanisms, and optimization require their own demonstrated need; architectural depth does not establish scheduling priority.
 
+For runtime functionality, name a blocked real application operation or widget, a failing existing contract, a measured performance bottleneck, or a concrete platform integration requirement. Otherwise keep the mechanism in backlog/proposals. An active authoring slice may add the public convenience needed by its application without redesigning the underlying runtime. Prefer application operation -> authoring API -> widget -> demonstrated runtime gap -> minimum fix -> regression -> working application. Define each slice's observable stop condition before implementation.
+
 ## Subsystem stop rule
 
 A subsystem is sufficient for the active slice when:
