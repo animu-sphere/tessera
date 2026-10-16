@@ -10,31 +10,31 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Review the [combined Settings workflow](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring) and [consumer boundary](../integrations/settings-app.md#implemented-form-skeleton-boundary), then define the next bounded operation: select a settings section from a small repeated list and project its conditional content while retaining the editable draft and saved result.
+Review the [section Settings workflow](../../examples/settings/main.cpp) through the [form authoring contract](../architecture/ui-model.md#implemented-c-form-authoring) and [section consumer boundary](../integrations/settings-app.md#implemented-section-selection-boundary), then define the next bounded operation: reach the selected section's lower form controls and Apply in a constrained scrolling viewport while retaining selection, editable draft and saved result.
 
 ```text
-compose settings-section choices -> select by normalized input
--> show selected content -> retain draft / saved result / stable identities
--> inspect -> capture -> replay / verify
+compose constrained Settings content -> scroll / navigate to a lower control
+-> edit / Apply -> retain selection / draft / saved result
+-> inspect visible bounds -> capture -> replay / verify
 ```
 
 Minimum scope:
 
-- Review composition and host scaffolding separately. Try ordinary C++ repeated composition, explicit IDs, state/computed and Button commands before promoting a public convenience or dynamic component mechanism.
-- Define the section IDs, initial/order/reorder/removal cases, selected value, conditional content, exact normalized selection sequence and focus-recovery expectations before implementation. Application section selection must remain distinct from runtime handles and username byte selection.
-- Preserve the host-owned username/feature draft and saved settings/result across section selection and compatible reorder. Define whether hidden content stays authored or is removed, and name any local state whose lifetime requires keyed component ownership rather than inferring that mechanism from a repeated list.
-- Route keyboard/gamepad logical activation, pointer release and semantic section requests through common eligibility and execution. Disabled/stale requests and invalid candidates must preserve the accepted selection, draft, save observations and presentation, with located diagnostics.
-- Record a demonstrated fixture blocker and bounded regression before extending a subsystem. Preserve full-tree preparation/publication and repeated CPU/replay parity; scrolling, new editing behavior and generalized lifecycle mechanisms need their own operation.
+- Review application composition separately from host scrolling/offset scaffolding. Try the existing layout overflow, scroll routing, scroll-into-view and full-tree APIs before promoting an authoring convenience or runtime mechanism.
+- Define the viewport/content geometry, initial offsets, scroll owner, exact normalized scroll/navigation sequence and focus-reveal policy before implementation. Identify which lower control cannot be reached without scrolling; keep section identity distinct from offsets and handles.
+- Preserve username edit owner/revision/selection, feature draft, section selection and saved copies/result across scrolling and section replacement. Define offset retention or clamping when content changes and verify the affected bounds, hit testing, semantics and paint clips.
+- Route activation through the ordinary command host. Disabled/stale requests and rejected scroll/presentation candidates must preserve accepted observations with actionable diagnostics.
+- Record a demonstrated fixture blocker and bounded regression before extending a subsystem. Preserve full-tree publication and repeated CPU/replay parity; new editing behavior, style conveniences and generalized lifecycle mechanisms need their own operation.
 
-Slice acceptance: first specify a bounded section-selection fixture and observable retention/rejection criteria. Then author its repeated choices and conditional presentation through the ordinary runtime, keeping stable section identities, draft/saved ownership, focus, inspection and deterministic CPU/replay observations coherent. Verify affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
+Slice acceptance: first specify a bounded scrolling fixture and observable geometry/retention/rejection criteria. Then make its lower controls reachable through normalized scrolling and logical navigation, retaining the application workflow and coherent inspection/capture/replay. Verify affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
 
-Stop this slice when its declared selection, conditional/repeated content and retention invariants pass. Return to the application before selecting scrolling or style conveniences; clipboard, undo/redo, multiline, IME and platform hardening need separate consumer scope. Do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
+Stop this slice when its declared scrolling, reachability and retention invariants pass. Return to the application before selecting style conveniences; clipboard, undo/redo, multiline, IME and platform hardening need separate consumer scope. Do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
 
 ### Remaining milestone scope
 
 Extend that same application in consumer order, with a bounded acceptance condition before each implementation slice:
 
-1. Extend the [Settings workflow](../integrations/settings-app.md) with conditional and repeated UI, stable section identity/selection and scrolling, retaining editing and host-owned Apply. Define the exact normalized input and retained save observations before each operation. Extend field editing only as those operations demand; full native text integration is not a release gate.
+1. Extend the [Settings workflow](../integrations/settings-app.md) with constrained scrolling, retaining section identity/selection, conditional content, editing and host-owned Apply. Define the exact normalized input and retained save observations before each operation. Extend field editing only as those operations demand; full native text integration is not a release gate.
 2. Add style conveniences needed by that application: reusable classes/objects, theme variables, hover/focus/pressed/disabled states, typography, spacing, border, background, sizing and alignment, all through the [ordinary style resolver](../architecture/styling.md). Strengthen Row/Column, min/max or intrinsic sizing, overflow, scrolling and text-driven sizing only for demonstrated form requirements.
 3. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.
 4. Review authoring friction and grow widgets only from the application's needs. Async observation, named slots, SplitPane, Stack/Overlay or bounded absolute positioning require their own consumer operation before becoming active work.
