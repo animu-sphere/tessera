@@ -1,5 +1,6 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/commands/execution.hpp>
+#include <tessera/input/scroll.hpp>
 #include <tessera/inspection/offscreen_runner.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/render/paint.hpp>
@@ -8,6 +9,7 @@
 #include <charconv>
 #include <functional>
 #include <tuple>
+#include <limits>
 #include <stdexcept>
 
 using namespace tessera;
@@ -84,7 +86,7 @@ struct Snapshot {
     HitTestInput hit() const { return {tree.get(), styles, &layout}; }
 };
 Result<Snapshot> prepare_candidate(ui::Session& view, const ui::Element& form, CommandSnapshot commands, TextShaper& text,
-    Size logical_viewport = viewport) {
+    Size logical_viewport = viewport, const std::map<std::string, Point>& requested_offsets = {}) {
     auto lowered = view.lower(form, actions);
     if (!lowered) return {std::nullopt, std::move(lowered.diagnostics)};
     auto authored = std::move(*lowered.value);
@@ -111,7 +113,10 @@ Result<Snapshot> prepare_candidate(ui::Session& view, const ui::Element& form, C
     const StyleSheet sheet;
     auto styles = resolve_styles({tree.get(), &sheet, {}, authored.styles});
     if (!styles) return fail(std::move(styles.diagnostics));
-    auto layout = compute_layout({tree.get(), *styles.value, logical_viewport, &text});
+    std::vector<Point> offsets(tree->size());
+    for (const auto& [id, offset] : requested_offsets)
+        if (const auto owner = tree->find(id)) offsets[owner->index] = offset;
+    auto layout = compute_layout({tree.get(), *styles.value, logical_viewport, &text, offsets});
     if (!layout) return fail(std::move(layout.diagnostics));
     auto inspection = capture_inspection({tree.get(), *styles.value, &*layout.value, &authored.sources});
     if (!inspection) return fail(std::move(inspection.diagnostics));
@@ -458,7 +463,8 @@ std::vector<Diagnostic> validate_sections(const SettingsSections& sections) {
     return {};
 }
 ui::Element SectionSettings(const SettingsSections& sections, ui::Value<TextEditState> username,
-    ui::Value<bool> enabled, ui::Value<std::string> caption, ui::Value<std::string> saved, bool disabled = false) {
+    ui::Value<bool> enabled, ui::Value<std::string> caption, ui::Value<std::string> saved, bool disabled = false,
+    bool scrolling = false) {
     std::vector<ui::Element> choices;
     for (const auto& id : sections.order)
         choices.push_back(ui::Button((id == sections.selected ? "* " : "") + id, "settings.section." + id,
@@ -478,6 +484,7 @@ ui::Element SectionSettings(const SettingsSections& sections, ui::Value<TextEdit
     rows.push_back(ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .source = form_source}}));
     rows.push_back(ui::Text(saved, {.id = "save-result", .source = form_source}));
     return ui::Column(std::move(rows), {.id = "settings", .style = {
+        .overflow = scrolling ? Overflow::scroll : Overflow::visible,
         .padding = Edges{12, 12, 12, 12}, .gap = 12.f, .background = Color{0.94f, 0.94f, 0.96f, 1}}, .source = form_source});
 }
 
@@ -751,6 +758,283 @@ void run_sections() {
         << first.frames.size() << " deterministic CPU/replay frames\n";
 }
 
+// Scrolling is host state keyed by author identity. The application composition
+// above only declares overflow; this fixture stages full presentations before
+// replacing either that state or the accepted command/inspection generation.
+void run_scrolling() {
+    constexpr Size form_viewport{720, 160};
+    ui::Session view;
+    SettingsSections sections;
+    auto username = take(make_text_edit_state(1, "Ada"));
+    SettingsData draft{username.text, false};
+    SaveObservation saves;
+    std::string result = "Not saved";
+    Point offset;
+    FocusDispatcher focus;
+    const auto observed = view.state("username", username);
+    const auto enabled = view.state("enabled", false);
+    const auto saved = view.state("save-result", result);
+    const auto caption = view.computed("summary", [observed, enabled] {
+        return "User " + observed.read().text + (enabled.read() ? "; feature enabled" : "; feature disabled");
+    });
+    const auto registry = take(CommandRegistry::create({
+        {"settings.toggle", "Toggle feature"}, {"settings.edit", "Edit username"}, {"settings.apply", "Apply settings"},
+        {"settings.section.account", "Account"}, {"settings.section.feature", "Feature"}, {"settings.section.about", "About"}},
+        {{"settings.toggle", "settings.toggle"}, {"settings.edit", "settings.edit"}, {"settings.apply", "settings.apply"},
+        {"settings.section.account", "settings.section.account"}, {"settings.section.feature", "settings.section.feature"},
+        {"settings.section.about", "settings.section.about"}}));
+    std::uint64_t generation = 0, sequence = 0;
+    PlaceholderTextShaper text;
+    auto stage = [&](const SettingsSections& candidate, Point requested, TextShaper& shaper,
+        FocusDispatcher candidate_focus, bool reveal, bool allow_apply = true) -> Result<Snapshot> {
+        const auto commands = take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
+            {{"settings.toggle", {true}}, {"settings.edit", {true}}, {"settings.apply", {allow_apply}},
+             {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}}}));
+        const auto form = SectionSettings(candidate, observed, enabled, caption, saved, false, true);
+        auto staged = prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", requested}});
+        if (!staged || !reveal) return staged;
+        const auto target = take(candidate_focus.refresh(staged.value->hit())).focused;
+        if (target) {
+            const auto updates = take(scroll_into_view(staged.value->hit(), *target));
+            if (!updates.empty())
+                return prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", updates[0].offset}});
+        }
+        return staged;
+    };
+    auto accepted = take(stage(sections, offset, text, focus, false));
+    view.publish();
+    auto root = [](const Snapshot& snapshot) -> const LayoutBox& {
+        return snapshot.layout.boxes[snapshot.tree->find("settings")->index];
+    };
+    auto bounds = [](const Snapshot& snapshot, const std::string& id) -> const LayoutBox& {
+        return snapshot.layout.boxes[snapshot.tree->find(id)->index];
+    };
+    auto fully_visible = [&](const std::string& id) {
+        const auto& box = bounds(accepted, id);
+        return box.clip && intersect(box.border_box, *box.clip) == box.border_box;
+    };
+    auto commit = [&](Snapshot candidate) {
+        offset = root(candidate).scroll->offset;
+        accepted = std::move(candidate);
+        take(focus.refresh(accepted.hit()));
+    };
+    auto stable = [&] { return std::tuple{sections, username, draft, saves.calls, result, offset,
+        accepted.tree->document(), accepted.inspection, accepted.commands.generation(), accepted.paint,
+        take(focus.refresh(accepted.hit())).focused}; };
+    FixtureGlyphs raster; GlyphCache cache(raster); CpuFrameCapture frames(&cache);
+    unsigned observations = 0;
+    auto verify_view = [&] {
+        require(root(accepted).border_box == Rect{{0, 0}, form_viewport} &&
+            offset == root(accepted).scroll->offset && offset.y >= 0 && offset.y <= root(accepted).scroll_limit().y,
+            "Scroll viewport, accepted offset or clamping differs");
+        for (const auto& box : accepted.layout.boxes) {
+            if (box.node != *accepted.tree->find("settings"))
+                require(box.clip == std::optional<Rect>{root(accepted).padding_box()}, "Descendant lost scroll clip");
+            const auto& inspected = accepted.inspection.elements[box.node.index].geometry;
+            require(inspected && inspected->border_box == box.border_box && inspected->clip == box.clip,
+                "Inspection bounds disagree with scroll layout");
+        }
+        require(summary(accepted) == "User " + draft.username + (draft.feature ? "; feature enabled" : "; feature disabled"),
+            "Scrolling changed derived draft");
+        std::map<std::string, std::string> names;
+        for (const auto& node : accepted.inspection.semantics.nodes) if (node.id) names.emplace(*node.id, node.name);
+        require(names.at("selected-section") == "Section " + sections.selected && names.at("save-result") == result &&
+            username.text == draft.username && (saves.calls.empty() ? result == "Not saved" :
+                result == saved_caption(static_cast<unsigned>(saves.calls.size()), saves.calls.back())),
+            "Scrolled selection, edit or owned save result differs from inspection");
+        // Replay v1 reload resets offsets. Reconstruct this accepted host view
+        // explicitly from zero using normalized scrolling; no host command is
+        // executed by replay and no hidden offset state is assumed.
+        ReplayRecording recording;
+        recording.context = actions; recording.viewport = form_viewport;
+        recording.document = accepted.tree->document(); recording.styles = accepted.styles;
+        recording.environment.scale = 1.25f; recording.environment.locale = "en";
+        if (offset != Point{}) recording.steps.push_back(InputEvent{1us, Scroll{{16, 16}, offset}});
+        recording.steps.push_back(ReplayTick{2us});
+        const auto first = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
+        const auto repeated = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
+        require(first == repeated && first.output.generations.back().boxes == geometry(accepted) &&
+            first.output.generations.back().paint == accepted.paint &&
+            first.output.semantics.back().nodes == own_semantic_records(accepted.inspection.semantics),
+            "Accepted scroll geometry, semantics or paint differs from repeated replay");
+        const auto extent = take(capture_extent(form_viewport, recording.environment.scale));
+        require(first.frames.back().image == take(frames.capture({0, form_viewport, recording.environment.scale, extent, &accepted.paint})),
+            "Accepted scroll CPU bytes differ from replay");
+        ++observations;
+    };
+    require(!fully_visible("username") && !fully_visible("apply") && offset == Point{} &&
+        bounds(accepted, "apply").border_box.origin.y > form_viewport.height,
+        "Constrained fixture must require scrolling to reach lower controls");
+    const auto clipped_apply = bounds(accepted, "apply").border_box;
+    const Point clipped_point{clipped_apply.origin.x + 1, clipped_apply.origin.y + 1};
+    require(!take(hit_test(accepted.hit(), clipped_point)).target, "Clipped Apply remained hittable");
+    verify_view();
+    auto scroll = [&](Point delta, TextShaper* rejecting = nullptr) {
+        const auto before = stable();
+        const auto routed = take(route_scroll(accepted.hit(), Scroll{{16, 16}, delta}));
+        require(routed.updates.size() == 1 && routed.updates[0].container == accepted.tree->find("settings"),
+            "Wheel must update the declared scroll owner once");
+        auto candidate = stage(sections, routed.updates[0].offset, rejecting ? *rejecting : text, focus, false);
+        if (rejecting) {
+            require(!candidate && candidate.diagnostics[0].source && candidate.diagnostics[0].source->location == form_source &&
+                stable() == before, "Rejected scroll presentation changed accepted state or lost source");
+        } else { commit(take(std::move(candidate))); verify_view(); }
+    };
+    scroll({0, 48});
+    require(offset == Point{0, 48}, "Wheel did not apply exact normalized delta");
+    std::chrono::microseconds input_time{};
+    auto logical = [&](InputEvent input) {
+        input.timestamp = ++input_time;
+        auto candidate_focus = focus;
+        const auto dispatched = take(candidate_focus.dispatch(accepted.hit(), input));
+        require(dispatched.actions.empty(), "Navigation unexpectedly activated a command");
+        const auto target = dispatched.focused;
+        if (target && !take(scroll_into_view(accepted.hit(), *target)).empty())
+            commit(take(stage(sections, offset, text, candidate_focus, true)));
+        focus = std::move(candidate_focus);
+        take(focus.refresh(accepted.hit()));
+        if (const auto current = take(focus.refresh(accepted.hit())).focused) {
+            require(fully_visible(*accepted.tree->get(*current)->id) && take(scroll_into_view(accepted.hit(), *current)).empty(),
+                "Logical navigation did not reveal the focused control");
+        }
+        verify_view();
+    };
+    for (int i = 0; i < 4; ++i) logical({3us, FocusNext{}});
+    require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find("username"), "Expected username focus");
+    const auto old_username = *accepted.tree->find("username");
+    CommandExecutor executor;
+    std::optional<CommandInvocation> pending;
+    unsigned entered = 0;
+    auto operate = [&](const ActionRequest& action, CommandSource source, std::optional<TextEditRequest> edit = {},
+        TextShaper* rejecting = nullptr) {
+        const auto before = stable();
+        const auto current_ui = accepted.semantic();
+        const auto invocation = take(accepted.commands.resolve_action(current_ui, action, accepted.commands.generation(), {}, source, ++sequence));
+        SettingsOperation host([&](const CommandInvocationRecord& call) -> CommandOutcome {
+            ++entered;
+            auto next_sections = sections;
+            auto next_username = username;
+            auto next_draft = draft;
+            auto next_result = result;
+            if (call.command.starts_with("settings.section.")) next_sections.selected = call.command.substr(17);
+            else if (call.command == "settings.edit") {
+                require(edit.has_value(), "Scroll form edit needs its owned request");
+                auto edited = edit_text(username, *edit);
+                if (!edited) return {CommandOutcomeStatus::error, {}, std::move(edited.diagnostics)};
+                next_username = std::move(*edited.value); next_draft.username = next_username.text;
+            } else if (call.command == "settings.toggle") next_draft.feature = !next_draft.feature;
+            else {
+                require(call.command == "settings.apply", "Unexpected scroll form command");
+                next_result = saved_caption(static_cast<unsigned>(saves.calls.size()) + 1, next_draft);
+            }
+            auto restore = [&] { view.update([&] { observed.write(username); enabled.write(draft.feature); saved.write(result); }); };
+            view.update([&] { observed.write(next_username); enabled.write(next_draft.feature); saved.write(next_result); });
+            auto candidate = [&] {
+                try { return stage(next_sections, offset, rejecting ? *rejecting : text, focus, true); }
+                catch (...) { restore(); throw; }
+            }();
+            if (!candidate) { restore(); return {CommandOutcomeStatus::error, {}, std::move(candidate.diagnostics)}; }
+            pending = take(accepted.commands.resolve_action(current_ui, action, accepted.commands.generation(), {}, source, ++sequence));
+            if (call.command == "settings.apply") saves.save(next_draft);
+            sections = std::move(next_sections); username = std::move(next_username);
+            draft = std::move(next_draft); result = std::move(next_result);
+            view.publish(); commit(std::move(*candidate.value));
+            return {};
+        });
+        const auto execution = take(executor.execute(accepted.commands, invocation, host, &current_ui));
+        if (rejecting) require(execution.outcome.status == CommandOutcomeStatus::error &&
+            !execution.outcome.diagnostics.empty() && execution.outcome.diagnostics[0].source && before == stable(),
+            "Rejected scroll form command changed accepted state");
+        else require(execution.outcome.status == CommandOutcomeStatus::success, "Scroll form command failed");
+        const auto refreshed = accepted.semantic();
+        require(!executor.execute(accepted.commands, invocation, host, &refreshed), "Scroll form sequence executed twice");
+        verify_view();
+    };
+    auto semantic = [&](const std::string& id, TextShaper* rejecting = nullptr) {
+        operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find(id), "activate")), CommandSource::agent, {}, rejecting);
+    };
+    const InputEvent committed{4us, tessera::TextInput{"本"}};
+    require(validate(committed).empty(), "Malformed committed input");
+    operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find("username"), "activate")), CommandSource::keyboard,
+        TextEditRequest{username.owner, username.revision, TextEditInsert{std::get<tessera::TextInput>(committed.data).text}});
+    const auto retained_username = username;
+    require(!scroll_into_view(accepted.hit(), old_username), "Replaced username handle revealed");
+    logical({5us, FocusNext{}});
+    require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find("apply") && fully_visible("apply"), "Apply unreachable by navigation");
+    auto activate = [&](CommandSource source) {
+        const auto dispatched = take(focus.dispatch(accepted.hit(), {++input_time, Activate{}}));
+        require(dispatched.actions.size() == 1, "Focused activation missing");
+        operate(dispatched.actions[0], source);
+    };
+    activate(CommandSource::gamepad);
+    require(saves.calls == std::vector<SettingsData>{{"Ada本", false}}, "Scrolled Apply did not save draft");
+    const auto apply_box = bounds(accepted, "apply").border_box;
+    const Point apply_point{apply_box.origin.x + 1, apply_box.origin.y + 1};
+    PointerDispatcher pointer;
+    require(take(pointer.dispatch(accepted.hit(), {1us, PointerDown{{1}, apply_point}})).actions.empty(),
+        "Visible Apply activated on pointer press");
+    const auto released = take(pointer.dispatch(accepted.hit(), {2us, PointerUp{{1}, apply_point}}));
+    require(released.actions.size() == 1 && released.actions[0].action == "settings.apply" &&
+        released.actions[0].target == accepted.tree->find("apply"), "Revealed Apply hit geometry disagrees with command owner");
+    scroll({0, 4096});
+    require(offset == root(accepted).scroll_limit(), "Wheel did not clamp at bottom");
+    const auto saved_state = std::tuple{username, draft, saves.calls, result};
+    for (bool measure : {true, false}) {
+        RejectingShaper rejecting(measure, "User Ada本; feature disabled");
+        scroll({0, -48}, &rejecting);
+        semantic("apply", &rejecting);
+    }
+    const auto account_bottom = offset;
+    semantic("section-about");
+    require(offset.y < account_bottom.y && offset == root(accepted).scroll_limit() && fully_visible("apply"),
+        "Shorter branch did not clamp retained bottom offset");
+    semantic("section-account");
+    require(std::tuple{username, draft, saves.calls, result} == saved_state, "Branch replacement changed retained settings");
+    scroll({0, -4096});
+    require(offset == Point{} && std::tuple{username, draft, saves.calls, result} == saved_state, "Wheel changed draft or save");
+    logical({7us, FocusPrevious{}});
+    semantic("section-feature");
+    require(sections.selected == "feature" && username == retained_username && fully_visible("toggle"), "Feature replacement lost edit state or focus reveal");
+    activate(CommandSource::keyboard);
+    logical({8us, FocusNext{}}); activate(CommandSource::keyboard);
+    require(saves.calls.size() == 2 && saves.calls.back() == SettingsData{"Ada本", true}, "Feature Apply saved wrong draft");
+    scroll({0, 4096});
+    const auto prior_offset = offset;
+    semantic("section-about");
+    require(offset.y <= prior_offset.y && offset.y <= root(accepted).scroll_limit().y && fully_visible("apply"),
+        "Shorter About content did not clamp/reveal retained offset");
+    semantic("section-account");
+    require(username == retained_username && draft == SettingsData{"Ada本", true} && saves.calls.size() == 2 && fully_visible("apply"),
+        "Account restoration lost retained edit/draft/save observations");
+    const auto before_rejections = stable();
+    const auto calls_before = entered;
+    const auto invalid = route_scroll(accepted.hit(), Scroll{{16, 16}, {0, std::numeric_limits<float>::infinity()}});
+    require(!invalid && invalid.diagnostics[0].code == "invalid_number", "Nonfinite wheel accepted");
+    SettingsOperation forbidden([&](const CommandInvocationRecord&) { ++entered; return CommandOutcome{}; });
+    const auto current_ui = accepted.semantic();
+    require(pending && !executor.execute(accepted.commands, *pending, forbidden, &current_ui), "Pending scroll command survived replacement");
+    const auto denied = take(stage(sections, offset, text, focus, false, false));
+    const auto owner = *denied.tree->find("apply");
+    require(!request_semantic_action(denied.semantic(), owner, "activate") &&
+        !denied.commands.resolve_action(denied.semantic(), {"activate", "settings.apply", owner}, denied.commands.generation(), {},
+            CommandSource::agent, ++sequence), "Disabled scrolled Apply resolved");
+    FocusDispatcher denied_focus;
+    require(!denied_focus.focus(denied.hit(), owner), "Disabled scrolled Apply focused");
+    const auto disabled_box = bounds(denied, "apply").border_box;
+    const Point disabled_point{disabled_box.origin.x + 1, disabled_box.origin.y + 1};
+    PointerDispatcher denied_pointer;
+    require(take(denied_pointer.dispatch(denied.hit(), {1us, PointerDown{{1}, disabled_point}})).actions.empty() &&
+        take(denied_pointer.dispatch(denied.hit(), {2us, PointerUp{{1}, disabled_point}})).actions.empty(),
+        "Disabled scrolled Apply clicked");
+    require(stable() == before_rejections && entered == calls_before, "Invalid scroll/stale/disabled request changed accepted observations");
+    const auto restored = take(stage(sections, offset, text, focus, false));
+    require(restored.tree->document() == accepted.tree->document() && geometry(restored) == geometry(accepted) &&
+        restored.paint == accepted.paint, "Rejected candidates left changed reactive observations");
+    verify_view();
+    std::cout << "Settings scrolling: lower controls reachable, clamped host offsets, retained draft/save, staged rejection; "
+        << observations << " accepted views match repeated CPU/replay\n";
+}
+
 void run_apply() {
     constexpr Size form_viewport{640, 360};
     ui::Session view;
@@ -1013,6 +1297,7 @@ void run_apply() {
 
 int main() {
     try {
+        run_scrolling();
         run_sections();
         run_apply();
         run_username();
