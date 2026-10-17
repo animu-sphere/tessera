@@ -10,20 +10,23 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Review the representative renderer-control operation under the [reference panel scope](#renderer-diagnostics-reference-panel) before implementation. Start from the [telemetry panel/host](../integrations/renderer-diagnostics.md#implemented-telemetry-panel-boundary) and [copyable guide](../guides/renderer-diagnostics.md), with capability evidence in [support](../reference/support-matrix.md#renderer-telemetry-evidence--2026-10-17).
+Implement one direct-strength numeric operation in the copyable [telemetry panel/host](../integrations/renderer-diagnostics.md#implemented-telemetry-panel-boundary), following the [Proposed control/draft boundary](../integrations/renderer-diagnostics.md#proposed-representative-control-boundary). The [source review](../reference/support-matrix.md#renderer-control-authoring-review--2026-10-17) selects ordinary composition before any new core API. Keep the [working guide](../guides/renderer-diagnostics.md) aligned with implemented source.
 
-Review scope:
+Bounded implementation:
 
-- Trace supported MSAA choices, outlines/scene-light toggles, direct/ambient strength, key-direction components, material view and reset through ordinary composition and commands. Use the existing Checkbox, TextInput and Button boundaries before selecting a new control or core API.
-- Define the minimum numeric operation's direct entry, pointer/keyboard/gamepad adjustment, step, bounds, commit/cancel, invalid-text behavior and pending-draft retention during telemetry refresh/collapse. Declare synthetic accepted settings and capability validation independently of renderer execution.
-- Select a bounded first implementation with observable once-only input/command, rejected-staging retention, panel/camera arbitration and independent-consumer acceptance. Record any demonstrated authoring blocker and promote only its minimum remedy.
+- Add a controls disclosure group and one reusable application-level numeric composition: direct strength, TextInput, Decrease/Increase, Apply/Cancel, accepted-value Text. Use initial 1, inclusive [0,4] and step 0.25 under the consumer owner's parsing, clamping and revision policy. No new serialized property, semantic role or public numeric widget is required by this selection.
+- Separate owned numeric draft, accepted synthetic setting and telemetry snapshot. Route revisioned editing before navigation and use ordinary commands with shared once-only execution for Apply, adjustment and Cancel. Exercise pointer focus/activation, keyboard entry and logical keyboard/gamepad navigation/adjustment, and semantic requests.
+- Retain exact pending drafts through A/B/C telemetry refresh, controls collapse/re-expansion and eligibility changes. Stage settings/drafts and the full presentation before acceptance; retain accepted observations on invalid input or injected measurement/paint failure, then retry with a fresh request.
+- Add explicit synthetic panel/camera arbitration, including consumed errors and pointer claims through replacement. Extend copied independent consumers and the guide using working source; keep assertion machinery separate from reusable composition/host code.
 
 Acceptance and stop condition:
 
-- The consumer owner declares concrete control/draft lifetimes and the numeric rules above without publishing unimplemented syntax as a working guide.
-- Source-backed findings distinguish existing API sufficiency from an executed blocker. Current selects only the next bounded implementation and its exit criteria; broader mechanisms stay in proposals/backlog.
+- Direct entry of 1.5 and two +0.25 adjustments from 1 accept equal host values. Exercise pointer Apply/adjustment, keyboard entry, logical keyboard/gamepad adjustment and semantic entry/Apply/adjustment with one command per request. Editing/Cancel/refresh/collapse cause zero setting changes; accepted setting changes and handler attempts are separately observable.
+- Invalid/incomplete text, non-finite/out-of-range values, stale edit owners/revisions, stale presentation invocations, disabled owners and duplicate sequences reject while preserving accepted settings. Both bounds, dirty-draft adjustment disabling, cancellation, focus/reveal and refresh/collapse retention follow the consumer policy.
+- Rejected staging preserves draft bytes/selection/revision, setting, disclosure, focus, offset, accepted command generation, geometry, semantics and paint. A fresh retry succeeds once; consumed panel events never reach the synthetic camera, while an outside/unmapped event reaches it once.
+- Accepted-view CPU/replay observations agree under the telemetry fixture configuration. Run affected checks and both copied core-only import modes in Debug and Release plus documentation checks; record exact scope and results in support.
 
-Stop at the review and scope selection. Renderer-control implementation, native integration, generalized tables/plots and Settings-starter scrolling onboarding are outside this review slice.
+Stop when this single numeric operation and its copyable host pass those boundaries. MSAA, outlines/scene-light toggles, ambient strength, key-direction components, material view and all-settings reset belong to subsequent bounded selections under the reference-panel scope below. Native integration, a generalized numeric/slider/input framework, tables/plots and Settings-starter scrolling onboarding are outside this slice. Promote only a demonstrated minimum authoring remedy if the fixture cannot proceed.
 
 ### Remaining milestone scope
 
