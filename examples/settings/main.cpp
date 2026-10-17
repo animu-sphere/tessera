@@ -35,12 +35,17 @@ const SourceLocation form_source{"fixture://settings-form", {0, 20}};
 
 // Application-owned styles use the ordinary cascade, not a widget style engine.
 constexpr Color apply_ink{0.15f, 0.3f, 0.55f, 1};
+constexpr Color hover_border{0.2f, 0.5f, 0.8f, 1};
+constexpr Color focus_border{0.7f, 0.35f, 0.1f, 1};
+constexpr Color active_border{0.15f, 0.25f, 0.45f, 1};
+constexpr Color disabled_border{0.6f, 0.6f, 0.6f, 1};
+constexpr Color disabled_ink{0.45f, 0.45f, 0.45f, 1};
 struct SettingsAppearance {
     Theme theme;
     StyleSheet sheet;
     bool operator==(const SettingsAppearance&) const = default;
 };
-SettingsAppearance appearance(bool compact) {
+SettingsAppearance appearance(bool compact, bool feedback = false) {
     const auto token = [](std::string property, std::string name) -> ThemeBinding {
         return {std::move(property), {std::move(name), {}}};
     };
@@ -61,6 +66,13 @@ SettingsAppearance appearance(bool compact) {
         {StyleSelector::of_class("section"), {.text = {.weight = std::uint16_t{600}}}},
         {StyleSelector::of_class("heading"), {.text = {.size = 20.f}}},
         {StyleSelector::of_class("status"), {.color = Color{0.25f, 0.3f, 0.4f, 1}}}};
+    if (feedback) {
+        result.sheet.rules.push_back({StyleSelector::of_class("control", {.hover = true}), {.border_color = hover_border}});
+        result.sheet.rules.push_back({StyleSelector::of_class("control", {.focus = true}), {.border_color = focus_border}});
+        result.sheet.rules.push_back({StyleSelector::of_class("control", {.active = true}), {.border_color = active_border}});
+        result.sheet.rules.push_back({StyleSelector::of_class("control", {.disabled = true}),
+            {.border_color = disabled_border, .color = disabled_ink}});
+    }
     return result;
 }
 
@@ -167,6 +179,57 @@ Result<Snapshot> prepare_candidate(ui::Session& view, const ui::Element& form, C
 }
 Snapshot prepare(ui::Session& view, const ui::Element& form, CommandSnapshot commands, TextShaper& text) {
     return take(prepare_candidate(view, form, std::move(commands), text));
+}
+
+// A feedback-only update retains tree identity so a press survives until release.
+// Full document replacement instead uses ordinary dispatcher refresh (clearing pointers).
+struct FeedbackView {
+    std::vector<ResolvedStyle> styles;
+    LayoutResult layout;
+    InspectionSnapshot inspection;
+    UiDrawList paint;
+};
+Result<FeedbackView> prepare_feedback(const Snapshot& snapshot, const SettingsAppearance& appearance,
+    const InteractionState& state, TextShaper& text, Size viewport) {
+    auto fail = [&](std::vector<Diagnostic> errors) -> Result<FeedbackView> {
+        for (auto& error : errors) {
+            if (error.path.starts_with("/nodes/")) {
+                const auto end = error.path.find('/', 7);
+                const auto count = (end == std::string::npos ? error.path.size() : end) - 7;
+                std::size_t index = 0;
+                const auto parsed = std::from_chars(error.path.data() + 7, error.path.data() + 7 + count, index);
+                if (parsed.ec == std::errc{} && parsed.ptr == error.path.data() + 7 + count && index < snapshot.authored.sources.nodes.size())
+                    error.path = snapshot.authored.sources.nodes[index].pointer + (end == std::string::npos ? "" : error.path.substr(end));
+            }
+        }
+        const auto mapping = locate_diagnostics(snapshot.authored.document, snapshot.authored.sources, errors);
+        if (!mapping.empty()) return {std::nullopt, mapping};
+        return {std::nullopt, std::move(errors)};
+    };
+    auto styles = resolve_styles({snapshot.tree.get(), &appearance.sheet, state, snapshot.authored.styles, &appearance.theme});
+    if (!styles) return fail(std::move(styles.diagnostics));
+    std::vector<Point> offsets(snapshot.tree->size());
+    for (const auto& box : snapshot.layout.boxes) if (box.scroll) offsets[box.node.index] = box.scroll->offset;
+    auto layout = compute_layout({snapshot.tree.get(), *styles.value, viewport, &text, offsets});
+    if (!layout) return fail(std::move(layout.diagnostics));
+    auto inspection = capture_inspection({snapshot.tree.get(), *styles.value, &*layout.value, &snapshot.authored.sources});
+    if (!inspection) return fail(std::move(inspection.diagnostics));
+    auto paint = build_paint_list({snapshot.tree.get(), *styles.value, &*layout.value, &text});
+    if (!paint) return fail(std::move(paint.diagnostics));
+    return {FeedbackView{std::move(*styles.value), std::move(*layout.value), std::move(*inspection.value), std::move(*paint.value)}, {}};
+}
+void accept_feedback(Snapshot& snapshot, FeedbackView candidate) {
+    snapshot.styles = std::move(candidate.styles); snapshot.layout = std::move(candidate.layout);
+    snapshot.inspection = std::move(candidate.inspection); snapshot.paint = std::move(candidate.paint);
+}
+InteractionState interaction(const PointerDispatchResult& pointers, const FocusDispatchResult& focus) {
+    InteractionState state;
+    for (const auto& pointer : pointers.pointers) {
+        if (pointer.hovered) state.hovered.push_back(*pointer.hovered);
+        if (pointer.active) state.active.push_back(*pointer.active);
+    }
+    state.focused = focus.focused;
+    return state;
 }
 std::string summary(const Snapshot& snapshot) {
     const auto node = *snapshot.tree->find("summary");
@@ -812,7 +875,7 @@ void run_sections() {
 // Scrolling is host state keyed by author identity. The application composition
 // above only declares overflow; this fixture stages full presentations before
 // replacing either that state or the accepted command/inspection generation.
-void run_scrolling(bool styled = false) {
+void run_scrolling(bool styled = false, bool feedback = false) {
     constexpr Size form_viewport{720, 160};
     ui::Session view;
     SettingsSections sections;
@@ -822,8 +885,9 @@ void run_scrolling(bool styled = false) {
     std::string result = "Not saved";
     Point offset;
     bool compact = false;
-    auto accepted_appearance = appearance(compact);
+    auto accepted_appearance = appearance(compact, feedback);
     FocusDispatcher focus;
+    PointerDispatcher feedback_pointer;
     const auto observed = view.state("username", username);
     const auto enabled = view.state("enabled", false);
     const auto saved = view.state("save-result", result);
@@ -849,12 +913,18 @@ void run_scrolling(bool styled = false) {
         const auto form = SectionSettings(candidate, observed, enabled, caption, saved, false, true, styled);
         const auto* styles = styled ? (candidate_appearance ? candidate_appearance : &accepted_appearance) : nullptr;
         auto staged = prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", requested}}, styles);
-        if (!staged || !reveal) return staged;
+        if (!staged) return staged;
         const auto target = take(candidate_focus.refresh(staged.value->hit())).focused;
-        if (target) {
+        if (target && reveal) {
             const auto updates = take(scroll_into_view(staged.value->hit(), *target));
             if (!updates.empty())
-                return prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", updates[0].offset}}, styles);
+                staged = prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", updates[0].offset}}, styles);
+        }
+        if (staged && feedback) {
+            auto visuals = prepare_feedback(*staged.value, *styles,
+                interaction({}, take(candidate_focus.refresh(staged.value->hit()))), shaper, form_viewport);
+            if (!visuals) return {std::nullopt, std::move(visuals.diagnostics)};
+            accept_feedback(*staged.value, std::move(*visuals.value));
         }
         return staged;
     };
@@ -874,10 +944,11 @@ void run_scrolling(bool styled = false) {
         offset = root(candidate).scroll->offset;
         accepted = std::move(candidate);
         take(focus.refresh(accepted.hit()));
+        take(feedback_pointer.refresh(accepted.hit()));
     };
     auto stable = [&] { return std::tuple{sections, username, draft, saves.calls, result, offset, compact, accepted_appearance,
         accepted.tree->document(), accepted.inspection, accepted.commands.generation(), accepted.paint,
-        take(focus.refresh(accepted.hit())).focused}; };
+        take(focus.refresh(accepted.hit())).focused, take(feedback_pointer.refresh(accepted.hit())).pointers}; };
     FixtureGlyphs raster; GlyphCache cache(raster); CpuFrameCapture frames(&cache);
     unsigned observations = 0;
     auto verify_view = [&] {
@@ -914,9 +985,26 @@ void run_scrolling(bool styled = false) {
             for (const auto& id : {"section-account", "section-feature", "section-about", "username", "toggle", "apply", "appearance"}) {
                 if (const auto owner = accepted.tree->find(id)) {
                     const auto& resolved = style(id);
+                    auto expected_border = Color{0.35f, 0.4f, 0.5f, 1};
+                    if (feedback) {
+                        const auto state = interaction(take(feedback_pointer.refresh(accepted.hit())), take(focus.refresh(accepted.hit())));
+                        auto contains = [&](const std::vector<NodeHandle>& nodes) {
+                            for (const auto& node : nodes) {
+                                auto index = node.index;
+                                while (index != no_inspection_parent) {
+                                    if (index == owner->index) return true;
+                                    index = accepted.inspection.elements[index].parent;
+                                }
+                            }
+                            return false;
+                        };
+                        if (contains(state.hovered)) expected_border = hover_border;
+                        if (state.focused == owner) expected_border = focus_border;
+                        if (contains(state.active)) expected_border = active_border;
+                    }
                     require(resolved.text.size == body && resolved.color == ink &&
                         resolved.padding == (compact ? Edges{2, 2, 2, 2} : Edges{4, 4, 4, 4}) &&
-                        resolved.border == Edges{1, 1, 1, 1} && resolved.corner_radius == 4 &&
+                        resolved.border == Edges{1, 1, 1, 1} && resolved.border_color == expected_border && resolved.corner_radius == 4 &&
                         resolved.background == (std::string_view(id) == "apply" ? apply_ink : surface),
                         "Theme, shared control rule and instance precedence differ");
                     if (std::string_view(id).starts_with("section-"))
@@ -976,6 +1064,9 @@ void run_scrolling(bool styled = false) {
         const auto target = dispatched.focused;
         if (target && !take(scroll_into_view(accepted.hit(), *target)).empty())
             commit(take(stage(sections, offset, text, candidate_focus, true)));
+        else if (feedback)
+            accept_feedback(accepted, take(prepare_feedback(accepted, accepted_appearance,
+                interaction(take(feedback_pointer.refresh(accepted.hit())), dispatched), text, form_viewport)));
         focus = std::move(candidate_focus);
         take(focus.refresh(accepted.hit()));
         if (const auto current = take(focus.refresh(accepted.hit())).focused) {
@@ -1003,7 +1094,7 @@ void run_scrolling(bool styled = false) {
             auto next_result = result;
             const auto next_compact = call.command == "settings.appearance" ? !compact : compact;
             const auto next_appearance = call.command == "settings.appearance" ?
-                (invalid_appearance ? *invalid_appearance : appearance(next_compact)) : accepted_appearance;
+                (invalid_appearance ? *invalid_appearance : appearance(next_compact, feedback)) : accepted_appearance;
             if (call.command.starts_with("settings.section.")) next_sections.selected = call.command.substr(17);
             else if (call.command == "settings.edit") {
                 require(edit.has_value(), "Scroll form edit needs its owned request");
@@ -1155,6 +1246,82 @@ void run_scrolling(bool styled = false) {
         require(!compact && std::tuple{sections, username, draft, saves.calls, result} == retained && fully_visible("appearance"),
             "Appearance input routes changed data or failed to reveal focused control");
     }
+    if (feedback) {
+        const auto retained = std::tuple{sections, username, draft, saves.calls, result, compact, offset};
+        const auto geometry_before = geometry(accepted);
+        auto feed = [&](InputEvent event, TextShaper* rejecting = nullptr) {
+            const auto before = stable();
+            auto candidate_pointer = feedback_pointer;
+            auto dispatched = take(candidate_pointer.dispatch(accepted.hit(), event));
+            auto visuals = prepare_feedback(accepted, accepted_appearance,
+                interaction(dispatched, take(focus.refresh(accepted.hit()))), rejecting ? *rejecting : text, form_viewport);
+            if (rejecting) {
+                require(!visuals && !visuals.diagnostics.empty() && visuals.diagnostics[0].source &&
+                    visuals.diagnostics[0].source->location == form_source && before == stable(),
+                    "Rejected feedback changed accepted pointer/style state or lost source");
+                return std::vector<ActionRequest>{};
+            }
+            accept_feedback(accepted, take(std::move(visuals)));
+            feedback_pointer = std::move(candidate_pointer);
+            const auto refreshed = take(feedback_pointer.refresh(accepted.hit()));
+            require(refreshed.pointers == dispatched.pointers && geometry(accepted) == geometry_before &&
+                std::tuple{sections, username, draft, saves.calls, result, compact, offset} == retained,
+                "Paint-only feedback changed geometry, input targeting or application data");
+            verify_view();
+            return dispatched.actions;
+        };
+        const auto owner = *accepted.tree->find("appearance");
+        const auto label = accepted.tree->children(owner).front();
+        const auto box = accepted.layout.boxes[label.index].border_box;
+        const Point point{box.origin.x + 1, box.origin.y + 1};
+        const Point outside{-1, -1};
+        require(take(hit_test(accepted.hit(), point)).target == label, "Feedback probe must hit generated Text");
+        // Move/down/out/back/cancel/up retain tree identity, including capture.
+        feed({1us, PointerMove{{7}, point}});
+        require(accepted.styles[owner.index].border_color == focus_border &&
+            accepted.styles[label.index].border_color != focus_border, "Focus must beat hover and match only its owner");
+        feed({2us, PointerDown{{7}, point}});
+        require(accepted.styles[owner.index].border_color == active_border, "Press must beat focus/hover");
+        feed({3us, PointerMove{{7}, outside}});
+        require(accepted.styles[owner.index].border_color == focus_border, "Outside press retained active style");
+        feed({4us, PointerMove{{7}, point}});
+        require(accepted.styles[owner.index].border_color == active_border, "Returning press did not restore active style");
+        feed({5us, PointerCancel{{7}}});
+        require(feed({6us, PointerUp{{7}, point}}).empty(), "Cancelled press activated");
+        for (bool measure : {true, false}) {
+            RejectingShaper rejecting(measure, "User Ada本; feature enabled");
+            feed({7us, PointerDown{{7}, point}}, &rejecting);
+        }
+        feed({8us, PointerDown{{7}, point}});
+        const auto release = feed({9us, PointerUp{{7}, point}});
+        require(release.size() == 1 && release[0].target == owner && release[0].action == "settings.appearance",
+            "Feedback release did not use the ordinary binding owner once");
+        operate(release[0], CommandSource::pointer);
+        require(take(feedback_pointer.refresh(accepted.hit())).pointers.empty() &&
+            !accepted.tree->get(owner) && accepted.styles[accepted.tree->find("appearance")->index].border_color == focus_border,
+            "Replacement retained stale pointer capture or lost recovered focus styling");
+        // With a different logical focus owner, a generated section label's hover
+        // reaches its ancestor without giving that ancestor focus styling.
+        logical({10us, FocusNext{}});
+        const auto hovered_owner = *accepted.tree->find("section-feature");
+        const auto hovered_label = accepted.tree->children(hovered_owner).front();
+        const auto hovered_box = accepted.layout.boxes[hovered_label.index].border_box;
+        const Point hovered_point{hovered_box.origin.x + 1, hovered_box.origin.y + 1};
+        auto candidate_pointer = feedback_pointer;
+        const auto hovered = take(candidate_pointer.dispatch(accepted.hit(), {10us, PointerMove{{7}, hovered_point}}));
+        require(hovered.target == hovered_label, "Hover probe missed generated section label");
+        accept_feedback(accepted, take(prepare_feedback(accepted, accepted_appearance,
+            interaction(hovered, take(focus.refresh(accepted.hit()))), text, form_viewport)));
+        feedback_pointer = std::move(candidate_pointer);
+        require(accepted.styles[hovered_owner.index].border_color == hover_border &&
+            accepted.styles[accepted.tree->find("section-account")->index].border_color == focus_border,
+            "Ancestor hover and owner-only focus did not remain independent");
+        verify_view();
+        // A command rebuild clears the stationary pointer; no author-ID press migration.
+        semantic("section-feature");
+        require(take(feedback_pointer.refresh(accepted.hit())).pointers.empty(), "Branch replacement retained pointer handles");
+        semantic("section-account");
+    }
     const auto before_rejections = stable();
     const auto calls_before = entered;
     const auto invalid = route_scroll(accepted.hit(), Scroll{{16, 16}, {0, std::numeric_limits<float>::infinity()}});
@@ -1187,12 +1354,40 @@ void run_scrolling(bool styled = false) {
         require(take(disabled_pointer.dispatch(denied.hit(), {1us, PointerDown{{1}, point}})).actions.empty() &&
             take(disabled_pointer.dispatch(denied.hit(), {2us, PointerUp{{1}, point}})).actions.empty(), "Disabled appearance clicked");
     }
+    if (feedback) {
+        auto check_disabled = [&](const Snapshot& snapshot, const std::string& id) {
+            const auto owner = *snapshot.tree->find(id);
+            const auto child = snapshot.tree->children(owner).front();
+            const auto visuals = take(prepare_feedback(snapshot, accepted_appearance,
+                {{child}, {owner}, owner}, text, form_viewport));
+            require(visuals.styles[owner.index].border_color == disabled_border &&
+                visuals.styles[owner.index].color == disabled_ink && visuals.styles[child.index].color == disabled_ink &&
+                !request_semantic_action(snapshot.semantic(), owner, "activate"),
+                "Disabled feedback failed suppression, inherited ink or semantic eligibility");
+        };
+        check_disabled(denied, "apply"); check_disabled(denied, "appearance");
+        auto document = accepted.tree->document();
+        document.root.properties["disabled"] = true;
+        Snapshot ancestor{accepted.authored, accepted.commands, take(UiTree::create(document, actions)), {}, {}, {}, {}};
+        ancestor.authored.document = document;
+        ancestor.authored.sources.nodes[0].unmapped_properties.insert("disabled");
+        accept_feedback(ancestor, take(prepare_feedback(ancestor, accepted_appearance, {}, text, form_viewport)));
+        for (const auto& id : {"section-account", "section-feature", "section-about", "username", "apply", "appearance"}) {
+            check_disabled(ancestor, id);
+            const auto target = *ancestor.tree->find(id);
+            FocusDispatcher disabled_focus;
+            require(!disabled_focus.focus(ancestor.hit(), target) &&
+                !ancestor.commands.resolve_action(ancestor.semantic(), {"activate", ancestor.tree->get(target)->events.at("activate"), target},
+                    ancestor.commands.generation(), {}, CommandSource::agent, ++sequence),
+                "Ancestor-disabled control acquired focus or resolved a command");
+        }
+    }
     require(stable() == before_rejections && entered == calls_before, "Invalid scroll/stale/disabled request changed accepted observations");
     const auto restored = take(stage(sections, offset, text, focus, false));
     require(restored.tree->document() == accepted.tree->document() && geometry(restored) == geometry(accepted) &&
         restored.paint == accepted.paint, "Rejected candidates left changed reactive observations");
     verify_view();
-    std::cout << (styled ? "Settings reusable styles: " : "Settings scrolling: ")
+    std::cout << (feedback ? "Settings interaction feedback: " : styled ? "Settings reusable styles: " : "Settings scrolling: ")
         << "lower controls reachable, clamped host offsets, retained draft/save, staged rejection; "
         << observations << " accepted views match repeated CPU/replay\n";
 }
@@ -1461,6 +1656,7 @@ int main() {
     try {
         run_scrolling();
         run_scrolling(true);
+        run_scrolling(true, true);
         run_sections();
         run_apply();
         run_username();

@@ -10,32 +10,31 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Review the [reusable-style Settings workflow](../integrations/settings-app.md#implemented-reusable-style-boundary) and select a bounded operation for visible focus, hover, pressed and disabled feedback. Use the existing [interaction state and cascade](../architecture/styling.md#interaction-states) before selecting any public convenience. Separate application class composition from host pointer/focus refresh and candidate publication.
+Turn the [Settings workflow](../integrations/settings-app.md) into a copyable starting point. Begin with Getting Started and a first application using the [implemented form API](../architecture/ui-model.md#implemented-c-form-authoring), following the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Separate ordinary composition from the host's command, input and presentation responsibilities.
 
 ```text
-identify interaction feedback -> declare exact control/state styles
--> normalize pointer / focus / eligibility -> retain scrolling / draft / saves
--> inspect resolved values / bounds -> capture -> replay / verify
+configure core -> compose state / derived text / controls
+-> connect normalized input and command host -> publish full presentation
+-> inspect / capture -> reproduce from a separate source consumer
 ```
 
 Minimum scope:
 
-- Specify control targets, normalized events, exact state values, precedence and host interaction inputs before implementation. Account for generated Text targets, ancestor hover/active matching, focused-owner matching and inherited disabled state under the shared resolver.
-- Preserve username edit owner/revision/selection, feature draft, section selection, saved copies/result, theme and offsets. Keep clips, hit testing, semantic eligibility and any required focus reveal coherent with accepted styles.
-- Route activation through the ordinary command host. Rejected presentation candidates must retain accepted observations with actionable diagnostics. Refresh or clear stale pointer/focus handles on replacement according to existing input contracts; styling cannot bypass command-disabled guards.
-- Try existing classes, declarations and host-supplied `InteractionState`; record demonstrated friction and a bounded acceptance condition before extending the public surface. Preserve full-tree publication and repeated CPU/replay parity.
+- Provide a minimal first-app source that uses only public supported APIs, with exact core-only build/run steps and links to the larger Settings workflow.
+- Explain session lifetime, state/derived values, typed composition, explicit host input/command execution, eligibility and full-tree publication. Make placeholder text, synthetic capture and host-owned application state explicit.
+- Verify that the documented source compiles and runs as an independent consumer in Debug and Release. Keep configuration/result evidence in [support](../reference/support-matrix.md), API contracts in their owners and operational instructions in guides.
+- Reuse existing public APIs; document demonstrated authoring friction before promoting a further convenience. Do not turn every scripted regression branch into first-app boilerplate.
 
-Slice acceptance: first specify a bounded interaction-feedback fixture and observable resolved-value, input-routing, geometry, retention and rejection criteria. Then express its styles through the smallest ordinary authoring surface required by that operation. Verify affected boundaries in Debug and Release and record evidence only in [support](../reference/support-matrix.md).
+Slice acceptance: a developer can follow the repository's navigation to build, run and understand a small ordinary C++ UI from a copyable source, with verified code matching the documented supported API and an explicit host boundary.
 
-Stop this slice when its declared authoring, style and retention invariants pass. Return to the application before selecting more widgets or styling mechanisms; clipboard, undo/redo, multiline, IME and platform hardening need separate consumer scope. Do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
+Stop this slice when the copyable source, guide and independent-consumer checks agree. Further widgets, style conveniences, clipboard, undo/redo, multiline, IME and platform hardening need separate consumer scope. Do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
 
 ### Remaining milestone scope
 
 Extend that same application in consumer order, with a bounded acceptance condition before each implementation slice:
 
-1. Connect hover/focus/pressed/disabled feedback needed by the [Settings workflow](../integrations/settings-app.md) through the [ordinary style resolver](../architecture/styling.md). Add style conveniences or strengthen Row/Column, sizing, alignment, overflow and text-driven geometry only for demonstrated form requirements. Extend field editing only as application operations demand; full native text integration is not a release gate.
-2. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.
-3. Review authoring friction and grow widgets only from the application's needs. Async observation, named slots, SplitPane, Stack/Overlay or bounded absolute positioning require their own consumer operation before becoming active work.
+1. Turn the example into a copyable starting point and document the actual supported API, beginning with Getting Started and a first app under the [user documentation intent](../product/use-cases.md#learning-and-example-intent). Avoid publishing proposed syntax as a working guide.
+2. Review authoring friction and grow widgets only from the application's needs. Add style conveniences or strengthen Row/Column, sizing, alignment, overflow and text-driven geometry only for demonstrated form requirements. Async observation, named slots, SplitPane, Stack/Overlay or bounded absolute positioning require their own consumer operation before becoming active work. Extend field editing only as application operations demand; full native text integration is not a release gate.
 
 ### Release exit criteria
 
