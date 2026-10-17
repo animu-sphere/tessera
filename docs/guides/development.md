@@ -140,6 +140,8 @@ Use `-DTESSERA_IMPORT_MODE=FetchContent` in a separate build directory for the o
 
 Standalone CTest invokes both imports automatically; enabling Vulkan adds backend consumer checks. The [driver](../../tests/cmake/run-consumer.cmake) forwards the configured generator, platform, toolset, toolchain and optional SDK paths into isolated host builds. Per-phase logs, executables and libraries are under `<build>/source-consumers/<import>[-vulkan]/<configuration>`; fixture tests are separate from runtime GPU tests. Configuration evidence and limits belong to [support](../reference/support-matrix.md#source-consumption-evidence--2026-10-11).
 
+The hosted [release workflow](../../.github/workflows/release.yml) uses `ctest --test-dir build -C <configuration> --output-on-failure --no-tests=error -E '_FetchContent$'` to exclude FetchContent consumer checks from CI while retaining the add_subdirectory consumers. Local CTest without that filter exercises both import forms.
+
 ## Optional Vulkan workflow
 
 Install the [adopted tools](../reference/dependencies.md#adopted-vulkan-choices) first. The option defaults OFF. To reproduce the explicit SDK/compiler selection on Windows:

@@ -72,6 +72,13 @@ Vulkan submission counters are not timing or profiling evidence.
 
 Core, offscreen Vulkan, and Win32 host evidence below are distinct. Physical-device evidence is limited to one mouse, one USB DualSense, and one original Bluetooth Joy-Con L/R pair on this machine. Real-text offscreen and native menu images use the declared Noto fixtures on one configuration; no evidence establishes packaging or broad Windows support.
 
+## CI FetchContent filter evidence — 2026-10-17
+
+- Revision/scope: workflow-only test selection plus documentation on base `933a829eb50344d01a9815c8fc3e0909c044c479`. The hosted [release workflow](../../.github/workflows/release.yml) adds `-E '_FetchContent$'` to its Debug/Release CTest command. Test registration and the local default suite retain both import forms; no runtime, consumer source or build option changed.
+- Verification: using the existing Windows x64 core-only `build-v040-authoring` configuration from [onboarding](#first-app-onboarding-evidence--2026-10-17), compare `ctest --test-dir build-v040-authoring -C <configuration> --show-only=json-v1` with the same command plus `-E '_FetchContent$'`. In Debug and Release, the unfiltered list contains 57 checks and the filtered list 55. Programmatic name comparisons confirm that only `first_app_consumer_FetchContent` and `source_consumer_FetchContent` are omitted, while both add_subdirectory consumers, `first_app`, `settings` and every other check remain selected.
+- Existing CI observation: [the Debug job](https://github.com/animu-sphere/tessera/actions/runs/38996002399/job/117288596958) for PR #102 at `933a829` completed successfully before this filter change. The full runtime suites were not rerun for the selection-only follow-up. The preceding onboarding evidence owns the local Debug/Release 57-check results.
+- Limits: local test-discovery verification establishes the exclusion set, not a completed hosted run of the filtered workflow or a timing improvement. FetchContent remains available for explicit local and release-acceptance checks. Optional Vulkan/font configurations and native input were not exercised for this follow-up.
+
 ## First-app onboarding evidence — 2026-10-17
 
 - Revision/scope: local changes on base `7c622220e6924acb9c74182850911815d1f7a7b8`, adding [Getting Started](../guides/getting-started.md), a [source walkthrough](../guides/first-app.md), [first-app source](../../examples/first-app/main.cpp) and a [standalone CMake project](../../examples/first-app/CMakeLists.txt). Existing public authoring, command, input, inspection and CPU APIs suffice; no public/core API, serialized contract or subsystem algorithm changed. README and documentation navigation lead to the copy/run procedure.
