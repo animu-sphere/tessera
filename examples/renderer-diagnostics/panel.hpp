@@ -46,12 +46,17 @@ inline constexpr std::array<unsigned, 4> sample_counts{1, 2, 4, 8};
 inline constexpr std::array<const char*, 4> msaa_actions{"msaa.samples1", "msaa.samples2", "msaa.samples4", "msaa.samples8"};
 inline const tessera::ValidationContext context{{actions[0], actions[1], actions[2], actions[3],
     "direct.edit", "direct.decrease", "direct.increase", "direct.apply", "direct.cancel",
-    msaa_actions[0], msaa_actions[1], msaa_actions[2], msaa_actions[3]}};
+    msaa_actions[0], msaa_actions[1], msaa_actions[2], msaa_actions[3], "outlines.toggle"}};
 struct Msaa {
     unsigned accepted = 1;
     std::vector<unsigned> supported{1, 2, 4};
     bool enabled = true;
     bool operator==(const Msaa&) const = default;
+};
+struct Outlines {
+    bool accepted = false;
+    bool enabled = true;
+    bool operator==(const Outlines&) const = default;
 };
 struct Numeric {
     double accepted = 1;
@@ -67,6 +72,6 @@ tessera::authoring::Element MsaaControl(const Msaa&);
 
 std::vector<tessera::Diagnostic> validate(const Snapshot&);
 // Call after validation. Pure ordinary composition; no callbacks, sampling or retained pointers.
-tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&, const Msaa&);
+tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&, const Msaa&, const Outlines&);
 tessera::StyleSheet panel_styles();
 } // namespace diagnostics

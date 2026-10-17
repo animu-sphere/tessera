@@ -10,18 +10,15 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Implement one outlines Boolean operation in the copyable [panel/host](../guides/renderer-diagnostics.md), following the [Proposed outlines policy](../integrations/renderer-diagnostics.md#proposed-outlines-control-boundary). The [source review](../reference/support-matrix.md#renderer-outlines-control-review--2026-10-17) selects the minimum host connection through the existing controlled Checkbox, command executor and full-tree publication boundaries; it identifies no required core extension.
+Review one next representative control in the copyable [panel/host](../guides/renderer-diagnostics.md), following the [consumer inventory](../integrations/renderer-diagnostics.md#proposed-representative-control-boundary) and the [implemented outlines boundary](../integrations/renderer-diagnostics.md#implemented-outlines-control-boundary). Use a concrete application operation to select the next minimum connection before authorizing implementation.
 
-Bounded implementation acceptance:
+Bounded review acceptance:
 
-- Compose one stable outlines Checkbox under controls disclosure, with host-owned accepted Boolean initially false and independent eligibility. Parameter-free activation inverts the accepted value; an exact Boolean node-free request sets only outlines. Use the shared executor and sequence stream, with no new widget, semantic role, serialized field or renderer dependency.
-- Prove pointer release, normalized keyboard traversal/activation, logical gamepad navigation/activation and semantic activation reach the same accepted value with one handler attempt and one accepted change from the same initial state. Typed equal-value requests accept a presentation with one attempt and zero changes; reject wrong types, field identity, extra activation arguments, stale/foreign owners or presentations, hidden/disabled targets and consumed sequences before handler entry.
-- Preserve exact pending direct-strength draft bytes, selection, owner/revision, accepted strength and MSAA state across outlines changes, telemetry refresh and outlines eligibility changes. Eligibility is independent in both directions. Retain eligible focus by author ID, recover collapsed outlines focus to the controls header, reveal recovered focus and clamp scroll through ordinary geometry.
-- Inject measurement and paint failures for toggle, typed set and eligibility candidates. Preserve every accepted setting, eligibility, draft, disclosure, command generation, document, focus/offset, inspection, geometry and paint; bound located diagnostics. An entered failed setting handler counts one attempt, consumes its sequence and makes no accepted change; a fresh request retries successfully. Eligibility, refresh and disclosure issue no setting request.
-- Verify panel/camera arbitration once per input, including disabled hits, raw activation without duplicate logical activation, press/replacement/release or cancel, and consumed preparation errors. Extend stable observations and repeated CPU/replay comparisons in the existing fixture; keep host command/camera assertions separate from accepted-view replay reconstruction.
-- Update the exact reusable sources, copied main and working guide together. Build/run both independent core-only imports and affected authoring, commands, input/focus/scroll, layout, inspection, paint, CPU and replay checks in Debug and Release; record configuration and synthetic evidence limits only in support.
+- Trace one scene-light, ambient/vector-strength, material-view or reset operation through the existing authoring, host-command and full-tree publication boundaries. Identify the observable consumer need and minimum source changes; prefer existing composition and avoid a generalized settings/input framework.
+- Define exact initial values, eligibility, typed validation, retained numeric drafts/focus, request accounting, rejected preparation/retry and panel/camera arbitration for that operation. Retain independent settings and ordinary input/inspection/replay boundaries.
+- Record source findings and evidence limits in support, consumer policy in the integration owner and the selected implementation acceptance here. A source review establishes no runtime validation.
 
-Stop when the one outlines operation and copyable host meet these observable criteria. Return to consumer review before selecting scene lights, ambient/vector strength, material view or reset. Native renderer integration, generalized numeric/slider/input frameworks, tables/plots and Settings-starter scrolling onboarding require their own selection.
+Stop after selecting one bounded operation. Native renderer integration, other inventory controls, generalized numeric/slider/input frameworks, tables/plots and Settings-starter scrolling onboarding require their own selection.
 
 ### Remaining milestone scope
 

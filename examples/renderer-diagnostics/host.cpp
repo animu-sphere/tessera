@@ -13,11 +13,11 @@ bool supports(const Msaa& msaa, unsigned samples) {
     return std::find(msaa.supported.begin(), msaa.supported.end(), samples) != msaa.supported.end();
 }
 bool controls_focus(const std::optional<std::string>& id) {
-    return id && (id->starts_with("direct-") || id->starts_with("msaa-"));
+    return id && (id->starts_with("direct-") || id->starts_with("msaa-") || *id == "outlines-toggle");
 }
 Result<View> prepare(authoring::Session& session, const Snapshot& snapshot, const Disclosure& disclosure,
-    const CommandSnapshot& commands, Point offset, const Numeric& numeric, const Msaa& msaa, TextShaper& text) {
-    auto authored = session.lower(Panel(snapshot, disclosure, numeric, msaa), context);
+    const CommandSnapshot& commands, Point offset, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, TextShaper& text) {
+    auto authored = session.lower(Panel(snapshot, disclosure, numeric, msaa, outlines), context);
     if (!authored) return {std::nullopt, std::move(authored.diagnostics)};
     auto document = commands.apply_eligibility(authored.value->document, context);
     if (!document) return {std::nullopt, std::move(document.diagnostics)};
@@ -78,6 +78,11 @@ Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
     descriptors.push_back({"msaa.set", "Set MSAA", {}, {}, CommandAvailability::both, {
         {"field", CommandParameterType::enumeration, true, {}, {}, {}, 32, {"msaa"}},
         {"value", CommandParameterType::number, true, {}, 1, 8}}});
+    descriptors.push_back({"outlines.toggle", "Toggle outlines"});
+    bindings["outlines.toggle"] = "outlines.toggle";
+    descriptors.push_back({"outlines.set", "Set outlines", {}, {}, CommandAvailability::both, {
+        {"field", CommandParameterType::enumeration, true, {}, {}, {}, 32, {"outlines"}},
+        {"value", CommandParameterType::boolean, true}}});
     descriptors.push_back({"direct.edit", "Edit direct strength", {}, {}, CommandAvailability::both, {
         {"owner", CommandParameterType::string, true, {}, {}, {}, 20},
         {"revision", CommandParameterType::string, true, {}, {}, {}, 20},
@@ -100,14 +105,14 @@ Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
     auto draft = make_text_edit_state(owner, "1");
     if (!draft) return {std::nullopt, std::move(draft.diagnostics)};
     host->numeric_.draft = std::move(*draft.value);
-    auto staged = host->stage(snapshot, host->disclosure_, {}, {}, false, host->eligible_, host->numeric_, host->msaa_, text);
+    auto staged = host->stage(snapshot, host->disclosure_, {}, {}, false, host->eligible_, host->numeric_, host->msaa_, host->outlines_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    host->accept(std::move(*staged.value), std::move(snapshot), host->disclosure_, {}, host->eligible_, host->numeric_, host->msaa_);
+    host->accept(std::move(*staged.value), std::move(snapshot), host->disclosure_, {}, host->eligible_, host->numeric_, host->msaa_, host->outlines_);
     return {std::move(host), {}};
 }
 
 Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure, Point offset,
-    FocusDispatcher focus, bool reveal, std::array<bool, 3> eligible, const Numeric& numeric, const Msaa& msaa, TextShaper& text) {
+    FocusDispatcher focus, bool reveal, std::array<bool, 3> eligible, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, TextShaper& text) {
     auto errors = validate(snapshot);
     if (!std::isfinite(numeric.accepted) || numeric.accepted < 0 || numeric.accepted > 4 || canonical(numeric.accepted).size() > 32)
         errors.push_back({"direct_value", Severity::error, "/controls/direct", "Expected an accepted strength in [0,4] with a bounded decimal"});
@@ -130,9 +135,11 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
     states["msaa.set"] = {msaa_enabled};
     for (std::size_t i = 0; i < sample_counts.size(); ++i)
         states[msaa_actions[i]] = {msaa_enabled && supports(msaa, sample_counts[i])};
+    states["outlines.toggle"] = {outlines.enabled && disclosure.expanded[3]};
+    states["outlines.set"] = {outlines.enabled && disclosure.expanded[3]};
     auto commands = CommandSnapshot::publish(registry_, ++generation_, CommandMode::production, std::move(states));
     if (!commands) return {std::nullopt, std::move(commands.diagnostics)};
-    auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, numeric, msaa, text);
+    auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, numeric, msaa, outlines, text);
     if (!staged) return staged;
     // Removing controls has an explicit recovery target instead of adjacent-field heuristics.
     if (!disclosure.expanded[3] && controls_focus(focused())) {
@@ -145,17 +152,17 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
         auto updates = scroll_into_view(staged.value->hit(), *recovered.value->focused);
         if (!updates) return {std::nullopt, std::move(updates.diagnostics)};
         if (!updates.value->empty()) staged = prepare(session_, snapshot, disclosure, *commands.value,
-            updates.value->front().offset, numeric, msaa, text);
+            updates.value->front().offset, numeric, msaa, outlines, text);
     }
     return staged;
 }
 
 void Host::accept(View view, Snapshot snapshot, Disclosure disclosure, FocusDispatcher focus,
-    std::array<bool, 3> eligible, Numeric numeric, Msaa msaa) {
+    std::array<bool, 3> eligible, Numeric numeric, Msaa msaa, Outlines outlines) {
     const bool recover_header = !disclosure.expanded[3] && controls_focus(focused());
-    const bool changed = numeric.accepted != numeric_.accepted || msaa.accepted != msaa_.accepted;
+    const bool changed = numeric.accepted != numeric_.accepted || msaa.accepted != msaa_.accepted || outlines.accepted != outlines_.accepted;
     offset_ = view.layout.boxes[view.tree->find("renderer-diagnostics")->index].scroll->offset;
-    snapshot_ = std::move(snapshot); disclosure_ = disclosure; eligible_ = eligible; numeric_ = std::move(numeric); msaa_ = std::move(msaa);
+    snapshot_ = std::move(snapshot); disclosure_ = disclosure; eligible_ = eligible; numeric_ = std::move(numeric); msaa_ = std::move(msaa); outlines_ = outlines;
     accepted_ = std::move(view);
     focus_ = std::move(focus);
     if (recover_header) (void)focus_.focus(accepted_->hit(), *accepted_->tree->find("disclosure-controls"));
@@ -174,30 +181,41 @@ std::optional<std::string> Host::focused() const {
 }
 
 Result<bool> Host::refresh(Snapshot snapshot, TextShaper& text) {
-    auto staged = stage(snapshot, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, text);
+    auto staged = stage(snapshot, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), std::move(snapshot), disclosure_, focus_, eligible_, numeric_, msaa_);
+    accept(std::move(*staged.value), std::move(snapshot), disclosure_, focus_, eligible_, numeric_, msaa_, outlines_);
     return {true, {}};
 }
 Result<bool> Host::eligibility(std::array<bool, 3> eligible, TextShaper& text) {
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible, numeric_, msaa_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible, numeric_, msaa_, outlines_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible, numeric_, msaa_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible, numeric_, msaa_, outlines_);
     return {true, {}};
 }
 Result<bool> Host::numeric_eligibility(bool enabled, TextShaper& text) {
     auto numeric = numeric_; numeric.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric, msaa_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric, msaa_, outlines_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, std::move(numeric), msaa_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, std::move(numeric), msaa_, outlines_);
     return {true, {}};
 }
 Result<bool> Host::msaa_capabilities(std::vector<unsigned> supported, bool enabled, TextShaper& text) {
     auto msaa = msaa_; msaa.supported = std::move(supported); msaa.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa, outlines_, text);
     if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, std::move(msaa));
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, std::move(msaa), outlines_);
     return {true, {}};
+}
+Result<bool> Host::outlines_eligibility(bool enabled, TextShaper& text) {
+    auto outlines = outlines_; outlines.enabled = enabled;
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines, text);
+    if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines);
+    return {true, {}};
+}
+Result<CommandInvocation> Host::request_outlines(std::string field, bool value, CommandSource source) {
+    return view().commands.resolve({view().commands.generation(), "outlines.set",
+        {{"field", std::move(field)}, {"value", value}}, source, ++sequence_});
 }
 namespace {
 CommandArguments edit_arguments(const TextEditRequest& edit) {
@@ -250,10 +268,11 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
         Disclosure disclosure;
         Numeric numeric;
         Msaa msaa;
+        Outlines outlines;
         FocusDispatcher focus;
         std::optional<View> candidate;
         Handler(Host& host, TextShaper& text) : host(host), text(text), disclosure(host.disclosure_),
-            numeric(host.numeric_), msaa(host.msaa_), focus(host.focus_) {}
+            numeric(host.numeric_), msaa(host.msaa_), outlines(host.outlines_), focus(host.focus_) {}
         CommandOutcome error(std::string message) {
             return {CommandOutcomeStatus::error, {}, {{"direct_request", Severity::error, "/controls/direct", std::move(message)}}};
         }
@@ -263,6 +282,9 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
                 ++host.disclosure_requests_;
                 for (std::size_t i = 0; i < groups.size(); ++i)
                     if (call.command == actions[i]) disclosure.expanded[i] = !disclosure.expanded[i];
+            } else if (call.command.starts_with("outlines.")) {
+                ++host.setting_attempts_;
+                outlines.accepted = call.command == "outlines.toggle" ? !outlines.accepted : std::get<bool>(call.arguments.at("value"));
             } else if (call.command.starts_with("msaa.")) {
                 ++host.setting_attempts_;
                 double samples = 0;
@@ -324,7 +346,7 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
                 numeric.draft.text = canonical(numeric.accepted);
                 numeric.draft.anchor = numeric.draft.caret = numeric.draft.text.size(); ++numeric.draft.revision;
             }
-            auto staged = host.stage(host.snapshot_, disclosure, host.offset_, focus, true, host.eligible_, numeric, msaa, text);
+            auto staged = host.stage(host.snapshot_, disclosure, host.offset_, focus, true, host.eligible_, numeric, msaa, outlines, text);
             if (!staged) return command_error(std::move(staged.diagnostics));
             candidate = std::move(*staged.value);
             return {};
@@ -333,7 +355,7 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
     const auto current = view().semantic();
     auto execution = executor_.execute(view().commands, invocation, handler, &current);
     if (execution && execution.value->outcome.status == CommandOutcomeStatus::success)
-        accept(std::move(*handler.candidate), snapshot_, handler.disclosure, std::move(handler.focus), eligible_, std::move(handler.numeric), std::move(handler.msaa));
+        accept(std::move(*handler.candidate), snapshot_, handler.disclosure, std::move(handler.focus), eligible_, std::move(handler.numeric), std::move(handler.msaa), handler.outlines);
     return execution;
 }
 
@@ -369,9 +391,9 @@ Result<bool> Host::input(const InputEvent& event, CommandSource source, TextShap
         auto updates = route_scroll(view().hit(), *scroll);
         if (!updates) return {std::nullopt, std::move(updates.diagnostics)};
         if (updates.value->updates.empty()) return {true, {}};
-        auto staged = stage(snapshot_, disclosure_, updates.value->updates.front().offset, focus_, false, eligible_, numeric_, msaa_, text);
+        auto staged = stage(snapshot_, disclosure_, updates.value->updates.front().offset, focus_, false, eligible_, numeric_, msaa_, outlines_, text);
         if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-        accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_);
+        accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_);
         return {true, {}};
     }
     const auto focused_id = focused().value_or("");
@@ -450,9 +472,9 @@ Result<bool> Host::input(const InputEvent& event, CommandSource source, TextShap
     auto dispatched = focus.dispatch(view().hit(), logical);
     if (!dispatched) return {std::nullopt, std::move(dispatched.diagnostics)};
     for (const auto& action : dispatched.value->actions) return operate(action, source, text);
-    auto staged = stage(snapshot_, disclosure_, offset_, focus, true, eligible_, numeric_, msaa_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus, true, eligible_, numeric_, msaa_, outlines_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, std::move(focus), eligible_, numeric_, msaa_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, std::move(focus), eligible_, numeric_, msaa_, outlines_);
     return {true, {}};
 }
 } // namespace diagnostics
