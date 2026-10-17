@@ -9,6 +9,7 @@ Other intended uses include game HUDs and menus, overlays, in-world UI, Mimikuri
 Consumer designs:
 
 - [Settings application](../integrations/settings-app.md): ordinary C++ authoring, reusable form components, state, editing, styling, selection, scrolling and host save/apply interaction.
+- [Renderer diagnostics](../integrations/renderer-diagnostics.md): host-fed telemetry, timing/counter rows, history plots and interactive render controls alongside a viewport.
 - [Path-finder](../integrations/path-finder.md): shared-schema authoring and runtime preview.
 - [Graph editors](../integrations/graph-editor.md): domain-owned graph data presented through ordinary UI boundaries.
 - [Conversational workspaces](../integrations/conversational-ui.md): provider-independent structured and streaming application UI.
