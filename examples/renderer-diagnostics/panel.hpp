@@ -36,16 +36,27 @@ struct Snapshot {
     bool operator==(const Snapshot&) const = default;
 };
 struct Disclosure {
-    std::array<bool, 3> expanded{true, true, true}; // CPU, GPU, counters.
+    std::array<bool, 4> expanded{true, true, true, true}; // CPU, GPU, counters, controls.
     bool operator==(const Disclosure&) const = default;
 };
 inline constexpr tessera::Size viewport{720, 160};
-inline constexpr std::array<const char*, 3> groups{"cpu", "gpu", "counters"};
-inline constexpr std::array<const char*, 3> actions{"diagnostics.cpu", "diagnostics.gpu", "diagnostics.counters"};
-inline const tessera::ValidationContext context{{actions[0], actions[1], actions[2]}};
+inline constexpr std::array<const char*, 4> groups{"cpu", "gpu", "counters", "controls"};
+inline constexpr std::array<const char*, 4> actions{"diagnostics.cpu", "diagnostics.gpu", "diagnostics.counters", "diagnostics.controls"};
+inline const tessera::ValidationContext context{{actions[0], actions[1], actions[2], actions[3],
+    "direct.edit", "direct.decrease", "direct.increase", "direct.apply", "direct.cancel"}};
+struct Numeric {
+    double accepted = 1;
+    tessera::TextEditState draft;
+    bool enabled = true;
+    bool operator==(const Numeric&) const = default;
+};
+std::string canonical(double);
+tessera::Result<double> parse_numeric(std::string_view);
+// Application composition, not a new runtime widget or semantic role.
+tessera::authoring::Element NumericControl(const Numeric&);
 
 std::vector<tessera::Diagnostic> validate(const Snapshot&);
 // Call after validation. Pure ordinary composition; no callbacks, sampling or retained pointers.
-tessera::authoring::Element Panel(const Snapshot&, const Disclosure&);
+tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&);
 tessera::StyleSheet panel_styles();
 } // namespace diagnostics

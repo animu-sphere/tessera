@@ -104,7 +104,45 @@ std::vector<Diagnostic> validate(const Snapshot& snapshot) {
     return errors;
 }
 
-ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure) {
+std::string canonical(double value) {
+    if (value == 0) return "0";
+    char buffer[1100]; // Fixed notation also covers the smallest finite binary64.
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::fixed);
+    return {buffer, result.ptr};
+}
+Result<double> parse_numeric(std::string_view value) {
+    auto invalid = []() -> Result<double> { return {std::nullopt, {{"direct_value", Severity::error,
+        "/controls/direct", "Expected decimal -?(0|[1-9][0-9]*)(.[0-9]+)? in inclusive [0,4]"}}}; };
+    if (value.size() > 32) return invalid();
+    std::size_t i = value.starts_with('-') ? 1 : 0;
+    if (i == value.size()) return invalid();
+    if (value[i] == '0') ++i;
+    else {
+        if (value[i] < '1' || value[i] > '9') return invalid();
+        while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
+    }
+    if (i < value.size() && value[i] == '.') {
+        const auto start = ++i;
+        while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
+        if (i == start) return invalid();
+    }
+    double parsed = 0;
+    const auto converted = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (i != value.size() || converted.ec != std::errc{} || converted.ptr != value.data() + value.size() ||
+        !std::isfinite(parsed) || parsed < 0 || parsed > 4) return invalid();
+    return {parsed == 0 ? 0 : parsed, {}};
+}
+ui::Element NumericControl(const Numeric& value) {
+    return ui::Column({
+        ui::TextInput("Direct strength", value.draft, "direct.edit", {.node = {.id = "direct-input"}}),
+        ui::Row({ui::Button("Decrease direct strength", "direct.decrease", {.node = {.id = "direct-decrease"}}),
+            ui::Button("Increase direct strength", "direct.increase", {.node = {.id = "direct-increase"}})}, {.style = {.gap = 12.f}}),
+        ui::Row({ui::Button("Apply direct strength", "direct.apply", {.node = {.id = "direct-apply"}}),
+            ui::Button("Cancel direct strength", "direct.cancel", {.node = {.id = "direct-cancel"}})}, {.style = {.gap = 12.f}}),
+        ui::Text("Accepted direct strength: " + canonical(value.accepted), {.id = "direct-accepted"})},
+        {.id = "direct-control", .style = {.gap = 12.f}});
+}
+ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric) {
     std::vector<ui::Element> rows{
         ui::Text("Renderer diagnostics", {.id = "heading"}),
         row("scene", "Scene", snapshot.scene), row("device", "Device", snapshot.device),
@@ -120,8 +158,9 @@ ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure) {
             rows.push_back(ui::Text("mean / p95 / max / stddev (ms)", {.id = "units-" + std::string(groups[i])}));
             for (const auto& timing : i == 0 ? snapshot.cpu : snapshot.gpu)
                 rows.push_back(row(std::string(groups[i]) + "-" + timing.id, timing.label, timing_text(timing)));
-        } else for (const auto& counter : snapshot.counters)
+        } else if (i == 2) for (const auto& counter : snapshot.counters)
             rows.push_back(row("counter-" + counter.id, counter.label, std::to_string(counter.value) + " " + counter.unit));
+        else rows.push_back(NumericControl(numeric));
     }
     return ui::Column(std::move(rows), {.id = "renderer-diagnostics", .classes = {"panel"}});
 }

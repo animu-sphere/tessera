@@ -1,11 +1,17 @@
 #include "host.hpp"
+#include <atomic>
+#include <charconv>
+#include <limits>
+#include <cmath>
+#include <algorithm>
+#include <type_traits>
 
 namespace diagnostics {
 using namespace tessera;
 namespace {
 Result<View> prepare(authoring::Session& session, const Snapshot& snapshot, const Disclosure& disclosure,
-    const CommandSnapshot& commands, Point offset, TextShaper& text) {
-    auto authored = session.lower(Panel(snapshot, disclosure), context);
+    const CommandSnapshot& commands, Point offset, const Numeric& numeric, TextShaper& text) {
+    auto authored = session.lower(Panel(snapshot, disclosure, numeric), context);
     if (!authored) return {std::nullopt, std::move(authored.diagnostics)};
     auto document = commands.apply_eligibility(authored.value->document, context);
     if (!document) return {std::nullopt, std::move(document.diagnostics)};
@@ -25,6 +31,15 @@ Result<View> prepare(authoring::Session& session, const Snapshot& snapshot, cons
     return {View{commands, std::move(*tree.value), std::move(*styles.value), std::move(*layout.value),
         std::move(*inspection.value), std::move(*paint.value)}, {}};
 }
+CommandOutcome command_error(std::vector<Diagnostic> diagnostics) {
+    if (diagnostics.size() > max_command_result_diagnostics) {
+        const auto omitted = diagnostics.size() - (max_command_result_diagnostics - 1);
+        diagnostics.resize(max_command_result_diagnostics - 1);
+        diagnostics.push_back({"diagnostics_truncated", Severity::error, "/presentation",
+            std::to_string(omitted) + " further presentation diagnostics omitted"});
+    }
+    return {CommandOutcomeStatus::error, {}, std::move(diagnostics)};
+}
 Result<bool> completed(Result<CommandExecution> execution) {
     if (!execution) return {std::nullopt, std::move(execution.diagnostics)};
     if (execution.value->outcome.status != CommandOutcomeStatus::success)
@@ -33,50 +48,98 @@ Result<bool> completed(Result<CommandExecution> execution) {
 }
 }
 
+
 Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
-    auto registry = CommandRegistry::create({
-        {actions[0], "Toggle CPU timings"}, {actions[1], "Toggle GPU timings"}, {actions[2], "Toggle counters"}},
-        {{actions[0], actions[0]}, {actions[1], actions[1]}, {actions[2], actions[2]}});
+    std::vector<CommandDescriptor> descriptors;
+    CommandBindings bindings;
+    for (std::size_t i = 0; i < groups.size(); ++i) {
+        descriptors.push_back({actions[i], "Toggle " + std::string(groups[i])});
+        bindings[actions[i]] = actions[i];
+    }
+    const CommandParameter identity{"field", CommandParameterType::enumeration, true, {}, {}, {}, 32, {"direct"}};
+    for (const auto* operation : {"decrease", "increase", "apply", "cancel"}) {
+        const auto id = "direct." + std::string(operation);
+        descriptors.push_back({id, id}); bindings[id] = id;
+    }
+    descriptors.push_back({"direct.set", "Set direct strength", {}, {}, CommandAvailability::both,
+        {identity, {"value", CommandParameterType::number, true, {}, 0, 4}}});
+    descriptors.push_back({"direct.edit", "Edit direct strength", {}, {}, CommandAvailability::both, {
+        {"owner", CommandParameterType::string, true, {}, {}, {}, 20},
+        {"revision", CommandParameterType::string, true, {}, {}, {}, 20},
+        {"kind", CommandParameterType::enumeration, true, {}, {}, {}, 32,
+            {"focus", "selection", "insert", "backward", "forward", "left", "right", "home", "end"}},
+        {"text", CommandParameterType::string, false, std::string{}, {}, {}, 32},
+        {"anchor", CommandParameterType::number, false, 0.0, 0, 32},
+        {"caret", CommandParameterType::number, false, 0.0, 0, 32},
+        {"extend", CommandParameterType::boolean, false, false}}});
+    bindings["direct.edit"] = "direct.edit";
+    auto registry = CommandRegistry::create(std::move(descriptors), std::move(bindings));
     if (!registry) return {std::nullopt, std::move(registry.diagnostics)};
     auto host = std::unique_ptr<Host>(new Host(std::move(*registry.value)));
-    auto staged = host->stage(snapshot, host->disclosure_, {}, {}, false, host->eligible_, text);
+    // Never reuse draft lifetimes, even across closed/reopened synthetic panels.
+    static std::atomic<std::uint64_t> owners{1};
+    auto owner = owners.load();
+    while (owner != std::numeric_limits<std::uint64_t>::max() && !owners.compare_exchange_weak(owner, owner + 1)) {}
+    if (owner == std::numeric_limits<std::uint64_t>::max())
+        return {std::nullopt, {{"direct_owner", Severity::error, "/controls/direct", "Draft lifetime IDs exhausted"}}};
+    auto draft = make_text_edit_state(owner, "1");
+    if (!draft) return {std::nullopt, std::move(draft.diagnostics)};
+    host->numeric_.draft = std::move(*draft.value);
+    auto staged = host->stage(snapshot, host->disclosure_, {}, {}, false, host->eligible_, host->numeric_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    host->accept(std::move(*staged.value), std::move(snapshot), host->disclosure_, {}, host->eligible_);
+    host->accept(std::move(*staged.value), std::move(snapshot), host->disclosure_, {}, host->eligible_, host->numeric_);
     return {std::move(host), {}};
 }
 
 Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure, Point offset,
-    FocusDispatcher focus, bool reveal, std::array<bool, 3> eligible, TextShaper& text) {
+    FocusDispatcher focus, bool reveal, std::array<bool, 3> eligible, const Numeric& numeric, TextShaper& text) {
     auto errors = validate(snapshot);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
-    // Attempt numbers are never reused, including candidates rejected by later stages.
-    // The accepted command snapshot itself changes only in accept().
-    auto commands = CommandSnapshot::publish(registry_, ++generation_, CommandMode::production,
-        {{actions[0], {eligible[0]}}, {actions[1], {eligible[1]}}, {actions[2], {eligible[2]}}});
+    const bool enabled = numeric.enabled && disclosure.expanded[3];
+    const bool dirty = numeric.draft.text != canonical(numeric.accepted);
+    CommandStates states;
+    for (std::size_t i = 0; i < groups.size(); ++i) states[actions[i]] = {i == 3 || eligible[i]};
+    states["direct.edit"] = {enabled}; states["direct.apply"] = {enabled}; states["direct.set"] = {enabled};
+    states["direct.cancel"] = {enabled && dirty};
+    states["direct.decrease"] = {enabled && !dirty && numeric.accepted > 0};
+    states["direct.increase"] = {enabled && !dirty && numeric.accepted < 4};
+    auto commands = CommandSnapshot::publish(registry_, ++generation_, CommandMode::production, std::move(states));
     if (!commands) return {std::nullopt, std::move(commands.diagnostics)};
-    auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, text);
+    auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, numeric, text);
     if (!staged) return staged;
+    // Removing controls has an explicit recovery target instead of adjacent-field heuristics.
+    if (!disclosure.expanded[3] && focused().value_or("").starts_with("direct-")) {
+        auto recovered = focus.focus(staged.value->hit(), *staged.value->tree->find("disclosure-controls"));
+        if (!recovered) return {std::nullopt, std::move(recovered.diagnostics)};
+    }
     auto recovered = focus.refresh(staged.value->hit());
     if (!recovered) return {std::nullopt, std::move(recovered.diagnostics)};
     if (reveal && recovered.value->focused) {
         auto updates = scroll_into_view(staged.value->hit(), *recovered.value->focused);
         if (!updates) return {std::nullopt, std::move(updates.diagnostics)};
-        if (!updates.value->empty()) staged = prepare(session_, snapshot, disclosure, *commands.value, updates.value->front().offset, text);
+        if (!updates.value->empty()) staged = prepare(session_, snapshot, disclosure, *commands.value,
+            updates.value->front().offset, numeric, text);
     }
     return staged;
 }
 
-void Host::accept(View view, Snapshot snapshot, Disclosure disclosure, FocusDispatcher focus, std::array<bool, 3> eligible) {
+void Host::accept(View view, Snapshot snapshot, Disclosure disclosure, FocusDispatcher focus,
+    std::array<bool, 3> eligible, Numeric numeric) {
+    const bool recover_header = !disclosure.expanded[3] && focused().value_or("").starts_with("direct-");
+    const bool changed = numeric.accepted != numeric_.accepted;
     offset_ = view.layout.boxes[view.tree->find("renderer-diagnostics")->index].scroll->offset;
-    snapshot_ = std::move(snapshot); disclosure_ = disclosure; eligible_ = eligible;
+    snapshot_ = std::move(snapshot); disclosure_ = disclosure; eligible_ = eligible; numeric_ = std::move(numeric);
     accepted_ = std::move(view);
     focus_ = std::move(focus);
-    (void)focus_.refresh(accepted_->hit());
-    (void)pointers_.refresh(accepted_->hit()); // A replacement cancels every outstanding pointer press.
+    if (recover_header) (void)focus_.focus(accepted_->hit(), *accepted_->tree->find("disclosure-controls"));
+    else (void)focus_.refresh(accepted_->hit());
+    (void)pointers_.refresh(accepted_->hit()); // Claimed input streams outlive this cancellation.
+    if (changed) ++setting_changes_;
     session_.publish();
 }
 
 std::optional<std::string> Host::focused() const {
+    if (!accepted_) return {};
     auto copy = focus_;
     const auto refreshed = copy.refresh(view().hit());
     if (!refreshed || !refreshed.value->focused) return {};
@@ -84,23 +147,65 @@ std::optional<std::string> Host::focused() const {
 }
 
 Result<bool> Host::refresh(Snapshot snapshot, TextShaper& text) {
-    auto staged = stage(snapshot, disclosure_, offset_, focus_, true, eligible_, text);
+    auto staged = stage(snapshot, disclosure_, offset_, focus_, true, eligible_, numeric_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), std::move(snapshot), disclosure_, focus_, eligible_);
+    accept(std::move(*staged.value), std::move(snapshot), disclosure_, focus_, eligible_, numeric_);
     return {true, {}};
 }
 Result<bool> Host::eligibility(std::array<bool, 3> eligible, TextShaper& text) {
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible, numeric_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible, numeric_);
     return {true, {}};
+}
+Result<bool> Host::numeric_eligibility(bool enabled, TextShaper& text) {
+    auto numeric = numeric_; numeric.enabled = enabled;
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric, text);
+    if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, std::move(numeric));
+    return {true, {}};
+}
+namespace {
+CommandArguments edit_arguments(const TextEditRequest& edit) {
+    CommandArguments args{{"owner", std::to_string(edit.owner)}, {"revision", std::to_string(edit.revision)}};
+    std::visit([&](const auto& operation) {
+        using T = std::decay_t<decltype(operation)>;
+        if constexpr (std::is_same_v<T, TextEditInsert>) {
+            args["kind"] = std::string{"insert"}; args["text"] = operation.text;
+        } else if constexpr (std::is_same_v<T, TextEditSelection>) {
+            args["kind"] = std::string{"selection"};
+            args["anchor"] = static_cast<double>(operation.anchor); args["caret"] = static_cast<double>(operation.caret);
+        } else if constexpr (std::is_same_v<T, TextEditErase>) {
+            args["kind"] = std::string{operation.direction == TextErase::backward ? "backward" : "forward"};
+        } else {
+            constexpr const char* moves[]{"left", "right", "home", "end"};
+            const auto index = static_cast<unsigned>(operation.direction);
+            args["kind"] = std::string{index < 4 ? moves[index] : "invalid"}; args["extend"] = operation.extend;
+        }
+    }, edit.operation);
+    return args;
+}
+}
+Result<CommandInvocation> Host::request_edit(const TextEditRequest& edit, CommandSource source) {
+    auto owner = view().tree->find("direct-input");
+    if (!owner) return {std::nullopt, {{"direct_target", Severity::error, "/controls/direct", "Expected a live numeric field"}}};
+    auto action = request_semantic_action(view().semantic(), *owner, "activate");
+    if (!action) return {std::nullopt, std::move(action.diagnostics)};
+    return view().commands.resolve_action(view().semantic(), *action.value, view().commands.generation(), edit_arguments(edit), source, ++sequence_);
+}
+Result<CommandInvocation> Host::request_value(std::string field, double value, CommandSource source) {
+    return view().commands.resolve({view().commands.generation(), "direct.set",
+        {{"field", std::move(field)}, {"value", value}}, source, ++sequence_});
 }
 Result<CommandInvocation> Host::request(const std::string& id, CommandSource source) {
     const auto owner = view().tree->find(id);
-    if (!owner) return {std::nullopt, {{"telemetry_target", Severity::error, "/target/" + id, "Expected a live disclosure owner"}}};
+    if (!owner) return {std::nullopt, {{"telemetry_target", Severity::error, "/target/" + id, "Expected a live activation owner"}}};
     auto action = request_semantic_action(view().semantic(), *owner, "activate");
     if (!action) return {std::nullopt, std::move(action.diagnostics)};
-    return view().commands.resolve_action(view().semantic(), *action.value, view().commands.generation(), {}, source, ++sequence_);
+    CommandArguments args;
+    if (id == "direct-input") args = {{"owner", std::to_string(numeric_.draft.owner)},
+        {"revision", std::to_string(numeric_.draft.revision)}, {"kind", std::string{"focus"}}};
+    return view().commands.resolve_action(view().semantic(), *action.value, view().commands.generation(), std::move(args), source, ++sequence_);
 }
 
 Result<CommandExecution> Host::execute(const CommandInvocation& invocation, TextShaper& text) {
@@ -108,24 +213,80 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
         Host& host;
         TextShaper& text;
         Disclosure disclosure;
+        Numeric numeric;
+        FocusDispatcher focus;
         std::optional<View> candidate;
-        Handler(Host& host, TextShaper& text) : host(host), text(text) {}
+        Handler(Host& host, TextShaper& text) : host(host), text(text), disclosure(host.disclosure_),
+            numeric(host.numeric_), focus(host.focus_) {}
+        CommandOutcome error(std::string message) {
+            return {CommandOutcomeStatus::error, {}, {{"direct_request", Severity::error, "/controls/direct", std::move(message)}}};
+        }
         CommandOutcome execute(const CommandInvocationRecord& call) override {
-            ++host.disclosure_requests_;
-            disclosure = host.disclosure_;
-            for (std::size_t i = 0; i < groups.size(); ++i)
-                if (call.command == actions[i]) disclosure.expanded[i] = !disclosure.expanded[i];
-            auto staged = host.stage(host.snapshot_, disclosure, host.offset_, host.focus_, true, host.eligible_, text);
-            if (!staged) return {CommandOutcomeStatus::error, {}, std::move(staged.diagnostics)};
+            bool reset = false;
+            if (call.command.starts_with("diagnostics.")) {
+                ++host.disclosure_requests_;
+                for (std::size_t i = 0; i < groups.size(); ++i)
+                    if (call.command == actions[i]) disclosure.expanded[i] = !disclosure.expanded[i];
+            } else if (call.command == "direct.edit") {
+                ++host.draft_requests_;
+                auto integer = [&](const char* key, std::uint64_t& result) {
+                    const auto& value = std::get<std::string>(call.arguments.at(key));
+                    auto parsed = std::from_chars(value.data(), value.data() + value.size(), result);
+                    return parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size();
+                };
+                TextEditRequest edit;
+                if (!integer("owner", edit.owner) || !integer("revision", edit.revision) ||
+                    edit.owner != numeric.draft.owner || edit.revision != numeric.draft.revision)
+                    return error("Expected the live draft owner and revision");
+                const auto& kind = std::get<std::string>(call.arguments.at("kind"));
+                if (kind == "focus") {
+                    auto focused = focus.focus(host.view().hit(), *host.view().tree->find("direct-input"));
+                    if (!focused) return command_error(std::move(focused.diagnostics));
+                } else {
+                    if (kind == "insert") edit.operation = TextEditInsert{std::get<std::string>(call.arguments.at("text"))};
+                    else if (kind == "selection") {
+                        const auto anchor = std::get<double>(call.arguments.at("anchor"));
+                        const auto caret = std::get<double>(call.arguments.at("caret"));
+                        if (anchor != std::floor(anchor) || caret != std::floor(caret)) return error("Selection offsets must be integral bytes");
+                        edit.operation = TextEditSelection{static_cast<std::size_t>(anchor), static_cast<std::size_t>(caret)};
+                    } else if (kind == "backward" || kind == "forward")
+                        edit.operation = TextEditErase{kind == "backward" ? TextErase::backward : TextErase::forward};
+                    else edit.operation = TextEditMove{kind == "left" ? TextMove::left : kind == "right" ? TextMove::right :
+                        kind == "home" ? TextMove::home : TextMove::end, std::get<bool>(call.arguments.at("extend"))};
+                    auto edited = edit_text(numeric.draft, edit);
+                    if (!edited) return command_error(std::move(edited.diagnostics));
+                    if (edited.value->text.size() > 32) return error("Numeric draft is limited to 32 UTF-8 bytes");
+                    numeric.draft = std::move(*edited.value);
+                }
+            } else if (call.command == "direct.cancel") { ++host.draft_requests_; reset = true; }
+            else {
+                ++host.setting_attempts_;
+                if (call.command == "direct.apply") {
+                    auto parsed = parse_numeric(numeric.draft.text);
+                    if (!parsed) return command_error(std::move(parsed.diagnostics));
+                    numeric.accepted = *parsed.value;
+                } else if (call.command == "direct.set") {
+                    numeric.accepted = std::get<double>(call.arguments.at("value"));
+                    if (canonical(numeric.accepted).size() > 32) return error("Accepted value must fit the 32-byte decimal draft");
+                }
+                else numeric.accepted = std::clamp(numeric.accepted + (call.command == "direct.increase" ? 0.25 : -0.25), 0.0, 4.0);
+                reset = true;
+            }
+            if (reset) {
+                if (numeric.draft.revision == std::numeric_limits<std::uint64_t>::max()) return error("Draft revision exhausted; reopen the panel");
+                numeric.draft.text = canonical(numeric.accepted);
+                numeric.draft.anchor = numeric.draft.caret = numeric.draft.text.size(); ++numeric.draft.revision;
+            }
+            auto staged = host.stage(host.snapshot_, disclosure, host.offset_, focus, true, host.eligible_, numeric, text);
+            if (!staged) return command_error(std::move(staged.diagnostics));
             candidate = std::move(*staged.value);
             return {};
         }
     } handler(*this, text);
-    // All borrowed old-view inputs remain alive through execution and outcome validation.
     const auto current = view().semantic();
     auto execution = executor_.execute(view().commands, invocation, handler, &current);
     if (execution && execution.value->outcome.status == CommandOutcomeStatus::success)
-        accept(std::move(*handler.candidate), snapshot_, handler.disclosure, focus_, eligible_);
+        accept(std::move(*handler.candidate), snapshot_, handler.disclosure, std::move(handler.focus), eligible_, std::move(handler.numeric));
     return execution;
 }
 
@@ -135,44 +296,116 @@ Result<bool> Host::invoke(const std::string& id, CommandSource source, TextShape
     return completed(execute(*invocation.value, text));
 }
 Result<bool> Host::operate(const ActionRequest& action, CommandSource source, TextShaper& text) {
+    const auto* node = view().tree->get(action.target);
+    if (node && node->id == "direct-input") return invoke("direct-input", source, text);
     auto invocation = view().commands.resolve_action(view().semantic(), action, view().commands.generation(), {}, source, ++sequence_);
     if (!invocation) return {std::nullopt, std::move(invocation.diagnostics)};
     return completed(execute(*invocation.value, text));
 }
 
+Result<bool> Host::route(const InputEvent& event, CommandSource source, TextShaper& text) {
+    auto result = input(event, source, text);
+    if (result && !last_consumed_) ++camera_events_;
+    return result;
+}
 Result<bool> Host::input(const InputEvent& event, CommandSource source, TextShaper& text) {
+    last_consumed_ = false;
     auto errors = tessera::validate(event);
     if (timestamp_ && event.timestamp < *timestamp_)
         errors.push_back({"telemetry_timestamp", Severity::error, "/timestamp", "Expected a nondecreasing normalized event timestamp"});
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     timestamp_ = event.timestamp;
+    auto panel_point = [&](Point p) { return p.x >= 0 && p.y >= 0 && p.x < viewport.width && p.y < viewport.height; };
     if (const auto* scroll = std::get_if<Scroll>(&event.data)) {
+        last_consumed_ = panel_point(scroll->position);
+        if (!last_consumed_) return {false, {}};
         auto updates = route_scroll(view().hit(), *scroll);
         if (!updates) return {std::nullopt, std::move(updates.diagnostics)};
-        if (updates.value->updates.empty()) return {false, {}};
-        auto staged = stage(snapshot_, disclosure_, updates.value->updates.front().offset, focus_, false, eligible_, text);
+        if (updates.value->updates.empty()) return {true, {}};
+        auto staged = stage(snapshot_, disclosure_, updates.value->updates.front().offset, focus_, false, eligible_, numeric_, text);
         if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-        accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_);
+        accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_);
         return {true, {}};
     }
-    if (std::holds_alternative<KeyDown>(event.data) || std::holds_alternative<KeyUp>(event.data) ||
-        std::holds_alternative<tessera::TextInput>(event.data)) return {false, {}};
+    const auto focused_id = focused().value_or("");
+    const bool field = focused_id == "direct-input";
+    auto edit = [&](auto operation) -> Result<bool> {
+        last_consumed_ = true;
+        auto call = request_edit({numeric_.draft.owner, numeric_.draft.revision, std::move(operation)}, source);
+        if (!call) return {std::nullopt, std::move(call.diagnostics)};
+        return completed(execute(*call.value, text));
+    };
+    if (const auto* committed = std::get_if<tessera::TextInput>(&event.data)) {
+        if (field) return edit(TextEditInsert{committed->text});
+        return {false, {}};
+    }
+    std::optional<InputEvent> mapped;
+    if (const auto* key = std::get_if<KeyDown>(&event.data)) {
+        const auto& m = key->modifiers;
+        if (m.control || m.alt || m.super) return {false, {}};
+        if (field) switch (key->key) {
+        case Key::home: return edit(TextEditMove{TextMove::home, m.shift});
+        case Key::end: return edit(TextEditMove{TextMove::end, m.shift});
+        case Key::left: return edit(TextEditMove{TextMove::left, m.shift});
+        case Key::right: return edit(TextEditMove{TextMove::right, m.shift});
+        case Key::backspace: if (!m.shift) return edit(TextEditErase{TextErase::backward}); break;
+        case Key::delete_key: if (!m.shift) return edit(TextEditErase{TextErase::forward}); break;
+        case Key::enter: case Key::escape:
+            if (!m.shift && !key->repeat) { last_consumed_ = true; return invoke(key->key == Key::enter ? "direct-apply" : "direct-cancel", source, text); }
+            return {false, {}};
+        default: break;
+        }
+        if (key->key == Key::tab) mapped = {event.timestamp, m.shift ? decltype(InputEvent::data){FocusPrevious{}} : decltype(InputEvent::data){FocusNext{}}};
+        else if (!m.shift && (key->key == Key::up || key->key == Key::down || key->key == Key::left || key->key == Key::right))
+            mapped = {event.timestamp, Navigate{key->key == Key::up ? Direction::up : key->key == Key::down ? Direction::down :
+                key->key == Key::left ? Direction::left : Direction::right, key->repeat}};
+        else if (!m.shift && !key->repeat && (key->key == Key::enter || key->key == Key::space)) mapped = {event.timestamp, Activate{}};
+        else if (!m.shift && !key->repeat && key->key == Key::escape) mapped = {event.timestamp, Cancel{}};
+        else return {false, {}};
+    }
+    if (std::holds_alternative<KeyUp>(event.data)) return {false, {}};
     if (std::holds_alternative<PointerMove>(event.data) || std::holds_alternative<PointerDown>(event.data) ||
         std::holds_alternative<PointerUp>(event.data) || std::holds_alternative<PointerCancel>(event.data)) {
+        std::uint32_t id = 0; bool terminal = false; bool inside = false;
+        std::visit([&](const auto& pointer) {
+            using T = std::decay_t<decltype(pointer)>;
+            if constexpr (std::is_same_v<T, PointerMove> || std::is_same_v<T, PointerDown> || std::is_same_v<T, PointerUp> || std::is_same_v<T, PointerCancel>) {
+                id = pointer.pointer.value;
+                if constexpr (!std::is_same_v<T, PointerCancel>) inside = panel_point(pointer.position);
+                if constexpr (std::is_same_v<T, PointerDown>) {
+                    if (pointer.button == PointerButton::primary) {
+                        if (inside) claimed_.insert(id); else outside_.insert(id);
+                    }
+                }
+                if constexpr (std::is_same_v<T, PointerUp>) terminal = pointer.button == PointerButton::primary;
+                if constexpr (std::is_same_v<T, PointerCancel>) terminal = true;
+            }
+        }, event.data);
+        last_consumed_ = !outside_.contains(id) && (inside || claimed_.contains(id));
+        if (terminal) { claimed_.erase(id); outside_.erase(id); }
+        if (!last_consumed_) return {false, {}};
         auto pointers = pointers_;
         auto dispatched = pointers.dispatch(view().hit(), event);
         if (!dispatched) return {std::nullopt, std::move(dispatched.diagnostics)};
-        for (const auto& action : dispatched.value->actions) return operate(action, source, text);
+        // Save release/cancel state even if the subsequent command returns an error.
         pointers_ = std::move(pointers);
-        return {dispatched.value->target.has_value() || !dispatched.value->pointers.empty(), {}};
+        if (const auto* down = std::get_if<PointerDown>(&event.data); down && down->button == PointerButton::primary)
+            for (const auto& pointer : dispatched.value->pointers)
+                if (pointer.pointer == down->pointer && pointer.pressed) (void)focus_.focus(view().hit(), *pointer.pressed);
+        for (const auto& action : dispatched.value->actions) return operate(action, source, text);
+        return {true, {}};
     }
+    const auto& logical = mapped ? *mapped : event;
+    last_consumed_ = true;
+    if (std::holds_alternative<Cancel>(logical.data) && focused_id.starts_with("direct-"))
+        return invoke("direct-cancel", source, text);
     auto focus = focus_;
-    auto dispatched = focus.dispatch(view().hit(), event);
+    auto dispatched = focus.dispatch(view().hit(), logical);
     if (!dispatched) return {std::nullopt, std::move(dispatched.diagnostics)};
     for (const auto& action : dispatched.value->actions) return operate(action, source, text);
-    auto staged = stage(snapshot_, disclosure_, offset_, focus, true, eligible_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus, true, eligible_, numeric_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, std::move(focus), eligible_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, std::move(focus), eligible_, numeric_);
     return {true, {}};
 }
 } // namespace diagnostics
