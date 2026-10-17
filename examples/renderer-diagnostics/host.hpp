@@ -32,6 +32,7 @@ public:
     std::optional<std::string> focused() const;
     std::size_t disclosure_requests() const { return disclosure_requests_; }
     const Numeric& numeric() const { return numeric_; }
+    const Msaa& msaa() const { return msaa_; }
     std::size_t setting_attempts() const { return setting_attempts_; }
     std::size_t setting_changes() const { return setting_changes_; }
     std::size_t draft_requests() const { return draft_requests_; }
@@ -40,6 +41,7 @@ public:
     bool last_consumed() const { return last_consumed_; }
     tessera::Result<bool> route(const tessera::InputEvent&, tessera::CommandSource, tessera::TextShaper&);
     tessera::Result<bool> numeric_eligibility(bool, tessera::TextShaper&);
+    tessera::Result<bool> msaa_capabilities(std::vector<unsigned> supported, bool enabled, tessera::TextShaper&);
     tessera::Result<tessera::CommandInvocation> request_edit(const tessera::TextEditRequest&, tessera::CommandSource);
     tessera::Result<tessera::CommandInvocation> request_value(std::string field, double, tessera::CommandSource);
 
@@ -54,8 +56,8 @@ public:
 private:
     explicit Host(tessera::CommandRegistry registry) : registry_(std::move(registry)) {}
     tessera::Result<View> stage(const Snapshot&, const Disclosure&, tessera::Point,
-        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, tessera::TextShaper&);
-    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric);
+        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, tessera::TextShaper&);
+    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa);
     tessera::Result<bool> operate(const tessera::ActionRequest&, tessera::CommandSource, tessera::TextShaper&);
 
     tessera::authoring::Session session_;
@@ -64,6 +66,7 @@ private:
     Snapshot snapshot_;
     Disclosure disclosure_;
     Numeric numeric_;
+    Msaa msaa_;
     std::array<bool, 3> eligible_{true, true, true};
     tessera::Point offset_;
     tessera::FocusDispatcher focus_;
