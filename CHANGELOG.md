@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Documentation: reviewed first-app composition, reusable Settings styles and the editing/selection/scrolling host boundaries. Selected a bounded copyable Settings edit/Apply starter in [current work](docs/roadmap/current.md#current-slice), with explicit acceptance and a stop condition. Source-review findings and limits are recorded in [support](docs/reference/support-matrix.md#first-app-to-settings-authoring-review--2026-10-17); no runtime or public API change accompanies this scope selection.
+
 - Excluded FetchContent consumer checks from the hosted [release workflow](.github/workflows/release.yml) to avoid rebuilding the same core through both import forms in CI. The add_subdirectory consumer checks stay in the gate; ordinary local CTest retains both imports. Test-selection verification is recorded in [support](docs/reference/support-matrix.md#ci-fetchcontent-filter-evidence--2026-10-17).
 
 - Added [Getting Started](docs/guides/getting-started.md), a [first-app walkthrough](docs/guides/first-app.md) and a two-file [copyable C++ application](examples/first-app/main.cpp). Typed composition and named state/derived text use existing public APIs; the example separates normalized input, command eligibility/execution, full-tree publication and synthetic CPU capture into the host. Independent checks copy the documented project and exercise both local source import forms. Configuration/results are recorded in [support](docs/reference/support-matrix.md#first-app-onboarding-evidence--2026-10-17); [current](docs/roadmap/current.md) returns to bounded application authoring-friction review.
