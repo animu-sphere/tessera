@@ -6,6 +6,7 @@
 #include <tessera/render/paint.hpp>
 #include <iostream>
 #include <stdexcept>
+#include <tuple>
 
 using namespace tessera;
 namespace ui = tessera::authoring;
@@ -39,19 +40,29 @@ ui::Element Field(FieldProps props, std::vector<ui::Element> children) {
     return ui::Row({ui::Text(std::move(props.label)), ui::Column(std::move(children))},
         {.style = {.gap = props.gap}});
 }
-ui::Element Settings(ui::Value<TextEditState> username, ui::Value<bool> enabled,
+const std::vector<std::string> sections{"account", "feature", "about"};
+ui::Element Settings(const std::string& selected, ui::Value<TextEditState> username, ui::Value<bool> enabled,
     ui::Value<std::string> summary, ui::Value<std::string> saved) {
-    return ui::Column({
+    std::vector<ui::Element> choices;
+    for (const auto& id : sections)
+        choices.push_back(ui::Button((selected == id ? "* " : "") + id, "settings.section." + id,
+            {.node = {.id = "section-" + id, .classes = {"control"}}}));
+    std::vector<ui::Element> rows{
         ui::Text("Settings"),
-        Field({"Account"}, {ui::TextInput("Username", username, "settings.edit",
-            {.node = {.id = "username", .classes = {"control"}}})}),
-        Field({"Feature"}, {ui::Checkbox("Enable feature", enabled, "settings.toggle",
-            {.node = {.id = "toggle", .classes = {"control"}}})}),
-        ui::Text(summary, {.id = "summary", .classes = {"status"}}),
-        ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .classes = {"control"},
-            .style = {.background = Color{0.6f, 0.75f, 0.95f, 1}}}}),
-        ui::Text(saved, {.id = "save-result", .classes = {"status"}})},
-        {.id = "settings", .classes = {"form"}});
+        ui::Row(std::move(choices), {.style = {.gap = 12.f}}),
+        ui::Text("Section " + selected, {.id = "selected-section", .classes = {"status"}})};
+    if (selected == "account")
+        rows.push_back(Field({"Account"}, {ui::TextInput("Username", username, "settings.edit",
+            {.node = {.id = "username", .classes = {"control"}}})}));
+    else if (selected == "feature")
+        rows.push_back(Field({"Feature"}, {ui::Checkbox("Enable feature", enabled, "settings.toggle",
+            {.node = {.id = "toggle", .classes = {"control"}}})}));
+    else rows.push_back(Field({"About"}, {ui::Text("Apply saves the whole draft.", {.id = "section-help"})}));
+    rows.push_back(ui::Text(summary, {.id = "summary", .classes = {"status"}}));
+    rows.push_back(ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .classes = {"control"},
+        .style = {.background = Color{0.6f, 0.75f, 0.95f, 1}}}}));
+    rows.push_back(ui::Text(saved, {.id = "save-result", .classes = {"status"}}));
+    return ui::Column(std::move(rows), {.id = "settings", .classes = {"form"}});
 }
 
 // Host state and synchronous in-memory saves own values, never UI references.
@@ -69,6 +80,7 @@ struct Host final : CommandHost {
     SettingsData draft{username.text, false};
     std::vector<SettingsData> saves;
     std::string result = "Not saved";
+    std::string selected = "account", next_selected;
     std::optional<TextEditRequest> edit;
     TextEditState next_username;
     SettingsData next_draft;
@@ -77,6 +89,7 @@ struct Host final : CommandHost {
 
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         next_username = username; next_draft = draft; next_result = result;
+        next_selected = selected;
         applying = invocation.command == "settings.apply";
         if (invocation.command == "settings.edit") {
             require(edit.has_value(), "Editing requires an owned request");
@@ -85,6 +98,7 @@ struct Host final : CommandHost {
             next_username = std::move(*candidate.value);
             next_draft.username = next_username.text;
         } else if (invocation.command == "settings.toggle") next_draft.feature = !draft.feature;
+        else if (invocation.command.starts_with("settings.section.")) next_selected = invocation.command.substr(17);
         else {
             require(applying, "Unexpected command");
             next_result = saved_caption(saves.size() + 1, next_draft);
@@ -94,7 +108,8 @@ struct Host final : CommandHost {
 };
 
 constexpr Size viewport{640, 360};
-const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply"}};
+const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply",
+    "settings.section.account", "settings.section.feature", "settings.section.about"}};
 struct Presentation {
     CommandSnapshot commands;
     std::unique_ptr<UiTree> tree;
@@ -153,18 +168,23 @@ int main() {
         const auto summary = session.computed("summary", [username, enabled] {
             return "User " + username.read().text + (enabled.read() ? "; feature enabled" : "; feature disabled");
         });
-        const auto form = Settings(username, enabled, summary, saved);
+        auto form = [&](const std::string& selected) { return Settings(selected, username, enabled, summary, saved); };
         const auto sheet = application_styles();
         const auto registry = take(CommandRegistry::create(
-            {{"settings.edit", "Edit username"}, {"settings.toggle", "Toggle feature"}, {"settings.apply", "Apply settings"}},
-            {{"settings.edit", "settings.edit"}, {"settings.toggle", "settings.toggle"}, {"settings.apply", "settings.apply"}}));
+            {{"settings.edit", "Edit username"}, {"settings.toggle", "Toggle feature"}, {"settings.apply", "Apply settings"},
+                {"settings.section.account", "Select Account"}, {"settings.section.feature", "Select Feature"},
+                {"settings.section.about", "Select About"}},
+            {{"settings.edit", "settings.edit"}, {"settings.toggle", "settings.toggle"}, {"settings.apply", "settings.apply"},
+                {"settings.section.account", "settings.section.account"}, {"settings.section.feature", "settings.section.feature"},
+                {"settings.section.about", "settings.section.about"}}));
         std::uint64_t generation = 0, sequence = 0;
         auto commands = [&] {
             return take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
-                {{"settings.edit", {true}}, {"settings.toggle", {true}}, {"settings.apply", {true}}}));
+                {{"settings.edit", {true}}, {"settings.toggle", {true}}, {"settings.apply", {true}},
+                    {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}}}));
         };
         PlaceholderTextShaper text;
-        auto accepted = take(prepare(session, form, commands(), sheet, text));
+        auto accepted = take(prepare(session, form(host.selected), commands(), sheet, text));
         session.publish();
         FocusDispatcher focus;
         CommandExecutor executor;
@@ -184,7 +204,7 @@ int main() {
             session.update([&] {
                 username.write(host.next_username); enabled.write(host.next_draft.feature); saved.write(host.next_result);
             });
-            auto candidate = prepare(session, form, commands(), sheet, text);
+            auto candidate = prepare(session, form(host.next_selected), commands(), sheet, text);
             if (!candidate) {
                 // Returned stage failure: restore observations, retain host values,
                 // save records and presentation, then exit with diagnostics.
@@ -196,13 +216,16 @@ int main() {
             if (host.applying) host.saves.push_back(host.next_draft); // Owned synchronous copy, once.
             host.username = std::move(host.next_username);
             host.draft = std::move(host.next_draft); host.result = std::move(host.next_result);
+            host.selected = std::move(host.next_selected);
             session.publish(); accepted = std::move(*candidate.value);
             (void)take(focus.refresh(accepted.hit())); // Recover by explicit author ID.
         };
         auto input = [&](InputEvent event, CommandSource source = CommandSource::keyboard) {
             require(validate(event).empty(), "Invalid normalized input");
             std::optional<decltype(TextEditRequest::operation)> edit;
-            if (take(focus.refresh(accepted.hit())).focused == accepted.tree->find("username")) {
+            const auto owner = accepted.tree->find("username");
+            const auto current_focus = take(focus.refresh(accepted.hit())).focused;
+            if (owner && current_focus == owner) { // An absent owner must never match an empty focus.
                 if (const auto* insert = std::get_if<tessera::TextInput>(&event.data)) edit = TextEditInsert{insert->text};
                 if (const auto* key = std::get_if<KeyDown>(&event.data);
                     key && !key->modifiers.control && !key->modifiers.alt && !key->modifiers.super) {
@@ -234,42 +257,107 @@ int main() {
         const auto extent = take(capture_extent(viewport, 1));
         auto capture = [&] { return take(frames.capture({0, viewport, 1, extent, &accepted.paint, 0us})); };
         auto observe = [&] {
+            require(name(accepted, "selected-section") == "Section " + host.selected, "Section name differs");
+            for (const auto& id : sections)
+                require(name(accepted, "section-" + id) == (host.selected == id ? "* " : "") + id,
+                    "Selected marker differs");
+            require(accepted.tree->find("username").has_value() == (host.selected == "account") &&
+                accepted.tree->find("toggle").has_value() == (host.selected == "feature") &&
+                accepted.tree->find("section-help").has_value() == (host.selected == "about"), "Conditional branch differs");
             require(name(accepted, "summary") == "User " + host.draft.username +
                 (host.draft.feature ? "; feature enabled" : "; feature disabled"), "Summary differs");
-            require(name(accepted, "username") == "Username " + host.username.text + " Selection " +
-                std::to_string(host.username.anchor) + ":" + std::to_string(host.username.caret), "Edit observation differs");
-            require(name(accepted, "toggle") == (host.draft.feature ? "[x] Enable feature" : "[ ] Enable feature"), "Checkbox differs");
+            if (host.selected == "account")
+                require(name(accepted, "username") == "Username " + host.username.text + " Selection " +
+                    std::to_string(host.username.anchor) + ":" + std::to_string(host.username.caret), "Edit observation differs");
+            if (host.selected == "feature")
+                require(name(accepted, "toggle") == (host.draft.feature ? "[x] Enable feature" : "[ ] Enable feature"), "Checkbox differs");
+            if (host.selected == "about")
+                require(name(accepted, "section-help") == "Apply saves the whole draft.", "Help differs");
             require(name(accepted, "save-result") == host.result, "Saved observation differs");
+            // This onboarding viewport fits every branch; no reveal/scroll policy is needed.
+            for (const auto& element : accepted.inspection.elements) {
+                require(element.geometry.has_value() && element.geometry->visible, "Missing visible geometry");
+                const auto& box = element.geometry->border_box;
+                require(box.size.width > 0 && box.size.height > 0 && box.origin.x >= 0 && box.origin.y >= 0 &&
+                    box.origin.x + box.size.width <= viewport.width && box.origin.y + box.size.height <= viewport.height,
+                    "Element lies outside the viewport");
+            }
             const auto image = capture();
             require(capture() == image, "Repeated CPU capture differs");
-            std::cout << name(accepted, "summary") << '\n' << name(accepted, "save-result") << '\n';
+            std::cout << name(accepted, "selected-section") << '\n' << name(accepted, "summary") << '\n'
+                << name(accepted, "save-result") << '\n';
             return image;
         };
+        std::int64_t tick = 0;
+        auto send = [&](auto event, CommandSource source = CommandSource::keyboard) {
+            input({std::chrono::microseconds{++tick}, std::move(event)}, source);
+        };
+        auto ignore_editing = [&] {
+            auto observations = [&] { return std::tuple{host.selected, host.username, host.draft, host.saves, host.result,
+                sequence, accepted.commands.generation(), accepted.inspection, accepted.paint,
+                take(focus.refresh(accepted.hit())).focused}; };
+            const auto before = observations();
+            send(tessera::TextInput{"ignored"});
+            for (const auto key : {Key::left, Key::right, Key::home, Key::end, Key::backspace, Key::delete_key})
+                send(KeyDown{key});
+            require(observations() == before, "Absent username consumed editing input");
+        };
         const auto initial = observe();
-        input({1us, FocusNext{}}); focused("username");
-        input({2us, tessera::TextInput{"本"}}); focused("username");
+        for (const auto* id : {"section-account", "section-feature", "section-about", "username"}) {
+            send(FocusNext{}); focused(id);
+        }
+        send(tessera::TextInput{"本"}); focused("username");
         require(host.username.text == "Ada本" && host.username.anchor == 6 && host.username.caret == 6 &&
             host.username.revision == 2 && host.saves.empty(), "First edit differs or saved prematurely");
-        input({3us, FocusNext{}}); focused("toggle");
-        input({4us, Activate{}}); focused("toggle");
+        const auto retained_edit = host.username;
+        const auto edited_account = observe();
+        require(edited_account != initial, "Editing did not change pixels");
+        send(FocusPrevious{}); focused("section-about");
+        send(FocusPrevious{}); focused("section-feature");
+        send(Activate{}); focused("section-feature");
+        require(host.selected == "feature" && host.username == retained_edit &&
+            host.draft == SettingsData{"Ada本", false} && host.saves.empty(), "Feature selection changed the draft or saved");
+        require(observe() != edited_account, "Branch selection did not change pixels");
+        ignore_editing(); // Absent username while a section choice holds focus.
+        send(FocusNext{}); focused("section-about");
+        send(FocusNext{}); focused("toggle");
+        send(Activate{}); focused("toggle");
         require(host.saves.empty(), "Toggle saved prematurely");
-        input({5us, FocusNext{}}); focused("apply");
-        input({6us, Activate{}}); focused("apply");
+        const auto toggled = observe();
+        send(FocusNext{}); focused("apply");
+        send(Activate{}, CommandSource::gamepad); focused("apply");
         require(host.saves == std::vector<SettingsData>{{"Ada本", true}}, "First Apply differs");
         const auto first_saved = observe();
-        require(first_saved != initial, "Edit/Apply did not change pixels");
-        input({7us, FocusPrevious{}}); input({8us, FocusPrevious{}}); focused("username");
-        input({9us, tessera::TextInput{"!"}}); focused("username");
+        require(first_saved != toggled, "Apply did not change pixels");
+        send(FocusPrevious{}); focused("toggle");
+        send(FocusPrevious{}); focused("section-about");
+        send(Activate{}, CommandSource::gamepad); focused("section-about");
+        require(host.selected == "about", "About selection differs");
+        const auto about = observe();
+        require(about != first_saved, "About branch did not change pixels");
+        focus.reset(); // Exercise absent owner plus empty focus, as well as focused absence above.
+        ignore_editing();
+        send(FocusNext{}); focused("section-account");
+        send(Activate{}); focused("section-account");
+        require(host.selected == "account" && host.username == retained_edit &&
+            host.draft == SettingsData{"Ada本", true} && host.saves == std::vector<SettingsData>{{"Ada本", true}} &&
+            host.result == "Saved 1: Ada本; feature enabled", "Branch return changed retained observations");
+        const auto returned_account = observe();
+        require(returned_account != about, "Account return did not change pixels");
+        send(FocusNext{}); focused("section-feature");
+        send(FocusNext{}); focused("section-about");
+        send(FocusNext{}); focused("username");
+        send(tessera::TextInput{"!"}); focused("username");
         require(host.draft == SettingsData{"Ada本!", true} && host.username.revision == 3 &&
             host.saves == std::vector<SettingsData>{{"Ada本", true}} &&
             host.result == "Saved 1: Ada本; feature enabled", "Later edit changed the owned save");
-        require(observe() != first_saved, "Later draft edit did not change pixels");
-        input({10us, FocusNext{}}); input({11us, FocusNext{}}); focused("apply");
-        input({12us, Activate{}}, CommandSource::gamepad); focused("apply");
-        require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} && sequence == 5,
+        require(observe() != returned_account, "Later draft edit did not change pixels");
+        send(FocusNext{}); focused("apply");
+        send(Activate{}); focused("apply");
+        require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} && sequence == 8,
             "Second Apply or once-only command count differs");
         (void)observe();
-        std::cout << "2 owned saves; 5 host commands; " << extent.width << 'x' << extent.height
+        std::cout << "2 owned saves; 8 host commands; " << extent.width << 'x' << extent.height
             << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
