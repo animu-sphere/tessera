@@ -2,6 +2,8 @@
 
 Read [architecture](../architecture/overview.md), [UI model](../architecture/ui-model.md), and [current work](../roadmap/current.md) first. Adopted tool/dependency requirements are owned by [dependencies](../reference/dependencies.md); validated configurations and results are owned by [support](../reference/support-matrix.md).
 
+For a copyable application project, begin with [Getting Started](getting-started.md) and the [first-app walkthrough](first-app.md). The repository workflow below is for core development and broader fixtures.
+
 ## Core build workflow
 
 Run these PowerShell commands from the repository root, with the toolchain recorded in support installed:

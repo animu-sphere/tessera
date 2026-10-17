@@ -4,18 +4,33 @@ if(NOT MODE STREQUAL "add_subdirectory" AND NOT MODE STREQUAL "FetchContent")
     message(FATAL_ERROR "Supply a supported consumer import mode.")
 endif()
 set(consumer_binary "${consumer_root}/${MODE}")
+if(FIRST_APP)
+    set(consumer_binary "${consumer_root}/first-app/${MODE}")
+endif()
 if(WITH_VULKAN)
     string(APPEND consumer_binary "-vulkan")
 endif()
 # Separate configurations also keep logs intact after Debug/Release verification.
 string(APPEND consumer_binary "/${CONFIG}")
 file(MAKE_DIRECTORY "${consumer_binary}")
+set(consumer_source "${tessera_source}/tests/cmake/consumer")
+if(FIRST_APP)
+    # Build exactly the two files readers copy, in a separate CMake project.
+    set(consumer_source "${consumer_binary}/source")
+    file(MAKE_DIRECTORY "${consumer_source}")
+    foreach(file IN ITEMS CMakeLists.txt main.cpp)
+        configure_file("${tessera_source}/examples/first-app/${file}" "${consumer_source}/${file}" COPYONLY)
+    endforeach()
+endif()
 set(configure_args
-    -S "${tessera_source}/tests/cmake/consumer" -B "${consumer_binary}"
+    -S "${consumer_source}" -B "${consumer_binary}"
     -G "${consumer_generator}"
     "-DTESSERA_SOURCE_DIR:PATH=${tessera_source}" "-DTESSERA_IMPORT_MODE:STRING=${MODE}"
-    "-DCONSUMER_WITH_VULKAN:BOOL=${WITH_VULKAN}" -DBUILD_SHARED_LIBS:BOOL=OFF
+    -DBUILD_SHARED_LIBS:BOOL=OFF
     -DBUILD_TESTING:BOOL=ON)
+if(NOT FIRST_APP)
+    list(APPEND configure_args "-DCONSUMER_WITH_VULKAN:BOOL=${WITH_VULKAN}")
+endif()
 if(NOT consumer_configurations)
     list(APPEND configure_args "-DCMAKE_BUILD_TYPE:STRING=${CONFIG}")
 endif()

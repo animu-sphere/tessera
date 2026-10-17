@@ -4,6 +4,8 @@ Repository documents are the only maintained plan and contract. Owner-provided d
 
 ## Reading order
 
+For application authors, begin with [Getting Started](guides/getting-started.md) and [your first app](guides/first-app.md), then follow the Settings workflow. The order below is for implementation and contract work.
+
 1. [Agent implementation policy](agent-policy.md): implementation authority, fixture-driven work, and subsystem stop rule.
 2. [Current work](roadmap/current.md): one integration target, bounded supporting work, and observable exit criteria.
 3. [Support matrix](reference/support-matrix.md): implementation and validation evidence.
@@ -52,6 +54,8 @@ Detailed Proposed sections are intentionally non-actionable unless the active fi
 | [Path-finder integration](integrations/path-finder.md) | Shared-schema editing consumer, source-consumption boundary, diagnostics and preview bridge requirements | A second property/semantic schema or runtime, reload mechanisms, or active scope |
 | [Settings application](integrations/settings-app.md) | Proposed ordinary-authoring reference workflow, host interaction and consumer verification requirements | Public API syntax, implementation status or active scheduling |
 | [Development](guides/development.md) | Build/run commands and workflow | Test-result history or subsystem contracts |
+| [Getting Started](guides/getting-started.md) | First-app build/copy/run procedure and prerequisites | Capability evidence or future syntax |
+| [Your first app](guides/first-app.md) | Source walkthrough, composition and explicit host responsibilities | A second API/lifetime contract or test-result history |
 | [Testing](guides/testing.md) | Verification methods and documentation checks | Test-target inventory or capability status |
 | [Dependencies](reference/dependencies.md) | Adopted/candidate choices, acquisition and licensing policy, including font licensing | Validated configuration claims |
 | [Support matrix](reference/support-matrix.md) | **Only live implementation/validation status**, configurations and evidence | Work scheduling, contract definitions, or rows for capabilities without implementation |
