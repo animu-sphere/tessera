@@ -10,7 +10,7 @@ Choose follow-up scope from real applications and their measured authoring frict
 
 ## Widget candidates beyond the reference application
 
-The [active authoring milestone](current.md) owns only its reference application's required controls. Additional baseline candidates are a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView and a basic List, plus Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Text, Button, Checkbox, TextInput, Row and Column requirements are defined in current work rather than duplicated here.
+The [active authoring milestone](current.md) owns the required controls for Settings and the bounded [renderer diagnostics panel](current.md#renderer-diagnostics-reference-panel). Additional baseline candidates are a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView and a basic List, plus Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Text, Button, Checkbox, TextInput, Row and Column requirements and the diagnostics consumer's minimum numeric controls are defined in current work rather than duplicated here; broader widget APIs stay candidates.
 
 Promote additional widgets from an application operation; do not implement this inventory for completeness. Prefer ordinary components and the [shared authoring/lowering model](../proposals/cpp-authoring.md); a full generalized API per widget is not required.
 

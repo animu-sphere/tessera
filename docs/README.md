@@ -53,6 +53,7 @@ Detailed Proposed sections are intentionally non-actionable unless the active fi
 | [Conversational UI](integrations/conversational-ui.md) | Conversational/agent workspace workload, structured content model, streaming/async boundaries, provider independence, reference fixtures | Virtualization geometry, text/editing contracts, or provider adapters |
 | [Path-finder integration](integrations/path-finder.md) | Shared-schema editing consumer, source-consumption boundary, diagnostics and preview bridge requirements | A second property/semantic schema or runtime, reload mechanisms, or active scope |
 | [Settings application](integrations/settings-app.md) | Proposed ordinary-authoring reference workflow, host interaction and consumer verification requirements | Public API syntax, implementation status or active scheduling |
+| [Renderer diagnostics](integrations/renderer-diagnostics.md) | Proposed telemetry/control panel consumer, host snapshot/command ownership and verification requirements | Renderer SDKs, a second paint/input model, implementation status or active scheduling |
 | [Development](guides/development.md) | Build/run commands and workflow | Test-result history or subsystem contracts |
 | [Getting Started](guides/getting-started.md) | First-app build/copy/run procedure and prerequisites | Capability evidence or future syntax |
 | [Your first app](guides/first-app.md) | Source walkthrough, composition and explicit host responsibilities | A second API/lifetime contract or test-result history |
