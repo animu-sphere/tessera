@@ -28,10 +28,41 @@ template<class T> T take(Result<T> result) {
     return std::move(*result.value);
 }
 const ValidationContext actions{{"settings.toggle", "settings.edit", "settings.apply",
-    "settings.section.account", "settings.section.feature", "settings.section.about"}};
+    "settings.section.account", "settings.section.feature", "settings.section.about", "settings.appearance"}};
 constexpr Size viewport{480, 240};
 // Opaque fixture expression identity; the runtime opens no source file.
 const SourceLocation form_source{"fixture://settings-form", {0, 20}};
+
+// Application-owned styles use the ordinary cascade, not a widget style engine.
+constexpr Color apply_ink{0.15f, 0.3f, 0.55f, 1};
+struct SettingsAppearance {
+    Theme theme;
+    StyleSheet sheet;
+    bool operator==(const SettingsAppearance&) const = default;
+};
+SettingsAppearance appearance(bool compact) {
+    const auto token = [](std::string property, std::string name) -> ThemeBinding {
+        return {std::move(property), {std::move(name), {}}};
+    };
+    SettingsAppearance result;
+    result.theme.variables = {
+        {"body-size", ThemeValue{compact ? 14.f : 16.f}},
+        {"spacing", ThemeValue{compact ? 8.f : 12.f}},
+        {"control-padding", ThemeValue{compact ? Edges{2, 2, 2, 2} : Edges{4, 4, 4, 4}}},
+        {"ink", ThemeValue{compact ? Color{0.1f, 0.15f, 0.2f, 1} : Color{0.2f, 0.2f, 0.25f, 1}}},
+        {"surface", ThemeValue{compact ? Color{0.85f, 0.9f, 0.95f, 1} : Color{0.95f, 0.95f, 0.98f, 1}}}};
+    result.theme.defaults.rules = {
+        {StyleSelector::of_id("settings"), {}, {token("text/size", "body-size"), token("color", "ink"), token("gap", "spacing")}},
+        {StyleSelector::of_class("control"), {.corner_radius = 1.f},
+            {token("padding", "control-padding"), token("background", "surface")}}};
+    result.sheet.rules = {
+        {StyleSelector::of_class("control"), {.border = Edges{1, 1, 1, 1},
+            .border_color = Color{0.35f, 0.4f, 0.5f, 1}, .corner_radius = 4.f}},
+        {StyleSelector::of_class("section"), {.text = {.weight = std::uint16_t{600}}}},
+        {StyleSelector::of_class("heading"), {.text = {.size = 20.f}}},
+        {StyleSelector::of_class("status"), {.color = Color{0.25f, 0.3f, 0.4f, 1}}}};
+    return result;
+}
 
 // Application authors use typed C++ props/defaults and ordinary ordered children.
 struct SettingsRowProps {
@@ -86,7 +117,8 @@ struct Snapshot {
     HitTestInput hit() const { return {tree.get(), styles, &layout}; }
 };
 Result<Snapshot> prepare_candidate(ui::Session& view, const ui::Element& form, CommandSnapshot commands, TextShaper& text,
-    Size logical_viewport = viewport, const std::map<std::string, Point>& requested_offsets = {}) {
+    Size logical_viewport = viewport, const std::map<std::string, Point>& requested_offsets = {},
+    const SettingsAppearance* appearance = nullptr) {
     auto lowered = view.lower(form, actions);
     if (!lowered) return {std::nullopt, std::move(lowered.diagnostics)};
     auto authored = std::move(*lowered.value);
@@ -111,8 +143,16 @@ Result<Snapshot> prepare_candidate(ui::Session& view, const ui::Element& form, C
     if (!built) return fail(std::move(built.diagnostics));
     auto tree = std::move(*built.value);
     const StyleSheet sheet;
-    auto styles = resolve_styles({tree.get(), &sheet, {}, authored.styles});
-    if (!styles) return fail(std::move(styles.diagnostics));
+    auto styles = resolve_styles({tree.get(), appearance ? &appearance->sheet : &sheet, {}, authored.styles,
+        appearance ? &appearance->theme : nullptr});
+    if (!styles) {
+        auto rejected = fail(std::move(styles.diagnostics));
+        // Host-authored theme/sheet paths have no document-node address.
+        for (auto& error : rejected.diagnostics)
+            if (!error.source && (error.path.starts_with("/theme/") || error.path.starts_with("/sheet/")))
+                error.source = DiagnosticSource{form_source, DiagnosticOrigin::argument};
+        return rejected;
+    }
     std::vector<Point> offsets(tree->size());
     for (const auto& [id, offset] : requested_offsets)
         if (const auto owner = tree->find(id)) offsets[owner->index] = offset;
@@ -464,28 +504,39 @@ std::vector<Diagnostic> validate_sections(const SettingsSections& sections) {
 }
 ui::Element SectionSettings(const SettingsSections& sections, ui::Value<TextEditState> username,
     ui::Value<bool> enabled, ui::Value<std::string> caption, ui::Value<std::string> saved, bool disabled = false,
-    bool scrolling = false) {
+    bool scrolling = false, bool styled = false) {
+    auto control = [&](std::string id, bool section = false) {
+        return ui::Props{.id = std::move(id),
+            .classes = styled ? (section ? std::vector<std::string>{"control", "section"} : std::vector<std::string>{"control"}) :
+                std::vector<std::string>{}, .source = form_source};
+    };
     std::vector<ui::Element> choices;
     for (const auto& id : sections.order)
         choices.push_back(ui::Button((id == sections.selected ? "* " : "") + id, "settings.section." + id,
-            {.node = {.id = "section-" + id, .source = form_source}, .disabled = disabled}));
+            {.node = control("section-" + id, true), .disabled = disabled}));
     std::vector<ui::Element> rows{
-        ui::Text("Settings", {.id = "heading"}),
+        ui::Text("Settings", {.id = "heading", .classes = styled ? std::vector<std::string>{"heading"} : std::vector<std::string>{}}),
         ui::Row(std::move(choices), {.id = "sections", .style = {.gap = 12.f}, .source = form_source}),
         ui::Text("Section " + sections.selected, {.id = "selected-section", .source = form_source})};
     if (sections.selected == "account")
         rows.push_back(SettingsRow({"Account", "username-row"}, {
-            ui::TextInput("Username", username, "settings.edit", {.node = {.id = "username", .source = form_source}})}));
+            ui::TextInput("Username", username, "settings.edit", {.node = control("username")})}));
     else if (sections.selected == "feature")
         rows.push_back(SettingsRow({"Feature", "feature-row"}, {
-            ui::Checkbox("Enable feature", enabled, "settings.toggle", {.node = {.id = "toggle", .source = form_source}})}));
+            ui::Checkbox("Enable feature", enabled, "settings.toggle", {.node = control("toggle")})}));
     else rows.push_back(ui::Text("Choose Account to edit; Apply saves the whole draft.", {.id = "section-help", .source = form_source}));
-    rows.push_back(ui::Text(caption, {.id = "summary", .source = form_source}));
-    rows.push_back(ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .source = form_source}}));
-    rows.push_back(ui::Text(saved, {.id = "save-result", .source = form_source}));
+    const auto status = [&](std::string id) { return ui::Props{.id = std::move(id),
+        .classes = styled ? std::vector<std::string>{"status"} : std::vector<std::string>{}, .source = form_source}; };
+    rows.push_back(ui::Text(caption, status("summary")));
+    auto apply = control("apply");
+    if (styled) apply.style.background = apply_ink;
+    rows.push_back(ui::Button("Apply", "settings.apply", {.node = std::move(apply)}));
+    rows.push_back(ui::Text(saved, status("save-result")));
+    if (styled) rows.push_back(ui::Button("Appearance", "settings.appearance", {.node = control("appearance")}));
     return ui::Column(std::move(rows), {.id = "settings", .style = {
         .overflow = scrolling ? Overflow::scroll : Overflow::visible,
-        .padding = Edges{12, 12, 12, 12}, .gap = 12.f, .background = Color{0.94f, 0.94f, 0.96f, 1}}, .source = form_source});
+        .padding = Edges{12, 12, 12, 12}, .gap = styled ? std::optional<float>{} : 12.f,
+        .background = Color{0.94f, 0.94f, 0.96f, 1}}, .source = form_source});
 }
 
 void run_sections() {
@@ -761,7 +812,7 @@ void run_sections() {
 // Scrolling is host state keyed by author identity. The application composition
 // above only declares overflow; this fixture stages full presentations before
 // replacing either that state or the accepted command/inspection generation.
-void run_scrolling() {
+void run_scrolling(bool styled = false) {
     constexpr Size form_viewport{720, 160};
     ui::Session view;
     SettingsSections sections;
@@ -770,6 +821,8 @@ void run_scrolling() {
     SaveObservation saves;
     std::string result = "Not saved";
     Point offset;
+    bool compact = false;
+    auto accepted_appearance = appearance(compact);
     FocusDispatcher focus;
     const auto observed = view.state("username", username);
     const auto enabled = view.state("enabled", false);
@@ -779,25 +832,29 @@ void run_scrolling() {
     });
     const auto registry = take(CommandRegistry::create({
         {"settings.toggle", "Toggle feature"}, {"settings.edit", "Edit username"}, {"settings.apply", "Apply settings"},
-        {"settings.section.account", "Account"}, {"settings.section.feature", "Feature"}, {"settings.section.about", "About"}},
+        {"settings.section.account", "Account"}, {"settings.section.feature", "Feature"}, {"settings.section.about", "About"},
+        {"settings.appearance", "Change appearance"}},
         {{"settings.toggle", "settings.toggle"}, {"settings.edit", "settings.edit"}, {"settings.apply", "settings.apply"},
         {"settings.section.account", "settings.section.account"}, {"settings.section.feature", "settings.section.feature"},
-        {"settings.section.about", "settings.section.about"}}));
+        {"settings.section.about", "settings.section.about"}, {"settings.appearance", "settings.appearance"}}));
     std::uint64_t generation = 0, sequence = 0;
     PlaceholderTextShaper text;
     auto stage = [&](const SettingsSections& candidate, Point requested, TextShaper& shaper,
-        FocusDispatcher candidate_focus, bool reveal, bool allow_apply = true) -> Result<Snapshot> {
+        FocusDispatcher candidate_focus, bool reveal, bool allow_apply = true,
+        const SettingsAppearance* candidate_appearance = nullptr) -> Result<Snapshot> {
         const auto commands = take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
             {{"settings.toggle", {true}}, {"settings.edit", {true}}, {"settings.apply", {allow_apply}},
-             {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}}}));
-        const auto form = SectionSettings(candidate, observed, enabled, caption, saved, false, true);
-        auto staged = prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", requested}});
+             {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}},
+             {"settings.appearance", {styled && allow_apply}}}));
+        const auto form = SectionSettings(candidate, observed, enabled, caption, saved, false, true, styled);
+        const auto* styles = styled ? (candidate_appearance ? candidate_appearance : &accepted_appearance) : nullptr;
+        auto staged = prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", requested}}, styles);
         if (!staged || !reveal) return staged;
         const auto target = take(candidate_focus.refresh(staged.value->hit())).focused;
         if (target) {
             const auto updates = take(scroll_into_view(staged.value->hit(), *target));
             if (!updates.empty())
-                return prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", updates[0].offset}});
+                return prepare_candidate(view, form, commands, shaper, form_viewport, {{"settings", updates[0].offset}}, styles);
         }
         return staged;
     };
@@ -818,7 +875,7 @@ void run_scrolling() {
         accepted = std::move(candidate);
         take(focus.refresh(accepted.hit()));
     };
-    auto stable = [&] { return std::tuple{sections, username, draft, saves.calls, result, offset,
+    auto stable = [&] { return std::tuple{sections, username, draft, saves.calls, result, offset, compact, accepted_appearance,
         accepted.tree->document(), accepted.inspection, accepted.commands.generation(), accepted.paint,
         take(focus.refresh(accepted.hit())).focused}; };
     FixtureGlyphs raster; GlyphCache cache(raster); CpuFrameCapture frames(&cache);
@@ -842,6 +899,34 @@ void run_scrolling() {
             username.text == draft.username && (saves.calls.empty() ? result == "Not saved" :
                 result == saved_caption(static_cast<unsigned>(saves.calls.size()), saves.calls.back())),
             "Scrolled selection, edit or owned save result differs from inspection");
+        if (styled) {
+            const auto style = [&](const std::string& id) -> const ResolvedStyle& {
+                return accepted.inspection.elements[accepted.tree->find(id)->index].style;
+            };
+            const auto body = compact ? 14.f : 16.f;
+            const auto ink = compact ? Color{0.1f, 0.15f, 0.2f, 1} : Color{0.2f, 0.2f, 0.25f, 1};
+            const auto surface = compact ? Color{0.85f, 0.9f, 0.95f, 1} : Color{0.95f, 0.95f, 0.98f, 1};
+            require(style("settings").text.size == body && style("settings").gap == (compact ? 8.f : 12.f) &&
+                style("heading").text.size == 20 && style("heading").color == ink &&
+                style("summary").color == Color{0.25f, 0.3f, 0.4f, 1} &&
+                style("save-result").color == style("summary").color,
+                "Shared typography, inheritance or theme spacing differs from inspection");
+            for (const auto& id : {"section-account", "section-feature", "section-about", "username", "toggle", "apply", "appearance"}) {
+                if (const auto owner = accepted.tree->find(id)) {
+                    const auto& resolved = style(id);
+                    require(resolved.text.size == body && resolved.color == ink &&
+                        resolved.padding == (compact ? Edges{2, 2, 2, 2} : Edges{4, 4, 4, 4}) &&
+                        resolved.border == Edges{1, 1, 1, 1} && resolved.corner_radius == 4 &&
+                        resolved.background == (std::string_view(id) == "apply" ? apply_ink : surface),
+                        "Theme, shared control rule and instance precedence differ");
+                    if (std::string_view(id).starts_with("section-"))
+                        require(resolved.text.weight == 600, "Section style was not composed with control style");
+                    for (const auto& child : accepted.inspection.elements[owner->index].children)
+                        require(accepted.styles[child].text == resolved.text && accepted.styles[child].color == ink,
+                            "Generated control labels lost inherited typography");
+                }
+            }
+        }
         // Replay v1 reload resets offsets. Reconstruct this accepted host view
         // explicitly from zero using normalized scrolling; no host command is
         // executed by replay and no hidden offset state is assumed.
@@ -906,7 +991,7 @@ void run_scrolling() {
     std::optional<CommandInvocation> pending;
     unsigned entered = 0;
     auto operate = [&](const ActionRequest& action, CommandSource source, std::optional<TextEditRequest> edit = {},
-        TextShaper* rejecting = nullptr) {
+        TextShaper* rejecting = nullptr, const SettingsAppearance* invalid_appearance = nullptr) {
         const auto before = stable();
         const auto current_ui = accepted.semantic();
         const auto invocation = take(accepted.commands.resolve_action(current_ui, action, accepted.commands.generation(), {}, source, ++sequence));
@@ -916,6 +1001,9 @@ void run_scrolling() {
             auto next_username = username;
             auto next_draft = draft;
             auto next_result = result;
+            const auto next_compact = call.command == "settings.appearance" ? !compact : compact;
+            const auto next_appearance = call.command == "settings.appearance" ?
+                (invalid_appearance ? *invalid_appearance : appearance(next_compact)) : accepted_appearance;
             if (call.command.starts_with("settings.section.")) next_sections.selected = call.command.substr(17);
             else if (call.command == "settings.edit") {
                 require(edit.has_value(), "Scroll form edit needs its owned request");
@@ -923,14 +1011,14 @@ void run_scrolling() {
                 if (!edited) return {CommandOutcomeStatus::error, {}, std::move(edited.diagnostics)};
                 next_username = std::move(*edited.value); next_draft.username = next_username.text;
             } else if (call.command == "settings.toggle") next_draft.feature = !next_draft.feature;
-            else {
+            else if (call.command != "settings.appearance") {
                 require(call.command == "settings.apply", "Unexpected scroll form command");
                 next_result = saved_caption(static_cast<unsigned>(saves.calls.size()) + 1, next_draft);
             }
             auto restore = [&] { view.update([&] { observed.write(username); enabled.write(draft.feature); saved.write(result); }); };
             view.update([&] { observed.write(next_username); enabled.write(next_draft.feature); saved.write(next_result); });
             auto candidate = [&] {
-                try { return stage(next_sections, offset, rejecting ? *rejecting : text, focus, true); }
+                try { return stage(next_sections, offset, rejecting ? *rejecting : text, focus, true, true, &next_appearance); }
                 catch (...) { restore(); throw; }
             }();
             if (!candidate) { restore(); return {CommandOutcomeStatus::error, {}, std::move(candidate.diagnostics)}; }
@@ -938,17 +1026,19 @@ void run_scrolling() {
             if (call.command == "settings.apply") saves.save(next_draft);
             sections = std::move(next_sections); username = std::move(next_username);
             draft = std::move(next_draft); result = std::move(next_result);
+            compact = next_compact; accepted_appearance = next_appearance;
             view.publish(); commit(std::move(*candidate.value));
             return {};
         });
         const auto execution = take(executor.execute(accepted.commands, invocation, host, &current_ui));
-        if (rejecting) require(execution.outcome.status == CommandOutcomeStatus::error &&
+        if (rejecting || invalid_appearance) require(execution.outcome.status == CommandOutcomeStatus::error &&
             !execution.outcome.diagnostics.empty() && execution.outcome.diagnostics[0].source && before == stable(),
             "Rejected scroll form command changed accepted state");
         else require(execution.outcome.status == CommandOutcomeStatus::success, "Scroll form command failed");
         const auto refreshed = accepted.semantic();
         require(!executor.execute(accepted.commands, invocation, host, &refreshed), "Scroll form sequence executed twice");
         verify_view();
+        return execution.outcome;
     };
     auto semantic = [&](const std::string& id, TextShaper* rejecting = nullptr) {
         operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find(id), "activate")), CommandSource::agent, {}, rejecting);
@@ -959,6 +1049,18 @@ void run_scrolling() {
         TextEditRequest{username.owner, username.revision, TextEditInsert{std::get<tessera::TextInput>(committed.data).text}});
     const auto retained_username = username;
     require(!scroll_into_view(accepted.hit(), old_username), "Replaced username handle revealed");
+    if (styled) {
+        const auto before = std::tuple{sections, username, draft, saves.calls, result};
+        const auto extent = root(accepted).scroll->extent;
+        semantic("appearance");
+        require(compact && root(accepted).scroll->extent.height < extent.height && fully_visible("username") &&
+            take(focus.refresh(accepted.hit())).focused == accepted.tree->find("username") &&
+            std::tuple{sections, username, draft, saves.calls, result} == before,
+            "Compact theme lost edit/focus/data or did not change content geometry");
+        semantic("appearance");
+        require(!compact && root(accepted).scroll->extent == extent && fully_visible("username"),
+            "Comfortable theme did not restore geometry and reveal focus");
+    }
     logical({5us, FocusNext{}});
     require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find("apply") && fully_visible("apply"), "Apply unreachable by navigation");
     auto activate = [&](CommandSource source) {
@@ -1006,6 +1108,53 @@ void run_scrolling() {
     semantic("section-account");
     require(username == retained_username && draft == SettingsData{"Ada本", true} && saves.calls.size() == 2 && fully_visible("apply"),
         "Account restoration lost retained edit/draft/save observations");
+    if (styled) {
+        const auto retained = std::tuple{sections, username, draft, saves.calls, result};
+        const auto previous_offset = offset;
+        const auto extent = root(accepted).scroll->extent;
+        semantic("appearance");
+        require(compact && offset.y <= previous_offset.y && root(accepted).scroll->extent.height < extent.height &&
+            fully_visible("apply") && take(focus.refresh(accepted.hit())).focused == accepted.tree->find("apply") &&
+            std::tuple{sections, username, draft, saves.calls, result} == retained,
+            "Saved draft or Apply focus did not survive compact theme and offset clamping");
+        for (int invalid = 0; invalid < 3; ++invalid) {
+            auto malformed = appearance(false);
+            if (invalid == 0) malformed.theme.variables[0].value = ThemeValue{Color{1, 0, 0, 1}};
+            if (invalid == 1) malformed.theme.variables[0].value = ThemeValue{0.f};
+            if (invalid == 2) malformed.sheet.rules[0].declarations.corner_radius = -1.f;
+            const auto outcome = operate(take(request_semantic_action(accepted.semantic(), *accepted.tree->find("appearance"), "activate")),
+                CommandSource::agent, {}, nullptr, &malformed);
+            const auto& diagnostic = outcome.diagnostics.front();
+            require(diagnostic.code == (invalid == 0 ? "theme_type" : "out_of_range") &&
+                diagnostic.path.starts_with(invalid == 2 ? "/result/host/sheet/rules/0/declarations/" : "/result/host/theme/defaults/rules/0/") &&
+                diagnostic.source->location == form_source,
+                "Invalid appearance lost its actionable field path or host expression source");
+        }
+        for (bool measure : {true, false}) {
+            RejectingShaper rejecting(measure, "User Ada本; feature enabled");
+            semantic("appearance", &rejecting);
+        }
+        semantic("appearance");
+        require(!compact && std::tuple{sections, username, draft, saves.calls, result} == retained && fully_visible("apply"),
+            "Fresh appearance retry changed saved draft or lost focus reveal");
+        // A normalized pointer activates only on release. Its rebuilt tree
+        // clears pointer capture; later events use the newly accepted bounds.
+        logical({9us, FocusNext{}});
+        require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find("appearance"), "Appearance unreachable by navigation");
+        activate(CommandSource::keyboard);
+        activate(CommandSource::gamepad);
+        const auto box = bounds(accepted, "appearance").border_box;
+        const Point point{box.origin.x + 2, box.origin.y + 2};
+        PointerDispatcher appearance_pointer;
+        require(take(appearance_pointer.dispatch(accepted.hit(), {1us, PointerDown{{1}, point}})).actions.empty(),
+            "Appearance activated on pointer press");
+        const auto release = take(appearance_pointer.dispatch(accepted.hit(), {2us, PointerUp{{1}, point}}));
+        require(release.actions.size() == 1 && release.actions[0].action == "settings.appearance", "Appearance pointer owner differs");
+        operate(release.actions[0], CommandSource::pointer);
+        semantic("appearance");
+        require(!compact && std::tuple{sections, username, draft, saves.calls, result} == retained && fully_visible("appearance"),
+            "Appearance input routes changed data or failed to reveal focused control");
+    }
     const auto before_rejections = stable();
     const auto calls_before = entered;
     const auto invalid = route_scroll(accepted.hit(), Scroll{{16, 16}, {0, std::numeric_limits<float>::infinity()}});
@@ -1026,12 +1175,25 @@ void run_scrolling() {
     require(take(denied_pointer.dispatch(denied.hit(), {1us, PointerDown{{1}, disabled_point}})).actions.empty() &&
         take(denied_pointer.dispatch(denied.hit(), {2us, PointerUp{{1}, disabled_point}})).actions.empty(),
         "Disabled scrolled Apply clicked");
+    if (styled) {
+        const auto disabled_appearance = *denied.tree->find("appearance");
+        require(!request_semantic_action(denied.semantic(), disabled_appearance, "activate") &&
+            !denied.commands.resolve_action(denied.semantic(), {"activate", "settings.appearance", disabled_appearance},
+                denied.commands.generation(), {}, CommandSource::agent, ++sequence) &&
+            !denied_focus.focus(denied.hit(), disabled_appearance), "Disabled appearance resolved or focused");
+        const auto box = bounds(denied, "appearance").border_box;
+        const Point point{box.origin.x + 2, box.origin.y + 2};
+        PointerDispatcher disabled_pointer;
+        require(take(disabled_pointer.dispatch(denied.hit(), {1us, PointerDown{{1}, point}})).actions.empty() &&
+            take(disabled_pointer.dispatch(denied.hit(), {2us, PointerUp{{1}, point}})).actions.empty(), "Disabled appearance clicked");
+    }
     require(stable() == before_rejections && entered == calls_before, "Invalid scroll/stale/disabled request changed accepted observations");
     const auto restored = take(stage(sections, offset, text, focus, false));
     require(restored.tree->document() == accepted.tree->document() && geometry(restored) == geometry(accepted) &&
         restored.paint == accepted.paint, "Rejected candidates left changed reactive observations");
     verify_view();
-    std::cout << "Settings scrolling: lower controls reachable, clamped host offsets, retained draft/save, staged rejection; "
+    std::cout << (styled ? "Settings reusable styles: " : "Settings scrolling: ")
+        << "lower controls reachable, clamped host offsets, retained draft/save, staged rejection; "
         << observations << " accepted views match repeated CPU/replay\n";
 }
 
@@ -1298,6 +1460,7 @@ void run_apply() {
 int main() {
     try {
         run_scrolling();
+        run_scrolling(true);
         run_sections();
         run_apply();
         run_username();
