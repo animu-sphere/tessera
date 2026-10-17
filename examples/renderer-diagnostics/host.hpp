@@ -33,6 +33,7 @@ public:
     std::size_t disclosure_requests() const { return disclosure_requests_; }
     const Numeric& numeric() const { return numeric_; }
     const Msaa& msaa() const { return msaa_; }
+    const Outlines& outlines() const { return outlines_; }
     std::size_t setting_attempts() const { return setting_attempts_; }
     std::size_t setting_changes() const { return setting_changes_; }
     std::size_t draft_requests() const { return draft_requests_; }
@@ -40,6 +41,8 @@ public:
     // Arbitration reports consumed errors separately from successful consumption.
     bool last_consumed() const { return last_consumed_; }
     tessera::Result<bool> route(const tessera::InputEvent&, tessera::CommandSource, tessera::TextShaper&);
+    tessera::Result<bool> outlines_eligibility(bool, tessera::TextShaper&);
+    tessera::Result<tessera::CommandInvocation> request_outlines(std::string field, bool, tessera::CommandSource);
     tessera::Result<bool> numeric_eligibility(bool, tessera::TextShaper&);
     tessera::Result<bool> msaa_capabilities(std::vector<unsigned> supported, bool enabled, tessera::TextShaper&);
     tessera::Result<tessera::CommandInvocation> request_edit(const tessera::TextEditRequest&, tessera::CommandSource);
@@ -56,8 +59,8 @@ public:
 private:
     explicit Host(tessera::CommandRegistry registry) : registry_(std::move(registry)) {}
     tessera::Result<View> stage(const Snapshot&, const Disclosure&, tessera::Point,
-        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, tessera::TextShaper&);
-    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa);
+        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, const Outlines&, tessera::TextShaper&);
+    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa, Outlines);
     tessera::Result<bool> operate(const tessera::ActionRequest&, tessera::CommandSource, tessera::TextShaper&);
 
     tessera::authoring::Session session_;
@@ -67,6 +70,7 @@ private:
     Disclosure disclosure_;
     Numeric numeric_;
     Msaa msaa_;
+    Outlines outlines_;
     std::array<bool, 3> eligible_{true, true, true};
     tessera::Point offset_;
     tessera::FocusDispatcher focus_;

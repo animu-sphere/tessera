@@ -48,6 +48,12 @@ int main() {
         const auto result = take(host->execute(msaa, text));
         if (result.outcome.status != CommandOutcomeStatus::success)
             throw std::runtime_error("MSAA setting rejected");
+        // Controlled Checkbox activation and an exact Boolean set share that executor.
+        (void)take(host->invoke("outlines-toggle", CommandSource::accessibility, text));
+        const auto outlines = take(host->request_outlines("outlines", true, CommandSource::agent));
+        if (take(host->execute(outlines, text)).outcome.status != CommandOutcomeStatus::success)
+            throw std::runtime_error("Outlines setting rejected");
+        std::cout << "Outlines " << (host->outlines().accepted ? "on" : "off") << '\n';
         std::cout << "MSAA " << host->msaa().accepted << "; supported choices " << host->msaa().supported.size() << '\n';
         std::cout << "Direct strength " << diagnostics::canonical(host->numeric().accepted) << "; draft " <<
             host->numeric().draft.text << "; setting attempts " << host->setting_attempts() << "; changes " <<
