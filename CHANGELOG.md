@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Added a two-file [Settings edit/Apply starter](examples/settings-starter/main.cpp) and [copy/run walkthrough](docs/guides/settings-starter.md). Ordinary typed composition, reusable application classes and one session connect controlled username editing, Checkbox, summary and Apply to host-owned drafts and saved copies. Independent source imports exercise the copied project; the successful sequence checks saved-copy isolation, author-ID focus and repeated CPU captures. Configuration and results are in [support](docs/reference/support-matrix.md#settings-starter-evidence--2026-10-17). Existing runtime/public APIs suffice; [current work](docs/roadmap/current.md#current-slice) selects review of section/scrolling onboarding.
+
 - Documentation: reviewed first-app composition, reusable Settings styles and the editing/selection/scrolling host boundaries. Selected a bounded copyable Settings edit/Apply starter in [current work](docs/roadmap/current.md#current-slice), with explicit acceptance and a stop condition. Source-review findings and limits are recorded in [support](docs/reference/support-matrix.md#first-app-to-settings-authoring-review--2026-10-17); no runtime or public API change accompanies this scope selection.
 
 - Excluded FetchContent consumer checks from the hosted [release workflow](.github/workflows/release.yml) to avoid rebuilding the same core through both import forms in CI. The add_subdirectory consumer checks stay in the gate; ordinary local CTest retains both imports. Test-selection verification is recorded in [support](docs/reference/support-matrix.md#ci-fetchcontent-filter-evidence--2026-10-17).
