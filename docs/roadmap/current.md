@@ -10,15 +10,17 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Review the next representative renderer control after the [direct-strength boundary](../integrations/renderer-diagnostics.md#implemented-direct-strength-control-boundary), using the copyable [panel/host](../guides/renderer-diagnostics.md). Select one bounded operation from the [representative control inventory](../integrations/renderer-diagnostics.md#proposed-representative-control-boundary), preferring a discrete choice or Boolean toggle expressed through ordinary composition.
+Connect one MSAA choice operation to the copyable [panel/host](../guides/renderer-diagnostics.md), following the [Proposed MSAA consumer policy](../integrations/renderer-diagnostics.md#proposed-msaa-choice-boundary). The [source review](../reference/support-matrix.md#renderer-msaa-choice-review--2026-10-17) identifies the bounded host work; use ordinary repeated Buttons and the existing command/publication boundaries.
 
-Bounded review:
+Bounded implementation acceptance:
 
-- Trace the operation from application composition through command eligibility, synthetic settings/capabilities, complete-candidate staging and normalized/semantic input. Identify concrete authoring friction using the working sources before proposing a new core API.
-- Define exact initial/supported values, request/change observations, stale/disabled/unsupported rejection, retention of pending direct-strength drafts, presentation failure/retry and panel/camera arbitration for that one operation.
-- Retain independent core-only copying through both imports and accepted-view CPU/replay verification. Record source findings and evidence limits in support, consumer policy in its integration owner and a bounded implementation acceptance here before implementation.
+- Compose stable named choices and accepted-value text under controls disclosure. Expose owned accepted MSAA, supported choices and host eligibility independently of telemetry and numeric drafts; validate the complete settings/capability candidate under the consumer policy.
+- From a shared initial state, pointer release, normalized keyboard/gamepad navigation and activation, semantic activation and typed node-free requests must produce equal accepted samples and once-only requests. Verify selected-value activation, unsupported/fractional/non-finite/unknown values, hidden/disabled owners, stale capability/presentation requests and consumed sequences.
+- Preserve exact pending direct-strength draft bytes, selection, owner/revision and accepted strength across MSAA changes, capability/eligibility changes, telemetry refresh and collapse/re-expansion. Verify focus recovery/reveal, scroll clamping and panel/camera arbitration for the new choices, including disabled hits and a pointer stream spanning replacement.
+- Inject measurement and paint failures into setting and capability/eligibility candidates. Preserve all accepted settings, capabilities, eligibility, drafts, disclosure, command generation, focus/offset and observations; retry entered setting commands with a fresh sequence. Distinguish handler attempts from accepted value changes and keep refresh/capability updates free of setting requests.
+- Extend the small copied host/main and guide alongside working sources. Build/run both core-only source imports in Debug and Release; run affected authoring/command/input/focus/scroll/inspection/paint/CPU/replay checks and reproduce selected accepted-view semantics, geometry, paint and CPU bytes. Keep command/arbitration assertions separate from replay reconstruction and record exact evidence in support.
 
-Stop after choosing that next operation and its acceptance. The other controls in the inventory, native renderer integration, generalized numeric/slider/input frameworks, tables/plots and Settings-starter scrolling onboarding require their own selection. Do not treat this review as authorization to implement the complete reference panel.
+Stop after this single MSAA operation meets acceptance, then review the next representative control. Outlines/scene lights, ambient/vector strength, material view, reset, native renderer integration, generalized numeric/slider/input frameworks, tables/plots and Settings-starter scrolling onboarding require their own selection. Do not implement the complete reference panel from this slice.
 
 ### Remaining milestone scope
 
