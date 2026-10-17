@@ -3,6 +3,12 @@
 configure_file("${CMAKE_CURRENT_LIST_DIR}/consumer-settings.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/consumer-settings.cmake" @ONLY)
 foreach(mode IN ITEMS add_subdirectory FetchContent)
+    add_test(NAME settings_starter_consumer_${mode}
+        COMMAND "${CMAKE_COMMAND}"
+            "-DSETTINGS=${CMAKE_CURRENT_BINARY_DIR}/consumer-settings.cmake"
+            "-DMODE=${mode}" "-DCONFIG=$<CONFIG>" -DSETTINGS_STARTER=ON -DWITH_VULKAN=OFF
+            -P "${CMAKE_CURRENT_LIST_DIR}/run-consumer.cmake")
+    set_tests_properties(settings_starter_consumer_${mode} PROPERTIES TIMEOUT 600)
     add_test(NAME first_app_consumer_${mode}
         COMMAND "${CMAKE_COMMAND}"
             "-DSETTINGS=${CMAKE_CURRENT_BINARY_DIR}/consumer-settings.cmake"

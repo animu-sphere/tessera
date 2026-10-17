@@ -10,24 +10,15 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Create a copyable Settings edit/Apply starter that extends the [first app](../guides/first-app.md) through the [implemented form API](../architecture/ui-model.md#implemented-c-form-authoring). The developer operation is: add a username field, edit its draft, toggle the feature and Apply an owned copy, then observe that later edits leave the saved result unchanged until Apply runs again. The selection evidence and source-review limits are owned by [support](../reference/support-matrix.md#first-app-to-settings-authoring-review--2026-10-17); the [Settings consumer](../integrations/settings-app.md#implemented-form-skeleton-boundary) owns the workflow contract.
-
-```text
-copy starter -> edit username -> toggle feature -> Apply
--> edit draft again -> inspect unchanged saved copy -> Apply again
-```
+Review the transition from the copyable [Settings edit/Apply starter](../guides/settings-starter.md) to the [section-selection](../integrations/settings-app.md#implemented-section-selection-boundary) and [constrained-scrolling](../integrations/settings-app.md#implemented-constrained-scrolling-boundary) consumer operations. Trace how a developer can add repeated choices, conditional content and a constrained form while preserving draft/edit/save ownership, focus and coherent full-tree publication through existing APIs.
 
 Minimum scope:
 
-- Supply a small standalone source/CMake starting point and a linked walkthrough from first-app. Compose username TextInput, Checkbox, derived summary, Apply and saved-result Text through ordinary typed functions, explicit IDs and one session. Keep the original first-app focused on its boolean operation.
-- Keep the accepted draft, edit owner/revision/byte selection, owned save copies and command execution in the host. Route committed normalized text and the Settings mapping's supported editing keys before logical navigation; keyboard/gamepad logical activation requests the same Apply command after dispatch. Use an in-memory synchronous save observation.
-- Separate reusable application style declarations from composition through existing typed props/classes and the shared resolver. A fixed form palette is sufficient for this operation; theme switching, interaction-state feedback, section selection and constrained scrolling stay in the linked Settings fixture.
-- Stage full-tree eligibility/style/layout/inspection/paint before accepting the host draft or a save copy and publishing the session. Explain bounded observation restoration on a returned staging failure and the lifetimes of borrowed inputs; keep rejection/stale-owner fault injection in the existing Settings regression fixture.
-- Verify the copied project through both local source import forms in Debug and Release using only `tessera::core`. Use a compact successful edit/toggle/Apply/edit/Apply sequence to inspect draft/summary/saved-result behavior, retained focus and repeated synthetic CPU captures. Retain affected existing boundary checks and run documentation checks; record actual configuration/results only in [support](../reference/support-matrix.md).
+- Compare the starter's composition and explicit host with the larger Settings fixture's section and scrolling paths. Separate reusable application composition from input, offset/reveal and publication responsibilities.
+- Identify the next concrete onboarding operation and its observable acceptance, including retained draft/save observations and keyboard/gamepad reachability. Record source-review findings and limits only in [support](../reference/support-matrix.md).
+- Promote only a demonstrated minimum consumer need into this section before implementation. A source trace alone does not establish a runtime defect or authorize a new widget, style facade, lifecycle or scrolling framework.
 
-Slice acceptance: a developer can copy/build/run the starter independently and follow the walkthrough without extracting host code from the regression fixture. The sequence saves the first draft once, preserves it during a later edit, then saves the changed draft once; accepted inspection and repeated CPU captures agree, and focus survives replacement by author ID. The walkthrough distinguishes composition, normalized input, host command/save ownership and publication. Source review alone does not establish this executed acceptance.
-
-Stop after the copyable edit/Apply operation and its affected boundaries pass. Reuse existing APIs; no runtime or public style convenience is promoted by this slice. Further widgets, theme/style conveniences, selection/scrolling onboarding, clipboard, undo/redo, multiline, IME and platform hardening need separate consumer scope. Do not generalize widgets, lifecycle, layout or rendering to complete a proposal.
+Stop after selecting one bounded follow-up with a reproducible operation and exit condition. Broader widget and platform candidates stay inactive. The [starter walkthrough](../guides/settings-starter.md) owns its copy/run procedure, and [support](../reference/support-matrix.md#settings-starter-evidence--2026-10-17) owns its validation evidence.
 
 ### Remaining milestone scope
 
