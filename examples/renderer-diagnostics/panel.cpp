@@ -142,7 +142,19 @@ ui::Element NumericControl(const Numeric& value) {
         ui::Text("Accepted direct strength: " + canonical(value.accepted), {.id = "direct-accepted"})},
         {.id = "direct-control", .style = {.gap = 12.f}});
 }
-ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric) {
+ui::Element MsaaControl(const Msaa& value) {
+    std::vector<ui::Element> choices;
+    for (std::size_t i = 0; i < sample_counts.size(); ++i) {
+        const auto samples = std::to_string(sample_counts[i]);
+        choices.push_back(ui::Button("MSAA " + samples + (value.accepted == sample_counts[i] ? " (selected)" : ""),
+            msaa_actions[i], {.node = {.id = "msaa-" + samples}}));
+    }
+    return ui::Column({ui::Text("MSAA", {.id = "msaa-label"}),
+        ui::Row(std::move(choices), {.style = {.gap = 12.f}}),
+        ui::Text("Accepted MSAA: " + std::to_string(value.accepted), {.id = "msaa-accepted"})},
+        {.id = "msaa-control", .style = {.gap = 12.f}});
+}
+ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric, const Msaa& msaa) {
     std::vector<ui::Element> rows{
         ui::Text("Renderer diagnostics", {.id = "heading"}),
         row("scene", "Scene", snapshot.scene), row("device", "Device", snapshot.device),
@@ -160,7 +172,10 @@ ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const 
                 rows.push_back(row(std::string(groups[i]) + "-" + timing.id, timing.label, timing_text(timing)));
         } else if (i == 2) for (const auto& counter : snapshot.counters)
             rows.push_back(row("counter-" + counter.id, counter.label, std::to_string(counter.value) + " " + counter.unit));
-        else rows.push_back(NumericControl(numeric));
+        else {
+            rows.push_back(NumericControl(numeric));
+            rows.push_back(MsaaControl(msaa));
+        }
     }
     return ui::Column(std::move(rows), {.id = "renderer-diagnostics", .classes = {"panel"}});
 }

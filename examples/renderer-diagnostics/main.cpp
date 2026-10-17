@@ -41,6 +41,14 @@ int main() {
             (void)take(host->route({std::chrono::microseconds{++tick}, FocusNext{}}, CommandSource::gamepad, text));
         (void)take(host->route({std::chrono::microseconds{++tick}, Activate{}}, CommandSource::gamepad, text));
         (void)take(host->invoke("direct-decrease", CommandSource::agent, text));
+        // Discrete choices use the same commands; capabilities are independent of telemetry/drafts.
+        (void)take(host->invoke("msaa-4", CommandSource::accessibility, text));
+        (void)take(host->msaa_capabilities({1, 2, 4, 8}, true, text));
+        const auto msaa = take(host->request_value("msaa", 8, CommandSource::agent));
+        const auto result = take(host->execute(msaa, text));
+        if (result.outcome.status != CommandOutcomeStatus::success)
+            throw std::runtime_error("MSAA setting rejected");
+        std::cout << "MSAA " << host->msaa().accepted << "; supported choices " << host->msaa().supported.size() << '\n';
         std::cout << "Direct strength " << diagnostics::canonical(host->numeric().accepted) << "; draft " <<
             host->numeric().draft.text << "; setting attempts " << host->setting_attempts() << "; changes " <<
             host->setting_changes() << "; camera events " << host->camera_events() << '\n';

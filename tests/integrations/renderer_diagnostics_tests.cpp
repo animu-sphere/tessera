@@ -7,6 +7,7 @@
 #include <limits>
 #include <stdexcept>
 #include <tuple>
+#include <algorithm>
 
 using namespace tessera;
 using namespace std::chrono_literals;
@@ -79,7 +80,7 @@ struct Fixture {
     auto stable() const {
         const auto& view = host->view();
         return std::tuple{host->snapshot(), host->disclosure(), host->offset(), host->focused(),
-            host->numeric(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
+            host->numeric(), host->msaa(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
     }
     void verify() {
         const auto& view = host->view();
@@ -93,6 +94,18 @@ struct Fixture {
                 "Inspection and layout clipping differ");
         }
         const auto& snapshot = host->snapshot();
+        if (host->disclosure().expanded[3]) {
+            require(name(view, "msaa-accepted") == "Accepted MSAA: " + std::to_string(host->msaa().accepted), "Accepted MSAA text differs");
+            for (const auto samples : panel::sample_counts) {
+                const auto id = "msaa-" + std::to_string(samples);
+                require(name(view, id) == "MSAA " + std::to_string(samples) +
+                    (samples == host->msaa().accepted ? " (selected)" : ""), "Choice marker differs");
+                const bool enabled = host->msaa().enabled && std::find(host->msaa().supported.begin(),
+                    host->msaa().supported.end(), samples) != host->msaa().supported.end();
+                require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find(id), "activate")) == enabled,
+                    "MSAA semantic eligibility differs");
+            }
+        } else require(!view.tree->find("msaa-1") && !view.tree->find("msaa-accepted"), "Collapsed MSAA remained present");
         require(name(view, "value-scene") == snapshot.scene && name(view, "value-device") == snapshot.device &&
             name(view, "value-extent") == "1280 x 720" && name(view, "value-presentation") == snapshot.presentation,
             "Snapshot identity/extent differs");
@@ -541,7 +554,199 @@ void numeric_controls() {
         host.setting_changes() << " accepted changes; " << host.camera_events() << " camera deliveries\n";
 }
 }
+namespace {
+void msaa_controls() {
+    // Every route starts at identical settings and must enter one handler exactly once.
+    for (int route = 0; route < 5; ++route) {
+        Fixture f;
+        auto& h = *f.host;
+        auto send = [&](auto event, CommandSource source) {
+            require(take(h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, f.text)), "Expected MSAA input");
+        };
+        if (route < 3) {
+            for (int i = 0; h.focused() != "msaa-2" && i < 20; ++i) send(FocusNext{}, CommandSource::keyboard);
+            require(h.focused() == "msaa-2" && visible(h.view(), "msaa-2"), "MSAA traversal/reveal failed");
+            if (route == 0) {
+                const auto b = box(h.view(), "msaa-2").border_box;
+                const Point p{b.origin.x + 2, b.origin.y + 2};
+                send(PointerDown{{31}, p}, CommandSource::pointer);
+                require(h.setting_attempts() == 0, "MSAA press executed before release");
+                send(PointerUp{{31}, p}, CommandSource::pointer);
+            } else if (route == 1) send(KeyDown{Key::enter}, CommandSource::keyboard);
+            else {
+                send(Navigate{Direction::left}, CommandSource::gamepad);
+                require(h.focused() == "msaa-1", "MSAA left navigation differs");
+                send(Navigate{Direction::right}, CommandSource::gamepad);
+                require(h.focused() == "msaa-2", "MSAA right navigation differs");
+                send(Activate{}, CommandSource::gamepad);
+            }
+        } else if (route == 3) take(h.invoke("msaa-2", CommandSource::accessibility, f.text));
+        else {
+            const auto call = take(h.request_value("msaa", 2, CommandSource::agent));
+            require(take(h.execute(call, f.text)).outcome.status == CommandOutcomeStatus::success, "MSAA node-free set failed");
+            require(!h.execute(call, f.text), "MSAA sequence executed twice");
+        }
+        require(h.msaa().accepted == 2 && h.setting_attempts() == 1 && h.setting_changes() == 1 && h.camera_events() == 0 &&
+            h.numeric().accepted == 1 && h.numeric().draft.text == "1", "MSAA route parity/once-only failed");
+        f.verify();
+    }
+
+    Fixture f;
+    auto& h = *f.host;
+    auto send = [&](auto event, CommandSource source = CommandSource::keyboard, TextShaper* text = nullptr) {
+        return h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, text ? *text : f.text);
+    };
+    auto reveal = [&](const std::string& id) {
+        for (int i = 0; h.focused() != id && i < 20; ++i) take(send(KeyDown{Key::tab}));
+        require(h.focused() == id && visible(h.view(), id), "MSAA reveal failed: " + id);
+    };
+    auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success) {
+        auto result = take(h.execute(call, text));
+        require((result.outcome.status == CommandOutcomeStatus::success) == success, "Unexpected MSAA outcome");
+        return result;
+    };
+    auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::agent, f.text)); };
+    auto capabilities = [&](std::vector<unsigned> supported, bool enabled = true) {
+        const auto attempts = h.setting_attempts(), changes = h.setting_changes();
+        take(h.msaa_capabilities(std::move(supported), enabled, f.text));
+        require(h.setting_attempts() == attempts && h.setting_changes() == changes, "Capability update requested a setting");
+    };
+    const auto initial = h.msaa();
+    require(initial.accepted == 1 && initial.supported == std::vector<unsigned>{1, 2, 4} && initial.enabled, "Initial MSAA differs");
+    require(!h.request("msaa-8", CommandSource::agent), "Unsupported choice enabled");
+    // Direct request schema must not coerce strings/Booleans or accept extra choice arguments.
+    for (const CommandValue value : {CommandValue{true}, CommandValue{std::string{"2"}}})
+        require(!h.view().commands.resolve({h.view().commands.generation(), "msaa.set", {{"field", std::string{"msaa"}},
+            {"value", value}}, CommandSource::agent, 999}), "MSAA coerced a nonnumber");
+    const auto action = take(request_semantic_action(h.view().semantic(), *h.view().tree->find("msaa-2"), "activate"));
+    require(!h.view().commands.resolve_action(h.view().semantic(), action, h.view().commands.generation(),
+        {{"value", 4.0}}, CommandSource::agent, 999), "Choice accepted another sample payload");
+    for (double value : {0.0, 9.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
+        require(!h.request_value("msaa", value, CommandSource::agent), "MSAA schema accepted invalid number");
+    for (double value : {1.5, 3.0, 8.0}) {
+        const auto before = f.stable(); const auto attempts = h.setting_attempts();
+        const auto call = take(h.request_value("msaa", value, CommandSource::agent));
+        const auto result = execute(call, f.text, false);
+        require(result.outcome.diagnostics.front().path.ends_with("/controls/msaa") && before == f.stable() &&
+            h.setting_attempts() == attempts + 1 && !h.execute(call, f.text), "Invalid MSAA membership changed state or repeated");
+    }
+    // Equal activation accepts a fresh presentation while recording no accepted-value change.
+    const auto generation = h.view().commands.generation(), attempts = h.setting_attempts();
+    invoke("msaa-1");
+    require(h.msaa() == initial && h.setting_attempts() == attempts + 1 && h.setting_changes() == 0 &&
+        h.view().commands.generation() > generation, "Equal MSAA accounting differs");
+    // Preserve incomplete draft bytes and reverse selection through every MSAA operation/update.
+    auto edit = [&](auto operation) {
+        const auto d = h.numeric().draft;
+        execute(take(h.request_edit({d.owner, d.revision, std::move(operation)}, CommandSource::agent)), f.text, true);
+    };
+    edit(TextEditSelection{0, 1}); edit(TextEditInsert{"2."}); edit(TextEditSelection{2, 0});
+    const auto pending = h.numeric();
+    reveal("direct-input");
+    const auto held = take(h.request("msaa-4", CommandSource::agent));
+    invoke("msaa-2");
+    require(h.focused() == "direct-input" && h.numeric() == pending, "MSAA changed eligible field focus or pending draft");
+    const auto after = f.stable(); const auto entered = h.setting_attempts();
+    require(!h.execute(held, f.text) && after == f.stable() && entered == h.setting_attempts(), "Stale presentation entered MSAA handler");
+    reveal("msaa-4"); invoke("msaa-4");
+    require(h.numeric() == pending && h.focused() == "msaa-4" && visible(h.view(), "msaa-4"), "MSAA lost draft/focus");
+    f.verify();
+    for (const auto& snapshot : {panel::sample_a(), panel::sample_b(), panel::sample_c()}) {
+        const auto before_msaa = h.msaa(); const auto before_attempts = h.setting_attempts();
+        take(h.refresh(snapshot, f.text));
+        require(h.numeric() == pending && h.msaa() == before_msaa && h.setting_attempts() == before_attempts &&
+            h.focused() == "msaa-4", "Refresh changed MSAA/draft/focus");
+    }
+    for (const auto& supported : {std::vector<unsigned>{}, std::vector<unsigned>{1, 2},
+        std::vector<unsigned>{1, 4, 4}, std::vector<unsigned>{1, 4, 3}, std::vector<unsigned>{0, 4}}) {
+        const auto before = f.stable();
+        require(!h.msaa_capabilities(supported, false, f.text) && before == f.stable(), "Invalid capabilities accepted/repaired");
+    }
+    const auto held_capability = take(h.request_value("msaa", 2, CommandSource::agent));
+    capabilities({4, 8});
+    require(h.focused() == "msaa-4" && !h.request("msaa-2", CommandSource::agent) && !h.execute(held_capability, f.text),
+        "Capability replacement lost focus or allowed stale request");
+    execute(take(h.request_value("msaa", 8, CommandSource::agent)), f.text, true);
+    require(h.msaa().accepted == 8 && h.numeric() == pending, "Newly supported MSAA changed numeric draft");
+    // Disable a focused nonselected choice by membership, then disable the focused setting entirely.
+    reveal("msaa-4"); capabilities({8});
+    require(h.focused() == "msaa-8" && visible(h.view(), "msaa-8"), "Membership focus recovery/reveal differs");
+    const auto held_disabled = take(h.request("msaa-8", CommandSource::agent));
+    capabilities({8}, false);
+    require(h.focused() != "msaa-8" && !h.request_value("msaa", 8, CommandSource::agent) &&
+        !h.request("msaa-8", CommandSource::agent) && !h.execute(held_disabled, f.text), "Disabled MSAA remained callable");
+    require(h.focused().has_value() && visible(h.view(), *h.focused()), "Disabled MSAA recovery was not revealed");
+    capabilities({1, 2, 4, 8}); reveal("msaa-8");
+    invoke("disclosure-controls");
+    require(h.focused() == "disclosure-controls" && visible(h.view(), "disclosure-controls") && h.numeric() == pending,
+        "MSAA collapse did not recover/reveal header or lost draft");
+    require(!h.request_value("msaa", 1, CommandSource::agent) && !h.request("msaa-1", CommandSource::agent), "Hidden MSAA callable");
+    const auto collapsed = f.stable();
+    require(!h.msaa_capabilities({1}, false, f.text) && collapsed == f.stable(), "Collapsed capabilities excluded accepted MSAA");
+    capabilities({8}, false); invoke("disclosure-controls");
+    require(h.focused() == "disclosure-controls" && h.numeric() == pending, "MSAA expansion changed header focus/draft");
+    capabilities({1, 2, 4, 8});
+    // Failed value/capability/eligibility stages preserve the full accepted view.
+    for (bool paint : {false, true}) {
+        RejectingText rejecting(paint);
+        for (bool node_free : {false, true}) {
+            const auto before = f.stable(); const auto attempts_before = h.setting_attempts(), changes = h.setting_changes();
+            const auto call = node_free ? take(h.request_value("msaa", 2, CommandSource::agent)) : take(h.request("msaa-4", CommandSource::agent));
+            const auto result = execute(call, rejecting, false);
+            require(before == f.stable() && attempts_before + 1 == h.setting_attempts() && changes == h.setting_changes() &&
+                result.outcome.diagnostics.size() <= max_command_result_diagnostics &&
+                result.outcome.diagnostics.front().path.find("/nodes/") != std::string::npos &&
+                result.outcome.diagnostics.front().code == (paint ? "injected_paint" : "injected_measure"), "Failed MSAA stage leaked observations");
+            require(!h.execute(call, f.text), "Failed MSAA reused sequence");
+            const auto retry = node_free ? take(h.request_value("msaa", 2, CommandSource::agent)) : take(h.request("msaa-4", CommandSource::agent));
+            execute(retry, f.text, true);
+            require(h.numeric() == pending, "MSAA retry reset pending draft");
+        }
+        for (bool enabled : {false, true}) {
+            const auto before = f.stable(); const auto attempts_before = h.setting_attempts();
+            const auto rejected = h.msaa_capabilities({2, 8}, enabled, rejecting);
+            require(!rejected && before == f.stable() && attempts_before == h.setting_attempts() &&
+                !rejected.diagnostics.empty() && rejected.diagnostics.size() <= max_command_result_diagnostics &&
+                rejected.diagnostics.front().path.starts_with("/nodes/") &&
+                rejected.diagnostics.front().code == (paint ? "injected_paint" : "injected_measure"),
+                "Failed capabilities/eligibility leaked state or setting request");
+            capabilities({2, 8}, enabled); capabilities({1, 2, 4, 8});
+        }
+        f.verify();
+    }
+    reveal("msaa-4");
+    const auto b = box(h.view(), "msaa-4").border_box;
+    const Point p{b.origin.x + 2, b.origin.y + 2};
+    const auto camera = h.camera_events(), calls = h.setting_attempts();
+    take(send(PointerDown{{41}, p}, CommandSource::pointer));
+    capabilities({2, 8});
+    take(send(PointerUp{{41}, p}, CommandSource::pointer));
+    require(h.setting_attempts() == calls && h.last_consumed(), "Replacement retained pending activation or lost input claim");
+    // Disabled choice is still an inside-panel hit, consumed without command/camera delivery.
+    take(send(PointerDown{{42}, p}, CommandSource::pointer)); take(send(PointerUp{{42}, p}, CommandSource::pointer));
+    require(h.setting_attempts() == calls && h.camera_events() == camera, "Disabled MSAA hit reached handler/camera");
+    capabilities({1, 2, 4, 8}); reveal("msaa-4");
+    const auto current = box(h.view(), "msaa-4").border_box;
+    const Point point{current.origin.x + 2, current.origin.y + 2};
+    take(send(PointerDown{{43}, point}, CommandSource::pointer));
+    RejectingText rejecting(false);
+    const auto before_error = f.stable();
+    require(!send(PointerUp{{43}, point}, CommandSource::pointer, &rejecting) && h.last_consumed() &&
+        h.camera_events() == camera && before_error == f.stable(), "Failed MSAA pointer activation reached camera/accepted state");
+    take(send(PointerUp{{43}, point}, CommandSource::pointer));
+    require(h.setting_attempts() == calls + 1, "MSAA release executed failed command twice");
+    take(send(PointerDown{{44}, point}, CommandSource::pointer)); capabilities({1, 2, 4, 8});
+    take(send(PointerMove{{44}, {800, 200}}, CommandSource::pointer));
+    take(send(PointerCancel{{44}}, CommandSource::pointer));
+    require(h.last_consumed() && h.camera_events() == camera && h.numeric() == pending, "Replaced MSAA stream escaped camera arbitration/draft retention");
+    take(send(Scroll{{16, 16}, {0, 4096}}));
+    require(h.offset() == box(h.view(), "renderer-diagnostics").scroll_limit(), "MSAA bottom scroll clamp differs");
+    f.verify();
+    std::cout << f.observations << " MSAA views match CPU/replay; 5 equal input routes; " << h.setting_attempts() <<
+        " setting attempts, " << h.setting_changes() << " accepted changes; " << h.camera_events() << " camera deliveries\n";
+}
+}
 int main() {
-    try { run(); numeric_controls(); }
+    try { run(); numeric_controls(); msaa_controls(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
