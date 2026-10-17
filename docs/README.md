@@ -53,11 +53,12 @@ Detailed Proposed sections are intentionally non-actionable unless the active fi
 | [Conversational UI](integrations/conversational-ui.md) | Conversational/agent workspace workload, structured content model, streaming/async boundaries, provider independence, reference fixtures | Virtualization geometry, text/editing contracts, or provider adapters |
 | [Path-finder integration](integrations/path-finder.md) | Shared-schema editing consumer, source-consumption boundary, diagnostics and preview bridge requirements | A second property/semantic schema or runtime, reload mechanisms, or active scope |
 | [Settings application](integrations/settings-app.md) | Proposed ordinary-authoring reference workflow, host interaction and consumer verification requirements | Public API syntax, implementation status or active scheduling |
-| [Renderer diagnostics](integrations/renderer-diagnostics.md) | Proposed telemetry/control panel consumer, host snapshot/command ownership and verification requirements | Renderer SDKs, a second paint/input model, implementation status or active scheduling |
+| [Renderer diagnostics](integrations/renderer-diagnostics.md) | Telemetry consumer contract, proposed control panel, host snapshot/command ownership and verification requirements | Renderer SDKs, a second paint/input model, implementation status or active scheduling |
 | [Development](guides/development.md) | Build/run commands and workflow | Test-result history or subsystem contracts |
 | [Getting Started](guides/getting-started.md) | First-app build/copy/run procedure and prerequisites | Capability evidence or future syntax |
 | [Your first app](guides/first-app.md) | Source walkthrough, composition and explicit host responsibilities | A second API/lifetime contract or test-result history |
 | [Settings starter](guides/settings-starter.md) | Copy/build/run and source walkthrough for controlled editing and owned Apply copies | A second API/consumer contract, expanded widget scope or test-result history |
+| [Renderer telemetry guide](guides/renderer-diagnostics.md) | Copy/build/run and source walkthrough for telemetry composition and the synthetic snapshot host | A second API/consumer contract, native renderer integration or test-result history |
 | [Testing](guides/testing.md) | Verification methods and documentation checks | Test-target inventory or capability status |
 | [Dependencies](reference/dependencies.md) | Adopted/candidate choices, acquisition and licensing policy, including font licensing | Validated configuration claims |
 | [Support matrix](reference/support-matrix.md) | **Only live implementation/validation status**, configurations and evidence | Work scheduling, contract definitions, or rows for capabilities without implementation |
