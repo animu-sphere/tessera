@@ -79,7 +79,7 @@ struct Fixture {
     auto stable() const {
         const auto& view = host->view();
         return std::tuple{host->snapshot(), host->disclosure(), host->offset(), host->focused(),
-            view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
+            host->numeric(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
     }
     void verify() {
         const auto& view = host->view();
@@ -185,7 +185,7 @@ void run() {
     require(host.offset() == box(host.view(), "renderer-diagnostics").scroll_limit(), "Bottom clamp differs");
     fixture.send(Scroll{{16, 16}, {0, -4096}});
     require(host.offset() == Point{}, "Top clamp differs");
-    for (const auto* group : panel::groups) {
+    for (const auto* group : {"cpu", "gpu", "counters"}) {
         fixture.send(FocusNext{});
         const auto id = "disclosure-" + std::string(group);
         require(host.focused() == id && visible(host.view(), id), "Keyboard reveal differs");
@@ -289,6 +289,7 @@ void run() {
     auto before = fixture.stable();
     const auto calls = host.disclosure_requests();
     require(!host.execute(stale, fixture.text) && before == fixture.stable() && calls == host.disclosure_requests(), "Stale command entered");
+    fixture.invoke("disclosure-controls"); // Keep the original telemetry-only viewport assertion.
     fixture.invoke("disclosure-counters"); // Remove lower rows so the disabled header remains in view.
     fixture.send(FocusNext{});
     require(host.focused() == "disclosure-counters", "Expected lower owner before disabling");
@@ -319,15 +320,228 @@ void run() {
     fixture.send(PointerDown{{3}, pressed_point}, CommandSource::pointer);
     fixture.refresh(panel::sample_a());
     const auto prior_calls = host.disclosure_requests();
-    // An unmatched release may be unconsumed after replacement, but must emit no command.
-    (void)take(host.input({std::chrono::microseconds{++fixture.tick}, PointerUp{{3}, pressed_point}}, CommandSource::pointer, fixture.text));
+    // The host claim survives replacement; the release emits no command.
+    require(take(host.route({std::chrono::microseconds{++fixture.tick}, PointerUp{{3}, pressed_point}}, CommandSource::pointer, fixture.text)),
+        "Claimed release reached camera after replacement");
     fixture.verify();
     require(host.disclosure_requests() == prior_calls, "Pointer press survived replacement");
     std::cout << fixture.observations << " telemetry views match repeated geometry/semantics/paint/CPU replay; " <<
         host.disclosure_requests() << " disclosure attempts; synthetic inputs only\n";
 }
+
+void numeric_controls() {
+    Fixture fixture;
+    auto& host = *fixture.host;
+    auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success = true) {
+        auto result = take(host.execute(call, text));
+        require((result.outcome.status == CommandOutcomeStatus::success) == success, "Unexpected numeric command outcome");
+        if (!success) require(!result.outcome.diagnostics.empty(), "Numeric rejection has no diagnostic");
+        return result;
+    };
+    auto edit = [&](auto operation, CommandSource source = CommandSource::agent) {
+        const auto& draft = host.numeric().draft;
+        execute(take(host.request_edit({draft.owner, draft.revision, std::move(operation)}, source)), fixture.text);
+    };
+    auto draft = [&](std::string value) {
+        edit(TextEditSelection{0, host.numeric().draft.text.size()});
+        edit(TextEditInsert{std::move(value)});
+    };
+    auto route = [&](auto event, CommandSource source = CommandSource::keyboard, TextShaper* text = nullptr) {
+        return host.route({std::chrono::microseconds{++fixture.tick}, std::move(event)}, source, text ? *text : fixture.text);
+    };
+    auto invoke = [&](const std::string& id, CommandSource source = CommandSource::agent) {
+        require(take(host.invoke(id, source, fixture.text)), "Expected numeric fixture command");
+    };
+    auto refresh = [&](panel::Snapshot snapshot) { require(take(host.refresh(std::move(snapshot), fixture.text)), "Expected refresh"); };
+    auto reveal = [&](const std::string& id) {
+        for (int i = 0; host.focused() != id && i < 20; ++i) require(take(route(FocusNext{})), "Expected focus traversal");
+        require(host.focused() == id && visible(host.view(), id), "Numeric focus/reveal failed: " + id);
+    };
+    auto click = [&](const std::string& id) {
+        reveal(id);
+        const auto b = box(host.view(), id).border_box;
+        const Point point{b.origin.x + 2, b.origin.y + 2};
+        require(take(route(PointerDown{{12}, point}, CommandSource::pointer)) && host.focused() == id, "Pointer focus failed");
+        require(take(route(PointerUp{{12}, point}, CommandSource::pointer)), "Pointer activation failed");
+        fixture.verify();
+    };
+    require(host.numeric().accepted == 1 && host.numeric().draft.text == "1", "Initial direct strength differs");
+    reveal("direct-input");
+    const auto start_calls = host.setting_attempts();
+    click("direct-input");
+    require(host.setting_attempts() == start_calls, "TextInput activation committed a value");
+    require(take(route(KeyDown{Key::home})) && take(route(KeyDown{Key::end, {.shift = true}})) &&
+        take(route(tessera::TextInput{"1.5"})), "Keyboard direct entry failed");
+    require(host.numeric().draft.text == "1.5" && host.numeric().accepted == 1 && host.setting_changes() == 0,
+        "Editing changed accepted setting");
+    click("direct-apply");
+    require(host.numeric().accepted == 1.5 && host.setting_changes() == 1 && host.setting_attempts() == start_calls + 1,
+        "Pointer Apply did not commit exactly once");
+    invoke("direct-input");
+    const auto same_revision = host.numeric().draft.revision;
+    require(take(route(KeyDown{Key::enter})) && host.numeric().draft.revision == same_revision + 1 && host.setting_changes() == 1,
+        "Equal Apply did not advance revision without a setting change");
+    // Adjustment parity from the same initial value across pointer, logical keyboard and gamepad.
+    execute(take(host.request_value("direct", 1, CommandSource::agent)), fixture.text);
+    click("direct-increase");
+    reveal("direct-increase"); require(take(route(Activate{}, CommandSource::gamepad)), "Expected gamepad activation");
+    require(host.numeric().accepted == 1.5, "Direct entry and two increments differ");
+    invoke("direct-decrease", CommandSource::accessibility);
+    reveal("direct-increase"); require(take(route(Activate{}, CommandSource::keyboard)), "Expected keyboard activation");
+    require(host.numeric().accepted == 1.5, "Semantic/keyboard adjustment parity differs");
+    // Ordinary logical directional navigation reaches the same operation owner.
+    reveal("direct-decrease"); require(take(route(Navigate{Direction::right}, CommandSource::gamepad)), "Expected gamepad navigation");
+    require(host.focused() == "direct-increase", "Gamepad directional adjustment navigation differs");
+    require(take(route(Activate{}, CommandSource::gamepad)), "Expected gamepad activation");
+    require(host.numeric().accepted == 1.75, "Gamepad adjustment failed");
+    draft("1.5"); invoke("direct-apply", CommandSource::accessibility);
+    require(host.numeric().accepted == 1.5, "Semantic edit/Apply parity differs");
+
+    for (const auto* invalid : {"", "-", "1.", "01", "+1", " 1", "1 ", "1e0", "NaN", "inf", "4.01", "-0.01", "1x", "日"}) {
+        draft(invalid);
+        const auto before = fixture.stable();
+        const auto changes = host.setting_changes();
+        const auto rejected = host.invoke("direct-apply", CommandSource::agent, fixture.text);
+        require(!rejected && rejected.diagnostics.front().path.ends_with("/controls/direct") && before == fixture.stable() &&
+            host.setting_changes() == changes, "Invalid draft changed accepted observations: [" + std::string(invalid) + "] " + (rejected.diagnostics.empty() ? "no error" : rejected.diagnostics.front().path));
+        require(!host.request("direct-increase", CommandSource::agent) && !host.request("direct-decrease", CommandSource::agent),
+            "Dirty draft allowed adjustment");
+    }
+    // Retain exact invalid bytes, selection, revision and owner through all refresh/removal paths.
+    edit(TextEditSelection{0, host.numeric().draft.text.size()});
+    invoke("direct-input");
+    const auto pending = host.numeric(); const auto changes = host.setting_changes(); const auto attempts = host.setting_attempts();
+    for (const auto& snapshot : {panel::sample_a(), panel::sample_b(), panel::sample_c()}) {
+        refresh(snapshot);
+        require(host.numeric() == pending && host.setting_attempts() == attempts && host.setting_changes() == changes,
+            "Telemetry changed numeric draft/settings");
+    }
+    const auto stale = take(host.request("direct-apply", CommandSource::agent));
+    invoke("disclosure-controls");
+    require(host.numeric() == pending && host.focused() == "disclosure-controls" && !host.view().tree->find("direct-input"),
+        "Collapse lost draft or failed header recovery");
+    require(!host.execute(stale, fixture.text) && !host.request_value("direct", 2, CommandSource::agent), "Hidden setting remained callable");
+    invoke("disclosure-controls");
+    require(host.numeric() == pending && host.focused() == "disclosure-controls", "Expansion changed draft/focus");
+    const auto disabled_call = take(host.request("direct-apply", CommandSource::agent));
+    take(host.numeric_eligibility(false, fixture.text)); fixture.verify();
+    require(!host.execute(disabled_call, fixture.text) && !host.request_edit({pending.draft.owner, pending.draft.revision, TextEditInsert{"2"}}, CommandSource::agent),
+        "Disabled draft accepted request");
+    take(host.numeric_eligibility(true, fixture.text)); fixture.verify();
+    require(host.numeric() == pending, "Re-enabling lost draft");
+    // Old edit owners/revisions resolve through the live presentation but reject at the host boundary.
+    for (const auto request : {TextEditRequest{pending.draft.owner + 1000, pending.draft.revision, TextEditInsert{"2"}},
+        TextEditRequest{pending.draft.owner, pending.draft.revision - 1, TextEditInsert{"2"}}}) {
+        const auto before = fixture.stable();
+        execute(take(host.request_edit(request, CommandSource::agent)), fixture.text, false);
+        require(before == fixture.stable(), "Stale edit mutated accepted draft");
+    }
+    invoke("direct-cancel");
+    require(host.numeric().accepted == pending.accepted && host.numeric().draft.text == "1.5" &&
+        host.numeric().draft.revision > pending.draft.revision && !host.request("direct-cancel", CommandSource::agent), "Cancel policy differs");
+    draft("2."); invoke("direct-input");
+    const auto camera = host.camera_events();
+    require(!route(KeyDown{Key::enter}) && host.last_consumed() && host.camera_events() == camera, "Rejected raw Apply reached camera");
+    require(take(route(KeyDown{Key::escape})) && host.numeric().draft.text == "1.5", "Raw Escape failed Cancel");
+    draft("2"); reveal("direct-apply");
+    require(take(route(Cancel{}, CommandSource::gamepad)) && host.numeric().draft.text == "1.5", "Operation-owner Cancel failed");
+
+    // Successful requests also consume their sequence and cannot repeat handler attempts.
+    const auto once = take(host.request_value("direct", 2, CommandSource::agent));
+    execute(once, fixture.text);
+    const auto after_once = fixture.stable(); const auto attempts_once = host.setting_attempts();
+    require(!host.execute(once, fixture.text) && after_once == fixture.stable() && attempts_once == host.setting_attempts(),
+        "Accepted setting request executed twice");
+    // Canonical decimal remains valid entry grammar, including short subunit decimals.
+    draft("0.000000000000000000000000000001"); invoke("direct-apply");
+    require(take(panel::parse_numeric(host.numeric().draft.text)) == host.numeric().accepted, "Canonical decimal cannot be reapplied");
+    const auto tiny = take(host.request_value("direct", std::numeric_limits<double>::denorm_min(), CommandSource::agent));
+    const auto before_tiny = fixture.stable(); execute(tiny, fixture.text, false);
+    require(before_tiny == fixture.stable(), "Unrepresentable bounded canonical draft was accepted");
+    // Both endpoints and clamped fractional adjustment, with typed node-free validation.
+    for (const auto value : {0.0, 4.0}) {
+        execute(take(host.request_value("direct", value, CommandSource::agent)), fixture.text);
+        require(!host.request(value == 0 ? "direct-decrease" : "direct-increase", CommandSource::agent), "Endpoint direction enabled");
+        fixture.verify();
+    }
+    for (const auto value : {-1.0, 4.01, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
+        require(!host.request_value("direct", value, CommandSource::agent), "Invalid typed numeric resolved");
+    require(!host.request_value("ambient", 1, CommandSource::agent), "Node-free request accepted foreign field");
+    execute(take(host.request_value("direct", 3.9, CommandSource::agent)), fixture.text);
+    invoke("direct-increase"); require(host.numeric().accepted == 4, "Upper adjustment did not clamp");
+    execute(take(host.request_value("direct", 0.1, CommandSource::agent)), fixture.text);
+    invoke("direct-decrease"); require(host.numeric().accepted == 0, "Lower adjustment did not clamp");
+    draft("-0"); invoke("direct-apply"); require(host.numeric().draft.text == "0", "Negative zero was not canonicalized");
+    draft("1.50"); invoke("direct-apply"); require(host.numeric().draft.text == "1.5", "Shortest canonical text differs");
+    require(!host.request_edit({host.numeric().draft.owner, host.numeric().draft.revision, TextEditInsert{std::string(33, '1')}}, CommandSource::agent),
+        "Oversized insert resolved");
+    edit(TextEditSelection{0, 0});
+    auto overflow = take(host.request_edit({host.numeric().draft.owner, host.numeric().draft.revision, TextEditInsert{std::string(32, '1')}}, CommandSource::agent));
+    const auto before_overflow = fixture.stable(); execute(overflow, fixture.text, false);
+    require(before_overflow == fixture.stable(), "Combined draft bound failed");
+
+    // Every command family stages owned candidates; failure never accepts a partial edit, value or disclosure.
+    for (const bool paint : {false, true}) {
+        RejectingText rejecting(paint);
+        draft("2.50");
+        for (const auto* id : {"direct-apply", "direct-cancel", "disclosure-controls"}) {
+            const auto before = fixture.stable(); const auto changes_before = host.setting_changes();
+            const auto call = take(host.request(id, CommandSource::agent));
+            const auto failed = execute(call, rejecting, false);
+            require(failed.outcome.diagnostics.front().path.find("/nodes/") != std::string::npos &&
+                failed.outcome.diagnostics.front().code == (paint ? "injected_paint" : "injected_measure") &&
+                failed.outcome.diagnostics.size() <= max_command_result_diagnostics && before == fixture.stable() &&
+                changes_before == host.setting_changes(), "Failed numeric stage changed accepted observations: " + std::string(id) + " " + failed.outcome.diagnostics.front().path + " equal=" + std::to_string(before == fixture.stable()));
+            require(!host.execute(call, fixture.text), "Rejected numeric request reused sequence");
+            invoke(id); // Fresh request succeeds once.
+            if (std::string{id} == "disclosure-controls") invoke(id);
+            if (host.numeric().draft.text == panel::canonical(host.numeric().accepted)) draft("2.50");
+        }
+        const auto before_edit = fixture.stable();
+        auto edit_call = take(host.request_edit({host.numeric().draft.owner, host.numeric().draft.revision, TextEditSelection{0, 1}}, CommandSource::agent));
+        execute(edit_call, rejecting, false); require(before_edit == fixture.stable(), "Failed edit changed revision/selection");
+        require(!host.execute(edit_call, fixture.text), "Failed edit request executed twice");
+        edit(TextEditSelection{0, 1});
+        invoke("direct-cancel");
+        const auto before_adjust = fixture.stable();
+        auto adjustment = take(host.request("direct-increase", CommandSource::agent));
+        execute(adjustment, rejecting, false); require(before_adjust == fixture.stable(), "Failed adjustment changed setting/draft");
+        require(!host.execute(adjustment, fixture.text), "Failed adjustment reused sequence");
+        invoke("direct-increase");
+        fixture.verify();
+    }
+    // Consumed errors, disabled hits and claimed streams across replacement never reach the camera.
+    reveal("direct-increase");
+    const auto b = box(host.view(), "direct-increase").border_box;
+    const Point p{b.origin.x + 2, b.origin.y + 2};
+    const auto delivered = host.camera_events();
+    require(take(route(PointerDown{{22}, p}, CommandSource::pointer)), "Panel did not claim press");
+    refresh(panel::sample_b());
+    require(take(route(PointerMove{{22}, {800, 200}}, CommandSource::pointer)) &&
+        take(route(PointerUp{{22}, {800, 200}}, CommandSource::pointer)) && host.camera_events() == delivered,
+        "Replaced panel lost claimed stream");
+    take(host.numeric_eligibility(false, fixture.text));
+    require(take(route(PointerDown{{23}, p}, CommandSource::pointer)) && take(route(PointerUp{{23}, p}, CommandSource::pointer)) &&
+        host.camera_events() == delivered, "Disabled panel hit reached camera");
+    take(host.numeric_eligibility(true, fixture.text));
+    reveal("direct-input");
+    RejectingText rejecting(false);
+    const auto before_error = fixture.stable();
+    require(!route(tessera::TextInput{"2"}, CommandSource::keyboard, &rejecting) && host.last_consumed() &&
+        host.camera_events() == delivered && before_error == fixture.stable(), "Consumed edit error reached camera or accepted a candidate");
+    require(!take(route(KeyDown{Key::f1})) && host.camera_events() == delivered + 1, "Unmapped key missed camera");
+    require(!take(route(PointerDown{{24}, {800, 200}}, CommandSource::pointer)) && host.camera_events() == delivered + 2,
+        "Outside press missed camera");
+    require(!take(route(PointerUp{{24}, p}, CommandSource::pointer)) && host.camera_events() == delivered + 3,
+        "Outside stream was claimed after entering panel");
+    auto reopened = take(panel::Host::open(panel::sample_a(), fixture.text));
+    require(reopened->numeric().draft.owner != host.numeric().draft.owner, "Reopened panel reused draft lifetime");
+    fixture.verify();
+    std::cout << fixture.observations << " numeric views match CPU/replay; " << host.setting_attempts() << " setting attempts, " <<
+        host.setting_changes() << " accepted changes; " << host.camera_events() << " camera deliveries\n";
+}
 }
 int main() {
-    try { run(); }
+    try { run(); numeric_controls(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
