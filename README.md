@@ -10,6 +10,7 @@ The host owns application state, windows, devices, and frame scheduling. Tessera
 
 ## Start here
 
+- [Getting Started](docs/guides/getting-started.md) and [your first app](docs/guides/first-app.md): build and copy a small C++ form with an explicit host boundary.
 - [Documentation index and ownership](docs/README.md)
 - [Product vision](docs/product/vision.md), [principles](docs/product/principles.md), [use cases](docs/product/use-cases.md) and [non-goals](docs/product/non-goals.md)
 - [Agent implementation policy](docs/agent-policy.md): authority, fixture-driven work, and subsystem stop rule

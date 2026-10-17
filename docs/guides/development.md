@@ -2,6 +2,8 @@
 
 Read [architecture](../architecture/overview.md), [UI model](../architecture/ui-model.md), and [current work](../roadmap/current.md) first. Adopted tool/dependency requirements are owned by [dependencies](../reference/dependencies.md); validated configurations and results are owned by [support](../reference/support-matrix.md).
 
+For a copyable application project, begin with [Getting Started](getting-started.md) and the [first-app walkthrough](first-app.md). The repository workflow below is for core development and broader fixtures.
+
 ## Core build workflow
 
 Run these PowerShell commands from the repository root, with the toolchain recorded in support installed:
@@ -137,6 +139,8 @@ ctest --test-dir build-source-consumer -C Debug --output-on-failure
 Use `-DTESSERA_IMPORT_MODE=FetchContent` in a separate build directory for the other import. To exercise optional backend linkage, add `-DCONSUMER_WITH_VULKAN=ON` and the explicit SDK/Slang cache overrides from the optional workflow below. The backend fixture rejects an empty host context and requires no GPU or native window. Use the same build and CTest commands with `Release` for that configuration.
 
 Standalone CTest invokes both imports automatically; enabling Vulkan adds backend consumer checks. The [driver](../../tests/cmake/run-consumer.cmake) forwards the configured generator, platform, toolset, toolchain and optional SDK paths into isolated host builds. Per-phase logs, executables and libraries are under `<build>/source-consumers/<import>[-vulkan]/<configuration>`; fixture tests are separate from runtime GPU tests. Configuration evidence and limits belong to [support](../reference/support-matrix.md#source-consumption-evidence--2026-10-11).
+
+The hosted [release workflow](../../.github/workflows/release.yml) uses `ctest --test-dir build -C <configuration> --output-on-failure --no-tests=error -E '_FetchContent$'` to exclude FetchContent consumer checks from CI while retaining the add_subdirectory consumers. Local CTest without that filter exercises both import forms.
 
 ## Optional Vulkan workflow
 

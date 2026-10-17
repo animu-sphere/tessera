@@ -54,7 +54,9 @@ jobs:
         run: cmake --build build --config ${{ matrix.config }} --parallel
 
       - name: Test
-        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure --no-tests=error
+        # Keep FetchContent consumer checks available locally; CI covers the
+        # independent consumers through add_subdirectory without duplicate builds.
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure --no-tests=error -E '_FetchContent$'
 
       - name: Upload test log
         if: always()
