@@ -41,6 +41,17 @@ int main() {
             (void)take(host->route({std::chrono::microseconds{++tick}, FocusNext{}}, CommandSource::gamepad, text));
         (void)take(host->route({std::chrono::microseconds{++tick}, Activate{}}, CommandSource::gamepad, text));
         (void)take(host->invoke("direct-decrease", CommandSource::agent, text));
+        // A second numeric field owns its own draft and routes the same normalized keys.
+        (void)take(host->invoke("ambient-input", CommandSource::agent, text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, KeyDown{Key::home}}, CommandSource::keyboard, text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, KeyDown{Key::end, {.shift = true}}}, CommandSource::keyboard, text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, tessera::TextInput{"0.75"}}, CommandSource::keyboard, text));
+        (void)take(host->refresh(diagnostics::sample_c(), text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, KeyDown{Key::enter}}, CommandSource::keyboard, text));
+        for (int i = 0; i < 2; ++i)
+            (void)take(host->route({std::chrono::microseconds{++tick}, FocusNext{}}, CommandSource::gamepad, text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, Activate{}}, CommandSource::gamepad, text));
+        (void)take(host->invoke("ambient-decrease", CommandSource::accessibility, text));
         // Discrete choices use the same commands; capabilities are independent of telemetry/drafts.
         (void)take(host->invoke("msaa-4", CommandSource::accessibility, text));
         (void)take(host->msaa_capabilities({1, 2, 4, 8}, true, text));
@@ -60,6 +71,7 @@ int main() {
         std::cout << "Scene lights " << (host->scene_lights().accepted ? "on" : "off") << '\n';
         std::cout << "Outlines " << (host->outlines().accepted ? "on" : "off") << '\n';
         std::cout << "MSAA " << host->msaa().accepted << "; supported choices " << host->msaa().supported.size() << '\n';
+        std::cout << "Ambient strength " << diagnostics::canonical(host->ambient().accepted) << "; draft " << host->ambient().draft.text << '\n';
         std::cout << "Direct strength " << diagnostics::canonical(host->numeric().accepted) << "; draft " <<
             host->numeric().draft.text << "; setting attempts " << host->setting_attempts() << "; changes " <<
             host->setting_changes() << "; camera events " << host->camera_events() << '\n';
