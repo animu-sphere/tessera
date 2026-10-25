@@ -34,6 +34,7 @@ public:
     const Numeric& numeric() const { return numeric_; }
     const Msaa& msaa() const { return msaa_; }
     const Outlines& outlines() const { return outlines_; }
+    const SceneLights& scene_lights() const { return scene_lights_; }
     std::size_t setting_attempts() const { return setting_attempts_; }
     std::size_t setting_changes() const { return setting_changes_; }
     std::size_t draft_requests() const { return draft_requests_; }
@@ -43,6 +44,8 @@ public:
     tessera::Result<bool> route(const tessera::InputEvent&, tessera::CommandSource, tessera::TextShaper&);
     tessera::Result<bool> outlines_eligibility(bool, tessera::TextShaper&);
     tessera::Result<tessera::CommandInvocation> request_outlines(std::string field, bool, tessera::CommandSource);
+    tessera::Result<bool> scene_lights_eligibility(bool, tessera::TextShaper&);
+    tessera::Result<tessera::CommandInvocation> request_scene_lights(std::string field, bool, tessera::CommandSource);
     tessera::Result<bool> numeric_eligibility(bool, tessera::TextShaper&);
     tessera::Result<bool> msaa_capabilities(std::vector<unsigned> supported, bool enabled, tessera::TextShaper&);
     tessera::Result<tessera::CommandInvocation> request_edit(const tessera::TextEditRequest&, tessera::CommandSource);
@@ -59,8 +62,8 @@ public:
 private:
     explicit Host(tessera::CommandRegistry registry) : registry_(std::move(registry)) {}
     tessera::Result<View> stage(const Snapshot&, const Disclosure&, tessera::Point,
-        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, const Outlines&, tessera::TextShaper&);
-    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa, Outlines);
+        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, const Outlines&, const SceneLights&, tessera::TextShaper&);
+    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa, Outlines, SceneLights);
     tessera::Result<bool> operate(const tessera::ActionRequest&, tessera::CommandSource, tessera::TextShaper&);
 
     tessera::authoring::Session session_;
@@ -71,6 +74,7 @@ private:
     Numeric numeric_;
     Msaa msaa_;
     Outlines outlines_;
+    SceneLights scene_lights_;
     std::array<bool, 3> eligible_{true, true, true};
     tessera::Point offset_;
     tessera::FocusDispatcher focus_;

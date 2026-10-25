@@ -80,7 +80,7 @@ struct Fixture {
     auto stable() const {
         const auto& view = host->view();
         return std::tuple{host->snapshot(), host->disclosure(), host->offset(), host->focused(),
-            host->numeric(), host->msaa(), host->outlines(), view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
+            host->numeric(), host->msaa(), host->outlines(), host->scene_lights(), view.styles, view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
     }
     void verify() {
         const auto& view = host->view();
@@ -95,6 +95,10 @@ struct Fixture {
         }
         const auto& snapshot = host->snapshot();
         if (host->disclosure().expanded[3]) {
+            require(name(view, "scene-lights-toggle") == (host->scene_lights().accepted ? "[x] Scene lights" : "[ ] Scene lights"),
+                "Scene lights marker/name differs");
+            require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("scene-lights-toggle"), "activate")) ==
+                host->scene_lights().enabled, "Scene lights semantic eligibility differs");
             require(name(view, "outlines-toggle") == (host->outlines().accepted ? "[x] Outlines" : "[ ] Outlines"),
                 "Outlines marker/name differs");
             require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("outlines-toggle"), "activate")) ==
@@ -109,7 +113,7 @@ struct Fixture {
                 require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find(id), "activate")) == enabled,
                     "MSAA semantic eligibility differs");
             }
-        } else require(!view.tree->find("outlines-toggle") && !view.tree->find("msaa-1") && !view.tree->find("msaa-accepted"), "Collapsed MSAA remained present");
+        } else require(!view.tree->find("scene-lights-toggle") && !view.tree->find("outlines-toggle") && !view.tree->find("msaa-1") && !view.tree->find("msaa-accepted"), "Collapsed MSAA remained present");
         require(name(view, "value-scene") == snapshot.scene && name(view, "value-device") == snapshot.device &&
             name(view, "value-extent") == "1280 x 720" && name(view, "value-presentation") == snapshot.presentation,
             "Snapshot identity/extent differs");
@@ -749,35 +753,54 @@ void msaa_controls() {
     std::cout << f.observations << " MSAA views match CPU/replay; 5 equal input routes; " << h.setting_attempts() <<
         " setting attempts, " << h.setting_changes() << " accepted changes; " << h.camera_events() << " camera deliveries\n";
 }
-void outlines_controls() {
+void boolean_controls(bool scene_lights) {
+    const std::string field = scene_lights ? "scene_lights" : "outlines";
+    const std::string id = scene_lights ? "scene-lights-toggle" : "outlines-toggle";
+    const std::string previous = scene_lights ? "outlines-toggle" : "msaa-1";
+    const bool initial = scene_lights;
+    auto state = [&](const panel::Host& host) {
+        return std::pair{scene_lights ? host.scene_lights().accepted : host.outlines().accepted,
+            scene_lights ? host.scene_lights().enabled : host.outlines().enabled};
+    };
+    auto peer = [&](const panel::Host& host) {
+        return std::pair{scene_lights ? host.outlines().accepted : host.scene_lights().accepted,
+            scene_lights ? host.outlines().enabled : host.scene_lights().enabled};
+    };
+    auto set = [&](panel::Host& host, std::string target, bool value) {
+        return scene_lights ? host.request_scene_lights(std::move(target), value, CommandSource::agent) :
+            host.request_outlines(std::move(target), value, CommandSource::agent);
+    };
+    auto eligible = [&](panel::Host& host, bool enabled, TextShaper& text) {
+        return scene_lights ? host.scene_lights_eligibility(enabled, text) : host.outlines_eligibility(enabled, text);
+    };
     // Compare ordinary activation routes from the same accepted initial value.
     for (int route = 0; route < 4; ++route) {
         Fixture f;
         auto& h = *f.host;
         auto send = [&](auto event, CommandSource source) {
-            require(take(h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, f.text)), "Expected outlines input");
+            require(take(h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, f.text)), "Expected Boolean control input");
         };
-        require(!h.outlines().accepted && h.outlines().enabled, "Initial outlines differs");
+        require(state(h) == std::pair{initial, true}, "Initial Boolean control differs");
         if (route < 3) {
-            const auto target = route == 2 ? "msaa-1" : "outlines-toggle";
+            const auto target = route == 2 ? previous : id;
             for (int i = 0; h.focused() != target && i < 20; ++i)
                 send(KeyDown{Key::tab}, CommandSource::keyboard);
-            require(h.focused() == target && visible(h.view(), target), "Outlines traversal/reveal failed");
+            require(h.focused() == target && visible(h.view(), target), "Boolean control traversal/reveal failed");
             if (route == 0) {
                 const auto b = box(h.view(), target).border_box;
                 const Point p{b.origin.x + 2, b.origin.y + 2};
                 send(PointerDown{{51}, p}, CommandSource::pointer);
-                require(h.setting_attempts() == 0, "Outlines press executed before release");
+                require(h.setting_attempts() == 0, "Boolean control press executed before release");
                 send(PointerUp{{51}, p}, CommandSource::pointer);
             } else if (route == 1) send(KeyDown{Key::space}, CommandSource::keyboard);
             else {
                 send(Navigate{Direction::down}, CommandSource::gamepad);
-                require(h.focused() == "outlines-toggle", "Gamepad outlines navigation differs");
+                require(h.focused() == id, "Gamepad Boolean control navigation differs");
                 send(Activate{}, CommandSource::gamepad);
             }
-        } else take(h.invoke("outlines-toggle", CommandSource::accessibility, f.text));
-        require(h.outlines().accepted && h.setting_attempts() == 1 && h.setting_changes() == 1 && h.camera_events() == 0 &&
-            h.numeric().accepted == 1 && h.numeric().draft.text == "1" && h.msaa().accepted == 1, "Outlines route parity/once-only differs");
+        } else take(h.invoke(id, CommandSource::accessibility, f.text));
+        require(state(h).first != initial && h.setting_attempts() == 1 && h.setting_changes() == 1 && h.camera_events() == 0 &&
+            h.numeric().accepted == 1 && h.numeric().draft.text == "1" && h.msaa().accepted == 1 && peer(h) == std::pair{!initial, true}, "Boolean control route parity/once-only differs");
         f.verify();
     }
     Fixture f;
@@ -787,41 +810,45 @@ void outlines_controls() {
     };
     auto reveal = [&](const std::string& id) {
         for (int i = 0; h.focused() != id && i < 20; ++i) take(send(KeyDown{Key::tab}));
-        require(h.focused() == id && visible(h.view(), id), "Outlines reveal failed: " + id);
+        require(h.focused() == id && visible(h.view(), id), "Boolean control reveal failed: " + id);
     };
     auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::agent, f.text)); };
     auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success = true) {
         auto result = take(h.execute(call, text));
-        require((result.outcome.status == CommandOutcomeStatus::success) == success, "Unexpected outlines outcome");
+        require((result.outcome.status == CommandOutcomeStatus::success) == success, "Unexpected Boolean control outcome");
         return result;
     };
     auto eligibility = [&](bool enabled) {
         const auto attempts = h.setting_attempts(), changes = h.setting_changes();
-        take(h.outlines_eligibility(enabled, f.text));
-        require(h.setting_attempts() == attempts && h.setting_changes() == changes, "Outlines eligibility requested a setting");
+        take(eligible(h, enabled, f.text));
+        require(h.setting_attempts() == attempts && h.setting_changes() == changes, "Boolean control eligibility requested a setting");
     };
     const auto pristine = f.stable();
     // Schema, field identity, owner and presentation rejection must precede handler entry.
     for (const CommandValue value : {CommandValue{1.0}, CommandValue{std::string{"true"}}})
-        require(!h.view().commands.resolve({h.view().commands.generation(), "outlines.set", {{"field", std::string{"outlines"}},
-            {"value", value}}, CommandSource::agent, 999}), "Outlines coerced a non-Boolean");
-    for (const auto* field : {"direct", "msaa", "", "scene-lights"})
-        require(!h.request_outlines(field, true, CommandSource::agent), "Outlines accepted another field");
-    const auto action = take(request_semantic_action(h.view().semantic(), *h.view().tree->find("outlines-toggle"), "activate"));
+        require(!h.view().commands.resolve({h.view().commands.generation(), field + ".set", {{"field", field},
+            {"value", value}}, CommandSource::agent, 999}), "Boolean control coerced a non-Boolean");
+    for (const CommandArguments args : {CommandArguments{}, CommandArguments{{"field", field}},
+        CommandArguments{{"value", true}}, CommandArguments{{"field", field}, {"value", true}, {"extra", false}}})
+        require(!h.view().commands.resolve({h.view().commands.generation(), field + ".set", args,
+            CommandSource::agent, 999}), "Boolean set accepted missing/extra fields");
+    for (const auto& wrong : {std::string{"direct"}, std::string{"msaa"}, std::string{}, std::string{"scene-lights"}, scene_lights ? std::string{"outlines"} : std::string{"scene_lights"}})
+        require(!set(h, wrong, true), "Boolean control accepted another field");
+    const auto action = take(request_semantic_action(h.view().semantic(), *h.view().tree->find(id), "activate"));
     for (const CommandArguments args : {CommandArguments{{"value", true}}, CommandArguments{{"field", std::string{"direct"}}}})
         require(!h.view().commands.resolve_action(h.view().semantic(), action, h.view().commands.generation(),
-            args, CommandSource::agent, 999), "Outlines activation accepted arguments");
+            args, CommandSource::agent, 999), "Boolean control activation accepted arguments");
     Fixture foreign;
     require(h.view().commands.generation() == foreign.host->view().commands.generation(), "Foreign counter setup differs");
-    const auto foreign_call = take(foreign.host->request("outlines-toggle", CommandSource::agent));
-    const auto foreign_set = take(foreign.host->request_outlines("outlines", true, CommandSource::agent));
+    const auto foreign_call = take(foreign.host->request(id, CommandSource::agent));
+    const auto foreign_set = take(set(*foreign.host, field, true));
     const auto foreign_action = take(request_semantic_action(foreign.host->view().semantic(),
-        *foreign.host->view().tree->find("outlines-toggle"), "activate"));
+        *foreign.host->view().tree->find(id), "activate"));
     require(!h.execute(foreign_call, f.text) && !h.execute(foreign_set, f.text) &&
         !h.view().commands.resolve_action(h.view().semantic(), foreign_action, h.view().commands.generation(), {}, CommandSource::agent, 999) &&
-        h.setting_attempts() == 0 && pristine == f.stable(), "Foreign outlines owner/presentation entered handler");
+        h.setting_attempts() == 0 && pristine == f.stable(), "Foreign Boolean control owner/presentation entered handler");
     const auto equal_generation = h.view().commands.generation();
-    const auto equal = take(h.request_outlines("outlines", false, CommandSource::agent));
+    const auto equal = take(set(h, field, initial));
     execute(equal, f.text);
     require(h.setting_attempts() == 1 && h.setting_changes() == 0 && h.view().commands.generation() > equal_generation &&
         !h.execute(equal, f.text), "Equal Boolean accounting/sequence differs");
@@ -832,73 +859,92 @@ void outlines_controls() {
     };
     edit(TextEditSelection{0, 1}); edit(TextEditInsert{"2."}); edit(TextEditSelection{2, 0});
     const auto pending = h.numeric(); const auto msaa = h.msaa();
+    const auto other = peer(h);
     reveal("direct-input");
-    const auto held = take(h.request("outlines-toggle", CommandSource::agent));
-    invoke("outlines-toggle");
-    require(h.numeric() == pending && h.msaa() == msaa && h.focused() == "direct-input", "Outlines reset unrelated state/focus");
+    const auto held = take(h.request(id, CommandSource::agent));
+    invoke(id);
+    require(h.numeric() == pending && h.msaa() == msaa && peer(h) == other && h.focused() == "direct-input", "Boolean control reset unrelated state/focus");
     const auto after = f.stable(); const auto attempts = h.setting_attempts();
-    require(!h.execute(held, f.text) && after == f.stable() && attempts == h.setting_attempts(), "Stale outlines entered handler");
-    reveal("outlines-toggle");
+    require(!h.execute(held, f.text) && after == f.stable() && attempts == h.setting_attempts(), "Stale Boolean control entered handler");
+    reveal(id);
     for (const auto& snapshot : {panel::sample_a(), panel::sample_b(), panel::sample_c()}) {
         take(h.refresh(snapshot, f.text));
-        require(h.numeric() == pending && h.msaa() == msaa && h.outlines().accepted && h.focused() == "outlines-toggle" &&
-            visible(h.view(), "outlines-toggle") && h.setting_attempts() == attempts, "Refresh changed outlines/draft/focus");
+        require(h.numeric() == pending && h.msaa() == msaa && peer(h) == other && state(h).first != initial && h.focused() == id &&
+            visible(h.view(), id) && h.setting_attempts() == attempts, "Refresh changed toggle/draft/focus");
         f.verify();
     }
-    const auto disabled_call = take(h.request_outlines("outlines", false, CommandSource::agent));
+    const auto disabled_call = take(set(h, field, initial));
     eligibility(false);
-    require(!h.execute(disabled_call, f.text) && !h.request_outlines("outlines", false, CommandSource::agent) &&
-        !h.request("outlines-toggle", CommandSource::agent) && h.focused() != "outlines-toggle" &&
-        h.focused() && visible(h.view(), *h.focused()), "Disabled outlines eligibility/recovery differs");
-    require(h.numeric() == pending && h.msaa() == msaa && h.view().commands.lookup("direct.apply").value->state.enabled &&
-        h.view().commands.lookup("msaa.set").value->state.enabled, "Outlines eligibility affected other settings");
+    require(!h.execute(disabled_call, f.text) && !set(h, field, initial) &&
+        !h.request(id, CommandSource::agent) && h.focused() != id &&
+        h.focused() && visible(h.view(), *h.focused()), "Disabled Boolean control eligibility/recovery differs");
+    require(h.numeric() == pending && h.msaa() == msaa && peer(h) == other && h.view().commands.lookup("direct.apply").value->state.enabled &&
+        h.view().commands.lookup("msaa.set").value->state.enabled, "Boolean control eligibility affected other settings");
+    f.verify();
+    require(peer(h) == other && h.view().commands.lookup((scene_lights ? "outlines" : "scene_lights") + std::string{".toggle"}).value->state.enabled,
+        "Toggle eligibility disabled its peer");
+    take(h.invoke(scene_lights ? "outlines-toggle" : "scene-lights-toggle", CommandSource::agent, f.text));
+    require(state(h) == std::pair{!initial, false} && h.numeric() == pending && h.msaa() == msaa,
+        "Peer operation changed disabled toggle/draft");
+    take(h.invoke(scene_lights ? "outlines-toggle" : "scene-lights-toggle", CommandSource::agent, f.text));
     eligibility(true);
+    take(scene_lights ? h.outlines_eligibility(false, f.text) : h.scene_lights_eligibility(false, f.text));
     take(h.numeric_eligibility(false, f.text)); take(h.msaa_capabilities({1, 2, 4}, false, f.text));
-    require(h.view().commands.lookup("outlines.toggle").value->state.enabled &&
-        h.view().commands.lookup("outlines.set").value->state.enabled, "Other settings disabled outlines");
-    invoke("outlines-toggle");
-    require(!h.outlines().accepted && h.numeric().draft == pending.draft && h.numeric().accepted == pending.accepted,
-        "Independent outlines operation changed draft");
+    require(h.view().commands.lookup(field + ".toggle").value->state.enabled &&
+        h.view().commands.lookup(field + ".set").value->state.enabled, "Other settings disabled toggle");
+    invoke(id);
+    require(state(h).first == initial && h.numeric().draft == pending.draft && h.numeric().accepted == pending.accepted,
+        "Independent Boolean control operation changed draft");
+    require(peer(h) == std::pair{other.first, false}, "Independent toggle mutated peer");
+    f.verify();
+    take(scene_lights ? h.outlines_eligibility(true, f.text) : h.scene_lights_eligibility(true, f.text));
     take(h.numeric_eligibility(true, f.text)); take(h.msaa_capabilities({1, 2, 4}, true, f.text));
-    reveal("outlines-toggle"); invoke("disclosure-controls");
-    require(h.focused() == "disclosure-controls" && visible(h.view(), "disclosure-controls") && h.numeric() == pending && h.msaa() == msaa &&
-        !h.request("outlines-toggle", CommandSource::agent) && !h.request_outlines("outlines", true, CommandSource::agent), "Outlines collapse policy differs");
+    reveal(id);
+    const auto hidden_action = take(h.request(id, CommandSource::agent));
+    const auto hidden_set = take(set(h, field, !initial));
+    invoke("disclosure-controls");
+    const auto collapsed = f.stable(); const auto collapsed_attempts = h.setting_attempts();
+    require(!h.execute(hidden_action, f.text) && !h.execute(hidden_set, f.text) && collapsed == f.stable() &&
+        h.setting_attempts() == collapsed_attempts, "Hidden toggle entered handler");
+    require(h.focused() == "disclosure-controls" && visible(h.view(), "disclosure-controls") && h.numeric() == pending && h.msaa() == msaa && peer(h) == other &&
+        !h.request(id, CommandSource::agent) && !set(h, field, !initial), "Boolean control collapse policy differs");
     f.verify(); invoke("disclosure-controls");
     require(h.focused() == "disclosure-controls" && h.numeric() == pending, "Expansion lost header focus/draft");
+    f.verify();
     // Both preparation stages retain every accepted observation; failed sequences cannot be reused.
     for (bool paint : {false, true}) {
         RejectingText rejecting(paint);
         for (bool node_free : {false, true}) {
             const auto before = f.stable(); const auto count = h.setting_attempts(), changes = h.setting_changes();
-            const auto call = node_free ? take(h.request_outlines("outlines", !h.outlines().accepted, CommandSource::agent)) :
-                take(h.request("outlines-toggle", CommandSource::agent));
+            const auto call = node_free ? take(set(h, field, !state(h).first)) :
+                take(h.request(id, CommandSource::agent));
             const auto result = execute(call, rejecting, false);
             require(before == f.stable() && count + 1 == h.setting_attempts() && changes == h.setting_changes() &&
                 result.outcome.diagnostics.size() <= max_command_result_diagnostics &&
                 result.outcome.diagnostics.front().path.find("/nodes/") != std::string::npos &&
                 result.outcome.diagnostics.front().code == (paint ? "injected_paint" : "injected_measure") &&
-                !h.execute(call, f.text), "Failed outlines stage leaked state or reused sequence");
-            const auto retry = node_free ? take(h.request_outlines("outlines", !h.outlines().accepted, CommandSource::agent)) :
-                take(h.request("outlines-toggle", CommandSource::agent));
+                !h.execute(call, f.text), "Failed Boolean control stage leaked state or reused sequence");
+            const auto retry = node_free ? take(set(h, field, !state(h).first)) :
+                take(h.request(id, CommandSource::agent));
             execute(retry, f.text);
-            require(h.setting_attempts() == count + 2 && h.setting_changes() == changes + 1 && h.numeric() == pending && h.msaa() == msaa,
-                "Outlines retry accounting/retention differs");
+            require(h.setting_attempts() == count + 2 && h.setting_changes() == changes + 1 && h.numeric() == pending && h.msaa() == msaa && peer(h) == other,
+                "Boolean control retry accounting/retention differs");
             f.verify();
         }
         for (bool enabled : {false, true}) {
             eligibility(!enabled);
             const auto before = f.stable(); const auto count = h.setting_attempts();
-            const auto rejected = h.outlines_eligibility(enabled, rejecting);
+            const auto rejected = eligible(h, enabled, rejecting);
             require(!rejected && before == f.stable() && count == h.setting_attempts() &&
                 !rejected.diagnostics.empty() && rejected.diagnostics.size() <= max_command_result_diagnostics &&
                 rejected.diagnostics.front().path.starts_with("/nodes/") &&
-                rejected.diagnostics.front().code == (paint ? "injected_paint" : "injected_measure"), "Failed outlines eligibility leaked state");
+                rejected.diagnostics.front().code == (paint ? "injected_paint" : "injected_measure"), "Failed Boolean control eligibility leaked state");
             eligibility(enabled);
         }
         eligibility(true);
     }
-    reveal("outlines-toggle");
-    auto point = [&] { const auto b = box(h.view(), "outlines-toggle").border_box; return Point{b.origin.x + 2, b.origin.y + 2}; };
+    reveal(id);
+    auto point = [&] { const auto b = box(h.view(), id).border_box; return Point{b.origin.x + 2, b.origin.y + 2}; };
     const auto p = point(); const auto camera = h.camera_events(), calls = h.setting_attempts();
     take(send(PointerDown{{61}, p}, CommandSource::pointer)); eligibility(false);
     take(send(PointerMove{{61}, {800, 200}}, CommandSource::pointer));
@@ -907,36 +953,36 @@ void outlines_controls() {
     take(send(Scroll{{16, 16}, {0, 4096}}));
     const auto disabled_point = point();
     take(send(PointerDown{{62}, disabled_point}, CommandSource::pointer)); take(send(PointerUp{{62}, disabled_point}, CommandSource::pointer));
-    require(h.setting_attempts() == calls && h.camera_events() == camera, "Disabled outlines hit reached handler/camera");
-    eligibility(true); reveal("outlines-toggle");
+    require(h.setting_attempts() == calls && h.camera_events() == camera, "Disabled Boolean control hit reached handler/camera");
+    eligibility(true); reveal(id);
     const auto current = point();
     take(send(PointerDown{{63}, current}, CommandSource::pointer)); take(h.refresh(panel::sample_a(), f.text));
     take(send(PointerMove{{63}, {800, 200}}, CommandSource::pointer)); take(send(PointerCancel{{63}}, CommandSource::pointer));
-    require(h.last_consumed() && h.setting_attempts() == calls, "Replaced outlines cancel escaped arbitration");
-    reveal("outlines-toggle");
+    require(h.last_consumed() && h.setting_attempts() == calls, "Replaced Boolean control cancel escaped arbitration");
+    reveal(id);
     RejectingText rejecting(false);
     const auto before = f.stable();
     require(!send(KeyDown{Key::enter}, CommandSource::keyboard, &rejecting) && h.last_consumed() &&
-        before == f.stable() && h.setting_attempts() == calls + 1 && h.camera_events() == camera, "Failed raw outlines input leaked state/camera");
+        before == f.stable() && h.setting_attempts() == calls + 1 && h.camera_events() == camera, "Failed raw Boolean control input leaked state/camera");
     take(send(KeyDown{Key::enter}));
     require(h.setting_attempts() == calls + 2, "Raw activation duplicated logical activation");
     const auto release_point = point();
     take(send(PointerDown{{64}, release_point}, CommandSource::pointer));
     const auto pressed = f.stable(); const auto pressed_calls = h.setting_attempts();
     require(!send(PointerUp{{64}, release_point}, CommandSource::pointer, &rejecting) && h.last_consumed() && pressed == f.stable(),
-        "Failed outlines release changed accepted state");
+        "Failed Boolean control release changed accepted state");
     take(send(PointerUp{{64}, release_point}, CommandSource::pointer));
-    require(h.setting_attempts() == pressed_calls + 1 && h.camera_events() == camera && h.numeric() == pending && h.msaa() == msaa,
-        "Failed outlines release retriggered or changed unrelated state");
+    require(h.setting_attempts() == pressed_calls + 1 && h.camera_events() == camera && h.numeric() == pending && h.msaa() == msaa && peer(h) == other,
+        "Failed Boolean control release retriggered or changed unrelated state");
     take(send(Scroll{{16, 16}, {0, 4096}}));
-    require(h.offset() == box(h.view(), "renderer-diagnostics").scroll_limit(), "Outlines bottom clamp differs");
+    require(h.offset() == box(h.view(), "renderer-diagnostics").scroll_limit(), "Boolean control bottom clamp differs");
     f.verify();
-    std::cout << f.observations << " outlines views match CPU/replay; 4 equal activation routes; " << h.setting_attempts() <<
+    std::cout << field << ": " << f.observations << " Boolean control views match CPU/replay; 4 equal activation routes; " << h.setting_attempts() <<
         " setting attempts, " << h.setting_changes() << " accepted changes; " << h.camera_events() << " camera deliveries\n";
 }
 
 }
 int main() {
-    try { run(); numeric_controls(); msaa_controls(); outlines_controls(); }
+    try { run(); numeric_controls(); msaa_controls(); boolean_controls(false); boolean_controls(true); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

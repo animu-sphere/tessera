@@ -10,18 +10,15 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Connect one **scene-lights Boolean operation** in the copyable [panel/host](../guides/renderer-diagnostics.md), using the [Proposed consumer policy](../integrations/renderer-diagnostics.md#proposed-scene-lights-control-boundary) and [source review](../reference/support-matrix.md#renderer-scene-lights-control-review--2026-10-17). Prove that a second controlled toggle can change independently of outlines, MSAA and a pending direct-strength draft through ordinary composition and commands.
+Review **one remaining renderer control operation** against the copyable [panel/host](../guides/renderer-diagnostics.md) and the [representative consumer boundary](../integrations/renderer-diagnostics.md#proposed-representative-control-boundary). Choose the next concrete authoring need among ambient strength, key-direction components, material-view selection and reset before implementing it.
 
-Bounded implementation acceptance:
+Bounded review acceptance:
 
-- Compose one controlled Scene lights Checkbox with a stable author identity under controls disclosure. Add owned accepted/eligibility observations, parameter-free toggle and exact-field Boolean set commands; reject numeric/string coercion, extra activation arguments, wrong fields, hidden/disabled owners, stale or foreign presentations and consumed sequences before another handler entry. Use existing authoring/runtime APIs.
-- From identical initial settings, pointer release, raw keyboard navigation/activation, logical gamepad Navigate/Activate and semantic activation must each accept false with one setting attempt/change and no camera delivery. Equal-value set must publish one presentation with one attempt and no accepted value change. Prove scene lights and outlines eligibility in both directions independently of numeric/MSAA eligibility; changing either toggle must preserve every unrelated setting.
-- Retain exact pending direct-strength bytes (including invalid `2.`), reverse selection, owner/revision, numeric accepted value, MSAA capabilities/eligibility and outlines state across toggles, A/B/C telemetry refresh, disable/re-enable and collapse/re-expansion. Preserve eligible focus by author ID; collapse from the new control must recover/reveal the controls header, with ordinary clamping and navigation.
-- Inject measurement/paint failures for toggle, node-free set and both eligibility candidates. Preserve all accepted settings, eligibility, drafts, disclosure, command generation, document/styles, inspection, geometry, paint and focus/offset. An entered setting failure counts one attempt and consumes its sequence; a fresh request retries once. Eligibility and read-only refresh issue no setting request/change.
-- Extend synthetic panel/camera assertions for disabled hits, pointer replacement through release/cancel and consumed raw/pointer preparation errors. Reuse accepted-view semantic/geometry/paint and repeated CPU/replay comparisons; command execution and camera accounting require separate host assertions.
-- Extend the exact reusable sources, small copied main and working guide together; run both core-only local source imports and affected checks in Debug/Release plus documentation checks. Record configuration, outcomes and synthetic evidence limits only in support and delivery in the changelog.
+- Trace the operation through existing composition, numeric draft, command, eligibility and full-tree staging boundaries. Identify the smallest consumer change and any demonstrated runtime blocker.
+- Define accepted values, request types, commit/cancellation, independent eligibility, exact unrelated-state retention, failure/retry and synthetic panel/camera accounting for the selected operation.
+- Record source findings and evidence limits only in support, then replace this review with bounded implementation acceptance and an observable stop condition. Keep the working copyable main and guide as the starting point.
 
-Stop after this one scene-lights connection and return to review of the next consumer operation. Ambient/vector-strength, material-view, reset, native renderer integration, generalized numeric/slider/input frameworks, tables/plots and Settings-starter scrolling onboarding require their own selection.
+Stop after selecting one operation. Native renderer integration, generalized numeric/slider/input frameworks, tables/plots and Settings-starter scrolling onboarding require their own selection.
 
 ### Remaining milestone scope
 
