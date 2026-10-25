@@ -53,6 +53,11 @@ int main() {
         const auto outlines = take(host->request_outlines("outlines", true, CommandSource::agent));
         if (take(host->execute(outlines, text)).outcome.status != CommandOutcomeStatus::success)
             throw std::runtime_error("Outlines setting rejected");
+        (void)take(host->invoke("scene-lights-toggle", CommandSource::accessibility, text));
+        const auto scene_lights = take(host->request_scene_lights("scene_lights", false, CommandSource::agent));
+        if (take(host->execute(scene_lights, text)).outcome.status != CommandOutcomeStatus::success)
+            throw std::runtime_error("Scene lights setting rejected");
+        std::cout << "Scene lights " << (host->scene_lights().accepted ? "on" : "off") << '\n';
         std::cout << "Outlines " << (host->outlines().accepted ? "on" : "off") << '\n';
         std::cout << "MSAA " << host->msaa().accepted << "; supported choices " << host->msaa().supported.size() << '\n';
         std::cout << "Direct strength " << diagnostics::canonical(host->numeric().accepted) << "; draft " <<

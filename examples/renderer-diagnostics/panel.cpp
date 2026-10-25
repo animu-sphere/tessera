@@ -154,7 +154,8 @@ ui::Element MsaaControl(const Msaa& value) {
         ui::Text("Accepted MSAA: " + std::to_string(value.accepted), {.id = "msaa-accepted"})},
         {.id = "msaa-control", .style = {.gap = 12.f}});
 }
-ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines) {
+ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric, const Msaa& msaa,
+    const Outlines& outlines, const SceneLights& scene_lights) {
     std::vector<ui::Element> rows{
         ui::Text("Renderer diagnostics", {.id = "heading"}),
         row("scene", "Scene", snapshot.scene), row("device", "Device", snapshot.device),
@@ -177,6 +178,8 @@ ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const 
             rows.push_back(MsaaControl(msaa));
             rows.push_back(ui::Checkbox("Outlines", outlines.accepted, "outlines.toggle",
                 {.node = {.id = "outlines-toggle"}}));
+            rows.push_back(ui::Checkbox("Scene lights", scene_lights.accepted, "scene_lights.toggle",
+                {.node = {.id = "scene-lights-toggle"}}));
         }
     }
     return ui::Column(std::move(rows), {.id = "renderer-diagnostics", .classes = {"panel"}});
