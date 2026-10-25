@@ -42,7 +42,7 @@ public:
     void set_target(VulkanTarget); // Call at an update point, including after resize.
     // Host keeps view/sampler/image alive and shader-readable through retirement.
     // Handles cannot be rebound while their last referencing frame is in flight.
-    std::vector<Diagnostic> bind_image(ImageHandle, VkImageView, VkSampler);
+    std::vector<Diagnostic> bind_image(ImageHandle, VkImageView, VkSampler, ImageAlpha = ImageAlpha::straight);
     std::vector<Diagnostic> unbind_image(ImageHandle);
     std::vector<Diagnostic> submit(const FrameInfo&, const UiDrawList&) override;
     void retire(std::uint64_t completed_frame) override;

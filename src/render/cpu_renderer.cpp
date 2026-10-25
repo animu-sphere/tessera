@@ -64,8 +64,10 @@ bool outer_contains(double x, double y, double w, double h, Transform t) {
     if (y==h && !included(-t.b/det,t.a/det)) return false;
     return true;
 }
-void blend(std::uint8_t* dst, Pixel src) {
-    for (unsigned c=0;c<3;++c) dst[c]=quantize(encode(src[c]*src[3]+decode(dst[c]/255.0)*(1-src[3])));
+// Source-over in linear light; a premultiplied source already carries its alpha in RGB.
+void blend(std::uint8_t* dst, Pixel src, bool premultiplied=false) {
+    const double weight=premultiplied ? 1 : src[3];
+    for (unsigned c=0;c<3;++c) dst[c]=quantize(encode(src[c]*weight+decode(dst[c]/255.0)*(1-src[3])));
     dst[3]=quantize(src[3]+dst[3]/255.0*(1-src[3]));
 }
 template<class Image> Pixel sample(const Image& image, double u, double v) {
@@ -101,6 +103,7 @@ std::vector<Diagnostic> CpuRenderer::bind_image(ImageHandle handle, CpuImage ima
     if (!byte_count(image.extent,bytes) || image.pixels.size()!=bytes)
         check.error("invalid_image","/image/pixels","Supply a positive RGBA extent and exact byte count within 256 MiB.");
     check.enumeration(image.encoding,CpuImageEncoding::rgba8_unorm,"/image/encoding");
+    check.enumeration(image.alpha,ImageAlpha::premultiplied,"/image/alpha");
     auto it=images_.find(handle.value);
     if (it!=images_.end() && it->second.last_frame>retired_)
         check.error("resource_in_use","/image","Retire the last referencing frame before replacing this image.");
@@ -112,7 +115,7 @@ std::vector<Diagnostic> CpuRenderer::bind_image(ImageHandle handle, CpuImage ima
         total+=bound.pixels.size();
     }
     if (total>max_cpu_pixel_bytes) check.error("image_limit","/image/pixels","Total bound image bytes must fit 256 MiB.");
-    if (errors.empty()) images_.insert_or_assign(handle.value,Image{image.extent,{image.pixels.begin(),image.pixels.end()},image.encoding,0});
+    if (errors.empty()) images_.insert_or_assign(handle.value,Image{image.extent,{image.pixels.begin(),image.pixels.end()},image.encoding,image.alpha,0});
     return errors;
 }
 std::vector<Diagnostic> CpuRenderer::unbind_image(ImageHandle handle) {
@@ -182,10 +185,15 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                     const double lx=(t.d*px-t.c*py)/det-cmd.rect.origin.x, ly=(-t.b*px+t.a*py)/det-cmd.rect.origin.y;
                     if (!outer_contains(lx,ly,cmd.rect.size.width,cmd.rect.size.height,t)) continue;
                     Pixel color;
+                    bool premultiplied=false;
                     if constexpr (std::is_same_v<T,DrawImage>) {
-                        color=sample(images_.at(cmd.image.value),cmd.source.origin.x+lx/cmd.rect.size.width*cmd.source.size.width,
+                        const auto& bound=images_.at(cmd.image.value);
+                        color=sample(bound,cmd.source.origin.x+lx/cmd.rect.size.width*cmd.source.size.width,
                             cmd.source.origin.y+ly/cmd.rect.size.height*cmd.source.size.height);
                         auto tint=linear(cmd.tint); for (unsigned c=0;c<4;++c) color[c]*=tint[c];
+                        // The straight tint's alpha scales premultiplied RGB as well.
+                        premultiplied=bound.alpha==ImageAlpha::premultiplied;
+                        if (premultiplied) for (unsigned c=0;c<3;++c) color[c]*=tint[3];
                     } else {
                         if (!rounded(lx,ly,cmd.rect.size.width,cmd.rect.size.height,cmd.corner_radius)) continue;
                         if constexpr (std::is_same_v<T,DrawBorder>) {
@@ -197,7 +205,7 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                         }
                         color=linear(cmd.color);
                     }
-                    blend(target_.pixels.data()+(std::size_t(y)*target_.extent.width+x)*4,color);
+                    blend(target_.pixels.data()+(std::size_t(y)*target_.extent.width+x)*4,color,premultiplied);
                 }
             }
         },list.commands[i]);

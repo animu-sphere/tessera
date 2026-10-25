@@ -67,6 +67,13 @@ void images_and_lifetime() {
     check(frames.bind_image({8},{{1,1},texels,CpuImageEncoding::rgba8_unorm}).empty(),"UNORM bind failed");
     image=capture(frames,{{DrawImage{{{0,0},{1,1}},{8}}}});
     check(pixel(image,0,0)[0]==188,"Linear image data was decoded as sRGB");
+    const std::vector<std::uint8_t> premultiplied{64,32,0,128};
+    check(frames.bind_image({9},{{1,1},premultiplied,CpuImageEncoding::rgba8_unorm,ImageAlpha::premultiplied}).empty(),
+        "Premultiplied bind failed");
+    image=capture(frames,{{DrawRect{{{0,0},{1,1}},{1,1,1,1}},DrawImage{{{0,0},{1,1}},{9}}}});
+    check(pixel(image,0,0)==std::array<std::uint8_t,4>{224,207,187,255},"Premultiplied RGB was weighted by alpha again");
+    image=capture(frames,{{DrawImage{{{0,0},{1,1}},{9},{{0,0},{1,1}},{1,1,1,0.5f}}}});
+    check(pixel(image,0,0)==std::array<std::uint8_t,4>{99,71,0,64},"Tint alpha did not scale premultiplied RGB");
     CpuRenderer renderer;
     std::vector<std::uint8_t> target(8*8*4,0);
     renderer.set_target({{8,8},target});
@@ -100,6 +107,8 @@ void rejection_is_atomic() {
     check(has(renderer.bind_image({0},{{1,1},texture}),"invalid_handle","/image"),"Zero image handle accepted");
     check(has(renderer.bind_image({1},{{2,2},texture}),"invalid_image","/image/pixels"),"Wrong image byte count accepted");
     check(has(renderer.bind_image({1},{{1,1},texture,static_cast<CpuImageEncoding>(9)}),"unknown_value","/image/encoding"),"Unknown encoding accepted");
+    check(has(renderer.bind_image({1},{{1,1},texture,CpuImageEncoding::rgba8_srgb,static_cast<ImageAlpha>(9)}),"unknown_value","/image/alpha"),
+        "Unknown image alpha accepted");
     renderer.bind_image({1},{{1,1},texture});
     check(has(renderer.submit({2,{8,8},1},{{fill,DrawImage{{{0,0},{0,0}},{1},{{0.75f,0},{0.5f,1}}}}}),
         "out_of_range","/commands/1/source"),"Clipped or zero-area source crop bypassed validation");

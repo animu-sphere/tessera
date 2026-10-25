@@ -55,6 +55,8 @@ struct Buffer {
     VkDeviceMemory memory = VK_NULL_HANDLE;
 };
 // This fixture is the host: all devices, commands, targets, fences and images live here.
+// Linear premultiplied RGBA8 UNORM texels, every channel at most its alpha, with partial coverage.
+constexpr std::array<std::uint8_t, 16> premultiplied_texels{128,0,0,128, 0,96,0,192, 0,0,0,0, 64,160,200,255};
 struct Host {
     VkInstance instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
@@ -67,8 +69,8 @@ struct Host {
     VkFramebuffer framebuffer = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
     VkSampler sampler = VK_NULL_HANDLE;
-    Image target, texture;
-    Buffer readback, staging;
+    Image target, texture, premultiplied;
+    Buffer readback, staging, premultiplied_staging;
     std::vector<Image> atlas_images;
     std::vector<Buffer> atlas_staging;
     VkExtent2D extent{};
@@ -77,7 +79,7 @@ struct Host {
             vkDeviceWaitIdle(device);
             clear_atlas();
             if (sampler) vkDestroySampler(device, sampler, nullptr);
-            destroy(texture); destroy_target(); destroy(staging);
+            destroy(texture); destroy(premultiplied); destroy_target(); destroy(staging); destroy(premultiplied_staging);
             if (fence) vkDestroyFence(device, fence, nullptr);
             if (pool) vkDestroyCommandPool(device, pool, nullptr);
             if (pass) vkDestroyRenderPass(device, pass, nullptr);
@@ -163,9 +165,9 @@ struct Host {
         require(vkAllocateMemory(device, &allocation, nullptr, &buffer.memory), "allocate buffer");
         require(vkBindBufferMemory(device, buffer.buffer, buffer.memory, 0), "bind buffer");
     }
-    void make_image(Image& image, VkExtent2D size, VkImageUsageFlags usage) {
+    void make_image(Image& image, VkExtent2D size, VkImageUsageFlags usage, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB) {
         VkImageCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        info.imageType = VK_IMAGE_TYPE_2D; info.format = VK_FORMAT_R8G8B8A8_SRGB;
+        info.imageType = VK_IMAGE_TYPE_2D; info.format = format;
         info.extent = {size.width, size.height, 1}; info.mipLevels = info.arrayLayers = 1;
         info.samples = VK_SAMPLE_COUNT_1_BIT; info.tiling = VK_IMAGE_TILING_OPTIMAL; info.usage = usage;
         require(vkCreateImage(device, &info, nullptr, &image.image), "create image");
@@ -279,27 +281,30 @@ struct Host {
         require(vkQueueSubmit(queue, 1, &submit, fence), "submit queue");
         require(vkWaitForFences(device, 1, &fence, VK_TRUE, 30'000'000'000ull), "wait fence");
     }
-    void make_texture() {
-        // Procedural test data: red, green / blue, white. No external asset dependency.
-        const std::array<std::uint8_t, 16> pixels{255,0,0,255, 0,255,0,255, 0,0,255,255, 255,255,255,255};
-        make_buffer(staging, pixels.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+    void upload_texture(Image& image, Buffer& buffer, const std::array<std::uint8_t, 16>& pixels, VkFormat format) {
+        make_buffer(buffer, pixels.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
         void* mapped;
-        require(vkMapMemory(device, staging.memory, 0, pixels.size(), 0, &mapped), "map texture staging");
-        std::memcpy(mapped, pixels.data(), pixels.size()); vkUnmapMemory(device, staging.memory);
-        make_image(texture, {2,2}, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+        require(vkMapMemory(device, buffer.memory, 0, pixels.size(), 0, &mapped), "map texture staging");
+        std::memcpy(mapped, pixels.data(), pixels.size()); vkUnmapMemory(device, buffer.memory);
+        make_image(image, {2,2}, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, format);
         begin_commands();
         VkImageMemoryBarrier barrier{}; barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.image = texture.image; barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0,1,0,1};
+        barrier.image = image.image; barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0,1,0,1};
         barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,nullptr,0,nullptr,1,&barrier);
         VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1}; copy.imageExtent = {2,2,1};
-        vkCmdCopyBufferToImage(commands, staging.buffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        vkCmdCopyBufferToImage(commands, buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         barrier.oldLayout = barrier.newLayout; barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,0,nullptr,0,nullptr,1,&barrier);
         execute();
+    }
+    void make_texture() {
+        // Procedural test data: red, green / blue, white. No external asset dependency.
+        upload_texture(texture, staging, {255,0,0,255, 0,255,0,255, 0,0,255,255, 255,255,255,255}, VK_FORMAT_R8G8B8A8_SRGB);
+        upload_texture(premultiplied, premultiplied_staging, premultiplied_texels, VK_FORMAT_R8G8B8A8_UNORM);
         VkSamplerCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         info.magFilter = info.minFilter = VK_FILTER_NEAREST; info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         info.addressModeU = info.addressModeV = info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -1051,6 +1056,8 @@ void cpu_reference_fixtures(Host& host) {
     tessera::CpuFrameCapture cpu(&cache);
     const std::array<std::uint8_t,16> texture{255,0,0,255,0,255,0,255,0,0,255,255,255,255,255,255};
     check(cpu.bind_image({1},{{2,2},texture}).empty(),"CPU comparison image binding failed");
+    check(cpu.bind_image({2},{{2,2},premultiplied_texels,tessera::CpuImageEncoding::rgba8_unorm,tessera::ImageAlpha::premultiplied}).empty(),
+        "CPU premultiplied comparison image binding failed");
     const auto vertex=shader("primitive.vertex.spv"),fragment=shader("primitive.fragment.spv"),image=shader("primitive.image.spv"),batch=shader("primitive.batch.spv");
     VkSamplerCreateInfo info{}; info.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     info.magFilter=info.minFilter=VK_FILTER_LINEAR; info.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
@@ -1074,11 +1081,35 @@ void cpu_reference_fixtures(Host& host) {
         // subpixel raster precision is a separate comparison condition.
         tessera::DrawGlyphRun{{4.125f,18.125f},run,{1,1,1,0.75f}}
     }};
+    // Premultiplied images get their own scene: the mixed scene above already approaches the tolerance.
+    const tessera::UiDrawList premultiplied{{
+        tessera::DrawRect{{{0,0},{32,32}},{0.15f,0.2f,0.3f,1}},
+        tessera::DrawImage{{{2,2},{14,28}},{2}},
+        tessera::DrawImage{{{16,2},{14,28}},{2},{{0,0},{1,1}},{1,0.8f,1,0.6f}}
+    }};
+    const auto compare=[](const std::vector<std::uint8_t>& actual, const std::vector<std::uint8_t>& expected,
+                          VkExtent2D extent, const char* name, float scale) {
+        double error=0; std::size_t worst=0;
+        const auto decode=[](std::uint8_t byte) { const double c=byte/255.0; return c<=0.04045?c/12.92:std::pow((c+0.055)/1.055,2.4); };
+        for (std::size_t i=0;i<actual.size();++i) {
+            const auto a=i%4==3?actual[i]/255.0:decode(actual[i]);
+            const auto b=i%4==3?expected[i]/255.0:decode(expected[i]);
+            if (std::abs(a-b)>error) { error=std::abs(a-b); worst=i; }
+        }
+        std::cout<<"CPU comparison path="<<name<<" scale="<<scale<<" max linear error="<<error
+            <<" at ("<<(worst/4)%extent.width<<','<<(worst/4)/extent.width<<") channel="<<worst%4
+            <<" gpu="<<int(actual[worst])<<" cpu="<<int(expected[worst])<<'\n';
+        check(error<=2.0/255,"GPU differs from CPU scalar reference (linear tolerance 2/255)");
+    };
     for (bool batched : {false,true}) {
         tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,32};
         if (batched) context.batch_vertex_spirv=batch;
         tessera::VulkanRenderer gpu(context);
         check(gpu.bind_image({1},host.texture.view,sampler).empty(),"GPU comparison image binding failed");
+        check(gpu.bind_image({2},host.premultiplied.view,sampler,tessera::ImageAlpha::premultiplied).empty(),
+            "GPU premultiplied comparison image binding failed");
+        check(has(gpu.bind_image({3},host.premultiplied.view,sampler,static_cast<tessera::ImageAlpha>(9)),"unknown_value","/image/alpha"),
+            "Unknown image alpha accepted");
         std::uint64_t frame=1;
         for (float scale : {1.0f,1.25f,1.5f,2.0f}) {
             const auto extent=*tessera::capture_extent({32,32},scale).value;
@@ -1091,23 +1122,21 @@ void cpu_reference_fixtures(Host& host) {
                 check(gpu.bind_image(atlas.value->pages[i].image,host.atlas_images[i].view,sampler).empty(),"Comparison atlas binding failed");
             host.resize({extent.width,extent.height}); host.begin(gpu);
             check(gpu.submit({frame,{32,32},scale},atlas.value->draw_list).empty(),"GPU comparison submission rejected");
-            const auto actual=host.finish(("cpu-compare-"+std::string(batched?"batch-":"reference-")+std::to_string(frame)+".ppm").c_str());
-            double error=0; std::size_t worst=0;
-            const auto decode=[](std::uint8_t byte) { const double c=byte/255.0; return c<=0.04045?c/12.92:std::pow((c+0.055)/1.055,2.4); };
-            for (std::size_t i=0;i<actual.size();++i) {
-                const auto a=i%4==3?actual[i]/255.0:decode(actual[i]);
-                const auto b=i%4==3?expected.value->pixels[i]/255.0:decode(expected.value->pixels[i]);
-                if (std::abs(a-b)>error) { error=std::abs(a-b); worst=i; }
-            }
-            std::cout<<"CPU comparison path="<<(batched?"batch":"reference")<<" scale="<<scale<<" max linear error="<<error
-                <<" at ("<<(worst/4)%extent.width<<','<<(worst/4)/extent.width<<") channel="<<worst%4
-                <<" gpu="<<int(actual[worst])<<" cpu="<<int(expected.value->pixels[worst])<<'\n';
-            check(error<=2.0/255,"GPU differs from CPU scalar reference (linear tolerance 2/255)");
+            const auto index=std::to_string((frame+1)/2); // Two frames per scale; artifacts keep scale indices 1-4.
+            const auto actual=host.finish(("cpu-compare-"+std::string(batched?"batch-":"reference-")+index+".ppm").c_str());
+            compare(actual,expected.value->pixels,{extent.width,extent.height},batched?"batch":"reference",scale);
             gpu.retire(frame++);
             for (const auto& page:atlas.value->pages) check(gpu.unbind_image(page.image).empty(),"Comparison atlas retirement failed");
             host.clear_atlas();
+            const auto straight_over=cpu.capture({0,{32,32},scale,extent,&premultiplied});
+            check(bool(straight_over),"CPU premultiplied comparison capture rejected");
+            host.resize({extent.width,extent.height}); host.begin(gpu);
+            check(gpu.submit({frame,{32,32},scale},premultiplied).empty(),"GPU premultiplied comparison submission rejected");
+            const auto blended=host.finish(("cpu-compare-premultiplied-"+std::string(batched?"batch-":"reference-")+index+".ppm").c_str());
+            compare(blended,straight_over.value->pixels,{extent.width,extent.height},batched?"premultiplied-batch":"premultiplied-reference",scale);
+            gpu.retire(frame++);
         }
-        check(gpu.unbind_image({1}).empty(),"Comparison texture retirement failed");
+        check(gpu.unbind_image({1}).empty() && gpu.unbind_image({2}).empty(),"Comparison texture retirement failed");
     }
 }
 int main() {

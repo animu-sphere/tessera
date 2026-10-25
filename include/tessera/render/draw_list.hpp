@@ -16,6 +16,9 @@ struct ImageHandle {
     std::uint64_t value = 0;
     bool operator==(const ImageHandle&) const = default;
 };
+// How a bound image's sampled color relates to its alpha; fixed per binding.
+// Premultiplied images are blended as premultiplied, without unpremultiplication.
+enum class ImageAlpha : std::uint8_t { straight, premultiplied };
 
 // x' = a*x + c*y + tx; y' = b*x + d*y + ty.
 struct Affine2D {
