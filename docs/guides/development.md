@@ -81,7 +81,7 @@ ctest --test-dir build-v030-cpu -C Debug -R '^cpu_renderer$' --output-on-failure
 
 Use `Release` for the other configuration. `CpuRenderer` borrows host target bytes; `CpuFrameCapture` returns owned RGBA8 images with an optional borrowed glyph cache. Supply `frames.backend()` and `&frames` to `run_offscreen` explicitly. A glyph list without an injected cache fails; applications choose the rasterizer and image assets.
 
-To compare both Vulkan paths with CPU output, use the [optional Vulkan workflow](#optional-vulkan-workflow) and its `vulkan` CTest check. `cpu-compare-{reference,batch}-{1,2,3,4}.ppm` appear in `<build>/backends/vulkan/artifacts`. The fixture fixes bilinear clamp sampling, target format, scales, glyph data and boundary conditions; it requires a real eligible GPU and does not replace a failing device with CPU rendering. Recorded configuration and tolerances are in [support](../reference/support-matrix.md#scalar-cpu-rendering-evidence--2026-10-12).
+To compare both Vulkan paths with CPU output, use the [optional Vulkan workflow](#optional-vulkan-workflow) and its `vulkan` CTest check. `cpu-compare-{reference,batch}-{1,2,3,4}.ppm` and the premultiplied-image scene's `cpu-compare-premultiplied-{reference,batch}-{1,2,3,4}.ppm` appear in `<build>/backends/vulkan/artifacts`. The fixture fixes bilinear clamp sampling, target format, scales, glyph data and boundary conditions; it requires a real eligible GPU and does not replace a failing device with CPU rendering. Recorded configuration and tolerances are in [support](../reference/support-matrix.md#scalar-cpu-rendering-evidence--2026-10-12).
 
 ## Library-only workflow
 

@@ -36,6 +36,7 @@ struct Packet {
     Primitive primitive{};
     VkRect2D scissor{};
     std::uint64_t image = 0;
+    bool premultiplied = false; // Fixed by the image binding, so equal handles agree.
 };
 bool compatible(const Packet& a, const Packet& b) {
     return a.image == b.image && a.scissor.offset.x == b.scissor.offset.x &&
@@ -95,13 +96,14 @@ struct VulkanRenderer::Impl {
     VkDescriptorPool pool = VK_NULL_HANDLE;
     VkPipeline solid = VK_NULL_HANDLE, textured = VK_NULL_HANDLE;
     VkPipeline batch_solid = VK_NULL_HANDLE, batch_textured = VK_NULL_HANDLE;
+    VkPipeline premultiplied = VK_NULL_HANDLE, batch_premultiplied = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties memory{};
     VkPhysicalDeviceLimits limits{};
     VulkanTarget target;
     std::uint64_t last_frame = 0, completed = 0;
     std::uint32_t max_images = 0;
     bool placeholder_text = false;
-    struct Image { VkDescriptorSet set; std::uint64_t last_use = 0; };
+    struct Image { VkDescriptorSet set; std::uint64_t last_use = 0; ImageAlpha alpha = ImageAlpha::straight; };
     std::map<std::uint64_t, Image> images;
     struct Upload {
         VkDevice device;
@@ -117,6 +119,8 @@ struct VulkanRenderer::Impl {
     VulkanSubmissionStats stats;
 
     ~Impl() {
+        if (batch_premultiplied) vkDestroyPipeline(device, batch_premultiplied, nullptr);
+        if (premultiplied) vkDestroyPipeline(device, premultiplied, nullptr);
         if (batch_textured) vkDestroyPipeline(device, batch_textured, nullptr);
         if (batch_solid) vkDestroyPipeline(device, batch_solid, nullptr);
         if (textured) vkDestroyPipeline(device, textured, nullptr);
@@ -171,7 +175,8 @@ struct VulkanRenderer::Impl {
         require(flushed, "vkFlushMappedMemoryRanges");
         return result;
     }
-    VkPipeline pipeline(VkRenderPass pass, VkShaderModule vertex, VkShaderModule fragment, const char* entry, bool batch = false) {
+    VkPipeline pipeline(VkRenderPass pass, VkShaderModule vertex, VkShaderModule fragment, const char* entry, bool batch = false,
+                        bool premultiplied_source = false) {
         VkPipelineShaderStageCreateInfo stages[2]{};
         for (auto& stage : stages) stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT; stages[0].module = vertex; stages[0].pName = batch ? "batchMain" : "vertexMain";
@@ -201,7 +206,7 @@ struct VulkanRenderer::Impl {
         samples.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
         VkPipelineColorBlendAttachmentState attachment{};
         attachment.blendEnable = VK_TRUE;
-        attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        attachment.srcColorBlendFactor = premultiplied_source ? VK_BLEND_FACTOR_ONE : VK_BLEND_FACTOR_SRC_ALPHA;
         attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         attachment.colorBlendOp = attachment.alphaBlendOp = VK_BLEND_OP_ADD;
         attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
@@ -268,10 +273,12 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
         vertex = p.shader(context.vertex_spirv); fragment = p.shader(context.fragment_spirv); image = p.shader(context.image_spirv);
         p.solid = p.pipeline(context.render_pass, vertex, fragment, "fragmentMain");
         p.textured = p.pipeline(context.render_pass, vertex, image, "imageMain");
+        p.premultiplied = p.pipeline(context.render_pass, vertex, image, "imageMain", false, true);
         if (!context.batch_vertex_spirv.empty()) {
             batch = p.shader(context.batch_vertex_spirv);
             p.batch_solid = p.pipeline(context.render_pass, batch, fragment, "fragmentMain", true);
             p.batch_textured = p.pipeline(context.render_pass, batch, image, "imageMain", true);
+            p.batch_premultiplied = p.pipeline(context.render_pass, batch, image, "imageMain", true, true);
         }
     } catch (...) {
         if (vertex) vkDestroyShaderModule(p.device, vertex, nullptr);
@@ -287,10 +294,12 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
 VulkanRenderer::~VulkanRenderer() = default;
 void VulkanRenderer::set_target(VulkanTarget target) { impl_->target = target; }
 
-std::vector<Diagnostic> VulkanRenderer::bind_image(ImageHandle handle, VkImageView view, VkSampler sampler) {
+std::vector<Diagnostic> VulkanRenderer::bind_image(ImageHandle handle, VkImageView view, VkSampler sampler, ImageAlpha alpha) {
     auto& p = *impl_;
     if (!handle.value || !view || !sampler)
         return {error("invalid_handle", "/image", "Provide a nonzero image handle and host view/sampler.")};
+    if (alpha != ImageAlpha::straight && alpha != ImageAlpha::premultiplied)
+        return {error("unknown_value", "/image/alpha", "Use one of the declared enumeration values.")};
     auto found = p.images.find(handle.value);
     if (found != p.images.end() && found->second.last_use > p.completed)
         return {error("resource_in_use", "/image", "Retire the last referencing frame before replacing this image.")};
@@ -308,6 +317,7 @@ std::vector<Diagnostic> VulkanRenderer::bind_image(ImageHandle handle, VkImageVi
         if (result != VK_SUCCESS) { p.images.erase(found); require(result, "vkAllocateDescriptorSets"); }
         found->second.set = set;
     }
+    found->second.alpha = alpha;
     const VkDescriptorImageInfo image{VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     const VkDescriptorImageInfo sampling{sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
     VkWriteDescriptorSet writes[2]{};
@@ -439,6 +449,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                         errors.push_back(error("out_of_range", path + "/source", "Source rectangle must lie inside normalized [0,1] image coordinates.")); return;
                     }
                     packet.image = command.image.value;
+                    packet.premultiplied = p.images.at(packet.image).alpha == ImageAlpha::premultiplied;
                     referenced_images.push_back(packet.image);
                 }
                 if constexpr (std::is_same_v<T, DrawBorder>) {
@@ -460,7 +471,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                 if constexpr (std::is_same_v<T, DrawImage>) {
                     color = command.tint;
                     data.source = {command.source.origin.x, command.source.origin.y, command.source.size.width, command.source.size.height};
-                    data.params = {0, 2, float(extent.width), float(extent.height)};
+                    data.params = {0, packet.premultiplied ? 4.0f : 2.0f, float(extent.width), float(extent.height)};
                 } else {
                     color = command.color;
                     data.params = {command.corner_radius, std::is_same_v<T, DrawBorder> ? 1.0f : 0.0f, float(extent.width), float(extent.height)};
@@ -495,7 +506,9 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         const auto& packet = packets[first];
         std::size_t end = first + 1;
         if (batch) while (end < packets.size() && compatible(packet, packets[end])) ++end;
-        const auto pipeline = batch ? (packet.image ? p.batch_textured : p.batch_solid) : (packet.image ? p.textured : p.solid);
+        const auto pipeline = !packet.image ? (batch ? p.batch_solid : p.solid)
+            : packet.premultiplied ? (batch ? p.batch_premultiplied : p.premultiplied)
+            : (batch ? p.batch_textured : p.textured);
         if (pipeline != bound) { vkCmdBindPipeline(p.target.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline); bound = pipeline; }
         if (packet.image) {
             auto& image = p.images.at(packet.image);

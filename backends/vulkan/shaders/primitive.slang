@@ -5,7 +5,7 @@ struct Primitive {
     float4 color; // Linear RGB, straight alpha.
     float4 widths; // Border edges, or placeholder bitmap rows 0-3.
     float4 source; // Image source rectangle, or placeholder bitmap rows 4-6.
-    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder), framebuffer width, height
+    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image), framebuffer width, height
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
 [[vk::binding(0, 0)]] Texture2D<float4> image;
@@ -82,5 +82,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 [shader("fragment")]
 float4 imageMain(VertexOutput input) : SV_Target {
     float2 uv = input.source.xy + input.local / input.rect.zw * input.source.zw;
-    return input.color * image.Sample(imageSampler, uv);
+    float4 color = input.color * image.Sample(imageSampler, uv);
+    // Premultiplied samples blend with source factor one, so the straight tint's alpha scales RGB here.
+    if (input.params.y == 4) color.rgb *= input.color.a;
+    return color;
 }

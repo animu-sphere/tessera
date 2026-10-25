@@ -14,6 +14,7 @@ struct CpuImage {
     CaptureExtent extent;
     std::span<const std::uint8_t> pixels;
     CpuImageEncoding encoding = CpuImageEncoding::rgba8_srgb;
+    ImageAlpha alpha = ImageAlpha::straight;
 };
 struct CpuTarget {
     CaptureExtent extent;
@@ -36,6 +37,7 @@ private:
         CaptureExtent extent;
         std::vector<std::uint8_t> pixels;
         CpuImageEncoding encoding;
+        ImageAlpha alpha;
         std::uint64_t last_frame = 0;
     };
     CpuTarget target_;
