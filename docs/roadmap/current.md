@@ -10,14 +10,14 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Select one remaining renderer-control operation in the copyable [panel/host](../guides/renderer-diagnostics.md), using the [consumer inventory](../integrations/renderer-diagnostics.md#proposed-settings-and-capability-observations). Compare key-direction entry/adjustment with reset against the ordinary composition and host boundaries before promoting implementation.
+Review the **reset** operation, the remaining representative control, in the copyable [panel/host](../guides/renderer-diagnostics.md) against the [consumer inventory](../integrations/renderer-diagnostics.md#proposed-settings-and-capability-observations) and the ordinary composition and host boundaries before promoting implementation.
 
 Bounded selection acceptance under the [four-item rule](../agent-policy.md#verification-ownership-and-bounded-acceptance):
 
-- **Minimum observable operation:** identify one concrete authoring or interaction step, its accepted observation and the minimum consumer policy needed to implement it.
-- **New risks:** distinguish per-component identity/bounds and draft ownership from all-settings reset eligibility/revision coupling; keep renderer-specific direction normalization and execution host-owned.
-- **Inherited guarantees:** cite relevant command, editing and host-staging owner checks and reuse existing composition where sufficient. Record source findings and evidence limits in support; a source review does not establish an executed runtime blocker.
-- **Stop:** put only the chosen operation's bounded implementation acceptance here before changing runtime/example code. Other controls, native renderer integration, generic choice/numeric/input frameworks, tables/plots and Settings-starter scrolling onboarding require separate selection.
+- **Minimum observable operation:** identify the reset step (one Button and one ordinary command), its accepted observation and the minimum consumer policy for the affected settings, eligibility, capability membership and numeric drafts.
+- **New risks:** distinguish the all-settings atomic candidate and whole-operation eligibility/rejection from per-control behavior; account for MSAA capability membership of the initial sample count and revision advancement across all five numeric drafts, including pending invalid text. Keep renderer execution and acknowledgement host-owned.
+- **Inherited guarantees:** cite relevant command, editing and host-staging owner checks and the implemented per-control consumer coverage. Record source findings and evidence limits in support; a source review does not establish an executed runtime blocker.
+- **Stop:** put only reset's bounded implementation acceptance here before changing runtime/example code. Native renderer integration, generic choice/numeric/vector/input frameworks, tables/plots and Settings-starter scrolling onboarding require separate selection.
 
 ### Bounded validation supporting work
 

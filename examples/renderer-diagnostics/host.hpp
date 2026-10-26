@@ -33,6 +33,8 @@ public:
     std::size_t disclosure_requests() const { return disclosure_requests_; }
     const Numeric& numeric() const { return numeric_; }
     const Numeric& ambient() const { return ambient_; }
+    const KeyDirection& key_direction() const { return key_direction_; }
+    const Numeric& numeric(NumericField) const;
     const Msaa& msaa() const { return msaa_; }
     const Outlines& outlines() const { return outlines_; }
     const SceneLights& scene_lights() const { return scene_lights_; }
@@ -68,8 +70,8 @@ public:
 private:
     explicit Host(tessera::CommandRegistry registry) : registry_(std::move(registry)) {}
     tessera::Result<View> stage(const Snapshot&, const Disclosure&, tessera::Point,
-        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, const Outlines&, const SceneLights&, const Numeric& ambient, const MaterialView&, tessera::TextShaper&);
-    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa, Outlines, SceneLights, Numeric ambient, MaterialView);
+        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, const Outlines&, const SceneLights&, const Numeric& ambient, const MaterialView&, const KeyDirection&, tessera::TextShaper&);
+    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa, Outlines, SceneLights, Numeric ambient, MaterialView, KeyDirection);
     tessera::Result<bool> operate(const tessera::ActionRequest&, tessera::CommandSource, tessera::TextShaper&);
 
     tessera::authoring::Session session_;
@@ -83,6 +85,7 @@ private:
     Outlines outlines_;
     SceneLights scene_lights_;
     MaterialView material_view_;
+    KeyDirection key_direction_;
     std::array<bool, 3> eligible_{true, true, true};
     tessera::Point offset_;
     tessera::FocusDispatcher focus_;
