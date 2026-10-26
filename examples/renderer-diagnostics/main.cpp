@@ -68,6 +68,12 @@ int main() {
         const auto scene_lights = take(host->request_scene_lights("scene_lights", false, CommandSource::agent));
         if (take(host->execute(scene_lights, text)).outcome.status != CommandOutcomeStatus::success)
             throw std::runtime_error("Scene lights setting rejected");
+        (void)take(host->invoke("material-view-normals", CommandSource::accessibility, text));
+        const auto material_view = take(host->request_material_view("material_view", "base-color", CommandSource::agent));
+        if (take(host->execute(material_view, text)).outcome.status != CommandOutcomeStatus::success)
+            throw std::runtime_error("Material view setting rejected");
+        (void)take(host->refresh(diagnostics::sample_c(), text)); // Retains the accepted choice without a setting request.
+        std::cout << "Material view " << host->material_view().accepted << '\n';
         std::cout << "Scene lights " << (host->scene_lights().accepted ? "on" : "off") << '\n';
         std::cout << "Outlines " << (host->outlines().accepted ? "on" : "off") << '\n';
         std::cout << "MSAA " << host->msaa().accepted << "; supported choices " << host->msaa().supported.size() << '\n';

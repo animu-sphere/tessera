@@ -156,8 +156,20 @@ ui::Element MsaaControl(const Msaa& value) {
         ui::Text("Accepted MSAA: " + std::to_string(value.accepted), {.id = "msaa-accepted"})},
         {.id = "msaa-control", .style = {.gap = 12.f}});
 }
+ui::Element MaterialViewControl(const MaterialView& value) {
+    std::vector<ui::Element> choices;
+    for (std::size_t i = 0; i < material_views.size(); ++i) {
+        const std::string view = material_views[i];
+        choices.push_back(ui::Button("Material view " + view + (value.accepted == view ? " (selected)" : ""),
+            material_view_actions[i], {.node = {.id = "material-view-" + view}}));
+    }
+    return ui::Column({ui::Text("Material view", {.id = "material-view-label"}),
+        ui::Row(std::move(choices), {.style = {.gap = 12.f}}),
+        ui::Text("Accepted material view: " + value.accepted, {.id = "material-view-accepted"})},
+        {.id = "material-view-control", .style = {.gap = 12.f}});
+}
 ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric, const Msaa& msaa,
-    const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient) {
+    const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view) {
     std::vector<ui::Element> rows{
         ui::Text("Renderer diagnostics", {.id = "heading"}),
         row("scene", "Scene", snapshot.scene), row("device", "Device", snapshot.device),
@@ -183,6 +195,7 @@ ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const 
                 {.node = {.id = "outlines-toggle"}}));
             rows.push_back(ui::Checkbox("Scene lights", scene_lights.accepted, "scene_lights.toggle",
                 {.node = {.id = "scene-lights-toggle"}}));
+            rows.push_back(MaterialViewControl(material_view));
         }
     }
     return ui::Column(std::move(rows), {.id = "renderer-diagnostics", .classes = {"panel"}});

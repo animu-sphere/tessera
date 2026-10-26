@@ -80,7 +80,7 @@ struct Fixture {
     auto stable() const {
         const auto& view = host->view();
         return std::tuple{host->snapshot(), host->disclosure(), host->offset(), host->focused(),
-            host->numeric(), host->ambient(), host->msaa(), host->outlines(), host->scene_lights(), view.styles, view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
+            host->numeric(), host->ambient(), host->msaa(), host->outlines(), host->scene_lights(), host->material_view(), view.styles, view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
     }
     void verify() {
         const auto& view = host->view();
@@ -127,6 +127,15 @@ struct Fixture {
             }
         }
         if (host->disclosure().expanded[3]) {
+            require(name(view, "material-view-accepted") == "Accepted material view: " + host->material_view().accepted,
+                "Accepted material view text differs");
+            for (const auto* value : panel::material_views) {
+                const auto id = "material-view-" + std::string{value};
+                require(name(view, id) == "Material view " + std::string{value} +
+                    (host->material_view().accepted == value ? " (selected)" : ""), "Material view marker differs");
+                require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find(id), "activate")) ==
+                    host->material_view().enabled, "Material view semantic eligibility differs");
+            }
             require(name(view, "scene-lights-toggle") == (host->scene_lights().accepted ? "[x] Scene lights" : "[ ] Scene lights"),
                 "Scene lights marker/name differs");
             require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("scene-lights-toggle"), "activate")) ==
@@ -145,7 +154,7 @@ struct Fixture {
                 require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find(id), "activate")) == enabled,
                     "MSAA semantic eligibility differs");
             }
-        } else require(!view.tree->find("scene-lights-toggle") && !view.tree->find("outlines-toggle") && !view.tree->find("msaa-1") && !view.tree->find("msaa-accepted"), "Collapsed MSAA remained present");
+        } else require(!view.tree->find("material-view-control") && !view.tree->find("scene-lights-toggle") && !view.tree->find("outlines-toggle") && !view.tree->find("msaa-1") && !view.tree->find("msaa-accepted"), "Collapsed controls remained present");
         require(name(view, "value-scene") == snapshot.scene && name(view, "value-device") == snapshot.device &&
             name(view, "value-extent") == "1280 x 720" && name(view, "value-presentation") == snapshot.presentation,
             "Snapshot identity/extent differs");
@@ -1155,8 +1164,131 @@ void boolean_controls(bool scene_lights) {
         " setting attempts, " << h.setting_changes() << " accepted changes; " << h.camera_events() << " camera deliveries\n";
 }
 
+void material_view_controls() {
+    Fixture f;
+    auto& h = *f.host;
+    auto send = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        require(take(h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, f.text)) && h.last_consumed(),
+            "Expected consumed material view input");
+    };
+    auto reveal = [&](const std::string& id) {
+        for (int i = 0; h.focused() != id && i < 32; ++i) send(KeyDown{Key::tab});
+        require(h.focused() == id && visible(h.view(), id), "Material view traversal/reveal failed: " + id);
+    };
+    auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::accessibility, f.text)); };
+    auto execute = [&](const CommandInvocation& call, TextShaper& text) {
+        const auto result = take(h.execute(call, text));
+        require(result.outcome.status == CommandOutcomeStatus::success, "Expected accepted material view request");
+    };
+    auto set = [&](std::string value) { return take(h.request_material_view("material_view", std::move(value), CommandSource::agent)); };
+    require(h.material_view() == panel::MaterialView{}, "Initial material view differs");
+    // Distinct incomplete drafts and reverse selections must survive every choice route.
+    for (const auto field : panel::numeric_fields) {
+        const auto d = (field == panel::NumericField::direct ? h.numeric() : h.ambient()).draft;
+        execute(take(h.request_edit(field, {d.owner, d.revision, TextEditSelection{0, d.text.size()}}, CommandSource::agent)), f.text);
+        const auto selected = (field == panel::NumericField::direct ? h.numeric() : h.ambient()).draft;
+        const std::string pending = field == panel::NumericField::direct ? "2." : "-";
+        execute(take(h.request_edit(field, {selected.owner, selected.revision, TextEditInsert{pending}}, CommandSource::agent)), f.text);
+        const auto edited = (field == panel::NumericField::direct ? h.numeric() : h.ambient()).draft;
+        execute(take(h.request_edit(field, {edited.owner, edited.revision, TextEditSelection{pending.size(), 0}}, CommandSource::agent)), f.text);
+    }
+    auto unrelated = [&] { return std::tuple{h.numeric(), h.ambient(), h.msaa(), h.outlines(), h.scene_lights()}; };
+    auto pending = unrelated();
+    const auto snapshot = h.snapshot(); const auto disclosure = h.disclosure();
+    // All three fixed owners, plus representative keyboard/gamepad/pointer and semantic routing.
+    reveal("material-view-normals");
+    const auto bounds = box(h.view(), "material-view-normals").border_box;
+    const Point point{bounds.origin.x + 2, bounds.origin.y + 2};
+    send(PointerDown{{71}, point}, CommandSource::pointer);
+    require(h.setting_attempts() == 0, "Material view press requested a setting");
+    send(PointerUp{{71}, point}, CommandSource::pointer);
+    require(h.material_view().accepted == "normals" && h.setting_attempts() == 1 && h.setting_changes() == 1,
+        "Normals owner mapping/accounting differs");
+    send(KeyDown{Key::tab}); send(KeyDown{Key::space});
+    require(h.focused() == "material-view-base-color" && h.material_view().accepted == "base-color" && h.setting_attempts() == 2 && h.setting_changes() == 2,
+        "Base-color keyboard owner mapping differs");
+    send(Navigate{Direction::left}, CommandSource::gamepad); send(Navigate{Direction::left}, CommandSource::gamepad);
+    send(Activate{}, CommandSource::gamepad);
+    require(h.focused() == "material-view-shaded" && h.material_view().accepted == "shaded" && h.setting_attempts() == 3 && h.setting_changes() == 3,
+        "Shaded gamepad owner mapping differs");
+    invoke("material-view-normals");
+    require(h.material_view().accepted == "normals" && h.setting_attempts() == 4 && h.setting_changes() == 4 &&
+        unrelated() == pending && h.snapshot() == snapshot && h.disclosure() == disclosure && h.camera_events() == 0,
+        "Material view semantic route or unrelated retention differs");
+    f.verify(); // One accepted selection reconstructs semantics, geometry, paint and CPU bytes.
+    execute(set("base-color"), f.text);
+    const auto generation = h.view().commands.generation();
+    execute(set("base-color"), f.text);
+    invoke("material-view-base-color");
+    require(h.material_view().accepted == "base-color" && h.setting_attempts() == 7 && h.setting_changes() == 5 &&
+        h.view().commands.generation() != generation && unrelated() == pending, "Equal choice/set accounting differs");
+    const auto pristine = f.stable(); const auto attempts = h.setting_attempts();
+    const auto& commands = h.view().commands;
+    for (const auto& args : {CommandArguments{{"field", std::string{"material_view"}}},
+        CommandArguments{{"value", std::string{"normals"}}},
+        CommandArguments{{"field", std::string{"material-view"}}, {"value", std::string{"normals"}}},
+        CommandArguments{{"field", std::string{"material_view"}}, {"value", std::string{"unknown"}}},
+        CommandArguments{{"field", std::string{"material_view"}}, {"value", 1.0}},
+        CommandArguments{{"field", std::string{"material_view"}}, {"value", true}},
+        CommandArguments{{"field", std::string{"material_view"}}, {"value", std::string{"normals"}}, {"extra", true}}})
+        require(!commands.resolve({commands.generation(), "material_view.set", args, CommandSource::agent, 999}), "Material view schema accepted wrong identity/type/fields");
+    const auto action = take(request_semantic_action(h.view().semantic(), *h.view().tree->find("material-view-shaded"), "activate"));
+    require(!commands.resolve_action(h.view().semantic(), action, commands.generation(), {{"value", std::string{"normals"}}}, CommandSource::agent, 999) &&
+        !h.request_material_view("direct", "normals", CommandSource::agent) && !h.request_material_view("material_view", "Normals", CommandSource::agent) &&
+        pristine == f.stable() && attempts == h.setting_attempts(), "Fixed material owner accepted payload or invalid request entered handler");
+    // Telemetry does not request settings; unrelated commands retain the selected string.
+    for (const auto& data : {panel::sample_a(), panel::sample_b(), panel::sample_c()}) {
+        take(h.refresh(data, f.text));
+        require(h.material_view().accepted == "base-color" && unrelated() == pending && h.setting_attempts() == attempts,
+            "Telemetry changed material view/drafts or requested settings");
+    }
+    invoke("outlines-toggle"); invoke("outlines-toggle");
+    require(h.material_view().accepted == "base-color" && unrelated() == pending, "Unrelated setting changed material view/drafts");
+    const auto held = take(h.request("material-view-shaded", CommandSource::agent));
+    const auto held_set = set("normals"); const auto before_eligibility = h.setting_attempts();
+    take(h.material_view_eligibility(false, f.text));
+    require(unrelated() == pending && h.material_view().accepted == "base-color" && h.setting_attempts() == before_eligibility &&
+        h.view().commands.lookup("direct.apply").value->state.enabled && h.view().commands.lookup("ambient.apply").value->state.enabled &&
+        h.view().commands.lookup("msaa.set").value->state.enabled && h.view().commands.lookup("outlines.toggle").value->state.enabled &&
+        h.view().commands.lookup("scene_lights.toggle").value->state.enabled, "Material eligibility affected unrelated controls/settings");
+    const auto disabled = f.stable();
+    for (const auto* value : panel::material_views) require(!h.request("material-view-" + std::string{value}, CommandSource::agent), "Disabled material owner callable");
+    require(!h.request_material_view("material_view", "normals", CommandSource::agent) && !h.execute(held, f.text) && !h.execute(held_set, f.text) &&
+        disabled == f.stable() && h.setting_attempts() == before_eligibility, "Disabled/held material request entered handler");
+    take(h.material_view_eligibility(true, f.text));
+    take(h.numeric_eligibility(false, f.text)); take(h.numeric_eligibility(panel::NumericField::ambient, false, f.text));
+    take(h.msaa_capabilities({1, 2, 4}, false, f.text)); take(h.outlines_eligibility(false, f.text)); take(h.scene_lights_eligibility(false, f.text));
+    require(h.view().commands.lookup("material_view.set").value->state.enabled, "Unrelated eligibility disabled material view");
+    invoke("material-view-normals");
+    take(h.numeric_eligibility(true, f.text)); take(h.numeric_eligibility(panel::NumericField::ambient, true, f.text));
+    take(h.msaa_capabilities({1, 2, 4}, true, f.text)); take(h.outlines_eligibility(true, f.text)); take(h.scene_lights_eligibility(true, f.text));
+    require(unrelated() == pending && h.material_view().accepted == "normals", "Eligibility publication reset settings/drafts");
+    reveal("material-view-normals");
+    const auto hidden = set("shaded"); const auto before_collapse = h.setting_attempts();
+    invoke("disclosure-controls");
+    require(h.focused() == "disclosure-controls" && visible(h.view(), "disclosure-controls") && !h.view().tree->find("material-view-control") &&
+        !h.request_material_view("material_view", "shaded", CommandSource::agent) && !h.execute(hidden, f.text), "Collapsed material view recovery/eligibility differs");
+    invoke("disclosure-controls");
+    require(h.focused() == "disclosure-controls" && h.material_view().accepted == "normals" && unrelated() == pending &&
+        h.setting_attempts() == before_collapse, "Expansion changed material choice, focus, drafts or attempts");
+    // One new string-setting staging branch; existing host tests own the wider failure matrix.
+    RejectingText rejecting{true};
+    const auto before_failure = f.stable(); const auto changes = h.setting_changes(); const auto count = h.setting_attempts();
+    const auto failed = set("shaded");
+    const auto result = take(h.execute(failed, rejecting));
+    require(result.outcome.status == CommandOutcomeStatus::error && !result.outcome.diagnostics.empty() &&
+        result.outcome.diagnostics.size() <= max_command_result_diagnostics && result.outcome.diagnostics.front().path.find("/nodes/") != std::string::npos &&
+        before_failure == f.stable() && h.setting_attempts() == count + 1 && h.setting_changes() == changes,
+        "Rejected material stage changed accepted state or lost located diagnostics");
+    require(!h.execute(failed, f.text) && h.setting_attempts() == count + 1, "Failed material request executed twice");
+    execute(set("shaded"), f.text);
+    require(h.material_view().accepted == "shaded" && unrelated() == pending && h.setting_attempts() == count + 2 &&
+        h.setting_changes() == changes + 1 && h.camera_events() == 0, "Fresh material retry lost drafts/accounting");
+    std::cout << "material_view: 3 fixed owners, pointer/keyboard/gamepad/semantic routes, two-draft retention, eligibility, collapse and rejected-stage retry verified\n";
+}
+
 }
 int main() {
-    try { run(); numeric_controls(panel::NumericField::direct); numeric_controls(panel::NumericField::ambient); two_numeric_fields(); msaa_controls(); boolean_controls(false); boolean_controls(true); }
+    try { run(); numeric_controls(panel::NumericField::direct); numeric_controls(panel::NumericField::ambient); two_numeric_fields(); msaa_controls(); boolean_controls(false); boolean_controls(true); material_view_controls(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
