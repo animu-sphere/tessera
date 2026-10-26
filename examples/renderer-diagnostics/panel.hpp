@@ -46,6 +46,7 @@ inline constexpr std::array<unsigned, 4> sample_counts{1, 2, 4, 8};
 inline constexpr std::array<const char*, 4> msaa_actions{"msaa.samples1", "msaa.samples2", "msaa.samples4", "msaa.samples8"};
 inline const tessera::ValidationContext context{{actions[0], actions[1], actions[2], actions[3],
     "direct.edit", "direct.decrease", "direct.increase", "direct.apply", "direct.cancel",
+    "ambient.edit", "ambient.decrease", "ambient.increase", "ambient.apply", "ambient.cancel",
     msaa_actions[0], msaa_actions[1], msaa_actions[2], msaa_actions[3], "outlines.toggle", "scene_lights.toggle"}};
 struct Msaa {
     unsigned accepted = 1;
@@ -69,14 +70,17 @@ struct Numeric {
     bool enabled = true;
     bool operator==(const Numeric&) const = default;
 };
+enum class NumericField { direct, ambient };
+inline constexpr std::array<NumericField, 2> numeric_fields{NumericField::direct, NumericField::ambient};
+inline std::string field_name(NumericField field) { return field == NumericField::ambient ? "ambient" : "direct"; }
 std::string canonical(double);
-tessera::Result<double> parse_numeric(std::string_view);
+tessera::Result<double> parse_numeric(std::string_view, NumericField = NumericField::direct);
 // Application composition, not a new runtime widget or semantic role.
-tessera::authoring::Element NumericControl(const Numeric&);
+tessera::authoring::Element NumericControl(const Numeric&, NumericField = NumericField::direct);
 tessera::authoring::Element MsaaControl(const Msaa&);
 
 std::vector<tessera::Diagnostic> validate(const Snapshot&);
 // Call after validation. Pure ordinary composition; no callbacks, sampling or retained pointers.
-tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&, const Msaa&, const Outlines&, const SceneLights&);
+tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&, const Msaa&, const Outlines&, const SceneLights&, const Numeric& ambient);
 tessera::StyleSheet panel_styles();
 } // namespace diagnostics

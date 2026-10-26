@@ -110,9 +110,9 @@ std::string canonical(double value) {
     const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::fixed);
     return {buffer, result.ptr};
 }
-Result<double> parse_numeric(std::string_view value) {
-    auto invalid = []() -> Result<double> { return {std::nullopt, {{"direct_value", Severity::error,
-        "/controls/direct", "Expected decimal -?(0|[1-9][0-9]*)(.[0-9]+)? in inclusive [0,4]"}}}; };
+Result<double> parse_numeric(std::string_view value, NumericField field) {
+    auto invalid = [field]() -> Result<double> { return {std::nullopt, {{field_name(field) + "_value", Severity::error,
+        "/controls/" + field_name(field), "Expected decimal -?(0|[1-9][0-9]*)(.[0-9]+)? in inclusive [0,4]"}}}; };
     if (value.size() > 32) return invalid();
     std::size_t i = value.starts_with('-') ? 1 : 0;
     if (i == value.size()) return invalid();
@@ -132,15 +132,17 @@ Result<double> parse_numeric(std::string_view value) {
         !std::isfinite(parsed) || parsed < 0 || parsed > 4) return invalid();
     return {parsed == 0 ? 0 : parsed, {}};
 }
-ui::Element NumericControl(const Numeric& value) {
+ui::Element NumericControl(const Numeric& value, NumericField field) {
+    const auto id = field_name(field);
+    const auto label = id + " strength";
     return ui::Column({
-        ui::TextInput("Direct strength", value.draft, "direct.edit", {.node = {.id = "direct-input"}}),
-        ui::Row({ui::Button("Decrease direct strength", "direct.decrease", {.node = {.id = "direct-decrease"}}),
-            ui::Button("Increase direct strength", "direct.increase", {.node = {.id = "direct-increase"}})}, {.style = {.gap = 12.f}}),
-        ui::Row({ui::Button("Apply direct strength", "direct.apply", {.node = {.id = "direct-apply"}}),
-            ui::Button("Cancel direct strength", "direct.cancel", {.node = {.id = "direct-cancel"}})}, {.style = {.gap = 12.f}}),
-        ui::Text("Accepted direct strength: " + canonical(value.accepted), {.id = "direct-accepted"})},
-        {.id = "direct-control", .style = {.gap = 12.f}});
+        ui::TextInput(field == NumericField::direct ? "Direct strength" : "Ambient strength", value.draft, id + ".edit", {.node = {.id = id + "-input"}}),
+        ui::Row({ui::Button("Decrease " + label, id + ".decrease", {.node = {.id = id + "-decrease"}}),
+            ui::Button("Increase " + label, id + ".increase", {.node = {.id = id + "-increase"}})}, {.style = {.gap = 12.f}}),
+        ui::Row({ui::Button("Apply " + label, id + ".apply", {.node = {.id = id + "-apply"}}),
+            ui::Button("Cancel " + label, id + ".cancel", {.node = {.id = id + "-cancel"}})}, {.style = {.gap = 12.f}}),
+        ui::Text("Accepted " + label + ": " + canonical(value.accepted), {.id = id + "-accepted"})},
+        {.id = id + "-control", .style = {.gap = 12.f}});
 }
 ui::Element MsaaControl(const Msaa& value) {
     std::vector<ui::Element> choices;
@@ -155,7 +157,7 @@ ui::Element MsaaControl(const Msaa& value) {
         {.id = "msaa-control", .style = {.gap = 12.f}});
 }
 ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric, const Msaa& msaa,
-    const Outlines& outlines, const SceneLights& scene_lights) {
+    const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient) {
     std::vector<ui::Element> rows{
         ui::Text("Renderer diagnostics", {.id = "heading"}),
         row("scene", "Scene", snapshot.scene), row("device", "Device", snapshot.device),
@@ -175,6 +177,7 @@ ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const 
             rows.push_back(row("counter-" + counter.id, counter.label, std::to_string(counter.value) + " " + counter.unit));
         else {
             rows.push_back(NumericControl(numeric));
+            rows.push_back(NumericControl(ambient, NumericField::ambient));
             rows.push_back(MsaaControl(msaa));
             rows.push_back(ui::Checkbox("Outlines", outlines.accepted, "outlines.toggle",
                 {.node = {.id = "outlines-toggle"}}));

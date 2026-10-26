@@ -80,7 +80,7 @@ struct Fixture {
     auto stable() const {
         const auto& view = host->view();
         return std::tuple{host->snapshot(), host->disclosure(), host->offset(), host->focused(),
-            host->numeric(), host->msaa(), host->outlines(), host->scene_lights(), view.styles, view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
+            host->numeric(), host->ambient(), host->msaa(), host->outlines(), host->scene_lights(), view.styles, view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
     }
     void verify() {
         const auto& view = host->view();
@@ -94,6 +94,38 @@ struct Fixture {
                 "Inspection and layout clipping differ");
         }
         const auto& snapshot = host->snapshot();
+        require(host->numeric().draft.owner != host->ambient().draft.owner, "Numeric lifetimes collided");
+        for (const auto field : panel::numeric_fields) {
+            const auto id = panel::field_name(field);
+            const auto& value = field == panel::NumericField::direct ? host->numeric() : host->ambient();
+            if (!host->disclosure().expanded[3]) {
+                require(!view.tree->find(id + "-control"), "Collapsed numeric field remained present");
+                continue;
+            }
+            require(name(view, id + "-accepted") == "Accepted " + id + " strength: " + panel::canonical(value.accepted),
+                "Numeric accepted observation differs");
+            const auto children = view.tree->children(*view.tree->find(id + "-input"));
+            require(children.size() == 3, "Numeric input observations differ");
+            for (std::size_t i = 1; i < children.size(); ++i) {
+                const auto expected = i == 1 ? value.draft.text : "Selection " + std::to_string(value.draft.anchor) + ":" + std::to_string(value.draft.caret);
+                const auto& properties = view.inspection.elements[children[i].index].properties;
+                const auto observed = std::find_if(properties.begin(), properties.end(), [](const auto& property) { return property.name == "text"; });
+                require(std::get<std::string>(view.tree->get(children[i])->properties.at("text")) == expected && observed != properties.end() &&
+                    observed->value == std::optional<Property>{expected}, "Numeric draft/selection differs from inspection: " + id);
+            }
+            const auto input_name = std::string{field == panel::NumericField::direct ? "Direct strength" : "Ambient strength"} +
+                (value.draft.text.empty() ? "" : " " + value.draft.text) + " Selection " + std::to_string(value.draft.anchor) + ":" + std::to_string(value.draft.caret);
+            require(name(view, id + "-input") == input_name, "Numeric semantic draft/selection differs: " + id);
+            const bool dirty = value.draft.text != panel::canonical(value.accepted);
+            for (const auto* operation : {"input", "apply", "cancel", "decrease", "increase"}) {
+                bool enabled = value.enabled;
+                if (std::string_view{operation} == "cancel") enabled &= dirty;
+                if (std::string_view{operation} == "decrease") enabled &= !dirty && value.accepted > 0;
+                if (std::string_view{operation} == "increase") enabled &= !dirty && value.accepted < 4;
+                require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find(id + "-" + operation), "activate")) == enabled,
+                    "Numeric semantic eligibility differs: " + id + "-" + operation);
+            }
+        }
         if (host->disclosure().expanded[3]) {
             require(name(view, "scene-lights-toggle") == (host->scene_lights().accepted ? "[x] Scene lights" : "[ ] Scene lights"),
                 "Scene lights marker/name differs");
@@ -350,21 +382,34 @@ void run() {
         host.disclosure_requests() << " disclosure attempts; synthetic inputs only\n";
 }
 
-void numeric_controls() {
+void numeric_controls(panel::NumericField field) {
     Fixture fixture;
     auto& host = *fixture.host;
+    const auto prefix = panel::field_name(field);
+    const double initial = field == panel::NumericField::direct ? 1 : 0.5;
+    auto numeric = [&]() -> const panel::Numeric& { return field == panel::NumericField::direct ? host.numeric() : host.ambient(); };
+    const auto peer_field = field == panel::NumericField::direct ? panel::NumericField::ambient : panel::NumericField::direct;
+    auto peer_edit = [&](auto operation) {
+        const auto d = (peer_field == panel::NumericField::direct ? host.numeric() : host.ambient()).draft;
+        require(take(host.execute(take(host.request_edit(peer_field, {d.owner, d.revision, std::move(operation)}, CommandSource::agent)), fixture.text)).outcome.status ==
+            CommandOutcomeStatus::success, "Peer incomplete draft setup failed");
+    };
+    peer_edit(TextEditSelection{0, (peer_field == panel::NumericField::direct ? host.numeric() : host.ambient()).draft.text.size()});
+    peer_edit(TextEditInsert{"-"}); peer_edit(TextEditSelection{1, 0});
+    const auto peer = field == panel::NumericField::direct ? host.ambient() : host.numeric();
     auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success = true) {
         auto result = take(host.execute(call, text));
         require((result.outcome.status == CommandOutcomeStatus::success) == success, "Unexpected numeric command outcome");
         if (!success) require(!result.outcome.diagnostics.empty(), "Numeric rejection has no diagnostic");
+        require((field == panel::NumericField::direct ? host.ambient() : host.numeric()) == peer, "Numeric command changed peer state");
         return result;
     };
     auto edit = [&](auto operation, CommandSource source = CommandSource::agent) {
-        const auto& draft = host.numeric().draft;
-        execute(take(host.request_edit({draft.owner, draft.revision, std::move(operation)}, source)), fixture.text);
+        const auto& draft = numeric().draft;
+        execute(take(host.request_edit(field, {draft.owner, draft.revision, std::move(operation)}, source)), fixture.text);
     };
     auto draft = [&](std::string value) {
-        edit(TextEditSelection{0, host.numeric().draft.text.size()});
+        edit(TextEditSelection{0, numeric().draft.text.size()});
         edit(TextEditInsert{std::move(value)});
     };
     auto route = [&](auto event, CommandSource source = CommandSource::keyboard, TextShaper* text = nullptr) {
@@ -386,118 +431,118 @@ void numeric_controls() {
         require(take(route(PointerUp{{12}, point}, CommandSource::pointer)), "Pointer activation failed");
         fixture.verify();
     };
-    require(host.numeric().accepted == 1 && host.numeric().draft.text == "1", "Initial direct strength differs");
-    reveal("direct-input");
+    require(numeric().accepted == initial && numeric().draft.text == panel::canonical(initial), "Initial direct strength differs");
+    reveal(prefix + "-input");
     const auto start_calls = host.setting_attempts();
-    click("direct-input");
+    click(prefix + "-input");
     require(host.setting_attempts() == start_calls, "TextInput activation committed a value");
     require(take(route(KeyDown{Key::home})) && take(route(KeyDown{Key::end, {.shift = true}})) &&
         take(route(tessera::TextInput{"1.5"})), "Keyboard direct entry failed");
-    require(host.numeric().draft.text == "1.5" && host.numeric().accepted == 1 && host.setting_changes() == 0,
+    require(numeric().draft.text == "1.5" && numeric().accepted == initial && host.setting_changes() == 0,
         "Editing changed accepted setting");
-    click("direct-apply");
-    require(host.numeric().accepted == 1.5 && host.setting_changes() == 1 && host.setting_attempts() == start_calls + 1,
+    click(prefix + "-apply");
+    require(numeric().accepted == 1.5 && host.setting_changes() == 1 && host.setting_attempts() == start_calls + 1,
         "Pointer Apply did not commit exactly once");
-    invoke("direct-input");
-    const auto same_revision = host.numeric().draft.revision;
-    require(take(route(KeyDown{Key::enter})) && host.numeric().draft.revision == same_revision + 1 && host.setting_changes() == 1,
+    invoke(prefix + "-input");
+    const auto same_revision = numeric().draft.revision;
+    require(take(route(KeyDown{Key::enter})) && numeric().draft.revision == same_revision + 1 && host.setting_changes() == 1,
         "Equal Apply did not advance revision without a setting change");
     // Adjustment parity from the same initial value across pointer, logical keyboard and gamepad.
-    execute(take(host.request_value("direct", 1, CommandSource::agent)), fixture.text);
-    click("direct-increase");
-    reveal("direct-increase"); require(take(route(Activate{}, CommandSource::gamepad)), "Expected gamepad activation");
-    require(host.numeric().accepted == 1.5, "Direct entry and two increments differ");
-    invoke("direct-decrease", CommandSource::accessibility);
-    reveal("direct-increase"); require(take(route(Activate{}, CommandSource::keyboard)), "Expected keyboard activation");
-    require(host.numeric().accepted == 1.5, "Semantic/keyboard adjustment parity differs");
+    execute(take(host.request_value(prefix, 1, CommandSource::agent)), fixture.text);
+    click(prefix + "-increase");
+    reveal(prefix + "-increase"); require(take(route(Activate{}, CommandSource::gamepad)), "Expected gamepad activation");
+    require(numeric().accepted == 1.5, "Direct entry and two increments differ");
+    invoke(prefix + "-decrease", CommandSource::accessibility);
+    reveal(prefix + "-increase"); require(take(route(Activate{}, CommandSource::keyboard)), "Expected keyboard activation");
+    require(numeric().accepted == 1.5, "Semantic/keyboard adjustment parity differs");
     // Ordinary logical directional navigation reaches the same operation owner.
-    reveal("direct-decrease"); require(take(route(Navigate{Direction::right}, CommandSource::gamepad)), "Expected gamepad navigation");
-    require(host.focused() == "direct-increase", "Gamepad directional adjustment navigation differs");
+    reveal(prefix + "-decrease"); require(take(route(Navigate{Direction::right}, CommandSource::gamepad)), "Expected gamepad navigation");
+    require(host.focused() == prefix + "-increase", "Gamepad directional adjustment navigation differs");
     require(take(route(Activate{}, CommandSource::gamepad)), "Expected gamepad activation");
-    require(host.numeric().accepted == 1.75, "Gamepad adjustment failed");
-    draft("1.5"); invoke("direct-apply", CommandSource::accessibility);
-    require(host.numeric().accepted == 1.5, "Semantic edit/Apply parity differs");
+    require(numeric().accepted == 1.75, "Gamepad adjustment failed");
+    draft("1.5"); invoke(prefix + "-apply", CommandSource::accessibility);
+    require(numeric().accepted == 1.5, "Semantic edit/Apply parity differs");
 
     for (const auto* invalid : {"", "-", "1.", "01", "+1", " 1", "1 ", "1e0", "NaN", "inf", "4.01", "-0.01", "1x", "日"}) {
         draft(invalid);
         const auto before = fixture.stable();
         const auto changes = host.setting_changes();
-        const auto rejected = host.invoke("direct-apply", CommandSource::agent, fixture.text);
-        require(!rejected && rejected.diagnostics.front().path.ends_with("/controls/direct") && before == fixture.stable() &&
+        const auto rejected = host.invoke(prefix + "-apply", CommandSource::agent, fixture.text);
+        require(!rejected && rejected.diagnostics.front().path.ends_with("/controls/" + prefix) && before == fixture.stable() &&
             host.setting_changes() == changes, "Invalid draft changed accepted observations: [" + std::string(invalid) + "] " + (rejected.diagnostics.empty() ? "no error" : rejected.diagnostics.front().path));
-        require(!host.request("direct-increase", CommandSource::agent) && !host.request("direct-decrease", CommandSource::agent),
+        require(!host.request(prefix + "-increase", CommandSource::agent) && !host.request(prefix + "-decrease", CommandSource::agent),
             "Dirty draft allowed adjustment");
     }
     // Retain exact invalid bytes, selection, revision and owner through all refresh/removal paths.
-    edit(TextEditSelection{0, host.numeric().draft.text.size()});
-    invoke("direct-input");
-    const auto pending = host.numeric(); const auto changes = host.setting_changes(); const auto attempts = host.setting_attempts();
+    edit(TextEditSelection{0, numeric().draft.text.size()});
+    invoke(prefix + "-input");
+    const auto pending = numeric(); const auto changes = host.setting_changes(); const auto attempts = host.setting_attempts();
     for (const auto& snapshot : {panel::sample_a(), panel::sample_b(), panel::sample_c()}) {
         refresh(snapshot);
-        require(host.numeric() == pending && host.setting_attempts() == attempts && host.setting_changes() == changes,
+        require(numeric() == pending && host.setting_attempts() == attempts && host.setting_changes() == changes,
             "Telemetry changed numeric draft/settings");
     }
-    const auto stale = take(host.request("direct-apply", CommandSource::agent));
+    const auto stale = take(host.request(prefix + "-apply", CommandSource::agent));
     invoke("disclosure-controls");
-    require(host.numeric() == pending && host.focused() == "disclosure-controls" && !host.view().tree->find("direct-input"),
+    require(numeric() == pending && host.focused() == "disclosure-controls" && !host.view().tree->find(prefix + "-input"),
         "Collapse lost draft or failed header recovery");
-    require(!host.execute(stale, fixture.text) && !host.request_value("direct", 2, CommandSource::agent), "Hidden setting remained callable");
+    require(!host.execute(stale, fixture.text) && !host.request_value(prefix, 2, CommandSource::agent), "Hidden setting remained callable");
     invoke("disclosure-controls");
-    require(host.numeric() == pending && host.focused() == "disclosure-controls", "Expansion changed draft/focus");
-    const auto disabled_call = take(host.request("direct-apply", CommandSource::agent));
-    take(host.numeric_eligibility(false, fixture.text)); fixture.verify();
-    require(!host.execute(disabled_call, fixture.text) && !host.request_edit({pending.draft.owner, pending.draft.revision, TextEditInsert{"2"}}, CommandSource::agent),
+    require(numeric() == pending && host.focused() == "disclosure-controls", "Expansion changed draft/focus");
+    const auto disabled_call = take(host.request(prefix + "-apply", CommandSource::agent));
+    take(host.numeric_eligibility(field, false, fixture.text)); fixture.verify();
+    require(!host.execute(disabled_call, fixture.text) && !host.request_edit(field, {pending.draft.owner, pending.draft.revision, TextEditInsert{"2"}}, CommandSource::agent),
         "Disabled draft accepted request");
-    take(host.numeric_eligibility(true, fixture.text)); fixture.verify();
-    require(host.numeric() == pending, "Re-enabling lost draft");
+    take(host.numeric_eligibility(field, true, fixture.text)); fixture.verify();
+    require(numeric() == pending, "Re-enabling lost draft");
     // Old edit owners/revisions resolve through the live presentation but reject at the host boundary.
     for (const auto request : {TextEditRequest{pending.draft.owner + 1000, pending.draft.revision, TextEditInsert{"2"}},
         TextEditRequest{pending.draft.owner, pending.draft.revision - 1, TextEditInsert{"2"}}}) {
         const auto before = fixture.stable();
-        execute(take(host.request_edit(request, CommandSource::agent)), fixture.text, false);
+        execute(take(host.request_edit(field, request, CommandSource::agent)), fixture.text, false);
         require(before == fixture.stable(), "Stale edit mutated accepted draft");
     }
-    invoke("direct-cancel");
-    require(host.numeric().accepted == pending.accepted && host.numeric().draft.text == "1.5" &&
-        host.numeric().draft.revision > pending.draft.revision && !host.request("direct-cancel", CommandSource::agent), "Cancel policy differs");
-    draft("2."); invoke("direct-input");
+    invoke(prefix + "-cancel");
+    require(numeric().accepted == pending.accepted && numeric().draft.text == "1.5" &&
+        numeric().draft.revision > pending.draft.revision && !host.request(prefix + "-cancel", CommandSource::agent), "Cancel policy differs");
+    draft("2."); invoke(prefix + "-input");
     const auto camera = host.camera_events();
     require(!route(KeyDown{Key::enter}) && host.last_consumed() && host.camera_events() == camera, "Rejected raw Apply reached camera");
-    require(take(route(KeyDown{Key::escape})) && host.numeric().draft.text == "1.5", "Raw Escape failed Cancel");
-    draft("2"); reveal("direct-apply");
-    require(take(route(Cancel{}, CommandSource::gamepad)) && host.numeric().draft.text == "1.5", "Operation-owner Cancel failed");
+    require(take(route(KeyDown{Key::escape})) && numeric().draft.text == "1.5", "Raw Escape failed Cancel");
+    draft("2"); reveal(prefix + "-apply");
+    require(take(route(Cancel{}, CommandSource::gamepad)) && numeric().draft.text == "1.5", "Operation-owner Cancel failed");
 
     // Successful requests also consume their sequence and cannot repeat handler attempts.
-    const auto once = take(host.request_value("direct", 2, CommandSource::agent));
+    const auto once = take(host.request_value(prefix, 2, CommandSource::agent));
     execute(once, fixture.text);
     const auto after_once = fixture.stable(); const auto attempts_once = host.setting_attempts();
     require(!host.execute(once, fixture.text) && after_once == fixture.stable() && attempts_once == host.setting_attempts(),
         "Accepted setting request executed twice");
     // Canonical decimal remains valid entry grammar, including short subunit decimals.
-    draft("0.000000000000000000000000000001"); invoke("direct-apply");
-    require(take(panel::parse_numeric(host.numeric().draft.text)) == host.numeric().accepted, "Canonical decimal cannot be reapplied");
-    const auto tiny = take(host.request_value("direct", std::numeric_limits<double>::denorm_min(), CommandSource::agent));
+    draft("0.000000000000000000000000000001"); invoke(prefix + "-apply");
+    require(take(panel::parse_numeric(numeric().draft.text)) == numeric().accepted, "Canonical decimal cannot be reapplied");
+    const auto tiny = take(host.request_value(prefix, std::numeric_limits<double>::denorm_min(), CommandSource::agent));
     const auto before_tiny = fixture.stable(); execute(tiny, fixture.text, false);
     require(before_tiny == fixture.stable(), "Unrepresentable bounded canonical draft was accepted");
     // Both endpoints and clamped fractional adjustment, with typed node-free validation.
     for (const auto value : {0.0, 4.0}) {
-        execute(take(host.request_value("direct", value, CommandSource::agent)), fixture.text);
-        require(!host.request(value == 0 ? "direct-decrease" : "direct-increase", CommandSource::agent), "Endpoint direction enabled");
+        execute(take(host.request_value(prefix, value, CommandSource::agent)), fixture.text);
+        require(!host.request(value == 0 ? prefix + "-decrease" : prefix + "-increase", CommandSource::agent), "Endpoint direction enabled");
         fixture.verify();
     }
     for (const auto value : {-1.0, 4.01, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
-        require(!host.request_value("direct", value, CommandSource::agent), "Invalid typed numeric resolved");
-    require(!host.request_value("ambient", 1, CommandSource::agent), "Node-free request accepted foreign field");
-    execute(take(host.request_value("direct", 3.9, CommandSource::agent)), fixture.text);
-    invoke("direct-increase"); require(host.numeric().accepted == 4, "Upper adjustment did not clamp");
-    execute(take(host.request_value("direct", 0.1, CommandSource::agent)), fixture.text);
-    invoke("direct-decrease"); require(host.numeric().accepted == 0, "Lower adjustment did not clamp");
-    draft("-0"); invoke("direct-apply"); require(host.numeric().draft.text == "0", "Negative zero was not canonicalized");
-    draft("1.50"); invoke("direct-apply"); require(host.numeric().draft.text == "1.5", "Shortest canonical text differs");
-    require(!host.request_edit({host.numeric().draft.owner, host.numeric().draft.revision, TextEditInsert{std::string(33, '1')}}, CommandSource::agent),
+        require(!host.request_value(prefix, value, CommandSource::agent), "Invalid typed numeric resolved");
+    require(!host.request_value("unknown", 1, CommandSource::agent), "Node-free request accepted foreign field");
+    execute(take(host.request_value(prefix, 3.9, CommandSource::agent)), fixture.text);
+    invoke(prefix + "-increase"); require(numeric().accepted == 4, "Upper adjustment did not clamp");
+    execute(take(host.request_value(prefix, 0.1, CommandSource::agent)), fixture.text);
+    invoke(prefix + "-decrease"); require(numeric().accepted == 0, "Lower adjustment did not clamp");
+    draft("-0"); invoke(prefix + "-apply"); require(numeric().draft.text == "0", "Negative zero was not canonicalized");
+    draft("1.50"); invoke(prefix + "-apply"); require(numeric().draft.text == "1.5", "Shortest canonical text differs");
+    require(!host.request_edit(field, {numeric().draft.owner, numeric().draft.revision, TextEditInsert{std::string(33, '1')}}, CommandSource::agent),
         "Oversized insert resolved");
     edit(TextEditSelection{0, 0});
-    auto overflow = take(host.request_edit({host.numeric().draft.owner, host.numeric().draft.revision, TextEditInsert{std::string(32, '1')}}, CommandSource::agent));
+    auto overflow = take(host.request_edit(field, {numeric().draft.owner, numeric().draft.revision, TextEditInsert{std::string(32, '1')}}, CommandSource::agent));
     const auto before_overflow = fixture.stable(); execute(overflow, fixture.text, false);
     require(before_overflow == fixture.stable(), "Combined draft bound failed");
 
@@ -505,7 +550,7 @@ void numeric_controls() {
     for (const bool paint : {false, true}) {
         RejectingText rejecting(paint);
         draft("2.50");
-        for (const auto* id : {"direct-apply", "direct-cancel", "disclosure-controls"}) {
+        for (const auto& id : {prefix + "-apply", prefix + "-cancel", std::string{"disclosure-controls"}}) {
             const auto before = fixture.stable(); const auto changes_before = host.setting_changes();
             const auto call = take(host.request(id, CommandSource::agent));
             const auto failed = execute(call, rejecting, false);
@@ -516,24 +561,24 @@ void numeric_controls() {
             require(!host.execute(call, fixture.text), "Rejected numeric request reused sequence");
             invoke(id); // Fresh request succeeds once.
             if (std::string{id} == "disclosure-controls") invoke(id);
-            if (host.numeric().draft.text == panel::canonical(host.numeric().accepted)) draft("2.50");
+            if (numeric().draft.text == panel::canonical(numeric().accepted)) draft("2.50");
         }
         const auto before_edit = fixture.stable();
-        auto edit_call = take(host.request_edit({host.numeric().draft.owner, host.numeric().draft.revision, TextEditSelection{0, 1}}, CommandSource::agent));
+        auto edit_call = take(host.request_edit(field, {numeric().draft.owner, numeric().draft.revision, TextEditSelection{0, 1}}, CommandSource::agent));
         execute(edit_call, rejecting, false); require(before_edit == fixture.stable(), "Failed edit changed revision/selection");
         require(!host.execute(edit_call, fixture.text), "Failed edit request executed twice");
         edit(TextEditSelection{0, 1});
-        invoke("direct-cancel");
+        invoke(prefix + "-cancel");
         const auto before_adjust = fixture.stable();
-        auto adjustment = take(host.request("direct-increase", CommandSource::agent));
+        auto adjustment = take(host.request(prefix + "-increase", CommandSource::agent));
         execute(adjustment, rejecting, false); require(before_adjust == fixture.stable(), "Failed adjustment changed setting/draft");
         require(!host.execute(adjustment, fixture.text), "Failed adjustment reused sequence");
-        invoke("direct-increase");
+        invoke(prefix + "-increase");
         fixture.verify();
     }
     // Consumed errors, disabled hits and claimed streams across replacement never reach the camera.
-    reveal("direct-increase");
-    const auto b = box(host.view(), "direct-increase").border_box;
+    reveal(prefix + "-increase");
+    const auto b = box(host.view(), prefix + "-increase").border_box;
     const Point p{b.origin.x + 2, b.origin.y + 2};
     const auto delivered = host.camera_events();
     require(take(route(PointerDown{{22}, p}, CommandSource::pointer)), "Panel did not claim press");
@@ -541,11 +586,11 @@ void numeric_controls() {
     require(take(route(PointerMove{{22}, {800, 200}}, CommandSource::pointer)) &&
         take(route(PointerUp{{22}, {800, 200}}, CommandSource::pointer)) && host.camera_events() == delivered,
         "Replaced panel lost claimed stream");
-    take(host.numeric_eligibility(false, fixture.text));
+    take(host.numeric_eligibility(field, false, fixture.text));
     require(take(route(PointerDown{{23}, p}, CommandSource::pointer)) && take(route(PointerUp{{23}, p}, CommandSource::pointer)) &&
         host.camera_events() == delivered, "Disabled panel hit reached camera");
-    take(host.numeric_eligibility(true, fixture.text));
-    reveal("direct-input");
+    take(host.numeric_eligibility(field, true, fixture.text));
+    reveal(prefix + "-input");
     RejectingText rejecting(false);
     const auto before_error = fixture.stable();
     require(!route(tessera::TextInput{"2"}, CommandSource::keyboard, &rejecting) && host.last_consumed() &&
@@ -556,13 +601,142 @@ void numeric_controls() {
     require(!take(route(PointerUp{{24}, p}, CommandSource::pointer)) && host.camera_events() == delivered + 3,
         "Outside stream was claimed after entering panel");
     auto reopened = take(panel::Host::open(panel::sample_a(), fixture.text));
-    require(reopened->numeric().draft.owner != host.numeric().draft.owner, "Reopened panel reused draft lifetime");
+    require((field == panel::NumericField::direct ? reopened->numeric() : reopened->ambient()).draft.owner != numeric().draft.owner, "Reopened panel reused draft lifetime");
     fixture.verify();
-    std::cout << fixture.observations << " numeric views match CPU/replay; " << host.setting_attempts() << " setting attempts, " <<
+    std::cout << fixture.observations << " " << prefix << " numeric views match CPU/replay; " << host.setting_attempts() << " setting attempts, " <<
         host.setting_changes() << " accepted changes; " << host.camera_events() << " camera deliveries\n";
 }
 }
 namespace {
+void two_numeric_fields() {
+    Fixture f;
+    auto& h = *f.host;
+    using Field = panel::NumericField;
+    auto numeric = [&](Field field) -> const panel::Numeric& { return field == Field::direct ? h.numeric() : h.ambient(); };
+    auto execute = [&](CommandInvocation call, TextShaper& text, bool success = true) {
+        auto result = take(h.execute(call, text));
+        require((result.outcome.status == CommandOutcomeStatus::success) == success, "Two-field outcome differs");
+        return result;
+    };
+    auto edit = [&](Field field, auto operation) {
+        const auto before_peer = numeric(field == Field::direct ? Field::ambient : Field::direct);
+        const auto d = numeric(field).draft;
+        execute(take(h.request_edit(field, {d.owner, d.revision, std::move(operation)}, CommandSource::agent)), f.text);
+        require(before_peer == numeric(field == Field::direct ? Field::ambient : Field::direct), "Editing changed the peer draft");
+    };
+    auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::agent, f.text)); };
+    auto reveal = [&](const std::string& id) {
+        for (int i = 0; h.focused() != id && i < 24; ++i)
+            take(h.route({std::chrono::microseconds{++f.tick}, FocusNext{}}, CommandSource::gamepad, f.text));
+        require(h.focused() == id && visible(h.view(), id), "Two-field focus/reveal failed: " + id);
+    };
+    // Equal revisions cannot make a different field's lifetime valid, in either direction.
+    require(h.numeric().draft.revision == h.ambient().draft.revision, "Initial revisions differ");
+    for (const auto field : panel::numeric_fields) {
+        const auto peer = numeric(field == Field::direct ? Field::ambient : Field::direct).draft;
+        const auto before = f.stable();
+        auto call = take(h.request_edit(field, {peer.owner, peer.revision, TextEditInsert{"2"}}, CommandSource::agent));
+        const auto failed = execute(call, f.text, false);
+        require(before == f.stable() && failed.outcome.diagnostics.front().path.ends_with("/controls/" + panel::field_name(field)) &&
+            !h.execute(call, f.text), "Cross-field equal-revision editing or retry accepted");
+        const auto name = panel::field_name(field);
+        const auto other = panel::field_name(field == Field::direct ? Field::ambient : Field::direct);
+        const auto& commands = h.view().commands;
+        for (const CommandValue value : {CommandValue{true}, CommandValue{std::string{"1"}}})
+            require(!commands.resolve({commands.generation(), name + ".set", {{"field", name}, {"value", value}},
+                CommandSource::agent, 999}), "Numeric set coerced a nonnumber");
+        for (const auto& args : {CommandArguments{{"field", other}, {"value", 1.0}},
+            CommandArguments{{"value", 1.0}}, CommandArguments{{"field", name}, {"value", 1.0}, {"extra", true}}})
+            require(!commands.resolve({commands.generation(), name + ".set", args, CommandSource::agent, 999}), "Numeric set accepted wrong schema/field");
+        const auto action = take(request_semantic_action(h.view().semantic(), *h.view().tree->find(name + "-apply"), "activate"));
+        require(!commands.resolve_action(h.view().semantic(), action, commands.generation(), {{"field", other}}, CommandSource::agent, 999),
+            "Apply owner accepted a peer payload");
+    }
+    // Both independently incomplete, with different reverse selections.
+    edit(Field::direct, TextEditSelection{0, 1}); edit(Field::direct, TextEditInsert{"2."}); edit(Field::direct, TextEditSelection{2, 0});
+    edit(Field::ambient, TextEditSelection{0, 3}); edit(Field::ambient, TextEditInsert{"-"}); edit(Field::ambient, TextEditSelection{1, 0});
+    auto direct = h.numeric(), ambient = h.ambient();
+    auto retained = [&] { require(h.numeric() == direct && h.ambient() == ambient, "Unrelated operation changed a numeric observation"); };
+    const auto attempts = h.setting_attempts();
+    reveal("ambient-input");
+    for (const auto& snapshot : {panel::sample_a(), panel::sample_b(), panel::sample_c()}) {
+        take(h.refresh(snapshot, f.text)); retained();
+        require(h.focused() == "ambient-input" && h.setting_attempts() == attempts, "Refresh changed focus or issued setting request");
+    }
+    take(h.msaa_capabilities({1, 2, 4, 8}, true, f.text)); retained(); invoke("msaa-8"); retained();
+    invoke("outlines-toggle"); retained(); invoke("scene-lights-toggle"); retained();
+    execute(take(h.request_outlines("outlines", false, CommandSource::agent)), f.text); retained();
+    execute(take(h.request_scene_lights("scene_lights", true, CommandSource::agent)), f.text); retained();
+    for (const auto field : panel::numeric_fields) {
+        const auto held = take(h.request(panel::field_name(field) + "-apply", CommandSource::agent));
+        take(h.numeric_eligibility(field, false, f.text));
+        require(!h.execute(held, f.text) && !h.request_value(panel::field_name(field), 1, CommandSource::agent), "Disabled numeric field remained callable");
+        require(numeric(field == Field::direct ? Field::ambient : Field::direct).enabled, "Eligibility disabled peer field");
+        take(h.numeric_eligibility(field, true, f.text)); retained();
+    }
+    take(h.numeric_eligibility(Field::direct, false, f.text));
+    take(h.numeric_eligibility(Field::ambient, false, f.text));
+    const auto disabled_direct = h.numeric(), disabled_ambient = h.ambient();
+    invoke("msaa-4"); invoke("outlines-toggle"); invoke("scene-lights-toggle");
+    require(h.numeric() == disabled_direct && h.ambient() == disabled_ambient, "Unrelated commands changed disabled drafts");
+    take(h.numeric_eligibility(Field::direct, true, f.text)); take(h.numeric_eligibility(Field::ambient, true, f.text)); retained();
+    f.verify();
+    // Collapse recovers/reveals the header from either input and every operation owner.
+    for (const auto field : panel::numeric_fields) for (const auto* operation : {"input", "apply", "cancel", "decrease", "increase"}) {
+        const auto id = panel::field_name(field);
+        if (std::string_view{operation} == "decrease" || std::string_view{operation} == "increase") {
+            if (numeric(field).draft.text != panel::canonical(numeric(field).accepted)) invoke(id + "-cancel");
+            if (field == Field::direct) direct = h.numeric(); else ambient = h.ambient();
+        } else if (std::string_view{operation} == "cancel" && numeric(field).draft.text == panel::canonical(numeric(field).accepted)) {
+            edit(field, TextEditInsert{"."});
+            if (field == Field::direct) direct = h.numeric(); else ambient = h.ambient();
+        }
+        reveal(id + "-" + operation); invoke("disclosure-controls"); retained();
+        require(h.focused() == "disclosure-controls" && visible(h.view(), "disclosure-controls"), "Numeric collapse recovery failed");
+        invoke("disclosure-controls"); retained(); require(h.focused() == "disclosure-controls", "Expansion moved focus");
+    }
+    // Cancelling and applying one field leave the other's exact draft and eligibility intact.
+    for (const auto field : panel::numeric_fields) {
+        const auto id = panel::field_name(field);
+        edit(field, TextEditSelection{0, numeric(field).draft.text.size()}); edit(field, TextEditInsert{"3."});
+        const auto before_peer = numeric(field == Field::direct ? Field::ambient : Field::direct);
+        const auto before_calls = h.setting_attempts();
+        invoke(id + "-cancel");
+        require(h.setting_attempts() == before_calls && before_peer == numeric(field == Field::direct ? Field::ambient : Field::direct), "Cancel requested settings or changed peer");
+        edit(field, TextEditSelection{0, numeric(field).draft.text.size()}); edit(field, TextEditInsert{"1.75"});
+        invoke(id + "-apply");
+        require(before_peer == numeric(field == Field::direct ? Field::ambient : Field::direct), "Apply changed peer draft");
+        const auto revision = numeric(field).draft.revision, count = h.setting_attempts(), changes = h.setting_changes();
+        execute(take(h.request_value(id, 1.75, CommandSource::agent)), f.text);
+        require(numeric(field).draft.revision == revision + 1 && h.setting_attempts() == count + 1 && h.setting_changes() == changes &&
+            before_peer == numeric(field == Field::direct ? Field::ambient : Field::direct), "Equal set accounting or peer retention failed");
+    }
+    // Eligibility failures retain both drafts and every accepted presentation observation.
+    for (const bool paint : {false, true}) for (const bool enabled : {false, true}) {
+        take(h.numeric_eligibility(Field::ambient, !enabled, f.text));
+        RejectingText rejecting(paint);
+        const auto before = f.stable(); const auto count = h.setting_attempts();
+        const auto rejected = h.numeric_eligibility(Field::ambient, enabled, rejecting);
+        require(!rejected && before == f.stable() && count == h.setting_attempts() &&
+            rejected.diagnostics.size() <= max_command_result_diagnostics &&
+            rejected.diagnostics.front().path.starts_with("/controls/ambient/nodes/"), "Failed ambient eligibility leaked state or lost field location");
+        take(h.numeric_eligibility(Field::ambient, enabled, f.text));
+        f.verify();
+    }
+    take(h.numeric_eligibility(Field::ambient, true, f.text));
+    // Registry/generation counters alone do not authorize a different panel's request.
+    PlaceholderTextShaper text;
+    auto other = take(panel::Host::open(panel::sample_a(), text));
+    auto fresh = take(panel::Host::open(panel::sample_a(), text));
+    require(other->view().commands.generation() == fresh->view().commands.generation(), "Foreign setup counters differ");
+    auto foreign = take(other->request("ambient-apply", CommandSource::agent));
+    require(!fresh->execute(foreign, text) && fresh->setting_attempts() == 0, "Foreign ambient presentation entered handler");
+    const std::set<std::uint64_t> owners{h.numeric().draft.owner, h.ambient().draft.owner, other->numeric().draft.owner,
+        other->ambient().draft.owner, fresh->numeric().draft.owner, fresh->ambient().draft.owner};
+    require(owners.size() == 6, "Panel reopen reused a numeric lifetime");
+    f.verify();
+    std::cout << f.observations << " two-field views match CPU/replay; independent drafts, eligibility and owners; " << h.camera_events() << " camera deliveries\n";
+}
 void msaa_controls() {
     // Every route starts at identical settings and must enter one handler exactly once.
     for (int route = 0; route < 5; ++route) {
@@ -983,6 +1157,6 @@ void boolean_controls(bool scene_lights) {
 
 }
 int main() {
-    try { run(); numeric_controls(); msaa_controls(); boolean_controls(false); boolean_controls(true); }
+    try { run(); numeric_controls(panel::NumericField::direct); numeric_controls(panel::NumericField::ambient); two_numeric_fields(); msaa_controls(); boolean_controls(false); boolean_controls(true); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
