@@ -44,10 +44,19 @@ inline constexpr std::array<const char*, 4> groups{"cpu", "gpu", "counters", "co
 inline constexpr std::array<const char*, 4> actions{"diagnostics.cpu", "diagnostics.gpu", "diagnostics.counters", "diagnostics.controls"};
 inline constexpr std::array<unsigned, 4> sample_counts{1, 2, 4, 8};
 inline constexpr std::array<const char*, 4> msaa_actions{"msaa.samples1", "msaa.samples2", "msaa.samples4", "msaa.samples8"};
+inline constexpr std::array<const char*, 3> material_views{"shaded", "normals", "base-color"};
+inline constexpr std::array<const char*, 3> material_view_actions{"material_view.shaded", "material_view.normals", "material_view.base-color"};
+inline constexpr std::array<const char*, 3> material_view_commands{"material_view.shaded", "material_view.normals", "material_view.base_color"};
 inline const tessera::ValidationContext context{{actions[0], actions[1], actions[2], actions[3],
     "direct.edit", "direct.decrease", "direct.increase", "direct.apply", "direct.cancel",
     "ambient.edit", "ambient.decrease", "ambient.increase", "ambient.apply", "ambient.cancel",
-    msaa_actions[0], msaa_actions[1], msaa_actions[2], msaa_actions[3], "outlines.toggle", "scene_lights.toggle"}};
+    msaa_actions[0], msaa_actions[1], msaa_actions[2], msaa_actions[3], "outlines.toggle", "scene_lights.toggle",
+    material_view_actions[0], material_view_actions[1], material_view_actions[2]}};
+struct MaterialView {
+    std::string accepted = "shaded";
+    bool enabled = true;
+    bool operator==(const MaterialView&) const = default;
+};
 struct Msaa {
     unsigned accepted = 1;
     std::vector<unsigned> supported{1, 2, 4};
@@ -78,9 +87,10 @@ tessera::Result<double> parse_numeric(std::string_view, NumericField = NumericFi
 // Application composition, not a new runtime widget or semantic role.
 tessera::authoring::Element NumericControl(const Numeric&, NumericField = NumericField::direct);
 tessera::authoring::Element MsaaControl(const Msaa&);
+tessera::authoring::Element MaterialViewControl(const MaterialView&);
 
 std::vector<tessera::Diagnostic> validate(const Snapshot&);
 // Call after validation. Pure ordinary composition; no callbacks, sampling or retained pointers.
-tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&, const Msaa&, const Outlines&, const SceneLights&, const Numeric& ambient);
+tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&, const Msaa&, const Outlines&, const SceneLights&, const Numeric& ambient, const MaterialView&);
 tessera::StyleSheet panel_styles();
 } // namespace diagnostics

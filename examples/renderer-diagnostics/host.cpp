@@ -13,11 +13,11 @@ bool supports(const Msaa& msaa, unsigned samples) {
     return std::find(msaa.supported.begin(), msaa.supported.end(), samples) != msaa.supported.end();
 }
 bool controls_focus(const std::optional<std::string>& id) {
-    return id && (id->starts_with("direct-") || id->starts_with("ambient-") || id->starts_with("msaa-") || *id == "outlines-toggle" || *id == "scene-lights-toggle");
+    return id && (id->starts_with("direct-") || id->starts_with("ambient-") || id->starts_with("msaa-") || id->starts_with("material-view-") || *id == "outlines-toggle" || *id == "scene-lights-toggle");
 }
 Result<View> prepare(authoring::Session& session, const Snapshot& snapshot, const Disclosure& disclosure,
-    const CommandSnapshot& commands, Point offset, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, TextShaper& text) {
-    auto authored = session.lower(Panel(snapshot, disclosure, numeric, msaa, outlines, scene_lights, ambient), context);
+    const CommandSnapshot& commands, Point offset, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view, TextShaper& text) {
+    auto authored = session.lower(Panel(snapshot, disclosure, numeric, msaa, outlines, scene_lights, ambient, material_view), context);
     if (!authored) return {std::nullopt, std::move(authored.diagnostics)};
     auto document = commands.apply_eligibility(authored.value->document, context);
     if (!document) return {std::nullopt, std::move(document.diagnostics)};
@@ -97,6 +97,13 @@ Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
     descriptors.push_back({"scene_lights.set", "Set scene lights", {}, {}, CommandAvailability::both, {
         {"field", CommandParameterType::enumeration, true, {}, {}, {}, 32, {"scene_lights"}},
         {"value", CommandParameterType::boolean, true}}});
+    for (std::size_t i = 0; i < material_view_commands.size(); ++i) {
+        const auto* command = material_view_commands[i];
+        descriptors.push_back({command, command}); bindings[material_view_actions[i]] = command;
+    }
+    descriptors.push_back({"material_view.set", "Set material view", {}, {}, CommandAvailability::both, {
+        {"field", CommandParameterType::enumeration, true, {}, {}, {}, 32, {"material_view"}},
+        {"value", CommandParameterType::enumeration, true, {}, {}, {}, 32, {material_views.begin(), material_views.end()}}}});
     for (const auto field : numeric_fields) {
         const auto name = field_name(field);
         descriptors.push_back({name + ".edit", "Edit " + name + " strength", {}, {}, CommandAvailability::both, {
@@ -125,14 +132,14 @@ Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
         if (!draft) return {std::nullopt, std::move(draft.diagnostics)};
         numeric.draft = std::move(*draft.value);
     }
-    auto staged = host->stage(snapshot, host->disclosure_, {}, {}, false, host->eligible_, host->numeric_, host->msaa_, host->outlines_, host->scene_lights_, host->ambient_, text);
+    auto staged = host->stage(snapshot, host->disclosure_, {}, {}, false, host->eligible_, host->numeric_, host->msaa_, host->outlines_, host->scene_lights_, host->ambient_, host->material_view_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    host->accept(std::move(*staged.value), std::move(snapshot), host->disclosure_, {}, host->eligible_, host->numeric_, host->msaa_, host->outlines_, host->scene_lights_, host->ambient_);
+    host->accept(std::move(*staged.value), std::move(snapshot), host->disclosure_, {}, host->eligible_, host->numeric_, host->msaa_, host->outlines_, host->scene_lights_, host->ambient_, host->material_view_);
     return {std::move(host), {}};
 }
 
 Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure, Point offset,
-    FocusDispatcher focus, bool reveal, std::array<bool, 3> eligible, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, TextShaper& text) {
+    FocusDispatcher focus, bool reveal, std::array<bool, 3> eligible, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view, TextShaper& text) {
     auto errors = validate(snapshot);
     for (const auto field : numeric_fields) {
         const auto& value = field == NumericField::direct ? numeric : ambient;
@@ -146,6 +153,8 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
             errors.push_back({"msaa_capabilities", Severity::error, "/controls/msaa/supported", "Expected unique samples from {1,2,4,8}"});
     if (!supports(msaa, msaa.accepted))
         errors.push_back({"msaa_capabilities", Severity::error, "/controls/msaa/supported", "Supported samples must include the accepted MSAA value"});
+    if (std::find(material_views.begin(), material_views.end(), material_view.accepted) == material_views.end())
+        errors.push_back({"material_view_value", Severity::error, "/controls/material_view", "Expected shaded, normals or base-color"});
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     CommandStates states;
     for (std::size_t i = 0; i < groups.size(); ++i) states[actions[i]] = {i == 3 || eligible[i]};
@@ -167,9 +176,12 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
     states["outlines.set"] = {outlines.enabled && disclosure.expanded[3]};
     states["scene_lights.toggle"] = {scene_lights.enabled && disclosure.expanded[3]};
     states["scene_lights.set"] = {scene_lights.enabled && disclosure.expanded[3]};
+    states["material_view.set"] = {material_view.enabled && disclosure.expanded[3]};
+    for (const auto* command : material_view_commands)
+        states[command] = {material_view.enabled && disclosure.expanded[3]};
     auto commands = CommandSnapshot::publish(registry_, ++generation_, CommandMode::production, std::move(states));
     if (!commands) return {std::nullopt, std::move(commands.diagnostics)};
-    auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, numeric, msaa, outlines, scene_lights, ambient, text);
+    auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, numeric, msaa, outlines, scene_lights, ambient, material_view, text);
     if (!staged) return staged;
     // Removing controls has an explicit recovery target instead of adjacent-field heuristics.
     if (!disclosure.expanded[3] && controls_focus(focused())) {
@@ -182,18 +194,18 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
         auto updates = scroll_into_view(staged.value->hit(), *recovered.value->focused);
         if (!updates) return {std::nullopt, std::move(updates.diagnostics)};
         if (!updates.value->empty()) staged = prepare(session_, snapshot, disclosure, *commands.value,
-            updates.value->front().offset, numeric, msaa, outlines, scene_lights, ambient, text);
+            updates.value->front().offset, numeric, msaa, outlines, scene_lights, ambient, material_view, text);
     }
     return staged;
 }
 
 void Host::accept(View view, Snapshot snapshot, Disclosure disclosure, FocusDispatcher focus,
-    std::array<bool, 3> eligible, Numeric numeric, Msaa msaa, Outlines outlines, SceneLights scene_lights, Numeric ambient) {
+    std::array<bool, 3> eligible, Numeric numeric, Msaa msaa, Outlines outlines, SceneLights scene_lights, Numeric ambient, MaterialView material_view) {
     const bool recover_header = !disclosure.expanded[3] && controls_focus(focused());
     const bool changed = ambient.accepted != ambient_.accepted || numeric.accepted != numeric_.accepted || msaa.accepted != msaa_.accepted || outlines.accepted != outlines_.accepted ||
-        scene_lights.accepted != scene_lights_.accepted;
+        scene_lights.accepted != scene_lights_.accepted || material_view.accepted != material_view_.accepted;
     offset_ = view.layout.boxes[view.tree->find("renderer-diagnostics")->index].scroll->offset;
-    snapshot_ = std::move(snapshot); disclosure_ = disclosure; eligible_ = eligible; numeric_ = std::move(numeric); ambient_ = std::move(ambient); msaa_ = std::move(msaa); outlines_ = outlines; scene_lights_ = scene_lights;
+    snapshot_ = std::move(snapshot); disclosure_ = disclosure; eligible_ = eligible; numeric_ = std::move(numeric); ambient_ = std::move(ambient); msaa_ = std::move(msaa); outlines_ = outlines; scene_lights_ = scene_lights; material_view_ = std::move(material_view);
     accepted_ = std::move(view);
     focus_ = std::move(focus);
     if (recover_header) (void)focus_.focus(accepted_->hit(), *accepted_->tree->find("disclosure-controls"));
@@ -212,15 +224,15 @@ std::optional<std::string> Host::focused() const {
 }
 
 Result<bool> Host::refresh(Snapshot snapshot, TextShaper& text) {
-    auto staged = stage(snapshot, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, text);
+    auto staged = stage(snapshot, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), std::move(snapshot), disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_);
+    accept(std::move(*staged.value), std::move(snapshot), disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_);
     return {true, {}};
 }
 Result<bool> Host::eligibility(std::array<bool, 3> eligible, TextShaper& text) {
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible, numeric_, msaa_, outlines_, scene_lights_, ambient_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible, numeric_, msaa_, outlines_, scene_lights_, ambient_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_);
     return {true, {}};
 }
 Result<bool> Host::numeric_eligibility(bool enabled, TextShaper& text) {
@@ -229,23 +241,23 @@ Result<bool> Host::numeric_eligibility(bool enabled, TextShaper& text) {
 Result<bool> Host::numeric_eligibility(NumericField field, bool enabled, TextShaper& text) {
     auto numeric = numeric_, ambient = ambient_;
     (field == NumericField::direct ? numeric : ambient).enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric, msaa_, outlines_, scene_lights_, ambient, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric, msaa_, outlines_, scene_lights_, ambient, material_view_, text);
     if (!staged) return {std::nullopt, numeric_diagnostics(std::move(staged.diagnostics), field)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, std::move(numeric), msaa_, outlines_, scene_lights_, std::move(ambient));
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, std::move(numeric), msaa_, outlines_, scene_lights_, std::move(ambient), material_view_);
     return {true, {}};
 }
 Result<bool> Host::msaa_capabilities(std::vector<unsigned> supported, bool enabled, TextShaper& text) {
     auto msaa = msaa_; msaa.supported = std::move(supported); msaa.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa, outlines_, scene_lights_, ambient_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa, outlines_, scene_lights_, ambient_, material_view_, text);
     if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, std::move(msaa), outlines_, scene_lights_, ambient_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, std::move(msaa), outlines_, scene_lights_, ambient_, material_view_);
     return {true, {}};
 }
 Result<bool> Host::outlines_eligibility(bool enabled, TextShaper& text) {
     auto outlines = outlines_; outlines.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines, scene_lights_, ambient_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines, scene_lights_, ambient_, material_view_, text);
     if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines, scene_lights_, ambient_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines, scene_lights_, ambient_, material_view_);
     return {true, {}};
 }
 Result<CommandInvocation> Host::request_outlines(std::string field, bool value, CommandSource source) {
@@ -254,14 +266,25 @@ Result<CommandInvocation> Host::request_outlines(std::string field, bool value, 
 }
 Result<bool> Host::scene_lights_eligibility(bool enabled, TextShaper& text) {
     auto scene_lights = scene_lights_; scene_lights.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights, ambient_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights, ambient_, material_view_, text);
     if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights, ambient_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights, ambient_, material_view_);
     return {true, {}};
 }
 Result<CommandInvocation> Host::request_scene_lights(std::string field, bool value, CommandSource source) {
     return view().commands.resolve({view().commands.generation(), "scene_lights.set",
         {{"field", std::move(field)}, {"value", value}}, source, ++sequence_});
+}
+Result<bool> Host::material_view_eligibility(bool enabled, TextShaper& text) {
+    auto material_view = material_view_; material_view.enabled = enabled;
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view, text);
+    if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, std::move(material_view));
+    return {true, {}};
+}
+Result<CommandInvocation> Host::request_material_view(std::string field, std::string value, CommandSource source) {
+    return view().commands.resolve({view().commands.generation(), "material_view.set",
+        {{"field", std::move(field)}, {"value", std::move(value)}}, source, ++sequence_});
 }
 namespace {
 CommandArguments edit_arguments(const TextEditRequest& edit) {
@@ -325,10 +348,11 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
         Msaa msaa;
         Outlines outlines;
         SceneLights scene_lights;
+        MaterialView material_view;
         FocusDispatcher focus;
         std::optional<View> candidate;
         Handler(Host& host, TextShaper& text) : host(host), text(text), disclosure(host.disclosure_),
-            numeric(host.numeric_), ambient(host.ambient_), msaa(host.msaa_), outlines(host.outlines_), scene_lights(host.scene_lights_), focus(host.focus_) {}
+            numeric(host.numeric_), ambient(host.ambient_), msaa(host.msaa_), outlines(host.outlines_), scene_lights(host.scene_lights_), material_view(host.material_view_), focus(host.focus_) {}
         CommandOutcome error(std::string message) {
             return {CommandOutcomeStatus::error, {}, {{field_name(field) + "_request", Severity::error, "/controls/" + field_name(field), std::move(message)}}};
         }
@@ -349,6 +373,11 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
             } else if (call.command.starts_with("scene_lights.")) {
                 ++host.setting_attempts_;
                 scene_lights.accepted = call.command == "scene_lights.toggle" ? !scene_lights.accepted : std::get<bool>(call.arguments.at("value"));
+            } else if (call.command.starts_with("material_view.")) {
+                ++host.setting_attempts_;
+                if (call.command == "material_view.set") material_view.accepted = std::get<std::string>(call.arguments.at("value"));
+                else for (std::size_t i = 0; i < material_view_commands.size(); ++i)
+                    if (call.command == material_view_commands[i]) material_view.accepted = material_views[i];
             } else if (call.command.starts_with("msaa.")) {
                 ++host.setting_attempts_;
                 double samples = 0;
@@ -411,7 +440,7 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
                 value.draft.text = canonical(value.accepted);
                 value.draft.anchor = value.draft.caret = value.draft.text.size(); ++value.draft.revision;
             }
-            auto staged = host.stage(host.snapshot_, disclosure, host.offset_, focus, true, host.eligible_, numeric, msaa, outlines, scene_lights, ambient, text);
+            auto staged = host.stage(host.snapshot_, disclosure, host.offset_, focus, true, host.eligible_, numeric, msaa, outlines, scene_lights, ambient, material_view, text);
             if (!staged) return command_error(is_numeric ? numeric_diagnostics(std::move(staged.diagnostics), field) : std::move(staged.diagnostics));
             candidate = std::move(*staged.value);
             return {};
@@ -420,7 +449,7 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
     const auto current = view().semantic();
     auto execution = executor_.execute(view().commands, invocation, handler, &current);
     if (execution && execution.value->outcome.status == CommandOutcomeStatus::success)
-        accept(std::move(*handler.candidate), snapshot_, handler.disclosure, std::move(handler.focus), eligible_, std::move(handler.numeric), std::move(handler.msaa), handler.outlines, handler.scene_lights, std::move(handler.ambient));
+        accept(std::move(*handler.candidate), snapshot_, handler.disclosure, std::move(handler.focus), eligible_, std::move(handler.numeric), std::move(handler.msaa), handler.outlines, handler.scene_lights, std::move(handler.ambient), std::move(handler.material_view));
     return execution;
 }
 
@@ -456,9 +485,9 @@ Result<bool> Host::input(const InputEvent& event, CommandSource source, TextShap
         auto updates = route_scroll(view().hit(), *scroll);
         if (!updates) return {std::nullopt, std::move(updates.diagnostics)};
         if (updates.value->updates.empty()) return {true, {}};
-        auto staged = stage(snapshot_, disclosure_, updates.value->updates.front().offset, focus_, false, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, text);
+        auto staged = stage(snapshot_, disclosure_, updates.value->updates.front().offset, focus_, false, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, text);
         if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-        accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_);
+        accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_);
         return {true, {}};
     }
     const auto focused_id = focused().value_or("");
@@ -539,9 +568,9 @@ Result<bool> Host::input(const InputEvent& event, CommandSource source, TextShap
     auto dispatched = focus.dispatch(view().hit(), logical);
     if (!dispatched) return {std::nullopt, std::move(dispatched.diagnostics)};
     for (const auto& action : dispatched.value->actions) return operate(action, source, text);
-    auto staged = stage(snapshot_, disclosure_, offset_, focus, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, std::move(focus), eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, std::move(focus), eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_);
     return {true, {}};
 }
 } // namespace diagnostics

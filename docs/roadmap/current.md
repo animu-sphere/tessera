@@ -10,14 +10,14 @@ The runtime is the deterministic foundation. This milestone prioritizes authorin
 
 ### Current slice
 
-Implement **material-view selection** in the copyable [panel/host](../guides/renderer-diagnostics.md), under the [Proposed consumer boundary](../integrations/renderer-diagnostics.md#proposed-material-view-selection-boundary). The [source review](../reference/support-matrix.md#renderer-material-view-control-review--2026-10-26) records the comparison with key-direction editing and reset; those operations require separate selection.
+Select one remaining renderer-control operation in the copyable [panel/host](../guides/renderer-diagnostics.md), using the [consumer inventory](../integrations/renderer-diagnostics.md#proposed-settings-and-capability-observations). Compare key-direction entry/adjustment with reset against the ordinary composition and host boundaries before promoting implementation.
 
-Bounded implementation acceptance under the [four-item rule](../agent-policy.md#verification-ownership-and-bounded-acceptance):
+Bounded selection acceptance under the [four-item rule](../agent-policy.md#verification-ownership-and-bounded-acceptance):
 
-- **Minimum observable operation:** select a material view through ordinary Buttons and observe its accepted marker/text and host value. Extend the small copied main and working walkthrough through public APIs; telemetry refresh must preserve the choice without a setting request.
-- **New risks:** bind each stable choice owner to its fixed string value, validate exact field/value identities for node-free requests, and preserve both numeric drafts and unrelated settings. Verify representative pointer, keyboard/gamepad and semantic routing, independent eligibility, equal-value accounting, collapse recovery and one rejected setting-stage retry with complete accepted-state retention. Do not multiply the unchanged failure matrix by every route.
-- **Inherited guarantees:** reuse command schema/sequence/activation checks, revisioned editing, focus/scroll and CPU/replay owner tests under the [consumer verification requirements](../integrations/renderer-diagnostics.md#proposed-material-view-selection-boundary). Locally build the affected Diagnostics targets and run `renderer_diagnostics`, `renderer_diagnostics_contract`, `authoring` and `commands`, plus documentation checks. Full core Debug/Release and both imports remain integration/release checks unless implementation affects their boundaries.
-- **Stop:** a successful selected-view flow, the operation-specific retention/rejection assertions and copyable example/guide close this slice. Record executed configuration/results separately from inherited guarantees in support, then return to selection. Key-direction editing, reset, native renderer integration, generic choice/numeric/input frameworks, tables/plots and Settings-starter scrolling onboarding need separate selection.
+- **Minimum observable operation:** identify one concrete authoring or interaction step, its accepted observation and the minimum consumer policy needed to implement it.
+- **New risks:** distinguish per-component identity/bounds and draft ownership from all-settings reset eligibility/revision coupling; keep renderer-specific direction normalization and execution host-owned.
+- **Inherited guarantees:** cite relevant command, editing and host-staging owner checks and reuse existing composition where sufficient. Record source findings and evidence limits in support; a source review does not establish an executed runtime blocker.
+- **Stop:** put only the chosen operation's bounded implementation acceptance here before changing runtime/example code. Other controls, native renderer integration, generic choice/numeric/input frameworks, tables/plots and Settings-starter scrolling onboarding require separate selection.
 
 ### Bounded validation supporting work
 
