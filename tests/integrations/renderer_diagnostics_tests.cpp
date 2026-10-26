@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include <tuple>
 #include <algorithm>
+#include <cctype>
+#include <set>
 
 using namespace tessera;
 using namespace std::chrono_literals;
@@ -80,7 +82,7 @@ struct Fixture {
     auto stable() const {
         const auto& view = host->view();
         return std::tuple{host->snapshot(), host->disclosure(), host->offset(), host->focused(),
-            host->numeric(), host->ambient(), host->msaa(), host->outlines(), host->scene_lights(), host->material_view(), view.styles, view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
+            host->numeric(), host->ambient(), host->msaa(), host->outlines(), host->scene_lights(), host->material_view(), host->key_direction(), view.styles, view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
     }
     void verify() {
         const auto& view = host->view();
@@ -94,15 +96,21 @@ struct Fixture {
                 "Inspection and layout clipping differ");
         }
         const auto& snapshot = host->snapshot();
-        require(host->numeric().draft.owner != host->ambient().draft.owner, "Numeric lifetimes collided");
-        for (const auto field : panel::numeric_fields) {
-            const auto id = panel::field_name(field);
-            const auto& value = field == panel::NumericField::direct ? host->numeric() : host->ambient();
+        std::set<std::uint64_t> owners;
+        for (const auto field : panel::all_numeric_fields) owners.insert(host->numeric(field).draft.owner);
+        require(owners.size() == panel::all_numeric_fields.size(), "Numeric lifetimes collided");
+        require(view.tree->find("key-direction-control").has_value() == host->disclosure().expanded[3], "Key direction presence differs");
+        for (const auto field : panel::all_numeric_fields) {
+            const auto id = panel::field_id(field);
+            const auto& value = host->numeric(field);
+            const auto title = panel::field_label(field);
+            const auto label = static_cast<char>(std::tolower(static_cast<unsigned char>(title.front()))) + title.substr(1);
+            const auto bounds = panel::field_bounds(field);
             if (!host->disclosure().expanded[3]) {
                 require(!view.tree->find(id + "-control"), "Collapsed numeric field remained present");
                 continue;
             }
-            require(name(view, id + "-accepted") == "Accepted " + id + " strength: " + panel::canonical(value.accepted),
+            require(name(view, id + "-accepted") == "Accepted " + label + ": " + panel::canonical(value.accepted),
                 "Numeric accepted observation differs");
             const auto children = view.tree->children(*view.tree->find(id + "-input"));
             require(children.size() == 3, "Numeric input observations differ");
@@ -113,15 +121,15 @@ struct Fixture {
                 require(std::get<std::string>(view.tree->get(children[i])->properties.at("text")) == expected && observed != properties.end() &&
                     observed->value == std::optional<Property>{expected}, "Numeric draft/selection differs from inspection: " + id);
             }
-            const auto input_name = std::string{field == panel::NumericField::direct ? "Direct strength" : "Ambient strength"} +
+            const auto input_name = title +
                 (value.draft.text.empty() ? "" : " " + value.draft.text) + " Selection " + std::to_string(value.draft.anchor) + ":" + std::to_string(value.draft.caret);
             require(name(view, id + "-input") == input_name, "Numeric semantic draft/selection differs: " + id);
             const bool dirty = value.draft.text != panel::canonical(value.accepted);
             for (const auto* operation : {"input", "apply", "cancel", "decrease", "increase"}) {
                 bool enabled = value.enabled;
                 if (std::string_view{operation} == "cancel") enabled &= dirty;
-                if (std::string_view{operation} == "decrease") enabled &= !dirty && value.accepted > 0;
-                if (std::string_view{operation} == "increase") enabled &= !dirty && value.accepted < 4;
+                if (std::string_view{operation} == "decrease") enabled &= !dirty && value.accepted > bounds.minimum;
+                if (std::string_view{operation} == "increase") enabled &= !dirty && value.accepted < bounds.maximum;
                 require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find(id + "-" + operation), "activate")) == enabled,
                     "Numeric semantic eligibility differs: " + id + "-" + operation);
             }
@@ -429,7 +437,7 @@ void numeric_controls(panel::NumericField field) {
     };
     auto refresh = [&](panel::Snapshot snapshot) { require(take(host.refresh(std::move(snapshot), fixture.text)), "Expected refresh"); };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; host.focused() != id && i < 20; ++i) require(take(route(FocusNext{})), "Expected focus traversal");
+        for (int i = 0; host.focused() != id && i < 64; ++i) require(take(route(FocusNext{})), "Expected focus traversal");
         require(host.focused() == id && visible(host.view(), id), "Numeric focus/reveal failed: " + id);
     };
     auto click = [&](const std::string& id) {
@@ -596,8 +604,16 @@ void numeric_controls(panel::NumericField field) {
         take(route(PointerUp{{22}, {800, 200}}, CommandSource::pointer)) && host.camera_events() == delivered,
         "Replaced panel lost claimed stream");
     take(host.numeric_eligibility(field, false, fixture.text));
-    require(take(route(PointerDown{{23}, p}, CommandSource::pointer)) && take(route(PointerUp{{23}, p}, CommandSource::pointer)) &&
-        host.camera_events() == delivered, "Disabled panel hit reached camera");
+    // Focus recovery may reveal another owner; scroll the disabled owner back before pressing it.
+    if (!visible(host.view(), prefix + "-increase"))
+        require(take(route(Scroll{{16, 16}, {0, box(host.view(), prefix + "-increase").border_box.origin.y - 40}}, CommandSource::pointer)),
+            "Expected panel scroll");
+    require(visible(host.view(), prefix + "-increase") && host.camera_events() == delivered, "Disabled owner is not reachable");
+    const auto disabled = box(host.view(), prefix + "-increase").border_box;
+    const Point q{disabled.origin.x + 2, disabled.origin.y + 2};
+    const auto disabled_attempts = host.setting_attempts();
+    require(take(route(PointerDown{{23}, q}, CommandSource::pointer)) && take(route(PointerUp{{23}, q}, CommandSource::pointer)) &&
+        host.camera_events() == delivered && host.setting_attempts() == disabled_attempts, "Disabled panel hit reached camera or a handler");
     take(host.numeric_eligibility(field, true, fixture.text));
     reveal(prefix + "-input");
     RejectingText rejecting(false);
@@ -635,7 +651,7 @@ void two_numeric_fields() {
     };
     auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::agent, f.text)); };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 24; ++i)
+        for (int i = 0; h.focused() != id && i < 64; ++i)
             take(h.route({std::chrono::microseconds{++f.tick}, FocusNext{}}, CommandSource::gamepad, f.text));
         require(h.focused() == id && visible(h.view(), id), "Two-field focus/reveal failed: " + id);
     };
@@ -755,7 +771,7 @@ void msaa_controls() {
             require(take(h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, f.text)), "Expected MSAA input");
         };
         if (route < 3) {
-            for (int i = 0; h.focused() != "msaa-2" && i < 20; ++i) send(FocusNext{}, CommandSource::keyboard);
+            for (int i = 0; h.focused() != "msaa-2" && i < 64; ++i) send(FocusNext{}, CommandSource::keyboard);
             require(h.focused() == "msaa-2" && visible(h.view(), "msaa-2"), "MSAA traversal/reveal failed");
             if (route == 0) {
                 const auto b = box(h.view(), "msaa-2").border_box;
@@ -788,7 +804,7 @@ void msaa_controls() {
         return h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, text ? *text : f.text);
     };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 20; ++i) take(send(KeyDown{Key::tab}));
+        for (int i = 0; h.focused() != id && i < 64; ++i) take(send(KeyDown{Key::tab}));
         require(h.focused() == id && visible(h.view(), id), "MSAA reveal failed: " + id);
     };
     auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success) {
@@ -966,7 +982,7 @@ void boolean_controls(bool scene_lights) {
         require(state(h) == std::pair{initial, true}, "Initial Boolean control differs");
         if (route < 3) {
             const auto target = route == 2 ? previous : id;
-            for (int i = 0; h.focused() != target && i < 20; ++i)
+            for (int i = 0; h.focused() != target && i < 64; ++i)
                 send(KeyDown{Key::tab}, CommandSource::keyboard);
             require(h.focused() == target && visible(h.view(), target), "Boolean control traversal/reveal failed");
             if (route == 0) {
@@ -992,7 +1008,7 @@ void boolean_controls(bool scene_lights) {
         return h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, text ? *text : f.text);
     };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 20; ++i) take(send(KeyDown{Key::tab}));
+        for (int i = 0; h.focused() != id && i < 64; ++i) take(send(KeyDown{Key::tab}));
         require(h.focused() == id && visible(h.view(), id), "Boolean control reveal failed: " + id);
     };
     auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::agent, f.text)); };
@@ -1172,7 +1188,7 @@ void material_view_controls() {
             "Expected consumed material view input");
     };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 32; ++i) send(KeyDown{Key::tab});
+        for (int i = 0; h.focused() != id && i < 64; ++i) send(KeyDown{Key::tab});
         require(h.focused() == id && visible(h.view(), id), "Material view traversal/reveal failed: " + id);
     };
     auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::accessibility, f.text)); };
@@ -1286,9 +1302,186 @@ void material_view_controls() {
         h.setting_changes() == changes + 1 && h.camera_events() == 0, "Fresh material retry lost drafts/accounting");
     std::cout << "material_view: 3 fixed owners, pointer/keyboard/gamepad/semantic routes, two-draft retention, eligibility, collapse and rejected-stage retry verified\n";
 }
+void key_direction_controls() {
+    Fixture f;
+    auto& h = *f.host;
+    using Field = panel::NumericField;
+    auto send = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        require(take(h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, f.text)) && h.last_consumed(),
+            "Expected consumed key direction input");
+    };
+    auto reveal = [&](const std::string& id) {
+        for (int i = 0; h.focused() != id && i < 64; ++i) send(KeyDown{Key::tab});
+        require(h.focused() == id && visible(h.view(), id), "Key direction traversal/reveal failed: " + id);
+    };
+    auto click = [&](const std::string& id) {
+        reveal(id);
+        const auto b = box(h.view(), id).border_box;
+        const Point point{b.origin.x + 2, b.origin.y + 2};
+        send(PointerDown{{81}, point}, CommandSource::pointer);
+        require(h.focused() == id, "Pointer press did not focus " + id);
+        send(PointerUp{{81}, point}, CommandSource::pointer);
+    };
+    auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success = true) {
+        auto result = take(h.execute(call, text));
+        require((result.outcome.status == CommandOutcomeStatus::success) == success, "Unexpected key direction outcome");
+        if (!success) require(!result.outcome.diagnostics.empty(), "Key direction rejection has no diagnostic");
+        return result;
+    };
+    auto edit = [&](Field field, auto operation) {
+        const auto d = h.numeric(field).draft;
+        execute(take(h.request_edit(field, {d.owner, d.revision, std::move(operation)}, CommandSource::agent)), f.text);
+    };
+    auto draft = [&](Field field, std::string value) {
+        edit(field, TextEditSelection{0, h.numeric(field).draft.text.size()});
+        edit(field, TextEditInsert{std::move(value)});
+    };
+    auto invoke = [&](const std::string& id) { require(take(h.invoke(id, CommandSource::accessibility, f.text)), "Expected key direction command"); };
+    auto set = [&](const std::string& field, double value) { return take(h.request_value(field, value, CommandSource::agent)); };
+    auto peers = [&](std::optional<Field> active) {
+        std::vector<panel::Numeric> values;
+        for (const auto field : panel::all_numeric_fields) if (field != active) values.push_back(h.numeric(field));
+        return values;
+    };
+    auto unrelated = [&] { return std::tuple{h.msaa(), h.outlines(), h.scene_lights(), h.material_view(), h.snapshot(), h.disclosure()}; };
+    auto settings = unrelated();
+    auto retained = [&](Field active, const std::vector<panel::Numeric>& before) {
+        require(peers(active) == before && unrelated() == settings, "Component operation changed a peer or unrelated setting");
+    };
+    const auto& key = h.key_direction();
+
+    // Initial (0,0,-1): z starts at its lower endpoint, with distinct lifetimes for every component.
+    require(key.x.accepted == 0 && key.y.accepted == 0 && key.z.accepted == -1 && key.x.draft.text == "0" && key.z.draft.text == "-1",
+        "Initial key direction differs");
+    require(!h.request("key-z-decrease", CommandSource::agent) && h.request("key-z-increase", CommandSource::agent),
+        "Initial z endpoint eligibility differs");
+    // Equal revisions never authorize another component's owner, including a strength field.
+    require(key.x.draft.revision == key.y.draft.revision, "Initial component revisions differ");
+    for (const auto& [field, peer] : {std::pair{Field::key_x, Field::key_y}, std::pair{Field::key_y, Field::key_z}, std::pair{Field::key_z, Field::direct}}) {
+        const auto d = h.numeric(peer).draft;
+        const auto before = f.stable();
+        const auto call = take(h.request_edit(field, {d.owner, d.revision, TextEditInsert{"1"}}, CommandSource::agent));
+        const auto failed = execute(call, f.text, false);
+        require(before == f.stable() && failed.outcome.diagnostics.front().path.ends_with("/controls/" + panel::field_name(field)) &&
+            !h.execute(call, f.text), "Cross-component owner accepted");
+    }
+    // Typed sets use exact component identities and signed bounds; strength bounds are unchanged.
+    const auto& commands = h.view().commands;
+    require(!commands.resolve({commands.generation(), "key_x.set", {{"field", std::string{"key_y"}}, {"value", 0.5}}, CommandSource::agent, 999}) &&
+        !commands.resolve({commands.generation(), "key_x.set", {{"field", std::string{"key_x"}}, {"value", std::string{"0.5"}}}, CommandSource::agent, 999}),
+        "Component set accepted a peer identity or coerced a string");
+    for (const auto value : {-1.25, 1.25, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
+        require(!h.request_value("key_x", value, CommandSource::agent), "Out-of-range component set resolved");
+    require(!h.request_value("key_w", 0, CommandSource::agent) && !h.request_value("key-x", 0, CommandSource::agent) &&
+        !h.request_value("direct", -0.5, CommandSource::agent), "Unknown identity or signed strength resolved");
+
+    // Distinct pending drafts on both strength fields and one peer component.
+    draft(Field::direct, "2."); draft(Field::ambient, "-"); draft(Field::key_y, "0."); edit(Field::key_y, TextEditSelection{2, 0});
+    // Semantic entry/Apply on x: signed grammar, bounds and canonical text.
+    auto before_peers = peers(Field::key_x);
+    for (const auto* invalid : {"1.01", "-1.01", "+1", "-", "1e0", "2", "-1.", "01"}) {
+        draft(Field::key_x, invalid);
+        const auto before = f.stable(); const auto attempts = h.setting_attempts();
+        const auto rejected = h.invoke("key-x-apply", CommandSource::agent, f.text);
+        require(!rejected && rejected.diagnostics.front().path.ends_with("/controls/key_x") &&
+            rejected.diagnostics.front().message.find("[-1,1]") != std::string::npos && before == f.stable() &&
+            h.setting_attempts() == attempts + 1 && !h.request("key-x-increase", CommandSource::agent),
+            "Invalid component draft changed accepted observations: " + std::string(invalid));
+    }
+    struct Entry { const char* text; double value; const char* canonical; };
+    for (const auto& entry : {Entry{"-0", 0, "0"}, Entry{"-0.5", -0.5, "-0.5"}, Entry{"1", 1, "1"}, Entry{"-1", -1, "-1"}, Entry{"0.10", 0.1, "0.1"}}) {
+        draft(Field::key_x, entry.text); invoke("key-x-apply");
+        require(key.x.accepted == entry.value && (entry.value != 0 || !std::signbit(key.x.accepted)) &&
+            key.x.draft.text == entry.canonical, "Component entry differs: " + std::string(entry.text));
+        retained(Field::key_x, before_peers);
+    }
+    // Raw keyboard entry with Enter, then typed negative zero and equal-value accounting.
+    invoke("key-x-input");
+    send(KeyDown{Key::home}); send(KeyDown{Key::end, {.shift = true}}); send(tessera::TextInput{"-0.25"}); send(KeyDown{Key::enter});
+    require(key.x.accepted == -0.25 && key.x.draft.text == "-0.25", "Raw keyboard component entry failed");
+    execute(set("key_x", -0.0), f.text);
+    require(key.x.accepted == 0 && !std::signbit(key.x.accepted) && key.x.draft.text == "0", "Typed negative zero was not stored as zero");
+    const auto revision = key.x.draft.revision, attempts = h.setting_attempts(), changes = h.setting_changes();
+    execute(set("key_x", 0), f.text);
+    require(key.x.draft.revision == revision + 1 && h.setting_attempts() == attempts + 1 && h.setting_changes() == changes,
+        "Equal component set accounting differs");
+    retained(Field::key_x, before_peers);
+    f.verify();
+
+    // Keyboard/gamepad adjustment on z, through zero to both clamped endpoints.
+    before_peers = peers(Field::key_z);
+    reveal("key-z-increase");
+    send(Activate{}, CommandSource::gamepad); send(KeyDown{Key::space});
+    require(key.z.accepted == -0.5, "Gamepad/keyboard component adjustment differs");
+    send(Navigate{Direction::left}, CommandSource::gamepad); send(Activate{}, CommandSource::gamepad);
+    require(h.focused() == "key-z-decrease" && key.z.accepted == -0.75, "Gamepad decrease differs");
+    for (int i = 0; i < 3; ++i) invoke("key-z-increase");
+    require(key.z.accepted == 0 && !std::signbit(key.z.accepted) && key.z.draft.text == "0", "Adjustment through zero differs");
+    execute(set("key_z", 0.9), f.text); invoke("key-z-increase");
+    require(key.z.accepted == 1 && !h.request("key-z-increase", CommandSource::agent), "Upper component clamp differs");
+    execute(set("key_z", -0.9), f.text); invoke("key-z-decrease");
+    require(key.z.accepted == -1 && !h.request("key-z-decrease", CommandSource::agent), "Lower component clamp differs");
+    retained(Field::key_z, before_peers);
+    f.verify();
+
+    // Other controls, telemetry and eligibility preserve every component draft without a setting request.
+    const auto pending = peers(std::nullopt);
+    invoke("msaa-4"); invoke("outlines-toggle"); invoke("material-view-normals");
+    const auto before_refresh = h.setting_attempts();
+    for (const auto& data : {panel::sample_b(), panel::sample_c(), panel::sample_a()}) take(h.refresh(data, f.text));
+    require(peers(std::nullopt) == pending && h.setting_attempts() == before_refresh, "Unrelated operation changed numeric drafts");
+    settings = unrelated();
+    const auto held = take(h.request("key-y-apply", CommandSource::agent));
+    take(h.numeric_eligibility(Field::key_y, false, f.text));
+    require(!h.execute(held, f.text) && !h.request_value("key_y", 0.5, CommandSource::agent) &&
+        h.request("key-x-input", CommandSource::agent) && h.request("key-z-increase", CommandSource::agent) &&
+        h.view().commands.lookup("direct.apply").value->state.enabled && h.view().commands.lookup("msaa.set").value->state.enabled,
+        "Component eligibility was not independent");
+    take(h.numeric_eligibility(Field::direct, false, f.text));
+    require(h.view().commands.lookup("key_x.apply").value->state.enabled, "Direct eligibility disabled a component");
+    take(h.numeric_eligibility(Field::direct, true, f.text)); take(h.numeric_eligibility(Field::key_y, true, f.text));
+    require(peers(std::nullopt) == pending && unrelated() == settings, "Eligibility publication changed drafts or settings");
+    // Collapse from any component input or operation recovers/reveals the controls header.
+    for (const auto* id : {"key-x-input", "key-y-input", "key-z-input", "key-z-increase", "key-y-cancel"}) {
+        reveal(id); invoke("disclosure-controls");
+        require(h.focused() == "disclosure-controls" && visible(h.view(), "disclosure-controls") && !h.view().tree->find("key-direction-control"),
+            "Component collapse recovery failed: " + std::string(id));
+        invoke("disclosure-controls");
+        require(h.focused() == "disclosure-controls" && peers(std::nullopt) == pending, "Expansion changed focus or drafts");
+    }
+
+    // Pointer entry on y replaces its pending draft and leaves every peer intact.
+    before_peers = peers(Field::key_y);
+    click("key-y-input");
+    send(KeyDown{Key::home}); send(KeyDown{Key::end, {.shift = true}}); send(tessera::TextInput{"0.75"});
+    click("key-y-apply");
+    require(key.y.accepted == 0.75 && key.y.draft.text == "0.75", "Pointer component entry failed");
+    draft(Field::key_y, "0.3"); invoke("key-y-input"); send(KeyDown{Key::escape});
+    require(key.y.accepted == 0.75 && key.y.draft.text == "0.75" && !h.request("key-y-cancel", CommandSource::agent), "Raw Escape component Cancel differs");
+    retained(Field::key_y, before_peers);
+
+    // One new component staging branch; the strength scenarios own the wider failure matrix.
+    RejectingText rejecting{true};
+    const auto before_failure = f.stable(); const auto failed_attempts = h.setting_attempts(); const auto failed_changes = h.setting_changes();
+    const auto failed = set("key_z", 0.5);
+    const auto result = execute(failed, rejecting, false);
+    const auto& located = result.outcome.diagnostics.front().path;
+    require(result.outcome.diagnostics.size() <= max_command_result_diagnostics && located.find("/controls/key_z/nodes/") != std::string::npos,
+        "Rejected component stage lost located diagnostics: " + located);
+    require(before_failure == f.stable() && h.setting_attempts() == failed_attempts + 1 && h.setting_changes() == failed_changes,
+        "Rejected component stage changed accepted state or accounting");
+    require(!h.execute(failed, f.text) && h.setting_attempts() == failed_attempts + 1, "Failed component request executed twice");
+    before_peers = peers(Field::key_z);
+    execute(set("key_z", 0.5), f.text);
+    require(key.z.accepted == 0.5 && h.setting_changes() == failed_changes + 1 && h.camera_events() == 0, "Fresh component retry differs");
+    retained(Field::key_z, before_peers);
+    f.verify();
+    std::cout << f.observations << " key direction views match CPU/replay; three components, signed bounds, routing, retention and retry verified; " <<
+        h.camera_events() << " camera deliveries\n";
+}
 
 }
 int main() {
-    try { run(); numeric_controls(panel::NumericField::direct); numeric_controls(panel::NumericField::ambient); two_numeric_fields(); msaa_controls(); boolean_controls(false); boolean_controls(true); material_view_controls(); }
+    try { run(); numeric_controls(panel::NumericField::direct); numeric_controls(panel::NumericField::ambient); two_numeric_fields(); msaa_controls(); boolean_controls(false); boolean_controls(true); material_view_controls(); key_direction_controls(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

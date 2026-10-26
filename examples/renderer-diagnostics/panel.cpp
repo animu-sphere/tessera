@@ -1,4 +1,6 @@
 #include "panel.hpp"
+#include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <set>
@@ -104,6 +106,43 @@ std::vector<Diagnostic> validate(const Snapshot& snapshot) {
     return errors;
 }
 
+std::string field_name(NumericField field) {
+    switch (field) {
+    case NumericField::ambient: return "ambient";
+    case NumericField::key_x: return "key_x";
+    case NumericField::key_y: return "key_y";
+    case NumericField::key_z: return "key_z";
+    default: return "direct";
+    }
+}
+std::string field_id(NumericField field) {
+    auto id = field_name(field);
+    std::replace(id.begin(), id.end(), '_', '-');
+    return id;
+}
+std::string field_label(NumericField field) {
+    switch (field) {
+    case NumericField::ambient: return "Ambient strength";
+    case NumericField::key_x: return "Key direction X";
+    case NumericField::key_y: return "Key direction Y";
+    case NumericField::key_z: return "Key direction Z";
+    default: return "Direct strength";
+    }
+}
+NumericBounds field_bounds(NumericField field) {
+    return field == NumericField::direct || field == NumericField::ambient ? NumericBounds{0, 4} : NumericBounds{-1, 1};
+}
+std::optional<NumericField> numeric_field(std::string_view name) {
+    for (const auto field : all_numeric_fields)
+        if (name == field_name(field)) return field;
+    return std::nullopt;
+}
+std::optional<NumericField> numeric_owner(std::string_view author_id) {
+    for (const auto field : all_numeric_fields)
+        if (author_id.starts_with(field_id(field) + "-")) return field;
+    return std::nullopt;
+}
+
 std::string canonical(double value) {
     if (value == 0) return "0";
     char buffer[1100]; // Fixed notation also covers the smallest finite binary64.
@@ -111,8 +150,10 @@ std::string canonical(double value) {
     return {buffer, result.ptr};
 }
 Result<double> parse_numeric(std::string_view value, NumericField field) {
-    auto invalid = [field]() -> Result<double> { return {std::nullopt, {{field_name(field) + "_value", Severity::error,
-        "/controls/" + field_name(field), "Expected decimal -?(0|[1-9][0-9]*)(.[0-9]+)? in inclusive [0,4]"}}}; };
+    const auto bounds = field_bounds(field);
+    auto invalid = [field, bounds]() -> Result<double> { return {std::nullopt, {{field_name(field) + "_value", Severity::error,
+        "/controls/" + field_name(field), "Expected decimal -?(0|[1-9][0-9]*)(.[0-9]+)? in inclusive [" +
+        canonical(bounds.minimum) + "," + canonical(bounds.maximum) + "]"}}}; };
     if (value.size() > 32) return invalid();
     std::size_t i = value.starts_with('-') ? 1 : 0;
     if (i == value.size()) return invalid();
@@ -129,20 +170,28 @@ Result<double> parse_numeric(std::string_view value, NumericField field) {
     double parsed = 0;
     const auto converted = std::from_chars(value.data(), value.data() + value.size(), parsed);
     if (i != value.size() || converted.ec != std::errc{} || converted.ptr != value.data() + value.size() ||
-        !std::isfinite(parsed) || parsed < 0 || parsed > 4) return invalid();
+        !std::isfinite(parsed) || parsed < bounds.minimum || parsed > bounds.maximum) return invalid();
     return {parsed == 0 ? 0 : parsed, {}};
 }
 ui::Element NumericControl(const Numeric& value, NumericField field) {
-    const auto id = field_name(field);
-    const auto label = id + " strength";
+    const auto action = field_name(field);
+    const auto id = field_id(field);
+    const auto title = field_label(field);
+    // Operation names keep the field's capitalized words, e.g. "Apply key direction X".
+    const auto label = static_cast<char>(std::tolower(static_cast<unsigned char>(title.front()))) + title.substr(1);
     return ui::Column({
-        ui::TextInput(field == NumericField::direct ? "Direct strength" : "Ambient strength", value.draft, id + ".edit", {.node = {.id = id + "-input"}}),
-        ui::Row({ui::Button("Decrease " + label, id + ".decrease", {.node = {.id = id + "-decrease"}}),
-            ui::Button("Increase " + label, id + ".increase", {.node = {.id = id + "-increase"}})}, {.style = {.gap = 12.f}}),
-        ui::Row({ui::Button("Apply " + label, id + ".apply", {.node = {.id = id + "-apply"}}),
-            ui::Button("Cancel " + label, id + ".cancel", {.node = {.id = id + "-cancel"}})}, {.style = {.gap = 12.f}}),
+        ui::TextInput(title, value.draft, action + ".edit", {.node = {.id = id + "-input"}}),
+        ui::Row({ui::Button("Decrease " + label, action + ".decrease", {.node = {.id = id + "-decrease"}}),
+            ui::Button("Increase " + label, action + ".increase", {.node = {.id = id + "-increase"}})}, {.style = {.gap = 12.f}}),
+        ui::Row({ui::Button("Apply " + label, action + ".apply", {.node = {.id = id + "-apply"}}),
+            ui::Button("Cancel " + label, action + ".cancel", {.node = {.id = id + "-cancel"}})}, {.style = {.gap = 12.f}}),
         ui::Text("Accepted " + label + ": " + canonical(value.accepted), {.id = id + "-accepted"})},
         {.id = id + "-control", .style = {.gap = 12.f}});
+}
+ui::Element KeyDirectionControl(const KeyDirection& value) {
+    return ui::Column({ui::Text("Key direction", {.id = "key-direction-label"}),
+        NumericControl(value.x, NumericField::key_x), NumericControl(value.y, NumericField::key_y),
+        NumericControl(value.z, NumericField::key_z)}, {.id = "key-direction-control", .style = {.gap = 12.f}});
 }
 ui::Element MsaaControl(const Msaa& value) {
     std::vector<ui::Element> choices;
@@ -169,7 +218,8 @@ ui::Element MaterialViewControl(const MaterialView& value) {
         {.id = "material-view-control", .style = {.gap = 12.f}});
 }
 ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric, const Msaa& msaa,
-    const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view) {
+    const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view,
+    const KeyDirection& key_direction) {
     std::vector<ui::Element> rows{
         ui::Text("Renderer diagnostics", {.id = "heading"}),
         row("scene", "Scene", snapshot.scene), row("device", "Device", snapshot.device),
@@ -190,6 +240,7 @@ ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const 
         else {
             rows.push_back(NumericControl(numeric));
             rows.push_back(NumericControl(ambient, NumericField::ambient));
+            rows.push_back(KeyDirectionControl(key_direction));
             rows.push_back(MsaaControl(msaa));
             rows.push_back(ui::Checkbox("Outlines", outlines.accepted, "outlines.toggle",
                 {.node = {.id = "outlines-toggle"}}));

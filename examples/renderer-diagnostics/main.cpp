@@ -72,7 +72,20 @@ int main() {
         const auto material_view = take(host->request_material_view("material_view", "base-color", CommandSource::agent));
         if (take(host->execute(material_view, text)).outcome.status != CommandOutcomeStatus::success)
             throw std::runtime_error("Material view setting rejected");
+        // Key direction components are independent numeric fields in [-1,1]; the host does not normalize the vector.
+        (void)take(host->invoke("key-z-increase", CommandSource::accessibility, text));
+        (void)take(host->invoke("key-x-input", CommandSource::agent, text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, KeyDown{Key::home}}, CommandSource::keyboard, text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, KeyDown{Key::end, {.shift = true}}}, CommandSource::keyboard, text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, tessera::TextInput{"-0.5"}}, CommandSource::keyboard, text));
+        (void)take(host->route({std::chrono::microseconds{++tick}, KeyDown{Key::enter}}, CommandSource::keyboard, text));
+        const auto key_y = take(host->request_value("key_y", 0.25, CommandSource::agent));
+        if (take(host->execute(key_y, text)).outcome.status != CommandOutcomeStatus::success)
+            throw std::runtime_error("Key direction setting rejected");
         (void)take(host->refresh(diagnostics::sample_c(), text)); // Retains the accepted choice without a setting request.
+        const auto& key = host->key_direction();
+        std::cout << "Key direction " << diagnostics::canonical(key.x.accepted) << ", " << diagnostics::canonical(key.y.accepted) <<
+            ", " << diagnostics::canonical(key.z.accepted) << '\n';
         std::cout << "Material view " << host->material_view().accepted << '\n';
         std::cout << "Scene lights " << (host->scene_lights().accepted ? "on" : "off") << '\n';
         std::cout << "Outlines " << (host->outlines().accepted ? "on" : "off") << '\n';

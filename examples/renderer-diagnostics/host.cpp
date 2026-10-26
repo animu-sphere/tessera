@@ -2,6 +2,7 @@
 #include <atomic>
 #include <charconv>
 #include <limits>
+#include <cctype>
 #include <cmath>
 #include <algorithm>
 #include <type_traits>
@@ -12,12 +13,26 @@ namespace {
 bool supports(const Msaa& msaa, unsigned samples) {
     return std::find(msaa.supported.begin(), msaa.supported.end(), samples) != msaa.supported.end();
 }
+// Selects one field from the strength fields and key-direction components.
+template<class N, class K> N& pick(NumericField field, N& direct, N& ambient, K& key) {
+    switch (field) {
+    case NumericField::ambient: return ambient;
+    case NumericField::key_x: return key.x;
+    case NumericField::key_y: return key.y;
+    case NumericField::key_z: return key.z;
+    default: return direct;
+    }
+}
+std::string operation_label(NumericField field) {
+    const auto label = field_label(field);
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(label.front()))) + label.substr(1);
+}
 bool controls_focus(const std::optional<std::string>& id) {
-    return id && (id->starts_with("direct-") || id->starts_with("ambient-") || id->starts_with("msaa-") || id->starts_with("material-view-") || *id == "outlines-toggle" || *id == "scene-lights-toggle");
+    return id && (id->starts_with("direct-") || id->starts_with("ambient-") || id->starts_with("key-") || id->starts_with("msaa-") || id->starts_with("material-view-") || *id == "outlines-toggle" || *id == "scene-lights-toggle");
 }
 Result<View> prepare(authoring::Session& session, const Snapshot& snapshot, const Disclosure& disclosure,
-    const CommandSnapshot& commands, Point offset, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view, TextShaper& text) {
-    auto authored = session.lower(Panel(snapshot, disclosure, numeric, msaa, outlines, scene_lights, ambient, material_view), context);
+    const CommandSnapshot& commands, Point offset, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view, const KeyDirection& key_direction, TextShaper& text) {
+    auto authored = session.lower(Panel(snapshot, disclosure, numeric, msaa, outlines, scene_lights, ambient, material_view, key_direction), context);
     if (!authored) return {std::nullopt, std::move(authored.diagnostics)};
     auto document = commands.apply_eligibility(authored.value->document, context);
     if (!document) return {std::nullopt, std::move(document.diagnostics)};
@@ -71,15 +86,16 @@ Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
         descriptors.push_back({actions[i], "Toggle " + std::string(groups[i])});
         bindings[actions[i]] = actions[i];
     }
-    for (const auto field : numeric_fields) {
+    for (const auto field : all_numeric_fields) {
         const auto name = field_name(field);
+        const auto bounds = field_bounds(field);
         for (const auto* operation : {"decrease", "increase", "apply", "cancel"}) {
             const auto id = name + "." + operation;
             descriptors.push_back({id, id}); bindings[id] = id;
         }
-        descriptors.push_back({name + ".set", "Set " + name + " strength", {}, {}, CommandAvailability::both,
+        descriptors.push_back({name + ".set", "Set " + operation_label(field), {}, {}, CommandAvailability::both,
             {{"field", CommandParameterType::enumeration, true, {}, {}, {}, 32, {name}},
-             {"value", CommandParameterType::number, true, {}, 0, 4}}});
+             {"value", CommandParameterType::number, true, {}, bounds.minimum, bounds.maximum}}});
     }
     for (const auto* action : msaa_actions) {
         descriptors.push_back({action, action}); bindings[action] = action;
@@ -104,9 +120,9 @@ Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
     descriptors.push_back({"material_view.set", "Set material view", {}, {}, CommandAvailability::both, {
         {"field", CommandParameterType::enumeration, true, {}, {}, {}, 32, {"material_view"}},
         {"value", CommandParameterType::enumeration, true, {}, {}, {}, 32, {material_views.begin(), material_views.end()}}}});
-    for (const auto field : numeric_fields) {
+    for (const auto field : all_numeric_fields) {
         const auto name = field_name(field);
-        descriptors.push_back({name + ".edit", "Edit " + name + " strength", {}, {}, CommandAvailability::both, {
+        descriptors.push_back({name + ".edit", "Edit " + operation_label(field), {}, {}, CommandAvailability::both, {
             {"owner", CommandParameterType::string, true, {}, {}, {}, 20},
             {"revision", CommandParameterType::string, true, {}, {}, {}, 20},
             {"kind", CommandParameterType::enumeration, true, {}, {}, {}, 32,
@@ -122,30 +138,32 @@ Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
     auto host = std::unique_ptr<Host>(new Host(std::move(*registry.value)));
     // Never reuse draft lifetimes, even across closed/reopened synthetic panels.
     static std::atomic<std::uint64_t> owners{1};
-    for (const auto field : numeric_fields) {
+    for (const auto field : all_numeric_fields) {
         auto owner = owners.load();
         while (owner != std::numeric_limits<std::uint64_t>::max() && !owners.compare_exchange_weak(owner, owner + 1)) {}
         if (owner == std::numeric_limits<std::uint64_t>::max())
             return {std::nullopt, {{"numeric_owner", Severity::error, "/controls/" + field_name(field), "Draft lifetime IDs exhausted"}}};
-        auto& numeric = field == NumericField::direct ? host->numeric_ : host->ambient_;
+        auto& numeric = pick(field, host->numeric_, host->ambient_, host->key_direction_);
         auto draft = make_text_edit_state(owner, canonical(numeric.accepted));
         if (!draft) return {std::nullopt, std::move(draft.diagnostics)};
         numeric.draft = std::move(*draft.value);
     }
-    auto staged = host->stage(snapshot, host->disclosure_, {}, {}, false, host->eligible_, host->numeric_, host->msaa_, host->outlines_, host->scene_lights_, host->ambient_, host->material_view_, text);
+    auto staged = host->stage(snapshot, host->disclosure_, {}, {}, false, host->eligible_, host->numeric_, host->msaa_, host->outlines_, host->scene_lights_, host->ambient_, host->material_view_, host->key_direction_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    host->accept(std::move(*staged.value), std::move(snapshot), host->disclosure_, {}, host->eligible_, host->numeric_, host->msaa_, host->outlines_, host->scene_lights_, host->ambient_, host->material_view_);
+    host->accept(std::move(*staged.value), std::move(snapshot), host->disclosure_, {}, host->eligible_, host->numeric_, host->msaa_, host->outlines_, host->scene_lights_, host->ambient_, host->material_view_, host->key_direction_);
     return {std::move(host), {}};
 }
 
 Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure, Point offset,
-    FocusDispatcher focus, bool reveal, std::array<bool, 3> eligible, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view, TextShaper& text) {
+    FocusDispatcher focus, bool reveal, std::array<bool, 3> eligible, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view, const KeyDirection& key_direction, TextShaper& text) {
     auto errors = validate(snapshot);
-    for (const auto field : numeric_fields) {
-        const auto& value = field == NumericField::direct ? numeric : ambient;
-        if (!std::isfinite(value.accepted) || value.accepted < 0 || value.accepted > 4 || canonical(value.accepted).size() > 32)
+    for (const auto field : all_numeric_fields) {
+        const auto& value = pick(field, numeric, ambient, key_direction);
+        const auto bounds = field_bounds(field);
+        if (!std::isfinite(value.accepted) || value.accepted < bounds.minimum || value.accepted > bounds.maximum ||
+            canonical(value.accepted).size() > 32)
             errors.push_back({field_name(field) + "_value", Severity::error, "/controls/" + field_name(field),
-                "Expected an accepted strength in [0,4] with a bounded decimal"});
+                "Expected an accepted value in [" + canonical(bounds.minimum) + "," + canonical(bounds.maximum) + "] with a bounded decimal"});
     }
     std::set<unsigned> samples;
     for (const auto sample : msaa.supported)
@@ -158,15 +176,16 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     CommandStates states;
     for (std::size_t i = 0; i < groups.size(); ++i) states[actions[i]] = {i == 3 || eligible[i]};
-    for (const auto field : numeric_fields) {
-        const auto& value = field == NumericField::direct ? numeric : ambient;
+    for (const auto field : all_numeric_fields) {
+        const auto& value = pick(field, numeric, ambient, key_direction);
         const auto name = field_name(field);
+        const auto bounds = field_bounds(field);
         const bool enabled = value.enabled && disclosure.expanded[3];
         const bool dirty = value.draft.text != canonical(value.accepted);
         states[name + ".edit"] = {enabled}; states[name + ".apply"] = {enabled}; states[name + ".set"] = {enabled};
         states[name + ".cancel"] = {enabled && dirty};
-        states[name + ".decrease"] = {enabled && !dirty && value.accepted > 0};
-        states[name + ".increase"] = {enabled && !dirty && value.accepted < 4};
+        states[name + ".decrease"] = {enabled && !dirty && value.accepted > bounds.minimum};
+        states[name + ".increase"] = {enabled && !dirty && value.accepted < bounds.maximum};
     }
     const bool msaa_enabled = msaa.enabled && disclosure.expanded[3];
     states["msaa.set"] = {msaa_enabled};
@@ -181,7 +200,7 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
         states[command] = {material_view.enabled && disclosure.expanded[3]};
     auto commands = CommandSnapshot::publish(registry_, ++generation_, CommandMode::production, std::move(states));
     if (!commands) return {std::nullopt, std::move(commands.diagnostics)};
-    auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, numeric, msaa, outlines, scene_lights, ambient, material_view, text);
+    auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, numeric, msaa, outlines, scene_lights, ambient, material_view, key_direction, text);
     if (!staged) return staged;
     // Removing controls has an explicit recovery target instead of adjacent-field heuristics.
     if (!disclosure.expanded[3] && controls_focus(focused())) {
@@ -194,18 +213,22 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
         auto updates = scroll_into_view(staged.value->hit(), *recovered.value->focused);
         if (!updates) return {std::nullopt, std::move(updates.diagnostics)};
         if (!updates.value->empty()) staged = prepare(session_, snapshot, disclosure, *commands.value,
-            updates.value->front().offset, numeric, msaa, outlines, scene_lights, ambient, material_view, text);
+            updates.value->front().offset, numeric, msaa, outlines, scene_lights, ambient, material_view, key_direction, text);
     }
     return staged;
 }
 
 void Host::accept(View view, Snapshot snapshot, Disclosure disclosure, FocusDispatcher focus,
-    std::array<bool, 3> eligible, Numeric numeric, Msaa msaa, Outlines outlines, SceneLights scene_lights, Numeric ambient, MaterialView material_view) {
+    std::array<bool, 3> eligible, Numeric numeric, Msaa msaa, Outlines outlines, SceneLights scene_lights, Numeric ambient, MaterialView material_view,
+    KeyDirection key_direction) {
     const bool recover_header = !disclosure.expanded[3] && controls_focus(focused());
     const bool changed = ambient.accepted != ambient_.accepted || numeric.accepted != numeric_.accepted || msaa.accepted != msaa_.accepted || outlines.accepted != outlines_.accepted ||
-        scene_lights.accepted != scene_lights_.accepted || material_view.accepted != material_view_.accepted;
+        scene_lights.accepted != scene_lights_.accepted || material_view.accepted != material_view_.accepted ||
+        key_direction.x.accepted != key_direction_.x.accepted || key_direction.y.accepted != key_direction_.y.accepted ||
+        key_direction.z.accepted != key_direction_.z.accepted;
     offset_ = view.layout.boxes[view.tree->find("renderer-diagnostics")->index].scroll->offset;
     snapshot_ = std::move(snapshot); disclosure_ = disclosure; eligible_ = eligible; numeric_ = std::move(numeric); ambient_ = std::move(ambient); msaa_ = std::move(msaa); outlines_ = outlines; scene_lights_ = scene_lights; material_view_ = std::move(material_view);
+    key_direction_ = std::move(key_direction);
     accepted_ = std::move(view);
     focus_ = std::move(focus);
     if (recover_header) (void)focus_.focus(accepted_->hit(), *accepted_->tree->find("disclosure-controls"));
@@ -213,6 +236,10 @@ void Host::accept(View view, Snapshot snapshot, Disclosure disclosure, FocusDisp
     (void)pointers_.refresh(accepted_->hit()); // Claimed input streams outlive this cancellation.
     if (changed) ++setting_changes_;
     session_.publish();
+}
+
+const Numeric& Host::numeric(NumericField field) const {
+    return pick(field, numeric_, ambient_, key_direction_);
 }
 
 std::optional<std::string> Host::focused() const {
@@ -224,15 +251,15 @@ std::optional<std::string> Host::focused() const {
 }
 
 Result<bool> Host::refresh(Snapshot snapshot, TextShaper& text) {
-    auto staged = stage(snapshot, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, text);
+    auto staged = stage(snapshot, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, key_direction_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), std::move(snapshot), disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_);
+    accept(std::move(*staged.value), std::move(snapshot), disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, key_direction_);
     return {true, {}};
 }
 Result<bool> Host::eligibility(std::array<bool, 3> eligible, TextShaper& text) {
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, key_direction_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, key_direction_);
     return {true, {}};
 }
 Result<bool> Host::numeric_eligibility(bool enabled, TextShaper& text) {
@@ -240,24 +267,25 @@ Result<bool> Host::numeric_eligibility(bool enabled, TextShaper& text) {
 }
 Result<bool> Host::numeric_eligibility(NumericField field, bool enabled, TextShaper& text) {
     auto numeric = numeric_, ambient = ambient_;
-    (field == NumericField::direct ? numeric : ambient).enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric, msaa_, outlines_, scene_lights_, ambient, material_view_, text);
+    auto key_direction = key_direction_;
+    pick(field, numeric, ambient, key_direction).enabled = enabled;
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric, msaa_, outlines_, scene_lights_, ambient, material_view_, key_direction, text);
     if (!staged) return {std::nullopt, numeric_diagnostics(std::move(staged.diagnostics), field)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, std::move(numeric), msaa_, outlines_, scene_lights_, std::move(ambient), material_view_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, std::move(numeric), msaa_, outlines_, scene_lights_, std::move(ambient), material_view_, std::move(key_direction));
     return {true, {}};
 }
 Result<bool> Host::msaa_capabilities(std::vector<unsigned> supported, bool enabled, TextShaper& text) {
     auto msaa = msaa_; msaa.supported = std::move(supported); msaa.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa, outlines_, scene_lights_, ambient_, material_view_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa, outlines_, scene_lights_, ambient_, material_view_, key_direction_, text);
     if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, std::move(msaa), outlines_, scene_lights_, ambient_, material_view_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, std::move(msaa), outlines_, scene_lights_, ambient_, material_view_, key_direction_);
     return {true, {}};
 }
 Result<bool> Host::outlines_eligibility(bool enabled, TextShaper& text) {
     auto outlines = outlines_; outlines.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines, scene_lights_, ambient_, material_view_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines, scene_lights_, ambient_, material_view_, key_direction_, text);
     if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines, scene_lights_, ambient_, material_view_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines, scene_lights_, ambient_, material_view_, key_direction_);
     return {true, {}};
 }
 Result<CommandInvocation> Host::request_outlines(std::string field, bool value, CommandSource source) {
@@ -266,9 +294,9 @@ Result<CommandInvocation> Host::request_outlines(std::string field, bool value, 
 }
 Result<bool> Host::scene_lights_eligibility(bool enabled, TextShaper& text) {
     auto scene_lights = scene_lights_; scene_lights.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights, ambient_, material_view_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights, ambient_, material_view_, key_direction_, text);
     if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights, ambient_, material_view_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights, ambient_, material_view_, key_direction_);
     return {true, {}};
 }
 Result<CommandInvocation> Host::request_scene_lights(std::string field, bool value, CommandSource source) {
@@ -277,9 +305,9 @@ Result<CommandInvocation> Host::request_scene_lights(std::string field, bool val
 }
 Result<bool> Host::material_view_eligibility(bool enabled, TextShaper& text) {
     auto material_view = material_view_; material_view.enabled = enabled;
-    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus_, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view, key_direction_, text);
     if (!staged) return {std::nullopt, bounded_diagnostics(std::move(staged.diagnostics))};
-    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, std::move(material_view));
+    accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, std::move(material_view), key_direction_);
     return {true, {}};
 }
 Result<CommandInvocation> Host::request_material_view(std::string field, std::string value, CommandSource source) {
@@ -312,15 +340,16 @@ Result<CommandInvocation> Host::request_edit(const TextEditRequest& edit, Comman
 }
 Result<CommandInvocation> Host::request_edit(NumericField field, const TextEditRequest& edit, CommandSource source) {
     const auto name = field_name(field);
-    auto owner = view().tree->find(name + "-input");
+    auto owner = view().tree->find(field_id(field) + "-input");
     if (!owner) return {std::nullopt, {{name + "_target", Severity::error, "/controls/" + name, "Expected a live numeric field"}}};
     auto action = request_semantic_action(view().semantic(), *owner, "activate");
     if (!action) return {std::nullopt, std::move(action.diagnostics)};
     return view().commands.resolve_action(view().semantic(), *action.value, view().commands.generation(), edit_arguments(edit), source, ++sequence_);
 }
 Result<CommandInvocation> Host::request_value(std::string field, double value, CommandSource source) {
-    if (field != "direct" && field != "ambient" && field != "msaa")
-        return {std::nullopt, {{"setting_field", Severity::error, "/controls/" + field, "Expected direct, ambient or msaa field identity"}}};
+    if (field != "msaa" && !numeric_field(field))
+        return {std::nullopt, {{"setting_field", Severity::error, "/controls/" + field,
+            "Expected direct, ambient, key_x, key_y, key_z or msaa field identity"}}};
     const auto command = field + ".set";
     return view().commands.resolve({view().commands.generation(), command,
         {{"field", std::move(field)}, {"value", value}}, source, ++sequence_});
@@ -331,8 +360,8 @@ Result<CommandInvocation> Host::request(const std::string& id, CommandSource sou
     auto action = request_semantic_action(view().semantic(), *owner, "activate");
     if (!action) return {std::nullopt, std::move(action.diagnostics)};
     CommandArguments args;
-    if (id == "direct-input" || id == "ambient-input") {
-        const auto& draft = id == "direct-input" ? numeric_.draft : ambient_.draft;
+    if (const auto field = numeric_owner(id); field && id == field_id(*field) + "-input") {
+        const auto& draft = numeric(*field).draft;
         args = {{"owner", std::to_string(draft.owner)}, {"revision", std::to_string(draft.revision)}, {"kind", std::string{"focus"}}};
     }
     return view().commands.resolve_action(view().semantic(), *action.value, view().commands.generation(), std::move(args), source, ++sequence_);
@@ -344,6 +373,7 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
         TextShaper& text;
         Disclosure disclosure;
         Numeric numeric, ambient;
+        KeyDirection key_direction;
         NumericField field = NumericField::direct;
         Msaa msaa;
         Outlines outlines;
@@ -352,15 +382,17 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
         FocusDispatcher focus;
         std::optional<View> candidate;
         Handler(Host& host, TextShaper& text) : host(host), text(text), disclosure(host.disclosure_),
-            numeric(host.numeric_), ambient(host.ambient_), msaa(host.msaa_), outlines(host.outlines_), scene_lights(host.scene_lights_), material_view(host.material_view_), focus(host.focus_) {}
+            numeric(host.numeric_), ambient(host.ambient_), key_direction(host.key_direction_), msaa(host.msaa_), outlines(host.outlines_), scene_lights(host.scene_lights_), material_view(host.material_view_), focus(host.focus_) {}
         CommandOutcome error(std::string message) {
             return {CommandOutcomeStatus::error, {}, {{field_name(field) + "_request", Severity::error, "/controls/" + field_name(field), std::move(message)}}};
         }
         CommandOutcome execute(const CommandInvocationRecord& call) override {
-            const bool is_numeric = call.command.starts_with("direct.") || call.command.starts_with("ambient.");
-            field = call.command.starts_with("ambient.") ? NumericField::ambient : NumericField::direct;
-            auto& value = field == NumericField::direct ? numeric : ambient;
+            const auto selected = numeric_field(std::string_view{call.command}.substr(0, call.command.find('.')));
+            const bool is_numeric = selected.has_value();
+            field = selected.value_or(NumericField::direct);
+            auto& value = pick(field, numeric, ambient, key_direction);
             const auto name = field_name(field);
+            const auto bounds = field_bounds(field);
             const auto operation = is_numeric ? call.command.substr(name.size() + 1) : std::string{};
             bool reset = false;
             if (call.command.starts_with("diagnostics.")) {
@@ -402,7 +434,7 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
                     return error("Expected the live draft owner and revision");
                 const auto& kind = std::get<std::string>(call.arguments.at("kind"));
                 if (kind == "focus") {
-                    auto focused = focus.focus(host.view().hit(), *host.view().tree->find(name + "-input"));
+                    auto focused = focus.focus(host.view().hit(), *host.view().tree->find(field_id(field) + "-input"));
                     if (!focused) return command_error(std::move(focused.diagnostics));
                 } else {
                     if (kind == "insert") edit.operation = TextEditInsert{std::get<std::string>(call.arguments.at("text"))};
@@ -428,10 +460,11 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
                     if (!parsed) return command_error(std::move(parsed.diagnostics));
                     value.accepted = *parsed.value;
                 } else if (operation == "set") {
-                    value.accepted = std::get<double>(call.arguments.at("value"));
+                    const auto requested = std::get<double>(call.arguments.at("value"));
+                    value.accepted = requested == 0 ? 0 : requested; // Negative zero is accepted as zero.
                     if (canonical(value.accepted).size() > 32) return error("Accepted value must fit the 32-byte decimal draft");
                 }
-                else value.accepted = std::clamp(value.accepted + (operation == "increase" ? 0.25 : -0.25), 0.0, 4.0);
+                else value.accepted = std::clamp(value.accepted + (operation == "increase" ? 0.25 : -0.25), bounds.minimum, bounds.maximum);
                 reset = true;
             }
             else return error("Unknown setting command");
@@ -440,7 +473,7 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
                 value.draft.text = canonical(value.accepted);
                 value.draft.anchor = value.draft.caret = value.draft.text.size(); ++value.draft.revision;
             }
-            auto staged = host.stage(host.snapshot_, disclosure, host.offset_, focus, true, host.eligible_, numeric, msaa, outlines, scene_lights, ambient, material_view, text);
+            auto staged = host.stage(host.snapshot_, disclosure, host.offset_, focus, true, host.eligible_, numeric, msaa, outlines, scene_lights, ambient, material_view, key_direction, text);
             if (!staged) return command_error(is_numeric ? numeric_diagnostics(std::move(staged.diagnostics), field) : std::move(staged.diagnostics));
             candidate = std::move(*staged.value);
             return {};
@@ -449,7 +482,7 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
     const auto current = view().semantic();
     auto execution = executor_.execute(view().commands, invocation, handler, &current);
     if (execution && execution.value->outcome.status == CommandOutcomeStatus::success)
-        accept(std::move(*handler.candidate), snapshot_, handler.disclosure, std::move(handler.focus), eligible_, std::move(handler.numeric), std::move(handler.msaa), handler.outlines, handler.scene_lights, std::move(handler.ambient), std::move(handler.material_view));
+        accept(std::move(*handler.candidate), snapshot_, handler.disclosure, std::move(handler.focus), eligible_, std::move(handler.numeric), std::move(handler.msaa), handler.outlines, handler.scene_lights, std::move(handler.ambient), std::move(handler.material_view), std::move(handler.key_direction));
     return execution;
 }
 
@@ -460,7 +493,8 @@ Result<bool> Host::invoke(const std::string& id, CommandSource source, TextShape
 }
 Result<bool> Host::operate(const ActionRequest& action, CommandSource source, TextShaper& text) {
     const auto* node = view().tree->get(action.target);
-    if (node && (node->id == "direct-input" || node->id == "ambient-input")) return invoke(*node->id, source, text);
+    if (node && node->id)
+        if (const auto field = numeric_owner(*node->id); field && *node->id == field_id(*field) + "-input") return invoke(*node->id, source, text);
     auto invocation = view().commands.resolve_action(view().semantic(), action, view().commands.generation(), {}, source, ++sequence_);
     if (!invocation) return {std::nullopt, std::move(invocation.diagnostics)};
     return completed(execute(*invocation.value, text));
@@ -485,15 +519,16 @@ Result<bool> Host::input(const InputEvent& event, CommandSource source, TextShap
         auto updates = route_scroll(view().hit(), *scroll);
         if (!updates) return {std::nullopt, std::move(updates.diagnostics)};
         if (updates.value->updates.empty()) return {true, {}};
-        auto staged = stage(snapshot_, disclosure_, updates.value->updates.front().offset, focus_, false, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, text);
+        auto staged = stage(snapshot_, disclosure_, updates.value->updates.front().offset, focus_, false, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, key_direction_, text);
         if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-        accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_);
+        accept(std::move(*staged.value), snapshot_, disclosure_, focus_, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, key_direction_);
         return {true, {}};
     }
     const auto focused_id = focused().value_or("");
-    const auto field = focused_id.starts_with("ambient-") ? NumericField::ambient : NumericField::direct;
-    const bool editing = focused_id == field_name(field) + "-input";
-    const auto& draft = field == NumericField::direct ? numeric_.draft : ambient_.draft;
+    const auto owner = numeric_owner(focused_id);
+    const auto field = owner.value_or(NumericField::direct);
+    const bool editing = owner && focused_id == field_id(field) + "-input";
+    const auto& draft = numeric(field).draft;
     auto edit = [&](auto operation) -> Result<bool> {
         last_consumed_ = true;
         auto call = request_edit(field, {draft.owner, draft.revision, std::move(operation)}, source);
@@ -516,7 +551,7 @@ Result<bool> Host::input(const InputEvent& event, CommandSource source, TextShap
         case Key::backspace: if (!m.shift) return edit(TextEditErase{TextErase::backward}); break;
         case Key::delete_key: if (!m.shift) return edit(TextEditErase{TextErase::forward}); break;
         case Key::enter: case Key::escape:
-            if (!m.shift && !key->repeat) { last_consumed_ = true; return invoke(field_name(field) + (key->key == Key::enter ? "-apply" : "-cancel"), source, text); }
+            if (!m.shift && !key->repeat) { last_consumed_ = true; return invoke(field_id(field) + (key->key == Key::enter ? "-apply" : "-cancel"), source, text); }
             return {false, {}};
         default: break;
         }
@@ -562,15 +597,15 @@ Result<bool> Host::input(const InputEvent& event, CommandSource source, TextShap
     }
     const auto& logical = mapped ? *mapped : event;
     last_consumed_ = true;
-    if (std::holds_alternative<Cancel>(logical.data) && (focused_id.starts_with("direct-") || focused_id.starts_with("ambient-")))
-        return invoke(field_name(field) + "-cancel", source, text);
+    if (std::holds_alternative<Cancel>(logical.data) && owner)
+        return invoke(field_id(field) + "-cancel", source, text);
     auto focus = focus_;
     auto dispatched = focus.dispatch(view().hit(), logical);
     if (!dispatched) return {std::nullopt, std::move(dispatched.diagnostics)};
     for (const auto& action : dispatched.value->actions) return operate(action, source, text);
-    auto staged = stage(snapshot_, disclosure_, offset_, focus, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, text);
+    auto staged = stage(snapshot_, disclosure_, offset_, focus, true, eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, key_direction_, text);
     if (!staged) return {std::nullopt, std::move(staged.diagnostics)};
-    accept(std::move(*staged.value), snapshot_, disclosure_, std::move(focus), eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_);
+    accept(std::move(*staged.value), snapshot_, disclosure_, std::move(focus), eligible_, numeric_, msaa_, outlines_, scene_lights_, ambient_, material_view_, key_direction_);
     return {true, {}};
 }
 } // namespace diagnostics
