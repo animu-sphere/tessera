@@ -2,6 +2,68 @@
 
 Test algorithms and boundaries heavily; test appearance selectively. Keep tests deterministic, compact, and meaningful. Do not build exhaustive screenshot coverage for every widget.
 
+## Verification ownership
+
+Guarantees belong at the boundary that implements them; consumers verify their use. Apply the [bounded acceptance rule](../agent-policy.md#verification-ownership-and-bounded-acceptance) before adding tests. Cite an inherited owner test and check that its assumptions match the application. An unchanged guarantee does not need a new exhaustive consumer proof.
+
+| Layer | Responsibility | Consumer scope |
+| --- | --- | --- |
+| L1 Runtime contract | Universal invariants, validation, ownership, lifetime and consistency | Exercise affected owner tests when their boundary changes |
+| L2 Widget contract | Widget-specific input, state and public API | Representative success and boundary cases for the widget |
+| L3 Consumer integration | A real application operation through public APIs | Successful user flow, wiring and operation-specific risks |
+| L4 Host/platform | Source imports, compiler/configuration, GPU and OS integration | Affected integration changes and wider scheduled/release checks |
+
+The source-backed responsibility map below identifies reusable checks, not executed results or a requirement to run every row for each operation. Host-specific guarantees stay with their host.
+
+| Property | Primary owner/check | Minimum consumer observation |
+| --- | --- | --- |
+| Once-only sequence consumption and stale command/activation rejection | [commands](../../tests/commands/commands_tests.cpp), including `execution_rejection_and_lifetime` | The intended command reaches the handler once with the correct identity |
+| Logical text draft/selection and edit owner/revision rejection | [text_edit](../../tests/input/text_edit_tests.cpp) | Correct field routing and one representative independent-field retention case; cross-field routing is a consumer risk |
+| Focus recovery, pointer cancellation and scroll geometry | [focus](../../tests/input/focus_tests.cpp), [pointer](../../tests/input/pointer_tests.cpp), [scroll](../../tests/input/scroll_tests.cpp) | A representative reachable operation using the application's normalized mappings |
+| Accepted settings/view retention after rejected staging | The host's [Diagnostics fixture](../../tests/integrations/renderer_diagnostics_tests.cpp) or [Settings fixture](../../examples/settings/main.cpp) | Cover a new staging branch and retained unrelated state; executor tests do not establish host atomicity |
+| Deterministic CPU pixels and replay processing | [cpu_renderer](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [offscreen_runner](../../tests/inspection/offscreen_runner_tests.cpp) | Representative accepted semantics/geometry/paint; add image comparisons for changed drawing behavior |
+
+Pointer and keyboard/gamepad/semantic routing must share ordinary commands. Check representative parity at the consumer's routing boundary; do not multiply every runtime failure by every input source. A first cross-layer failure mode, a real regression or a different trust/owner boundary warrants deeper L3 coverage with a stated reason and stop condition. Keep a minimal regression fixture and useful diagnostics rather than all edits multiplied by all injected failures. Distinguish an inherited guarantee from a test executed for this change in [support](../reference/support-matrix.md).
+
+## Validation tiers
+
+This is the execution policy for selecting and evolving checks. Workflow configuration and required-check settings must be verified before claiming a tier is enforced; source/configuration findings and measured outcomes belong only in support.
+
+| Tier | Scope and frequency |
+| --- | --- |
+| 0 Local | Build affected targets and run focused CTests; documentation-only changes use the documentation checker. Aim for seconds to a few minutes, subject to measurement. |
+| 1 PR | One representative core environment, initially Windows x64 Debug as the candidate, fast owner contracts and a small affected consumer smoke. Widen for foundation/build changes. PR p95 at most ten minutes is a provisional SLO to revise after baseline measurement. |
+| 2 Integration/periodic | Full core Debug/Release, major consumers, both independent import modes, deterministic CPU/replay checks, saved durations and failures. Run after main integration or on a regular schedule; prefer daily coverage when runner capacity permits. |
+| 3 Release/platform | Version/tag/changelog consistency, full required Debug/Release and both imports, plus optional module, GPU/font/native-host evidence for the supported configuration. Unavailable hardware checks are unvalidated, never replaced by compile success. |
+
+Keep broad checks when moving them out of the PR gate. Repeated Tier 2 failure blocks the next release and takes repair priority; promote a missed critical regression check back to Tier 1. GPU/desktop checks require suitable runners or explicitly recorded local evidence. The release workflow remains responsible for release verification/publication; the [development guide](development.md#release-workflow) owns its commands.
+
+### Change selection
+
+Start with a small explicit policy, not an elaborate path-selection engine. Select the union for mixed changes; unknown or cross-foundation changes fall back to full core coverage.
+
+| Change | Additional PR/local selection |
+| --- | --- |
+| Documentation only | Documentation links/ownership checker; runtime build may be omitted |
+| C++ authoring/widget | Authoring, affected widget contract and one representative consumer |
+| Commands/input/reactive | Affected owner contracts, representative integration and replay |
+| Render/layout | Affected contracts, a CPU fixture and representative consumer |
+| CMake/import configuration | At least one independent consumer import; both modes for broad import changes |
+| Vulkan/fonts/native host | Affected module build and dedicated rendering/font/platform checks under their environment requirements |
+| Release metadata/workflow | Metadata validation and the minimum affected build configuration; broader release checks at Tier 3 |
+
+Debug/Release and both import modes are wider integration/release obligations, not a new full matrix for every UI operation. Core fast contracts belong in the PR gate; full core coverage also belongs there for high-risk or uncertain changes. Source imports run for relevant build changes and at wider tiers. Replay/CPU checks run for affected runtime/render/replay changes and at wider tiers. Required checks must complete even for documentation-only PRs; put any skip inside a reporting job instead of leaving a path-filtered required workflow pending. If an automated matcher is introduced, test it, use a conservative fallback and review misses regularly.
+
+### Measurement and safe reduction
+
+Before reducing protection, inventory CTests and workflows, identify each guarantee's owner and classify checks by L1-L4. Measure configure, build and test time separately in Debug/Release; distinguish queue time from job time. Use JUnit and CTest cost data to identify slow tests. Collect 20-30 CI runs where available, with conditions, sample count, median/p95, longest job, failure/flaky rerun rates, cache effects and duplicate-coverage candidates. Missing observations remain explicit gaps. [Development](development.md#focused-checks-and-timing) owns the local collection commands; support owns the baseline and artifacts.
+
+Introduce a few contract/smoke/import labels before using them to exclude tests. Labels alone do not reduce compilation time. Measure safe test parallelism, especially independent consumer configure/build jobs, before increasing it. Add cache or build-target separation only for a measured bottleneck; cache keys must include toolchain and dependency identity. Do not delete tests during classification.
+
+Run a small PR workflow and a full integration/periodic workflow alongside the old gate before changing required status names. Check branch protection/rulesets, runner capacity and cost first, then coordinate the required-check transition. Preserve the release workflow's FetchContent exclusion during initial measurement; wider coverage must exercise both imports before release acceptance.
+
+Reduce a duplicate assertion only when the change records the equivalent owner test, applicable assumptions and preserved diagnostic value. Keep slow checks in wider tiers. Observe Tier 2 failures closely for two weeks after a gate/reduction change. Any temporary flaky-check quarantine needs a reason, owner and expiry. Report failed test names, durations and artifact links concisely. Judge the change by PR p95, unrelated work, reruns, post-merge regressions, triage time and consumer-operation lead time; test count and test/production line ratios have no universal target. Stop CI expansion when feedback is small and actionable, owner coverage is preserved and wider validation catches regressions without obstructing UI authoring.
+
 ## High-value checks
 
 | Subsystem | Primary checks |

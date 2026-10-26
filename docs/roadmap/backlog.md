@@ -8,6 +8,17 @@ Inspection foundations enter early so DevTools, accessibility, testing, and agen
 
 Choose follow-up scope from real applications and their measured authoring friction, beginning with the [Settings reference application](../integrations/settings-app.md). The candidate sequence moves from a practical UI kit through tooling, language boundaries and larger applications to measured scale. Each candidate below defines its own proof; its inventory is not an all-features release gate.
 
+## Validation and CI follow-ups
+
+The [bounded baseline task](current.md#bounded-validation-supporting-work) owns initial measurement and label design. The [testing guide](../guides/testing.md#validation-tiers) owns tier responsibilities, selection, provisional SLO and reduction safeguards. These follow-ups are inactive and must not become a prerequisite for ordinary UI authoring.
+
+- After baseline and label review, add a representative PR workflow and a full main/periodic workflow in a separate change, retaining the old gate for comparison. Verify runner capacity, cost and branch protection/rulesets; do not treat the strategy's sample YAML or label names as working configuration.
+- After parallel-run evidence is stable, coordinate required-check names and rulesets, moving wide matrices and expensive imports to integration/release while retaining their coverage. Preserve release verification/publication and ensure required checks finish on documentation-only PRs. Introduce automated path selection only with matcher tests and conservative full-core fallback.
+- After equivalent owner coverage is identified, shrink duplicate consumer assertions incrementally, documenting the owning regression and diagnostic value. Observe Tier 2 failures for two weeks and restore important missed checks to the PR gate.
+- Use measured configure/build/test bottlenecks to choose safe parallelism, caching or build-target separation. Do not create a general CI framework or delete protection to meet an unmeasured time target.
+
+Promote only the next bounded step with measurement-backed acceptance and a stop condition. Before release, aggregate full Debug/Release, both source imports, CPU/replay and the required available platform evidence under current's release exit criteria.
+
 ## Widget candidates beyond the reference application
 
 The [active authoring milestone](current.md) owns the required controls for Settings and the bounded [renderer diagnostics panel](current.md#renderer-diagnostics-reference-panel). Additional baseline candidates are a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView and a basic List, plus Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Text, Button, Checkbox, TextInput, Row and Column requirements and the diagnostics consumer's minimum numeric controls are defined in current work rather than duplicated here; broader widget APIs stay candidates.

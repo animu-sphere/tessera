@@ -104,6 +104,8 @@ Begin with Text, Row, Column, Button, state and a derived summary. Add Checkbox,
 
 Declare viewport/scale, initial state, normalized input, time, fonts/shaper, assets, save-service results and backend configuration. Verify state/derived-state agreement, text revision/selection, keyed identity, command results and save observations numerically or semantically. Repeated [replay](../architecture/replay.md) and CPU-reference captures must reproduce accepted observations; use selective images for paint behavior rather than per-widget screenshot suites.
 
+These are aggregate consumer guarantees. Apply [verification ownership](../guides/testing.md#verification-ownership) to each extension: prove a successful public-API operation and its new wiring, save/retention or staging risk, citing owner tests for unchanged runtime guarantees. Representative input parity is sufficient unless a new route, trust boundary or regression requires more. Select affected local/PR checks separately from full integration/release matrices under the [tier policy](../guides/testing.md#validation-tiers); do not multiply every operation by every failure and configuration.
+
 Invalid props, bindings, styles or replacement candidates must report actionable source diagnostics and preserve the accepted presentation. Test lifetime cleanup and stale requests at affected boundaries under the [testing guide](../guides/testing.md). Native IME/clipboard, real-font and GPU claims require their own declared configuration evidence in [support](../reference/support-matrix.md).
 
 ## Authoring feedback and onboarding

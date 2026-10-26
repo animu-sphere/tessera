@@ -68,6 +68,30 @@ ctest --test-dir build -C Debug -R '^(authoring|settings)$' --output-on-failure
 
 Use `Release` for the other configuration. The executable prints its command/frame observations and exits nonzero on a failed check. It uses placeholder text and synthetic glyph coverage, captures in memory, and opens no window. The [consumer boundary](../integrations/settings-app.md#implemented-form-skeleton-boundary) owns its operations and replay limits; [support](../reference/support-matrix.md#c-form-authoring-evidence--2026-10-16) owns configuration/results.
 
+## Focused checks and timing
+
+Use the [verification ownership and selection policy](testing.md#verification-ownership) to choose checks. After configuring the core build above, an authoring/Diagnostics change can build and run just the affected executables:
+
+```powershell
+cmake --build build --config Debug --target tessera_authoring_tests tessera_renderer_diagnostics tessera_renderer_diagnostics_tests
+ctest --test-dir build -C Debug -R '^(authoring|renderer_diagnostics|renderer_diagnostics_contract)$' --output-on-failure --no-tests=error
+```
+
+Choose other target/test names from [CMake registration](../../CMakeLists.txt), including [independent consumers](../../tests/cmake/register.cmake), rather than copying this selection for every change. `ctest -R` selects execution only; an unrestricted build still compiles all enabled targets. A source-import CTest configures/builds its own host project. Use Release when that configuration is affected or collecting wider integration/release evidence; documentation-only changes use the [documentation check](testing.md#documentation-verification).
+
+For a baseline, configure/build with the ordinary workflow and collect the inventory and complete test results in each configuration, without adding the focused regex:
+
+```powershell
+ctest --test-dir build -C Debug -N
+ctest --test-dir build -C Debug --output-on-failure --no-tests=error --output-junit "$PWD/build/ctest-debug.xml" --output-log "$PWD/build/ctest-debug.log"
+ctest --test-dir build -C Release -N
+ctest --test-dir build -C Release --output-on-failure --no-tests=error --output-junit "$PWD/build/ctest-release.xml" --output-log "$PWD/build/ctest-release.log"
+```
+
+Build each configuration before its run. Time configure, build and CTest as separate invocations, for example with PowerShell `Measure-Command`, retaining command output and native exit codes. Record fresh versus reused build/cache conditions, toolchain, enabled options and parallelism. Keep JUnit, `Testing/Temporary/CTestCostData.txt`, failure logs and consumer phase logs as artifacts; do not interpret the independent consumers' 600-second timeout as elapsed time. Serial execution is a starting measurement, not evidence for safe maximum parallelism.
+
+Collect hosted queue/job/step durations and 20-30 historical runs when available separately from local timing. Put baseline statistics, artifacts and missing observations only in [support](../reference/support-matrix.md), following the [measurement policy](testing.md#measurement-and-safe-reduction). A documentation update or source inventory is not a measured CI baseline.
+
 ## Scalar CPU capture workflow
 
 The [CPU renderer and capture adapter](../architecture/rendering.md#implemented-scalar-cpu-reference-backend) are part of `tessera::core`, with no optional dependency discovery. Run their pixel/resource/runner checks through the ordinary core workflow, or isolate them:
@@ -277,7 +301,7 @@ cmake --build build-atlas-core --config Debug --parallel 4
 
 [VERSION](../../VERSION) holds the single `MAJOR.MINOR.PATCH` value; CMake reads it as the project version. A release is cut only after the active milestone's exit criteria are accepted against [support](../reference/support-matrix.md); 0.x versions carry no API/ABI compatibility guarantee. Patch releases fix defects in released scope; otherwise development continues on `main` without maintenance branches.
 
-1. Rerun the core and optional Vulkan workflows above in fresh build directories and record the result in support.
+1. Rerun full core Debug/Release and both independent source-import modes in fresh build directories, plus the optional Vulkan/font/native workflows needed by the release's claims, and record results and unavailable environments in support. Resolve persistent integration/periodic-suite failures before acceptance; the [tier policy](testing.md#validation-tiers) owns gate responsibilities.
 2. In the release pull request, set `VERSION` and turn the changelog's `## Unreleased` section into `## vX.Y.Z — YYYY-MM-DD`.
 3. Before merging, check the metadata locally:
 

@@ -1,6 +1,6 @@
 # Documentation
 
-Repository documents are the only maintained plan and contract. Owner-provided direction documents are design inputs: when one is adopted, its content is merged into the owners below (intent into product, constraints into architecture, possible mechanisms into proposals, consumer requirements into integrations, scheduling into current or backlog) and the intake is recorded in the [changelog](../CHANGELOG.md). Do not keep a summary of adopted direction here or link to files outside the repository. Illustrative CLI/build switches, environment variables, DSL syntax, API sketches, package names, directory layouts, speedup estimates, scale targets, and phase numbering in such inputs are not contracts.
+Repository documents are the only maintained plan and contract. Owner-provided direction documents are design inputs: when one is adopted, its content is merged into the owners below (intent into product, constraints into architecture, possible mechanisms into proposals, consumer requirements into integrations, verification procedures into guides, scheduling into current or backlog) and significant intake is recorded concisely in the [changelog](../CHANGELOG.md). Do not keep a summary of adopted direction here or link to files outside the repository. Illustrative CLI/build switches, environment variables, DSL syntax, API sketches, package names, directory layouts, speedup estimates, scale targets, and phase numbering in such inputs are not contracts.
 
 ## Reading order
 
@@ -30,7 +30,7 @@ Detailed Proposed sections are intentionally non-actionable unless the active fi
 
 | Document | Owns | Does not own |
 | --- | --- | --- |
-| [Agent policy](agent-policy.md) | Implementation authority, fixture-driven task selection, subsystem stop rule | Feature scheduling, subsystem contracts, or capability evidence |
+| [Agent policy](agent-policy.md) | Implementation authority, fixture-driven task selection, verification ownership and bounded acceptance rules, subsystem stop rule | Feature scheduling, subsystem contracts, or capability evidence |
 | [Vision](product/vision.md) | Product purpose and differentiation | Feature scheduling or support claims |
 | [Principles](product/principles.md) | Durable product principles | Subsystem algorithms or milestone tasks |
 | [Use cases](product/use-cases.md) | Intended consumers and their design entry points | Capability support or implicit core requirements |
@@ -59,7 +59,7 @@ Detailed Proposed sections are intentionally non-actionable unless the active fi
 | [Your first app](guides/first-app.md) | Source walkthrough, composition and explicit host responsibilities | A second API/lifetime contract or test-result history |
 | [Settings starter](guides/settings-starter.md) | Copy/build/run and source walkthrough for controlled editing and owned Apply copies | A second API/consumer contract, expanded widget scope or test-result history |
 | [Renderer telemetry guide](guides/renderer-diagnostics.md) | Copy/build/run and source walkthrough for telemetry composition and the synthetic snapshot host | A second API/consumer contract, native renderer integration or test-result history |
-| [Testing](guides/testing.md) | Verification methods and documentation checks | Test-target inventory or capability status |
+| [Testing](guides/testing.md) | Verification responsibilities, owner-test references, tier/selection and measurement policy, documentation checks | Complete test-target inventory, workflow implementation or capability status |
 | [Dependencies](reference/dependencies.md) | Adopted/candidate choices, acquisition and licensing policy, including font licensing | Validated configuration claims |
 | [Support matrix](reference/support-matrix.md) | **Only live implementation/validation status**, configurations and evidence | Work scheduling, contract definitions, or rows for capabilities without implementation |
 | [Roadmap index](roadmap/README.md) | Planning conventions and links | A second milestone/status table |
@@ -109,9 +109,10 @@ Status drifts when it is written in more than one place, so it is written only i
 ## Change routing
 
 - Contract change: update its owner and link to it from consumers. Keep exact rules, fields, defaults, and lifetimes in that owner. When extracting a proposal, retain normative invariants and source-backed contracts in architecture, preserve the possible mechanism and its open decisions in the proposal, and retarget links to the owning section. Integrations cannot silently add core requirements.
-- Scope change: edit current or backlog. Promote only the behavior required by an integration fixture, with observable acceptance and a stop condition; leave broader candidate scope in backlog. When a whole candidate becomes active, move its complete scope to current and leave a link in backlog. Do not maintain the same active task in both.
+- Scope change: edit current or backlog. Use the [four-item acceptance rule](agent-policy.md#verification-ownership-and-bounded-acceptance): minimum observable operation, new risks, inherited owner guarantees and stop condition. Keep detailed behavior in its subsystem/consumer owner and leave broader candidates in backlog. When a whole candidate becomes active, move its complete scope to current and leave a link in backlog. Do not maintain the same active task in both or create a review article/changelog entry for every selection.
 - Delivery: remove finished tasks from current, append history to the changelog, and update affected support rows with source/evidence. Contract pages change only when their contract or maturity changes.
 - Validation: update support evidence only. Build instructions change only when the procedure changes.
+- Verification policy: update agent policy for decision rules and testing for responsibilities, tiers and selection; development owns commands. Keep CI implementation scope in current/backlog and measured timing/results in support. Distinguish executed checks from inherited guarantees; do not duplicate a complete matrix in each consumer slice.
 - Index/README: change for navigation or ownership, not each implementation slice.
 
 Do not copy milestone tables, rolling `Status:` summaries, toolchain results, or delivered checklists into indexes, guides, or design introductions. An API limitation belongs with its contract; the fact that a whole capability is absent belongs in support. Historical evidence is read in its dated context.
