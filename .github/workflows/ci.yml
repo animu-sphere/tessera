@@ -1,0 +1,82 @@
+name: CI
+
+# Keep reporting jobs present even for documentation-only PRs. Scope decisions
+# happen inside the Core job, so a required check cannot be left pending.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  docs:
+    name: Docs and metadata
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check documentation
+        run: ./scripts/check-docs.ps1
+      - name: Check release metadata
+        run: cmake -P cmake/release.cmake
+      - name: Check conservative PR selection
+        run: ./scripts/test-select-ci.ps1
+
+  core:
+    name: Core / windows-x64 / Debug
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Select scope
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          $paths = @()
+          if ($env:EVENT_NAME -eq 'pull_request') {
+            # PR checkout is the merge commit: its first parent is the base.
+            # Disable rename folding so code deletions cannot look docs-only.
+            $paths = @(git diff --name-only --no-renames HEAD^ HEAD)
+            if ($LASTEXITCODE -ne 0) {
+              $paths = @()
+              $global:LASTEXITCODE = 0 # The handled lookup failure widens scope.
+            }
+          }
+          $scope = ./scripts/select-ci.ps1 -Paths $paths
+          "run_core=$($scope.RunCore.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "suite=$($scope.Suite)" >> $env:GITHUB_OUTPUT
+          "Core scope: run=$($scope.RunCore), suite=$($scope.Suite)." >> $env:GITHUB_STEP_SUMMARY
+      - name: Configure, build and test
+        if: steps.scope.outputs.run_core == 'true'
+        env:
+          CI_SUITE: ${{ steps.scope.outputs.suite }}
+        run: |
+          # Import checks launch nested builds; keep them serial until separate
+          # measurements establish safe hosted concurrency for those processes.
+          $parallel = if ($env:CI_SUITE -eq 'full') { 1 } else { 2 }
+          ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration Debug -Suite $env:CI_SUITE -TestParallelism $parallel
+      - name: Upload measurements and failures
+        if: always() && steps.scope.outputs.run_core == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-windows-x64-Debug
+          if-no-files-found: warn
+          path: |
+            build/ci-*/**
+            build/CMakeCache.txt
+            build/Testing/Temporary/*.log
+            build/source-consumers/**/configure.log
+            build/source-consumers/**/build.log
+            build/source-consumers/**/test.log

@@ -1,0 +1,50 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  core:
+    name: Full core / windows-x64 / ${{ matrix.config }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug, Release]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check documentation and CI selection
+        run: |
+          ./scripts/check-docs.ps1
+          ./scripts/test-select-ci.ps1
+      - name: Check release metadata
+        run: cmake -P cmake/release.cmake
+      - name: Configure, build and test both imports
+        run: ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration ${{ matrix.config }} -Suite full
+      - name: Upload measurements and failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-windows-x64-${{ matrix.config }}
+          if-no-files-found: warn
+          path: |
+            build/ci-*/**
+            build/CMakeCache.txt
+            build/Testing/Temporary/*.log
+            build/source-consumers/**/configure.log
+            build/source-consumers/**/build.log
+            build/source-consumers/**/test.log

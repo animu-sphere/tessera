@@ -10,10 +10,10 @@ Choose follow-up scope from real applications and their measured authoring frict
 
 ## Validation and CI follow-ups
 
-The [bounded baseline task](current.md#bounded-validation-supporting-work) owns initial measurement and label design. The [testing guide](../guides/testing.md#validation-tiers) owns tier responsibilities, selection, provisional SLO and reduction safeguards. These follow-ups are inactive and must not become a prerequisite for ordinary UI authoring.
+The [bounded validation task](current.md#bounded-validation-supporting-work) owns hosted rollout comparison. The [testing guide](../guides/testing.md#validation-tiers) owns tier responsibilities, selection, provisional SLO and reduction safeguards. These follow-ups are inactive and must not become a prerequisite for ordinary UI authoring.
 
-- After baseline and label review, add a representative PR workflow and a full main/periodic workflow in a separate change, retaining the old gate for comparison. Verify runner capacity, cost and branch protection/rulesets; do not treat the strategy's sample YAML or label names as working configuration.
-- After parallel-run evidence is stable, coordinate required-check names and rulesets, moving wide matrices and expensive imports to integration/release while retaining their coverage. Preserve release verification/publication and ensure required checks finish on documentation-only PRs. Introduce automated path selection only with matcher tests and conservative full-core fallback.
+- After hosted comparison, use runner capacity/cost and main-run frequency to choose whether daily scheduling adds useful coverage. Compare against the tag/manual release workflow before extending execution or changing required status names.
+- After parallel-run evidence is stable, coordinate any required-check names and rulesets while retaining wide matrices/import coverage and release verification/publication. Required checks must finish on documentation-only PRs. Extend path selection only for measured need, with matcher tests and conservative full-core fallback.
 - After equivalent owner coverage is identified, shrink duplicate consumer assertions incrementally, documenting the owning regression and diagnostic value. Observe Tier 2 failures for two weeks and restore important missed checks to the PR gate.
 - Use measured configure/build/test bottlenecks to choose safe parallelism, caching or build-target separation. Do not create a general CI framework or delete protection to meet an unmeasured time target.
 

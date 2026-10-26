@@ -92,6 +92,23 @@ Build each configuration before its run. Time configure, build and CTest as sepa
 
 Collect hosted queue/job/step durations and 20-30 historical runs when available separately from local timing. Put baseline statistics, artifacts and missing observations only in [support](../reference/support-matrix.md), following the [measurement policy](testing.md#measurement-and-safe-reduction). A documentation update or source inventory is not a measured CI baseline.
 
+### CI scopes and reproducible measurements
+
+The [PR workflow](../../.github/workflows/ci.yml) reports documentation/metadata and a Windows x64 Debug core job on every PR. Its [scope selector](../../scripts/select-ci.ps1) skips the native phases only for recognized Markdown-only changes. Ordinary implementation/example C++ changes run all `contract` and `smoke` checks; build files, public headers, unknown paths and unavailable diffs select the unfiltered core suite, including both imports. Selection occurs inside the reporting job. The [selector regression checks](../../scripts/test-select-ci.ps1) cover mixed changes, missing input and conservative fallback.
+
+The [integration workflow](../../.github/workflows/integration.yml) runs the complete core suite in Debug and Release on main pushes or manual dispatch, including both source imports. The [release workflow](../../.github/workflows/release.yml) retains tag/manual release verification and publication. Optional GPU/font/native evidence follows its separate procedures. Cancel superseded PR/integration runs; do not cancel tag publication through their concurrency groups.
+
+Run the same measured phases locally from PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-select-ci.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Debug -Suite full
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Release -Suite full
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Debug -Suite pr -TestParallelism 2
+```
+
+The measurement script configures a Windows x64 core-only Visual Studio build with tests/examples enabled and optional modules disabled. Use a new build directory for fresh measurements; a reused `CMakeCache.txt` is recorded explicitly. It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. Native failures stop the run with a nonzero exit while retaining completed phase measurements. `pr` selects the two core labels, `full` has no filter, and `release` preserves the release gate's `_FetchContent$` exclusion. Build parallelism defaults to two. Keep full/import execution serial until independent hosted concurrency is measured; PR runtime checks can use two test workers. These settings are measurement conditions, not universal speed guarantees.
+
 ## Scalar CPU capture workflow
 
 The [CPU renderer and capture adapter](../architecture/rendering.md#implemented-scalar-cpu-reference-backend) are part of `tessera::core`, with no optional dependency discovery. Run their pixel/resource/runner checks through the ordinary core workflow, or isolate them:
@@ -316,7 +333,7 @@ cmake --build build-atlas-core --config Debug --parallel 4
    git push origin vX.Y.Z
    ```
 
-The [release workflow](../../.github/workflows/release.yml) then checks that the tag matches `VERSION` and has a dated changelog section, builds and tests the core in Debug and Release with Vulkan disabled, and publishes a source-only GitHub Release whose notes are that changelog section. 0.x releases are marked as pre-releases. Hosted runners have no GPU or interactive session, so the GPU fixtures and native menu smoke are not part of this gate; their evidence comes from step 1. Pull requests that change release inputs run the same checks against `v<VERSION>` without publishing.
+The [release workflow](../../.github/workflows/release.yml) then checks that the tag matches `VERSION` and has a dated changelog section, builds and tests the core in Debug and Release with Vulkan disabled, and publishes a source-only GitHub Release whose notes are that changelog section. 0.x releases are marked as pre-releases. Hosted runners have no GPU or interactive session, so the GPU fixtures and native menu smoke are not part of this gate; their evidence comes from step 1. Manual dispatch performs the same verification without publishing. PR metadata/core checks use the [PR workflow](../../.github/workflows/ci.yml); full Debug/Release and both imports use the [integration workflow](../../.github/workflows/integration.yml).
 
 No binaries or installed packages are published; consumers build from source. Packaging scope is owned by the [backlog](../roadmap/backlog.md).
 
