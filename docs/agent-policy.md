@@ -22,12 +22,27 @@ Full-tree evaluation is the correctness reference. Convenience APIs, adjacent me
 
 For runtime functionality, name a blocked real application operation or widget, a failing existing contract, a measured performance bottleneck, or a concrete platform integration requirement. Otherwise keep the mechanism in backlog/proposals. An active authoring slice may add the public convenience needed by its application without redesigning the underlying runtime. Prefer application operation -> authoring API -> widget -> demonstrated runtime gap -> minimum fix -> regression -> working application. Define each slice's observable stop condition before implementation.
 
+## Verification ownership and bounded acceptance
+
+Concentrate guarantees at their owning boundaries; verify application use in consumers. Do not exhaustively re-prove a runtime contract for every consumer feature. Cite the owner test and its applicable assumptions when inheriting a guarantee. A consumer proves a successful operation through public APIs and risks specific to its wiring, state or host policy. Host staging is a consumer responsibility unless a shared boundary actually owns it; do not infer atomic publication from command execution alone. The [testing guide](guides/testing.md#verification-ownership) owns the responsibility model and owner-test mapping.
+
+Define slice acceptance with four items:
+
+1. **Minimum observable operation:** what the user can do and what accepted result proves it works.
+2. **New risks:** the identities, validation, state retention or cross-boundary behavior introduced or changed by this operation.
+3. **Inherited guarantees:** named owner tests and assumptions, plus affected checks selected under the testing guide.
+4. **Stop condition:** the smallest fixture observation that closes the operation and returns work to integration.
+
+Do not require the Cartesian product of all input sources, failure points and build configurations for each slice. A first cross-layer failure mode, an actual regression or a distinct trust/owner boundary can justify deeper consumer checks; record the reason and termination condition. Preserve existing regression coverage until equivalent owner coverage and measurement justify a bounded change.
+
+Distinguish checks executed for this change from guarantees inherited from existing contracts. Record configuration and limits in support; do not claim success for an unexecuted environment. Use targeted local checks, a small representative PR gate and wider integration/release validation under the [CI policy](guides/testing.md#validation-tiers). Measure before removing protection or changing required checks.
+
 ## Subsystem stop rule
 
 A subsystem is sufficient for the active slice when:
 
 - the integration fixture can proceed through the operation it required;
-- tests cover the required invariants and affected boundaries;
+- owner tests cover the required invariants, and consumer checks cover the operation's new risks and affected boundaries;
 - no active exit criterion is blocked by that subsystem.
 
 Return to the integration fixture at that point. Do not implement adjacent proposal items for conceptual completeness. In particular, do not deepen lifecycle, async resources, replay, source mapping, or rendering solely because their designs describe further mechanisms.
@@ -35,5 +50,7 @@ Return to the integration fixture at that point. Do not implement adjacent propo
 ## Documentation changes
 
 Use the [canonical owners and change routing](README.md#canonical-owners). Current owns active scope, backlog owns inactive candidates, subsystem pages own contracts, support owns live capability/configuration evidence, and the changelog owns delivery history. Preserve Implemented/Proposed labels and source links; proposal extraction must retain invariants and design detail without activating it.
+
+Keep current work to the next operation, bounded observable acceptance and stop condition; put detailed behavior in its subsystem or consumer owner. Do not create a review article or changelog entry for every pre-implementation selection. Record significant direction intake and deliveries; retain existing history.
 
 For documentation-only changes, run the [documentation check](guides/testing.md#documentation-verification) and review semantic ownership. Runtime test results must not be inferred from documentation checks.

@@ -21,6 +21,7 @@
 - Follow the current milestone; avoid unrelated widgets, frameworks, and optimization work.
 - Designs, proposals, integrations, and backlog entries do not independently authorize implementation. Promote only the minimum change required by the active fixture, or fix an existing contract/test.
 - Stop subsystem expansion when the active fixture can proceed and its required invariants and exit criteria are satisfied. Return to integration instead of implementing adjacent proposals for completeness.
+- Follow the verification ownership and bounded acceptance rules in `docs/agent-policy.md`; use `docs/guides/testing.md` to select affected checks and cite inherited owner tests instead of re-proving runtime guarantees in each consumer.
 
 ## Documentation and checks
 
