@@ -2,22 +2,15 @@ name: Release
 
 # A vX.Y.Z tag push verifies the tag against VERSION and CHANGELOG.md, builds and
 # tests the core, and publishes a source-only GitHub Release from the changelog
-# section. Pull requests touching release inputs and manual runs perform the same
-# checks against v<VERSION> without publishing. GPU fixtures and the Win32 menu
+# section. Manual runs perform the same checks against v<VERSION> without
+# publishing. PR metadata and core checks live in ci.yml; full main/manual
+# validation lives in integration.yml. GPU fixtures and the Win32 menu
 # smoke need a device and desktop session; their evidence is recorded locally in
 # docs/reference/support-matrix.md.
 on:
   push:
     tags:
       - "v*.*.*"
-  pull_request:
-    paths:
-      - VERSION
-      - CHANGELOG.md
-      - CMakeLists.txt
-      - cmake/**
-      - tests/cmake/**
-      - .github/workflows/release.yml
   workflow_dispatch:
 
 permissions:
@@ -25,10 +18,10 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
-  # Empty for pull requests and manual runs: cmake/release.cmake then uses v<VERSION>.
+  # Empty for manual runs: cmake/release.cmake then uses v<VERSION>.
   RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
 jobs:
@@ -56,7 +49,7 @@ jobs:
       - name: Test
         # Keep FetchContent consumer checks available locally; CI covers the
         # independent consumers through add_subdirectory without duplicate builds.
-        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure --no-tests=error -E '_FetchContent$'
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure --no-tests=error -E '_FetchContent$' --output-junit "${{ github.workspace }}/build/ctest.xml"
 
       - name: Upload test log
         if: always()
@@ -66,6 +59,8 @@ jobs:
           if-no-files-found: warn
           path: |
             build/Testing/Temporary/LastTest.log
+            build/Testing/Temporary/CTestCostData.txt
+            build/ctest.xml
             build/source-consumers/**/configure.log
             build/source-consumers/**/build.log
             build/source-consumers/**/test.log
