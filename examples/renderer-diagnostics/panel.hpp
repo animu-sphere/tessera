@@ -54,7 +54,7 @@ inline const tessera::ValidationContext context{{actions[0], actions[1], actions
     "key_y.edit", "key_y.decrease", "key_y.increase", "key_y.apply", "key_y.cancel",
     "key_z.edit", "key_z.decrease", "key_z.increase", "key_z.apply", "key_z.cancel",
     msaa_actions[0], msaa_actions[1], msaa_actions[2], msaa_actions[3], "outlines.toggle", "scene_lights.toggle",
-    material_view_actions[0], material_view_actions[1], material_view_actions[2]}};
+    material_view_actions[0], material_view_actions[1], material_view_actions[2], "controls.reset"}};
 struct MaterialView {
     std::string accepted = "shaded";
     bool enabled = true;

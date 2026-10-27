@@ -28,8 +28,11 @@ std::string operation_label(NumericField field) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(label.front()))) + label.substr(1);
 }
 bool controls_focus(const std::optional<std::string>& id) {
-    return id && (id->starts_with("direct-") || id->starts_with("ambient-") || id->starts_with("key-") || id->starts_with("msaa-") || id->starts_with("material-view-") || *id == "outlines-toggle" || *id == "scene-lights-toggle");
+    return id && (id->starts_with("direct-") || id->starts_with("ambient-") || id->starts_with("key-") || id->starts_with("msaa-") || id->starts_with("material-view-") || *id == "outlines-toggle" || *id == "scene-lights-toggle" || *id == "controls-reset");
 }
+// Initial accepted settings; reset proposes all of them, and every canonical draft, as one candidate.
+const Numeric initial_direct, initial_ambient{0.5};
+const KeyDirection initial_key;
 Result<View> prepare(authoring::Session& session, const Snapshot& snapshot, const Disclosure& disclosure,
     const CommandSnapshot& commands, Point offset, const Numeric& numeric, const Msaa& msaa, const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view, const KeyDirection& key_direction, TextShaper& text) {
     auto authored = session.lower(Panel(snapshot, disclosure, numeric, msaa, outlines, scene_lights, ambient, material_view, key_direction), context);
@@ -120,6 +123,8 @@ Result<std::unique_ptr<Host>> Host::open(Snapshot snapshot, TextShaper& text) {
     descriptors.push_back({"material_view.set", "Set material view", {}, {}, CommandAvailability::both, {
         {"field", CommandParameterType::enumeration, true, {}, {}, {}, 32, {"material_view"}},
         {"value", CommandParameterType::enumeration, true, {}, {}, {}, 32, {material_views.begin(), material_views.end()}}}});
+    descriptors.push_back({"controls.reset", "Reset controls"});
+    bindings["controls.reset"] = "controls.reset";
     for (const auto field : all_numeric_fields) {
         const auto name = field_name(field);
         descriptors.push_back({name + ".edit", "Edit " + operation_label(field), {}, {}, CommandAvailability::both, {
@@ -198,6 +203,11 @@ Result<View> Host::stage(const Snapshot& snapshot, const Disclosure& disclosure,
     states["material_view.set"] = {material_view.enabled && disclosure.expanded[3]};
     for (const auto* command : material_view_commands)
         states[command] = {material_view.enabled && disclosure.expanded[3]};
+    // Reset is eligible only as a whole: every affected setting and the initial sample count.
+    bool reset = disclosure.expanded[3] && msaa.enabled && supports(msaa, Msaa{}.accepted) &&
+        outlines.enabled && scene_lights.enabled && material_view.enabled;
+    for (const auto field : all_numeric_fields) reset &= pick(field, numeric, ambient, key_direction).enabled;
+    states["controls.reset"] = {reset};
     auto commands = CommandSnapshot::publish(registry_, ++generation_, CommandMode::production, std::move(states));
     if (!commands) return {std::nullopt, std::move(commands.diagnostics)};
     auto staged = prepare(session_, snapshot, disclosure, *commands.value, offset, numeric, msaa, outlines, scene_lights, ambient, material_view, key_direction, text);
@@ -421,6 +431,21 @@ Result<CommandExecution> Host::execute(const CommandInvocation& invocation, Text
                     return {CommandOutcomeStatus::error, {}, {{"msaa_value", Severity::error, "/controls/msaa",
                         "Expected a supported integral sample count from {1,2,4,8}"}}};
                 msaa.accepted = static_cast<unsigned>(samples);
+            } else if (call.command == "controls.reset") {
+                ++host.setting_attempts_;
+                for (const auto each : all_numeric_fields)
+                    if (pick(each, numeric, ambient, key_direction).draft.revision == std::numeric_limits<std::uint64_t>::max())
+                        return {CommandOutcomeStatus::error, {}, {{"reset_request", Severity::error, "/controls/reset",
+                            "Draft revision exhausted for " + field_name(each) + "; reopen the panel"}}};
+                // Capabilities and eligibility are retained; staging rejects an unsupported initial sample count.
+                msaa.accepted = Msaa{}.accepted; outlines.accepted = Outlines{}.accepted;
+                scene_lights.accepted = SceneLights{}.accepted; material_view.accepted = MaterialView{}.accepted;
+                for (const auto each : all_numeric_fields) {
+                    auto& reset_value = pick(each, numeric, ambient, key_direction);
+                    reset_value.accepted = pick(each, initial_direct, initial_ambient, initial_key).accepted;
+                    reset_value.draft.text = canonical(reset_value.accepted);
+                    reset_value.draft.anchor = reset_value.draft.caret = reset_value.draft.text.size(); ++reset_value.draft.revision;
+                }
             } else if (is_numeric && operation == "edit") {
                 ++host.draft_requests_;
                 auto integer = [&](const char* key, std::uint64_t& result) {

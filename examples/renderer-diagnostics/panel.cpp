@@ -247,6 +247,7 @@ ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const 
             rows.push_back(ui::Checkbox("Scene lights", scene_lights.accepted, "scene_lights.toggle",
                 {.node = {.id = "scene-lights-toggle"}}));
             rows.push_back(MaterialViewControl(material_view));
+            rows.push_back(ui::Button("Reset controls", "controls.reset", {.node = {.id = "controls-reset"}}));
         }
     }
     return ui::Column(std::move(rows), {.id = "renderer-diagnostics", .classes = {"panel"}});
