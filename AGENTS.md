@@ -18,7 +18,8 @@
 - Normalize input at the host boundary. Treat keyboard/gamepad navigation as core design requirements.
 - Isolate text shaping and external asset loading behind interfaces.
 - Build the runtime IR before introducing a DSL, JSX frontend, or JavaScript runtime.
-- Follow the current milestone; avoid unrelated widgets, frameworks, and optimization work.
+- Follow the current milestone; avoid unrelated widgets, frameworks, and optimization work. Before proposing more implementation, state what a milestone user could not do without it; otherwise defer it to backlog.
+- Scope each change to one user operation or one defect, opened with the four acceptance items in `docs/agent-policy.md`.
 - Designs, proposals, integrations, and backlog entries do not independently authorize implementation. Promote only the minimum change required by the active fixture, or fix an existing contract/test.
 - Stop subsystem expansion when the active fixture can proceed and its required invariants and exit criteria are satisfied. Return to integration instead of implementing adjacent proposals for completeness.
 - Follow the verification ownership and bounded acceptance rules in `docs/agent-policy.md`; use `docs/guides/testing.md` to select affected checks and cite inherited owner tests instead of re-proving runtime guarantees in each consumer.

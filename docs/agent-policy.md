@@ -20,7 +20,9 @@ Before extending a subsystem, identify the fixture operation that cannot proceed
 
 Full-tree evaluation is the correctness reference. Convenience APIs, adjacent mechanisms, and optimization require their own demonstrated need; architectural depth does not establish scheduling priority.
 
-For runtime functionality, name a blocked real application operation or widget, a failing existing contract, a measured performance bottleneck, or a concrete platform integration requirement. Otherwise keep the mechanism in backlog/proposals. An active authoring slice may add the public convenience needed by its application without redesigning the underlying runtime. Prefer application operation -> authoring API -> widget -> demonstrated runtime gap -> minimum fix -> regression -> working application. Define each slice's observable stop condition before implementation.
+For runtime functionality, name a blocked real application operation or widget, a failing existing contract, a measured performance bottleneck, or a concrete platform integration requirement. Otherwise keep the mechanism in backlog/proposals. An active authoring slice may add the public convenience needed by its application without redesigning the underlying runtime. Prefer failing application operation -> shortest public authoring API -> composition of existing widgets -> demonstrated runtime gap -> minimum fix -> regression -> working application. Define each slice's observable stop condition before implementation.
+
+Before proposing additional implementation, state what users of the active milestone could not do without it. If that cannot be stated, defer it to backlog. When two consecutive UI-operation changes each require broad runtime changes, investigate authoring API friction before adding further operations; introduce any resulting generalization in a small step grounded in measurements and real examples.
 
 ## Verification ownership and bounded acceptance
 
@@ -32,6 +34,8 @@ Define slice acceptance with four items:
 2. **New risks:** the identities, validation, state retention or cross-boundary behavior introduced or changed by this operation.
 3. **Inherited guarantees:** named owner tests and assumptions, plus affected checks selected under the testing guide.
 4. **Stop condition:** the smallest fixture observation that closes the operation and returns work to integration.
+
+Scope one change (pull request) to one user operation or one defect, and open its description with these four items. Keep new risks to the few boundaries the change can actually break, typically two or three. Once the accepted observation and new-risk checks pass, do not generalize the API or add adjacent features in that change; record noticed improvements in [backlog](roadmap/backlog.md). Updating current work is part of the change, not a separate long-running task.
 
 Do not require the Cartesian product of all input sources, failure points and build configurations for each slice. A first cross-layer failure mode, an actual regression or a distinct trust/owner boundary can justify deeper consumer checks; record the reason and termination condition. Preserve existing regression coverage until equivalent owner coverage and measurement justify a bounded change.
 

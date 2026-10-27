@@ -23,18 +23,25 @@ The source-backed responsibility map below identifies reusable checks, not execu
 | Accepted settings/view retention after rejected staging | The host's [Diagnostics fixture](../../tests/integrations/renderer_diagnostics_tests.cpp) or [Settings fixture](../../examples/settings/main.cpp) | Cover a new staging branch and retained unrelated state; executor tests do not establish host atomicity |
 | Deterministic CPU pixels and replay processing | [cpu_renderer](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [offscreen_runner](../../tests/inspection/offscreen_runner_tests.cpp) | Representative accepted semantics/geometry/paint; add image comparisons for changed drawing behavior |
 
+Choose consumer checks by what the change introduces:
+
+- **Add** a check for a new failure mode, a trust boundary, a state-retention or command path, or an actual regression.
+- **Inherit** unchanged runtime invariants, such as lifetime, replay determinism and input-combination rejection, by citing the owner test and its assumptions.
+- **Do not multiply** input routes, injected failures and configurations; a consumer verifies its successful flow and its specific risks.
+- **Do not hurry deletion:** broad existing checks stay at wider tiers, and a duplicate is removed only under the [safe reduction](#measurement-and-safe-reduction) rules.
+
 Pointer and keyboard/gamepad/semantic routing must share ordinary commands. Check representative parity at the consumer's routing boundary; do not multiply every runtime failure by every input source. A first cross-layer failure mode, a real regression or a different trust/owner boundary warrants deeper L3 coverage with a stated reason and stop condition. Keep a minimal regression fixture and useful diagnostics rather than all edits multiplied by all injected failures. Distinguish an inherited guarantee from a test executed for this change in [support](../reference/support-matrix.md).
 
 ## Validation tiers
 
 This is the execution policy for selecting and evolving checks. Workflow configuration and required-check settings must be verified before claiming a tier is enforced; source/configuration findings and measured outcomes belong only in support.
 
-| Tier | Scope and frequency |
-| --- | --- |
-| 0 Local | Build affected targets and run focused CTests; documentation-only changes use the documentation checker. Aim for seconds to a few minutes, subject to measurement. |
-| 1 PR | One representative core environment, initially Windows x64 Debug as the candidate, fast owner contracts and a small affected consumer smoke. Widen for foundation/build changes. PR p95 at most ten minutes is a provisional SLO to revise after baseline measurement. |
-| 2 Integration/periodic | Full core Debug/Release, major consumers, both independent import modes, deterministic CPU/replay checks, saved durations and failures. Run after main integration or on a regular schedule; prefer daily coverage when runner capacity permits. |
-| 3 Release/platform | Version/tag/changelog consistency, full required Debug/Release and both imports, plus optional module, GPU/font/native-host evidence for the supported configuration. Unavailable hardware checks are unvalidated, never replaced by compile success. |
+| Tier | Scope and frequency | Avoid |
+| --- | --- | --- |
+| 0 Local | Build affected targets and run focused owner contracts plus a representative consumer smoke; documentation-only changes use the documentation checker. Aim for seconds to a few minutes, subject to measurement. | Full Debug/Release and every import mode for each change |
+| 1 PR | One representative core environment, initially Windows x64 Debug as the candidate, fast owner contracts and a small affected consumer smoke. Widen for foundation/build changes and fall back to wider coverage for unknown changes. PR p95 at most ten minutes is a provisional SLO to revise after baseline measurement. | Checks unrelated to the change; duplicating the integration matrix |
+| 2 Integration/periodic | Full core Debug/Release, major consumers, both independent import modes, deterministic CPU/replay checks, saved durations and failures. Run after main integration or on a regular schedule; prefer daily coverage when runner capacity permits. | Blocking ordinary UI-operation changes on observation alone |
+| 3 Release/platform | Version/tag/changelog consistency, full required Debug/Release and both imports, plus optional module, GPU/font/native-host evidence for the supported configuration. Unavailable hardware checks are unvalidated, never replaced by compile success. | Claiming optional/native support beyond the executed configuration |
 
 Keep broad checks when moving them out of the PR gate. Repeated Tier 2 failure blocks the next release and takes repair priority; promote a missed critical regression check back to Tier 1. GPU/desktop checks require suitable runners or explicitly recorded local evidence. The release workflow remains responsible for release verification/publication; the [development guide](development.md#release-workflow) owns its commands.
 

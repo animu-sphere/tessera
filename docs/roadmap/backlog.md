@@ -25,6 +25,10 @@ The [active authoring milestone](current.md) owns the required controls for Sett
 
 Promote additional widgets from an application operation; do not implement this inventory for completeness. Prefer ordinary components and the [shared authoring/lowering model](../proposals/cpp-authoring.md); a full generalized API per widget is not required.
 
+## After v0.4.0
+
+v0.4.x patch candidates take regression fixes only. v0.5.0 then prioritizes practical applications, widget growth and native integration under the candidate below. Improvements recorded during v0.4.0 convergence stay here until a consumer operation promotes them.
+
 ## v0.5.0 candidate — Application UI Kit
 
 Objective: **Tessera で小〜中規模のデスクトップツールを作れる。** Build an editor-like desktop tool without custom framework infrastructure.
