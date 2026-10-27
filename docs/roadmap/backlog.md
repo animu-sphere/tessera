@@ -17,11 +17,11 @@ The [bounded validation task](current.md#bounded-validation-supporting-work) own
 - After equivalent owner coverage is identified, shrink duplicate consumer assertions incrementally, documenting the owning regression and diagnostic value. Observe Tier 2 failures for two weeks and restore important missed checks to the PR gate.
 - Use measured configure/build/test bottlenecks to choose safe parallelism, caching or build-target separation. Do not create a general CI framework or delete protection to meet an unmeasured time target.
 
-Promote only the next bounded step with measurement-backed acceptance and a stop condition. Before release, aggregate full Debug/Release, both source imports, CPU/replay and the required available platform evidence under current's release exit criteria.
+Promote only the next bounded step with measurement-backed acceptance and a stop condition. Before a release, aggregate full Debug/Release, both source imports, CPU/replay and the required available platform evidence under the active milestone's exit criteria.
 
 ## Widget candidates beyond the reference application
 
-The [active authoring milestone](current.md) owns the required controls for Settings and the bounded [renderer diagnostics panel](current.md#renderer-diagnostics-reference-panel). Additional baseline candidates are a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView and a basic List, plus Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Text, Button, Checkbox, TextInput, Row and Column requirements and the diagnostics consumer's minimum numeric controls are defined in current work rather than duplicated here; broader widget APIs stay candidates.
+v0.4.0 delivered the controls required by Settings and the bounded [renderer diagnostics panel](../integrations/renderer-diagnostics.md), as recorded in the [release acceptance](../reference/support-matrix.md#v040-release-acceptance--2026-10-27). Additional baseline candidates are a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView and a basic List, plus Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Text, Button, Checkbox, TextInput, Row and Column and the diagnostics consumer's minimum numeric controls are owned by their [UI model](../architecture/ui-model.md#implemented-c-form-authoring) and [consumer](../integrations/renderer-diagnostics.md) contracts rather than duplicated here; broader widget APIs stay candidates.
 
 Promote additional widgets from an application operation; do not implement this inventory for completeness. Prefer ordinary components and the [shared authoring/lowering model](../proposals/cpp-authoring.md); a full generalized API per widget is not required.
 
