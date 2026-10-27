@@ -162,7 +162,13 @@ struct Fixture {
                 require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find(id), "activate")) == enabled,
                     "MSAA semantic eligibility differs");
             }
-        } else require(!view.tree->find("material-view-control") && !view.tree->find("scene-lights-toggle") && !view.tree->find("outlines-toggle") && !view.tree->find("msaa-1") && !view.tree->find("msaa-accepted"), "Collapsed controls remained present");
+            const auto& supported = host->msaa().supported;
+            bool reset = host->msaa().enabled && std::find(supported.begin(), supported.end(), 1u) != supported.end() &&
+                host->outlines().enabled && host->scene_lights().enabled && host->material_view().enabled;
+            for (const auto field : panel::all_numeric_fields) reset &= host->numeric(field).enabled;
+            require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("controls-reset"), "activate")) == reset,
+                "Reset semantic eligibility differs");
+        } else require(!view.tree->find("controls-reset") && !view.tree->find("material-view-control") && !view.tree->find("scene-lights-toggle") && !view.tree->find("outlines-toggle") && !view.tree->find("msaa-1") && !view.tree->find("msaa-accepted"), "Collapsed controls remained present");
         require(name(view, "value-scene") == snapshot.scene && name(view, "value-device") == snapshot.device &&
             name(view, "value-extent") == "1280 x 720" && name(view, "value-presentation") == snapshot.presentation,
             "Snapshot identity/extent differs");
@@ -1150,6 +1156,9 @@ void boolean_controls(bool scene_lights) {
     take(send(PointerUp{{61}, {800, 200}}, CommandSource::pointer));
     require(h.last_consumed() && h.setting_attempts() == calls, "Replacement lost stream claim or retained activation");
     take(send(Scroll{{16, 16}, {0, 4096}}));
+    // The clamped bottom offset can hide the disabled owner; scroll it back before pressing it.
+    if (!visible(h.view(), id)) take(send(Scroll{{16, 16}, {0, box(h.view(), id).border_box.origin.y - 40}}));
+    require(visible(h.view(), id) && h.camera_events() == camera, "Disabled Boolean owner is not reachable");
     const auto disabled_point = point();
     take(send(PointerDown{{62}, disabled_point}, CommandSource::pointer)); take(send(PointerUp{{62}, disabled_point}, CommandSource::pointer));
     require(h.setting_attempts() == calls && h.camera_events() == camera, "Disabled Boolean control hit reached handler/camera");
@@ -1479,9 +1488,115 @@ void key_direction_controls() {
     std::cout << f.observations << " key direction views match CPU/replay; three components, signed bounds, routing, retention and retry verified; " <<
         h.camera_events() << " camera deliveries\n";
 }
+void reset_controls() {
+    Fixture f;
+    auto& h = *f.host;
+    using Field = panel::NumericField;
+    auto send = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        require(take(h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, f.text)) && h.last_consumed(),
+            "Expected consumed reset input");
+    };
+    auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success = true) {
+        auto result = take(h.execute(call, text));
+        require((result.outcome.status == CommandOutcomeStatus::success) == success, "Unexpected reset outcome");
+        return result;
+    };
+    auto edit = [&](Field field, auto operation) {
+        const auto d = h.numeric(field).draft;
+        execute(take(h.request_edit(field, {d.owner, d.revision, std::move(operation)}, CommandSource::agent)), f.text);
+    };
+    auto draft = [&](Field field, std::string value) {
+        edit(field, TextEditSelection{0, h.numeric(field).draft.text.size()});
+        edit(field, TextEditInsert{std::move(value)});
+    };
+    auto invoke = [&](const std::string& id) { require(take(h.invoke(id, CommandSource::accessibility, f.text)), "Expected reset command: " + id); };
+    // Initial values in all_numeric_fields order: direct, ambient, key x/y/z.
+    constexpr std::array<double, 5> initial{1, 0.5, 0, 0, -1};
+    auto drafts = [&] {
+        std::array<std::pair<std::uint64_t, std::uint64_t>, 5> lifetimes;
+        for (std::size_t i = 0; i < lifetimes.size(); ++i) {
+            const auto& d = h.numeric(panel::all_numeric_fields[i]).draft;
+            lifetimes[i] = {d.owner, d.revision};
+        }
+        return lifetimes;
+    };
+    auto host_owned = [&] { return std::tuple{h.snapshot(), h.disclosure(), h.msaa().supported, h.msaa().enabled, h.outlines().enabled,
+        h.scene_lights().enabled, h.material_view().enabled, h.draft_requests(), h.disclosure_requests()}; };
+    auto reset_to_initial = [&](const decltype(drafts())& before) {
+        for (std::size_t i = 0; i < initial.size(); ++i) {
+            const auto& value = h.numeric(panel::all_numeric_fields[i]);
+            require(value.accepted == initial[i] && value.draft.text == panel::canonical(initial[i]) &&
+                value.draft.anchor == value.draft.text.size() && value.draft.caret == value.draft.anchor &&
+                value.draft.owner == before[i].first && value.draft.revision == before[i].second + 1,
+                "Reset numeric value/draft differs: " + panel::field_name(panel::all_numeric_fields[i]));
+        }
+        require(h.msaa().accepted == 1 && !h.outlines().accepted && h.scene_lights().accepted && h.material_view().accepted == "shaded",
+            "Reset settings differ from initial values");
+    };
+
+    // Move every setting away from its initial value, with pending invalid and reverse-selected drafts.
+    execute(take(h.request_value("direct", 2.5, CommandSource::agent)), f.text);
+    invoke("key-z-increase"); invoke("msaa-4"); invoke("outlines-toggle"); invoke("scene-lights-toggle"); invoke("material-view-normals");
+    draft(Field::ambient, "-"); draft(Field::key_x, "0."); edit(Field::key_x, TextEditSelection{2, 0});
+    take(h.msaa_capabilities({1, 2, 4, 8}, true, f.text));
+    take(h.refresh(panel::sample_b(), f.text));
+    auto retained = host_owned();
+    auto before = drafts(); auto attempts = h.setting_attempts(); auto changes = h.setting_changes();
+
+    auto reveal = [&] {
+        for (int i = 0; h.focused() != "controls-reset" && i < 64; ++i) send(KeyDown{Key::tab, {.shift = true}});
+        require(h.focused() == "controls-reset" && visible(h.view(), "controls-reset"), "Reset traversal/reveal failed");
+    };
+    // Keyboard reveal and gamepad Activate reach the one ordinary reset command.
+    reveal();
+    send(Activate{}, CommandSource::gamepad);
+    reset_to_initial(before);
+    require(h.setting_attempts() == attempts + 1 && h.setting_changes() == changes + 1 && host_owned() == retained &&
+        h.focused() == "controls-reset" && h.camera_events() == 0, "Reset accounting, host-owned state or focus differs");
+    f.verify();
+    // An all-initial reset still publishes, advances every revision and changes no setting.
+    before = drafts(); attempts = h.setting_attempts(); changes = h.setting_changes();
+    invoke("controls-reset");
+    reset_to_initial(before);
+    require(h.setting_attempts() == attempts + 1 && h.setting_changes() == changes, "Equal reset accounting differs");
+
+    // Whole-operation rejection: one ineligible setting, or capabilities excluding the initial sample count.
+    invoke("msaa-4"); draft(Field::direct, "3.");
+    const auto held = take(h.request("controls-reset", CommandSource::agent));
+    take(h.numeric_eligibility(Field::key_y, false, f.text));
+    auto pristine = f.stable(); attempts = h.setting_attempts();
+    require(!h.request("controls-reset", CommandSource::agent) && !h.execute(held, f.text) && pristine == f.stable() &&
+        h.setting_attempts() == attempts && h.request("key-x-apply", CommandSource::agent), "Ineligible component allowed a partial reset");
+    take(h.numeric_eligibility(Field::key_y, true, f.text));
+    take(h.msaa_capabilities({2, 4, 8}, true, f.text));
+    pristine = f.stable();
+    require(!h.request("controls-reset", CommandSource::agent) && h.request("msaa-2", CommandSource::agent) && pristine == f.stable() &&
+        h.setting_attempts() == attempts, "Unsupported initial MSAA allowed reset");
+    take(h.msaa_capabilities({1, 2, 4, 8}, true, f.text));
+
+    // One rejected reset stage; a fresh request retries against the retained view.
+    RejectingText rejecting{true};
+    pristine = f.stable(); attempts = h.setting_attempts(); changes = h.setting_changes();
+    const auto failed = take(h.request("controls-reset", CommandSource::agent));
+    const auto result = execute(failed, rejecting, false);
+    require(!result.outcome.diagnostics.empty() && result.outcome.diagnostics.size() <= max_command_result_diagnostics &&
+        result.outcome.diagnostics.front().path.find("/nodes/") != std::string::npos && pristine == f.stable() &&
+        h.setting_attempts() == attempts + 1 && h.setting_changes() == changes, "Rejected reset stage changed accepted state or lost diagnostics");
+    require(!h.execute(failed, f.text) && h.setting_attempts() == attempts + 1, "Failed reset request executed twice");
+    before = drafts();
+    invoke("controls-reset");
+    reset_to_initial(before);
+    require(h.setting_attempts() == attempts + 2 && h.setting_changes() == changes + 1 && h.camera_events() == 0, "Fresh reset retry differs");
+    // Collapse from reset recovers the controls header and removes the owner; disabling reset above moved focus.
+    reveal();
+    invoke("disclosure-controls");
+    require(h.focused() == "disclosure-controls" && !h.request("controls-reset", CommandSource::agent), "Collapsed reset recovery differs");
+    invoke("disclosure-controls");
+    std::cout << f.observations << " reset view matches CPU/replay; all-settings reset, whole-operation rejection and rejected-stage retry verified\n";
+}
 
 }
 int main() {
-    try { run(); numeric_controls(panel::NumericField::direct); numeric_controls(panel::NumericField::ambient); two_numeric_fields(); msaa_controls(); boolean_controls(false); boolean_controls(true); material_view_controls(); key_direction_controls(); }
+    try { run(); numeric_controls(panel::NumericField::direct); numeric_controls(panel::NumericField::ambient); two_numeric_fields(); msaa_controls(); boolean_controls(false); boolean_controls(true); material_view_controls(); key_direction_controls(); reset_controls(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

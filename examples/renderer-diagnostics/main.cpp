@@ -98,6 +98,15 @@ int main() {
             if (node.id && (*node.id == "value-frame-summary" || *node.id == "history-summary" ||
                 *node.id == "value-gpu-geometry" || *node.id == "disclosure-counters"))
                 std::cout << *node.id << ": " << node.name << '\n';
+        // One command proposes every initial setting and canonical draft; capabilities and eligibility stay host-owned.
+        (void)take(host->invoke("controls-reset", CommandSource::accessibility, text));
+        const auto& reset = host->key_direction();
+        std::cout << "Reset direct " << diagnostics::canonical(host->numeric().accepted) << "; ambient " <<
+            diagnostics::canonical(host->ambient().accepted) << "; key direction " << diagnostics::canonical(reset.x.accepted) << ", " <<
+            diagnostics::canonical(reset.y.accepted) << ", " << diagnostics::canonical(reset.z.accepted) << "; MSAA " << host->msaa().accepted <<
+            "; outlines " << (host->outlines().accepted ? "on" : "off") << "; scene lights " << (host->scene_lights().accepted ? "on" : "off") <<
+            "; material view " << host->material_view().accepted << "; setting attempts " << host->setting_attempts() << "; changes " <<
+            host->setting_changes() << '\n';
         std::cout << "Focus " << host->focused().value_or("none") << "; offset " << host->offset().y <<
             "; disclosure requests " << host->disclosure_requests() << " (synthetic host; no window)\n";
     } catch (const std::exception& error) {
