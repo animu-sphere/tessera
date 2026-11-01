@@ -20,9 +20,9 @@ The [Settings consumer](../integrations/settings-app.md#proposed-application-wor
 
 ### Current slice
 
-Complete the first edit/toggle/Apply/Cancel flow in the [copyable Settings starter](../../examples/settings-starter/main.cpp), composing TextInput, Checkbox, Row, Column and ordinary commands. Cancel restores the last applied settings (initial values before the first Apply), leaves saved copies unchanged and keeps the selected category. Switching categories retains the pending draft until Apply or Cancel. Keep the shell and host ownership explicit.
+Add one numeric setting to the [copyable Settings starter](../../examples/settings-starter/main.cpp), using an adequate existing input API before introducing a Slider abstraction. Make a bounded value editable through public APIs, with actionable validation, and include it in the host's draft and Apply/Cancel copies. Keep category selection and unrelated username/feature edits across numeric changes; Cancel restores the last applied value, or its initial value before the first Apply. Keep shell and host ownership explicit.
 
-Stop when this public-API flow succeeds through representative input, affected owner tests and one consumer smoke. Check draft/save retention and Cancel wiring; inherit unchanged edit, command and focus guarantees under the [testing guide](../guides/testing.md#verification-ownership). The earlier clipboard-review candidate is deferred to [editing follow-ups](backlog.md#v050-follow-up-candidates); it is not a prerequisite for this flow. No new runtime abstraction or general widget framework is required by this slice.
+Stop when numeric editing, Apply/Cancel and representative invalid input succeed through affected owner tests and one consumer smoke. Check independent draft/save retention; inherit unchanged edit, command and focus guarantees under the [testing guide](../guides/testing.md#verification-ownership). The earlier clipboard-review candidate is deferred to [editing follow-ups](backlog.md#v050-follow-up-candidates); it is not a prerequisite for this flow. No new runtime abstraction or general widget framework is required by this slice.
 
 ### Implementation sequence
 
