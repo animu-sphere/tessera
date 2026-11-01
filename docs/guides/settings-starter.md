@@ -46,11 +46,14 @@ The program supplies normalized input itself. Each checkpoint prints `Section <i
 | Return to Account | account | Ada本 / enabled | Saved 1: Ada本; feature enabled |
 | Insert `!` | account | Ada本! / enabled | Saved 1: Ada本; feature enabled |
 | Keyboard Apply | account | Ada本! / enabled | Saved 2: Ada本!; feature enabled |
+| Control+A | account | Ada本! / enabled, selection 0:7 | Saved 2: Ada本!; feature enabled |
+| Replace with `日😀` | account | 日😀 / enabled | Saved 2: Ada本!; feature enabled |
+| Keyboard Apply | account | 日😀 / enabled | Saved 3: 日😀; feature enabled |
 
 It ends with:
 
 ```text
-2 owned saves; 8 host commands; 640x360 RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)
+3 owned saves; 12 host commands; 640x360 RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)
 ```
 
 The process exits nonzero with diagnostics on failure. This is a window-free example with placeholder text and synthetic glyph marks; a native host supplies its own window, physical input normalization and rendering services.
@@ -73,11 +76,13 @@ The host registers six ordinary action/command mappings, including the three sec
 
 ## Route editing before navigation
 
-`input` validates a normalized event and refreshes focus against the accepted tree. It first requires a present username owner, then compares that owner with eligible refreshed focus. Two empty optionals must never count as a focused field. When username is eligible and focused, committed `tessera::TextInput` becomes an insert request. Left/Right/Home/End become movement, Shift extends selection, and Backspace/Delete become erase requests. Control/Alt/Super modified keys are outside this mapping. Consumed editing input returns before logical navigation; other raw keys/text are ignored by this bounded host.
+`input` validates a normalized event and refreshes focus against the accepted tree. It first requires a present username owner, then compares that owner with eligible refreshed focus. Two empty optionals must never count as a focused field. When username is eligible and focused, committed `tessera::TextInput` becomes an insert request. Left/Right/Home/End become movement, Shift extends selection, and Backspace/Delete become erase requests. Exact Control+A, without repeat or Shift/Alt/Super, selects byte range `0:text.size()` through the same edit command. Other Control/Alt/Super modified keys are outside this mapping. Consumed editing input returns before logical navigation; other raw keys/text are ignored by this bounded host.
 
 The remaining logical events go to `FocusDispatcher`. Four `FocusNext` events traverse the three choices to username; committed text inserts `本` after `Ada`. Two `FocusPrevious` events reach Feature, and keyboard `Activate` selects it. Two `FocusNext` events reach Checkbox; activation toggles true. The next focus step reaches Apply for logical gamepad activation. Two previous steps reach About for gamepad selection. The script resets focus to exercise absent username plus empty focus; committed text and all supported editing keys on Feature/About leave observations and command count unchanged. From empty focus, `FocusNext`/`Activate` returns to Account, retaining the edit lifetime and 6:6 selection. Three next steps reach username, `!` changes only the draft, and the next step reaches Apply for keyboard activation. Each activated choice retains its author-ID focus after replacement. A real host maps Tab/D-pad and Enter/A into these logical events and owns the monotonic clock/repeat policy; changing `CommandSource` does not poll a device.
 
-Offsets are UTF-8 bytes at scalar boundaries: `Ada本` ends at byte 6; `Ada本!` ends at byte 7. Each accepted text edit or caret/byte-selection command advances the edit revision; section selection preserves it. The [logical editing contract](../architecture/input.md#implemented-logical-string-editing) owns bounds and rejection rules. TextInput exposes label, committed bytes and selection as ordinary Text/button semantics; it supplies no native editable accessibility adapter or caret geometry.
+After the second Apply, the script returns to username, uses Shift+Home for reversed selection 7:0, then Control+A for 0:7. Committed `日😀` replaces the entire value and the next keyboard Apply saves it. Selection alone preserves draft bytes; both selection and replacement preserve the two earlier owned saves and saved result until Apply. Checks also send Control+A with no focus, Apply focus and absent Account, plus repeated or additionally modified chords while username is focused, requiring unchanged command generation and observations for these ignored inputs.
+
+Offsets are UTF-8 bytes at scalar boundaries: `Ada本` ends at byte 6; `Ada本!` and `日😀` each end at byte 7. Each accepted text edit or caret/byte-selection command advances the edit revision; section selection preserves it. The [logical editing contract](../architecture/input.md#implemented-logical-string-editing) owns bounds and rejection rules. TextInput exposes label, committed bytes and selection as ordinary Text/button semantics; it supplies no native editable accessibility adapter or caret geometry.
 
 ## Stage, accept and observe
 
@@ -85,4 +90,4 @@ Offsets are UTF-8 bytes at scalar boundaries: `Ada本` ends at byte 6; `Ada本!`
 
 The sheet, shaper and lowered source/style inputs are borrowed synchronously during preparation. The accepted presentation owns its command snapshot, tree, resolved styles, layout, inspection and paint. Dispatch/command views borrow that presentation only until their calls return; replacement invalidates old tree handles. `focus.refresh` recovers by explicit author ID after acceptance. Session publication follows successful preparation.
 
-`observe` resolves author IDs from owned inspection and compares selected markers/name, the conditional branch, username/byte selection or Checkbox when present, summary and saved result with host observations. It checks visible geometry within the 640×360 logical viewport, repeats CPU captures at nine accepted checkpoints, and checks that branch and draft changes affect pixels. Capture fixes scale one and time zero. The rasterizer outlives its borrowed glyph cache, and the cache outlives the capture adapter; capture returns owned RGBA8 bytes in memory. The [larger fixture](../integrations/settings-app.md) demonstrates dynamic section-list mutation, constrained scrolling, richer styles and replay of accepted views through the same runtime. A smaller viewport requires an explicit host scroll/reveal policy; resizing alone does not connect that operation.
+`observe` resolves author IDs from owned inspection and compares selected markers/name, the conditional branch, username/byte selection or Checkbox when present, summary and saved result with host observations. It checks visible geometry within the 640×360 logical viewport, repeats CPU captures at twelve accepted checkpoints, and checks that branch and draft changes affect pixels. Capture fixes scale one and time zero. The rasterizer outlives its borrowed glyph cache, and the cache outlives the capture adapter; capture returns owned RGBA8 bytes in memory. The [larger fixture](../integrations/settings-app.md) demonstrates dynamic section-list mutation, constrained scrolling, richer styles and replay of accepted views through the same runtime. A smaller viewport requires an explicit host scroll/reveal policy; resizing alone does not connect that operation.

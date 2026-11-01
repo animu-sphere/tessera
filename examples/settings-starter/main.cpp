@@ -228,6 +228,9 @@ int main() {
             if (owner && current_focus == owner) { // An absent owner must never match an empty focus.
                 if (const auto* insert = std::get_if<tessera::TextInput>(&event.data)) edit = TextEditInsert{insert->text};
                 if (const auto* key = std::get_if<KeyDown>(&event.data);
+                    key && key->key == Key::a && key->modifiers == Modifiers{.control = true} && !key->repeat)
+                    edit = TextEditSelection{0, host.username.text.size()};
+                if (const auto* key = std::get_if<KeyDown>(&event.data);
                     key && !key->modifiers.control && !key->modifiers.alt && !key->modifiers.super) {
                     switch (key->key) {
                     case Key::left: edit = TextEditMove{TextMove::left, key->modifiers.shift}; break;
@@ -292,17 +295,21 @@ int main() {
         auto send = [&](auto event, CommandSource source = CommandSource::keyboard) {
             input({std::chrono::microseconds{++tick}, std::move(event)}, source);
         };
+        auto observations = [&] { return std::tuple{host.selected, host.username, host.draft, host.saves, host.result,
+            sequence, accepted.commands.generation(), accepted.inspection, accepted.paint,
+            take(focus.refresh(accepted.hit())).focused}; };
         auto ignore_editing = [&] {
-            auto observations = [&] { return std::tuple{host.selected, host.username, host.draft, host.saves, host.result,
-                sequence, accepted.commands.generation(), accepted.inspection, accepted.paint,
-                take(focus.refresh(accepted.hit())).focused}; };
             const auto before = observations();
             send(tessera::TextInput{"ignored"});
             for (const auto key : {Key::left, Key::right, Key::home, Key::end, Key::backspace, Key::delete_key})
                 send(KeyDown{key});
+            send(KeyDown{Key::a, {.control = true}});
             require(observations() == before, "Absent username consumed editing input");
         };
         const auto initial = observe();
+        const auto unfocused = observations();
+        send(KeyDown{Key::a, {.control = true}});
+        require(observations() == unfocused, "Unfocused username consumed Select All");
         for (const auto* id : {"section-account", "section-feature", "section-about", "username"}) {
             send(FocusNext{}); focused(id);
         }
@@ -357,7 +364,36 @@ int main() {
         require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} && sequence == 8,
             "Second Apply or once-only command count differs");
         (void)observe();
-        std::cout << "2 owned saves; 8 host commands; " << extent.width << 'x' << extent.height
+        const auto apply_focused = observations();
+        send(KeyDown{Key::a, {.control = true}});
+        require(observations() == apply_focused, "Apply focus consumed Select All");
+        send(FocusPrevious{}); focused("username");
+        send(KeyDown{Key::home, {.shift = true}});
+        require(host.username.anchor == 7 && host.username.caret == 0, "Expected reversed selection");
+        const auto before_select = host.username;
+        const auto ignored_keys = observations();
+        for (const auto key : {KeyDown{Key::a}, KeyDown{Key::a, {.shift = true, .control = true}},
+            KeyDown{Key::a, {.control = true, .alt = true}}, KeyDown{Key::a, {.control = true, .super = true}},
+            KeyDown{Key::a, {.control = true}, true}}) send(key);
+        require(observations() == ignored_keys, "Unsupported Select All chord changed observations");
+        send(KeyDown{Key::a, {.control = true}}); focused("username");
+        require(host.username.owner == before_select.owner && host.username.revision == before_select.revision + 1 &&
+            host.username.text == before_select.text && host.username.anchor == 0 && host.username.caret == 7 &&
+            host.draft == SettingsData{"Ada本!", true} && host.saves.size() == 2 && sequence == 10,
+            "Select All did not publish one full UTF-8 selection command");
+        const auto selected_all = observe();
+        send(tessera::TextInput{"日😀"}); focused("username");
+        require(host.username.text == "日😀" && host.username.anchor == 7 && host.username.caret == 7 &&
+            host.username.revision == before_select.revision + 2 && host.draft == SettingsData{"日😀", true} &&
+            host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} &&
+            host.result == "Saved 2: Ada本!; feature enabled", "Replacement changed a saved copy or split UTF-8");
+        require(observe() != selected_all, "Whole-field replacement did not change pixels");
+        send(FocusNext{}); focused("apply");
+        send(Activate{}); focused("apply");
+        require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}, {"日😀", true}} && sequence == 12,
+            "Replacement Apply or once-only command count differs");
+        (void)observe();
+        std::cout << "3 owned saves; 12 host commands; " << extent.width << 'x' << extent.height
             << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
