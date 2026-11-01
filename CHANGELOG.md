@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Documentation: adopted the post-v0.4 practical-application direction. [Current](docs/roadmap/current.md) defines one public-API Settings/Inspector tool and its required flow, starting with edit/Apply/Cancel rather than clipboard pre-review. [Agent guidance](AGENTS.md) and [policy](docs/agent-policy.md) use task-specific reading and short behavior/risk/check summaries. [Testing](docs/guides/testing.md#measurement-and-safe-reduction) uses available CI evidence without fixed sample-count or observation-period gates; [documentation rules](docs/README.md#change-routing) limit routine updates and replace blanket word/version bans with ownership review. Existing runtime coverage, release verification and historical evidence are retained; no runtime or CI workflow settings changed.
+
 - Started the [Application UI Kit milestone](docs/roadmap/current.md#v050--application-ui-kit) with whole-field username replacement in the [Settings starter](examples/settings-starter/main.cpp). Exact non-repeating normalized Control+A selects the focused field through its ordinary revisioned edit command; committed UTF-8 text replaces the selection and Apply saves an owned copy. Focus/modifier/repeat guards, prior saves and accepted semantic/CPU observations are covered by the starter. The [consumer contract](docs/integrations/settings-app.md#implemented-copyable-editapply-starter-boundary) and [guide](docs/guides/settings-starter.md#route-editing-before-navigation) describe the operation; [support](docs/reference/support-matrix.md#settings-starter-select-all-evidence--2026-11-01) owns validation and limits.
 
 ## v0.4.0 — 2026-10-27

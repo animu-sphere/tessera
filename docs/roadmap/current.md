@@ -1,29 +1,48 @@
 # Current
 
-Inactive candidates and deferred scope are owned by [backlog](backlog.md). Implementation authority and the subsystem stop rule are owned by the [agent policy](../agent-policy.md); implementation and validation evidence belongs in [support](../reference/support-matrix.md), and delivery history in the [changelog](../../CHANGELOG.md).
+Inactive candidates and deferred scope are owned by [backlog](backlog.md). The [agent policy](../agent-policy.md) defines implementation authority and the stop rule; [support](../reference/support-matrix.md) owns capability/validation evidence and the [changelog](../../CHANGELOG.md) owns delivery history.
 
 ## v0.5.0 — Application UI Kit
 
-Objective: **Tessera で小〜中規模のデスクトップツールを作れる。** Grow practical editing and widget operations from copyable application consumers, composing the public authoring surface and ordinary commands before extending runtime contracts. Broader [follow-up candidates](backlog.md#v050-follow-up-candidates) require individual promotion; adopting this milestone does not activate the inventory.
+Objective: **Build a practical small Settings/Inspector desktop tool through public Tessera C++ APIs.** Judge success by usable application operations and change-to-merge lead time. Extend runtime internals only when a concrete application operation is blocked; runtime generalization is not a milestone goal.
+
+### Required application flow
+
+One reference application must let a user:
+
+1. Select a settings category from a sidebar.
+2. Edit text, toggle a Checkbox and adjust a number through a Slider or an adequate existing input API.
+3. Scroll the list/form and reach required controls with keyboard and pointer input.
+4. Apply or Cancel changes while retaining category selection and pending edits across unrelated UI changes.
+5. Use one practical selection UI, such as a Dropdown or Menu.
+
+The [Settings consumer](../integrations/settings-app.md#proposed-application-workflow) owns the application design. Reuse its public authoring, command, focus and host-staging boundaries; a scripted CPU fixture alone does not establish an interactively usable desktop application.
 
 ### Current slice
 
-- **Minimum observable operation:** review copying/pasting a selected UTF-8 Username in the [Settings starter](../../examples/settings-starter/main.cpp), using the [whole-field replacement evidence](../reference/support-matrix.md#settings-starter-select-all-evidence--2026-11-01) as the baseline. Trace existing selection, edit commands and host staging before selecting the smallest host-owned clipboard boundary; record the demonstrated missing operation and its bounded implementation acceptance here.
-- **New risks:** distinguish clipboard reads/writes from accepted draft publication, empty/reversed selection, rejected clipboard content, focus/eligibility and failure that must preserve draft/save observations. Declare whether an injected service or a concrete platform adapter supplies clipboard contents; evidence for one cannot establish the other.
-- **Inherited guarantees:** [text_edit](../../tests/input/text_edit_tests.cpp) owns scalar boundaries, revision/owner validation and replacement bounds; [commands](../../tests/commands/commands_tests.cpp) owns once-only execution and accepted identities; [focus](../../tests/input/focus_tests.cpp) owns eligible author-ID recovery. Reuse the starter's [consumer boundary](../integrations/settings-app.md#implemented-copyable-editapply-starter-boundary) and affected checks under the [testing guide](../guides/testing.md#change-selection); do not re-prove those guarantees for each clipboard route.
-- **Stop condition:** a source-backed consumer review identifies one operation, minimum boundary, new-risk checks and an observable stop before implementation is promoted. Undo/redo, multiline, IME, native text adapters and generalized shortcut/widget APIs remain separate candidates.
+Complete the first edit/toggle/Apply/Cancel flow in the [copyable Settings starter](../../examples/settings-starter/main.cpp), composing TextInput, Checkbox, Row, Column and ordinary commands. Cancel restores the last applied settings (initial values before the first Apply), leaves saved copies unchanged and keeps the selected category. Switching categories retains the pending draft until Apply or Cancel. Keep the shell and host ownership explicit.
+
+Stop when this public-API flow succeeds through representative input, affected owner tests and one consumer smoke. Check draft/save retention and Cancel wiring; inherit unchanged edit, command and focus guarantees under the [testing guide](../guides/testing.md#verification-ownership). The earlier clipboard-review candidate is deferred to [editing follow-ups](backlog.md#v050-follow-up-candidates); it is not a prerequisite for this flow. No new runtime abstraction or general widget framework is required by this slice.
+
+### Implementation sequence
+
+- **P0:** Complete the minimal application shell and first editable Settings flow using existing controls, with explicit host state and Apply/Cancel.
+- **P1:** Add only the missing numeric, scrolling/list and selection controls needed by the required flow. Reuse existing APIs before introducing a Slider, ScrollView/List or Dropdown/Menu abstraction.
+- **P2:** Reduce demonstrated public-API friction in event registration, state updates, styling, examples and error display.
+- **P3:** Add the minimum native presentation/input or text integration required for interactive use. Broader focus, IME and clipboard adapters need a concrete application operation; they are not an inventory to complete.
+
+Choose one operation at a time within this sequence. Native presentation needed for the desktop tool is required; all-platform text adapters and parity across every input route are not.
 
 ### Milestone exit criteria
 
-- Each promoted application operation composes public authoring and ordinary input/command boundaries, with explicit host ownership and bounded consumer acceptance.
-- The selected editing workflow preserves focus, eligibility, UTF-8 selection and owned save observations through accepted full-tree changes; the affected owner checks and consumer CPU observations agree.
-- Select further widget, popup/dialog and native operations from demonstrated desktop-tool needs before treating them as release gates. Aggregate required integration/import/platform evidence under the [validation tiers](../guides/testing.md#validation-tiers) before release; this first operation does not establish a native desktop-tool release.
+- The reference application's required flow works through public APIs without private framework plumbing, including interactive desktop use through a declared host configuration.
+- Affected owner contracts and a representative consumer smoke pass; pending edits, selection and accepted Apply/Cancel observations are retained according to the consumer contract.
+- Required integration/import and claimed platform checks pass before release under the [validation tiers](../guides/testing.md#validation-tiers). Unexecuted platforms remain unvalidated. All candidate widgets need not be implemented.
 
 ### Bounded validation supporting work
 
-Retain the prior release's [acceptance evidence](../reference/support-matrix.md#v040-release-acceptance--2026-10-27). Confirm tag verification/source publication under the [release workflow](../guides/development.md#release-workflow); publication failures and reproducible released-scope regressions take priority. This validation work does not activate adjacent implementation or prevent a bounded UI operation without an actual failure.
+Retain prior [release acceptance](../reference/support-matrix.md#v040-release-acceptance--2026-10-27) and [CI measurements](../reference/support-matrix.md#ci-scope-and-timing-evidence--2026-10-26). Fix publication failures and reproducible regressions with priority. CI tuning runs alongside feature work; use available measurements under the [testing policy](../guides/testing.md#measurement-and-safe-reduction), without a fixed observation period or sample-count gate. Resolve persistent integration failures before release. Workflow and required-check changes need their own verified transition; this roadmap changes no CI settings.
 
-- **Minimum observable operation:** confirm that main integration runs complete, and compare hosted PR and full integration durations from the [PR and full integration procedures](../guides/development.md#ci-scopes-and-reproducible-measurements) with the [recorded baseline](../reference/support-matrix.md#ci-scope-and-timing-evidence--2026-10-26), verifying shorter PR feedback and retained Debug/Release/import coverage without changing runtime assertions. Check the provisional ten-minute PR p95 against those samples.
-- **New risks:** distinguish configure/build/test/queue time, fresh versus reused builds, local versus hosted conditions and actual failures versus reruns. Check documentation-only reporting, conservative scope fallback and main-run failures. Record missing runner capacity/cost and hosted parallelism observations rather than assuming them.
-- **Inherited guarantees:** preserve all registered checks and tag/manual release verification, including its FetchContent filter; full integration must exercise both imports. Keep required-check names/settings unchanged until parallel workflow evidence and protection settings support a coordinated transition; the manual release workflow supplies the old comparison path.
-- **Stop:** record hosted scope/results in support and follow the two-week Tier 2 observation policy. A failing main integration blocks the next release. CI cleanup requires its own measured justification in [backlog](backlog.md#validation-and-ci-follow-ups) and must not block a selected UI operation or delay a release without failures.
+### Deferred scope
+
+Full TreeView, generic Portal, integrated DevTools, all-platform IME, bindings, incremental rendering and exhaustive input-route parity stay in [backlog](backlog.md). Promote only the minimum behavior needed by a concrete application operation.

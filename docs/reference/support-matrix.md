@@ -1,6 +1,6 @@
 # Support matrix
 
-Evidence through: 2026-10-27. This is the sole live implementation/validation status record. Dated evidence below retains the limits of each tested slice; it is not a claim that documentation edits reran those checks. Repository milestone history and source-release metadata are in the [changelog](../../CHANGELOG.md); publication records are in [GitHub Releases](https://github.com/animu-sphere/tessera/releases). No install/export package or prebuilt binary is distributed.
+This is the sole live implementation/validation status record. Dated evidence below retains the date and limits of each tested slice; it is not a claim that documentation edits reran those checks. Repository milestone history and source-release metadata are in the [changelog](../../CHANGELOG.md); publication records are in [GitHub Releases](https://github.com/animu-sphere/tessera/releases). No install/export package or prebuilt binary is distributed.
 
 ## Evidence vocabulary
 
@@ -15,7 +15,9 @@ Missing implementation or test evidence is not evidence that a platform fails. U
 
 ## Capability status
 
-Each row names the status and the scope of the claim, then links the dated evidence that establishes it; details and limits stay in those evidence sections. A capability without a row has no implementation: its scope is in [current](../roadmap/current.md) or [backlog](../roadmap/backlog.md), with design constraints in architecture and possible mechanisms in proposals. No CLI, RPC/MCP transport, WebGPU or browser host, or snapshot bundle exists.
+For new or materially changed capabilities, keep one short row: status/scope, links to owner tests or consumer/evidence, and limits. Update this record when capability scope, support claims or material validation evidence changes; routine UI PRs keep executed checks in the PR without a new dated report. Do not repeat invariants owned by linked contracts/tests. Retain existing evidence; archive only when useful, preserving links and limits. Historical rollout periods describe the policy at that time; the [testing guide](../guides/testing.md#measurement-and-safe-reduction) owns the active transition rules.
+
+A capability without a row has no implementation claim here: consult [current](../roadmap/current.md), [backlog](../roadmap/backlog.md) and the relevant source-backed contract rather than inferring absence from a missing record. No CLI, RPC/MCP transport, WebGPU or browser host, or snapshot bundle exists.
 
 | Area | Status and scope | Evidence |
 | --- | --- | --- |

@@ -67,16 +67,8 @@ foreach ($file in $documents) {
     if ($relative -eq 'docs/roadmap/current.md' -and $body -match '(?im)^##\s+(Delivered|Phase [01]|Documentation foundation)') {
         $issues.Add("${relative}: current must contain remaining work, not foundation history")
     }
-    # Maturity and design authority must not become rolling capability status.
-    if ($relative -match '^(docs/(architecture|proposals|integrations|product|guides)/|formats/)' -or $relative -eq 'docs/reference/dependencies.md') {
-        $progress = [regex]::Match($body, '(?i)\b(not yet|yet|currently|still needs?|remains? (a )?proposals?|remains? planned|(is|are) planned|no [a-z/ -]{1,40} (API|CLI|implementation) exists)\b')
-        if ($progress.Success) {
-            $issues.Add("${relative}: progress wording '$($progress.Value)' belongs in support; state the contract or link the proposal")
-        }
-    }
-    if ($relative -match '^docs/(architecture|proposals|integrations)/' -and $body -match '(?i)\b(v\d+\.\d+(\.\d+)?|Phase \d+)\b') {
-        $issues.Add("${relative}: version/milestone labels belong in current or backlog")
-    }
+    # Check explicit duplicate status structures above; word/version references
+    # need semantic ownership review rather than a blanket prose ban.
     if ($relative -match '^docs/architecture/' -and $body -notmatch '(?m)^## Core invariants$') {
         $issues.Add("${relative}: architecture must state core invariants")
     }
