@@ -2,6 +2,10 @@
 
 Dated delivery history and release records. Each release is a `## vX.Y.Z — YYYY-MM-DD` section matching [VERSION](VERSION); unreleased entries collect under `## Unreleased`. Live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).
 
+## Unreleased
+
+- Started the [Application UI Kit milestone](docs/roadmap/current.md#v050--application-ui-kit) with whole-field username replacement in the [Settings starter](examples/settings-starter/main.cpp). Exact non-repeating normalized Control+A selects the focused field through its ordinary revisioned edit command; committed UTF-8 text replaces the selection and Apply saves an owned copy. Focus/modifier/repeat guards, prior saves and accepted semantic/CPU observations are covered by the starter. The [consumer contract](docs/integrations/settings-app.md#implemented-copyable-editapply-starter-boundary) and [guide](docs/guides/settings-starter.md#route-editing-before-navigation) describe the operation; [support](docs/reference/support-matrix.md#settings-starter-select-all-evidence--2026-11-01) owns validation and limits.
+
 ## v0.4.0 — 2026-10-27
 
 Practical UI authoring milestone: ordinary C++ composition of Text, Button, Row, Column, Checkbox and bounded TextInput with typed props/defaults and children, session state and computed values, reusable class styles and theme variables, all lowering into the existing runtime. A copyable first app, the Settings starter and reference fixture, and a copyable renderer diagnostics panel with telemetry, bounded history and representative controls demonstrate display, input, commit/cancel and redisplay through public APIs. Fresh-build acceptance and limits are in the [support matrix](docs/reference/support-matrix.md#v040-release-acceptance--2026-10-27).

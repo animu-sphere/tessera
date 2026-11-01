@@ -29,9 +29,9 @@ Promote additional widgets from an application operation; do not implement this 
 
 v0.4.x patch candidates take regression fixes only. v0.5.0 then prioritizes practical applications, widget growth and native integration under the candidate below. Improvements recorded during v0.4.0 convergence stay here until a consumer operation promotes them.
 
-## v0.5.0 candidate — Application UI Kit
+## v0.5.0 follow-up candidates
 
-Objective: **Tessera で小〜中規模のデスクトップツールを作れる。** Build an editor-like desktop tool without custom framework infrastructure.
+The [active milestone](current.md#v050--application-ui-kit) owns the objective and first consumer operation. The remaining candidates below stay inactive until a concrete operation promotes their minimum scope.
 
 Depends on the high-level C++ authoring surface, reusable components and the reference application's input/style contracts.
 
