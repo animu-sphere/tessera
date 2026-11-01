@@ -10,24 +10,23 @@ Choose follow-up scope from real applications and their measured authoring frict
 
 ## Validation and CI follow-ups
 
-The [bounded validation task](current.md#bounded-validation-supporting-work) owns hosted rollout comparison. The [testing guide](../guides/testing.md#validation-tiers) owns tier responsibilities, selection, provisional SLO and reduction safeguards. These follow-ups are inactive and must not become a prerequisite for ordinary UI authoring.
+The [testing guide](../guides/testing.md#measurement-and-safe-reduction) owns CI transition, measurement and reduction safeguards. These inactive candidates run alongside feature work when promoted; they are not waiting periods for ordinary UI work or a release without actual failures.
 
-- After hosted comparison, use runner capacity/cost and main-run frequency to choose whether daily scheduling adds useful coverage. Compare against the tag/manual release workflow before extending execution or changing required status names.
-- After parallel-run evidence is stable, coordinate any required-check names and rulesets while retaining wide matrices/import coverage and release verification/publication. Required checks must finish on documentation-only PRs. Extend path selection only for measured need, with matcher tests and conservative full-core fallback.
-- After equivalent owner coverage is identified, shrink duplicate consumer assertions incrementally, documenting the owning regression and diagnostic value. Observe Tier 2 failures for two weeks and restore important missed checks to the PR gate.
-- Use measured configure/build/test bottlenecks to choose safe parallelism, caching or build-target separation. Do not create a general CI framework or delete protection to meet an unmeasured time target.
+- Use available hosted durations and runner capacity/cost to decide whether daily coverage, parallelism, caching or build-target separation solves a measured bottleneck.
+- Coordinate required-check/ruleset changes only after verifying the replacement under the testing guide. Preserve integration/import and release coverage, reporting on docs-only PRs and conservative scope fallback.
+- Reduce duplicate consumer assertions only with equivalent owner coverage and useful diagnostics; monitor for missed regressions under the testing guide rather than a fixed observation period.
 
 Promote only the next bounded step with measurement-backed acceptance and a stop condition. Before a release, aggregate full Debug/Release, both source imports, CPU/replay and the required available platform evidence under the active milestone's exit criteria.
 
 ## Widget candidates beyond the reference application
 
-v0.4.0 delivered the controls required by Settings and the bounded [renderer diagnostics panel](../integrations/renderer-diagnostics.md), as recorded in the [release acceptance](../reference/support-matrix.md#v040-release-acceptance--2026-10-27). Additional baseline candidates are a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView and a basic List, plus Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Text, Button, Checkbox, TextInput, Row and Column and the diagnostics consumer's minimum numeric controls are owned by their [UI model](../architecture/ui-model.md#implemented-c-form-authoring) and [consumer](../integrations/renderer-diagnostics.md) contracts rather than duplicated here; broader widget APIs stay candidates.
+The required application flow is owned by [current](current.md#required-application-flow); this inventory does not add widget completion gates. Candidates include a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView/basic List, Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Use existing [authoring](../architecture/ui-model.md#implemented-c-form-authoring) and [numeric/choice consumer](../integrations/renderer-diagnostics.md) boundaries before promoting a new widget abstraction.
 
 Promote additional widgets from an application operation; do not implement this inventory for completeness. Prefer ordinary components and the [shared authoring/lowering model](../proposals/cpp-authoring.md); a full generalized API per widget is not required.
 
 ## After v0.4.0
 
-v0.4.x patch candidates take regression fixes only. v0.5.0 then prioritizes practical applications, widget growth and native integration under the candidate below. Improvements recorded during v0.4.0 convergence stay here until a consumer operation promotes them.
+v0.4.x patch candidates take regression fixes only. The practical-application milestone is owned by [current](current.md#v050--application-ui-kit). Other improvements stay inactive until a concrete consumer operation promotes them.
 
 ## v0.5.0 follow-up candidates
 
@@ -37,13 +36,12 @@ Depends on the high-level C++ authoring surface, reusable components and the ref
 
 Candidates:
 
-- Grow the [widget inventory](#widget-candidates-beyond-the-reference-application) from the desktop tool's operations; mature TextInput, clipboard, undo/redo, multiline and IME under declared platform boundaries.
-- Menus, dropdowns, context menus, dialogs, richer Inspector controls and application themes.
-- List/tree selection, TreeView, better scrolling, keyboard/gamepad navigation and focus scopes where an interaction demonstrates the need.
-- Introduce the minimum overlay mechanism for a real Dropdown or ContextMenu, then extract a shared abstraction only from required behavior; see [overlays](../proposals/overlays-and-portals.md).
+- Clipboard, undo/redo, multiline and broader IME under declared platform boundaries. For clipboard promotion, begin with selected UTF-8 copy/paste in the Settings starter; distinguish injected-service evidence from a concrete platform adapter and preserve draft/save observations on rejection.
+- Widgets and interactions beyond the active flow: context menus/dialogs, richer Inspector controls/themes, tree selection/TreeView and extra focus scopes.
+- A shared overlay abstraction only after concrete selection UI behavior requires it; see [overlays](../proposals/overlays-and-portals.md). The minimum selection UI required by current is active, but generic Portal is not.
 - A first practical DevTools/inspection UI using ordinary semantics, commands and observations.
 
-Exit criteria to refine per consumer: the tool's editing, selection, scrolling, menu/dialog and navigation operations compose through public APIs without private framework plumbing; focus and command eligibility survive popup dismissal and keyed changes; replay/CPU-reference observations reproduce. Platform text claims require dedicated evidence.
+Promote only the minimum additional behavior needed by an application operation. The active milestone's release criteria live in current; these candidates add no separate completion gate. Platform text claims require dedicated evidence.
 
 Owners: [authoring](../proposals/cpp-authoring.md), [UI model](../architecture/ui-model.md), [input](../architecture/input.md), [styling](../architecture/styling.md), [layout](../architecture/layout.md), [inspection](../architecture/inspection.md).
 

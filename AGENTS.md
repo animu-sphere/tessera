@@ -1,33 +1,32 @@
 # Tessera agent guidance
 
-## Read first
+## Start here
 
-- `README.md` and `docs/README.md` provide navigation and canonical document ownership.
-- `docs/agent-policy.md` defines implementation authority and the subsystem stop rule.
-- `docs/roadmap/current.md` identifies the active integration slice and its exit criteria; read it before choosing feature work.
-- `docs/reference/support-matrix.md` is the sole live implementation/validation status record.
-- `docs/architecture/overview.md` defines subsystem and ecosystem boundaries.
-- Read the relevant subsystem design before changing its contract.
+Read `docs/roadmap/current.md` and the code/docs near the change. Start from a user operation or reproducible defect; use existing public APIs before extending a subsystem.
+
+Consult other owners when needed:
+
+- `docs/agent-policy.md`: scope, verification ownership or stop-rule decisions.
+- `docs/guides/testing.md`: affected checks for code changes.
+- The relevant subsystem contract: before changing its public behavior or invariants.
+- `docs/architecture/overview.md`: structural or dependency-boundary changes.
+- `docs/reference/support-matrix.md`: support claims, validation evidence or release acceptance.
+- `docs/README.md`: documentation ownership, moves or classification.
 
 ## Implementation constraints
 
-- Keep the core independent of browser engines, GPU SDKs, platform input/window APIs, OpenUSD, and editor SDKs.
-- Keep layout independent of rendering and render backends independent of component/application state.
-- Keep serialized UI definitions backend-neutral and versioned. Validate inputs with actionable diagnostics.
-- Make ownership and lifetime explicit. Prefer composition, stable names, and narrow interfaces.
-- Normalize input at the host boundary. Treat keyboard/gamepad navigation as core design requirements.
-- Isolate text shaping and external asset loading behind interfaces.
-- Build the runtime IR before introducing a DSL, JSX frontend, or JavaScript runtime.
-- Follow the current milestone; avoid unrelated widgets, frameworks, and optimization work. Before proposing more implementation, state what a milestone user could not do without it; otherwise defer it to backlog.
-- Scope each change to one user operation or one defect, opened with the four acceptance items in `docs/agent-policy.md`.
-- Designs, proposals, integrations, and backlog entries do not independently authorize implementation. Promote only the minimum change required by the active fixture, or fix an existing contract/test.
-- Stop subsystem expansion when the active fixture can proceed and its required invariants and exit criteria are satisfied. Return to integration instead of implementing adjacent proposals for completeness.
-- Follow the verification ownership and bounded acceptance rules in `docs/agent-policy.md`; use `docs/guides/testing.md` to select affected checks and cite inherited owner tests instead of re-proving runtime guarantees in each consumer.
+- Keep core independent of browser engines, GPU SDKs, platform input/window APIs, OpenUSD and editor SDKs. Keep layout independent of rendering and backends independent of application/component state.
+- Keep serialized UI backend-neutral and versioned. Validate inputs with actionable diagnostics; make ownership and lifetime explicit.
+- Normalize input at the host boundary. Treat keyboard/gamepad navigation as core design requirements. Isolate text shaping and external asset loading behind interfaces.
+- Prefer composition, stable names and narrow public APIs. Build on the runtime IR before adding a DSL, JSX frontend or JavaScript runtime.
+- Follow current scope. Designs, proposals, integrations and backlog do not independently authorize implementation. Name the blocked application operation before adding a widget/API; runtime changes need a demonstrated blocker, existing contract defect or measured bottleneck.
+- Prefer one user operation or defect per change; closely related small fixes may be grouped when splitting adds overhead. Summarize behavior, relevant risk and executed checks in a short PR description; no fixed acceptance template is required.
+- Stop when the operation works and affected regression checks pass. Return to the application instead of expanding adjacent proposals.
 
 ## Documentation and checks
 
-Design sections distinguish implemented contracts (with source links) from proposed APIs. Preserve that distinction. Do not invent build commands, dependency pins, platform support, or completed test evidence.
+Update the canonical owner only when its public contract, procedure or scope changes. Preserve source-backed Implemented/Proposed labels. Current owns active scope, backlog inactive candidates, support live capability/configuration evidence and changelog delivery history; avoid competing status records. Update support for material capability/support/evidence changes, not every UI PR. Never invent commands, dependencies, platform support or executed results.
 
-Write status only in the support matrix; contract pages preserve Implemented/Proposed maturity labels without progress words, versions, or dates (see `docs/README.md` status and wording rules). `docs/product/` owns intent, `docs/architecture/` owns invariants and contracts, `docs/proposals/` owns possible mechanisms and promotion criteria, and `docs/integrations/` owns consumer designs. Proposal authority markers do not schedule work. Update the canonical subsystem page when a contract changes. Current owns remaining active scope; backlog owns inactive candidates; support owns live capability/configuration evidence; changelog owns delivery history. Follow `docs/README.md` change routing and do not copy status into other pages. Keep relative Markdown links portable and check them after edits.
+For code changes, run affected owner checks and one representative consumer smoke; inherit unchanged runtime guarantees rather than re-proving them for every widget. Wider integration and release checks follow the testing guide. Preserve ownership, lifetime, invalid-input and regression coverage.
 
-For code changes, verify the affected algorithms and boundaries using the testing guide. For documentation-only work, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-docs.ps1` and review canonical ownership; runtime tests are unnecessary. Do not generate redundant tests or extensive widget screenshot suites.
+For documentation-only changes, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-docs.ps1` and review canonical ownership; runtime tests are unnecessary. Keep relative Markdown links portable. Do not generate redundant tests or extensive widget screenshot suites.

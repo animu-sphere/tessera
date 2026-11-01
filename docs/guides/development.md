@@ -1,6 +1,6 @@
 # Development
 
-Read [architecture](../architecture/overview.md), [UI model](../architecture/ui-model.md), and [current work](../roadmap/current.md) first. Adopted tool/dependency requirements are owned by [dependencies](../reference/dependencies.md); validated configurations and results are owned by [support](../reference/support-matrix.md).
+Start with [current work](../roadmap/current.md) and the code/docs near the change. Consult [architecture](../architecture/overview.md) for structural changes and the affected contract, such as [UI model](../architecture/ui-model.md), before changing its boundary. Adopted tool/dependency requirements are owned by [dependencies](../reference/dependencies.md); validated configurations and results are owned by [support](../reference/support-matrix.md).
 
 For a copyable application project, begin with [Getting Started](getting-started.md) and the [first-app walkthrough](first-app.md). The repository workflow below is for core development and broader fixtures.
 
@@ -90,7 +90,7 @@ ctest --test-dir build -C Release --output-on-failure --no-tests=error --output-
 
 Build each configuration before its run. Time configure, build and CTest as separate invocations, for example with PowerShell `Measure-Command`, retaining command output and native exit codes. Record fresh versus reused build/cache conditions, toolchain, enabled options and parallelism. Keep JUnit, `Testing/Temporary/CTestCostData.txt`, failure logs and consumer phase logs as artifacts; do not interpret the independent consumers' 600-second timeout as elapsed time. Serial execution is a starting measurement, not evidence for safe maximum parallelism.
 
-Collect hosted queue/job/step durations and 20-30 historical runs when available separately from local timing. Put baseline statistics, artifacts and missing observations only in [support](../reference/support-matrix.md), following the [measurement policy](testing.md#measurement-and-safe-reduction). A documentation update or source inventory is not a measured CI baseline.
+Compare available hosted queue/job/step durations separately from local timing, stating conditions and sample count; no fixed sample count gates adoption or release. Put material baseline statistics, artifacts and missing observations in [support](../reference/support-matrix.md), following the [measurement policy](testing.md#measurement-and-safe-reduction). Routine check results belong in the PR. A documentation update or source inventory is not a measured CI baseline.
 
 ### CI scopes and reproducible measurements
 
