@@ -1,4 +1,4 @@
-# Select, edit and Apply Settings
+# Select, edit, Apply and Cancel Settings
 
 Extend [your first app](first-app.md) with the two-file [Settings starter](../../examples/settings-starter/main.cpp) and its [CMake project](../../examples/settings-starter/CMakeLists.txt). `Field` and `Settings` compose the application; `Host`, `prepare`, `operate` and `input` provide the explicit host boundary. The [form API](../architecture/ui-model.md#implemented-c-form-authoring) and [Settings consumer](../integrations/settings-app.md#implemented-copyable-editapply-starter-boundary) own their contracts.
 
@@ -37,6 +37,8 @@ The program supplies normalized input itself. Each checkpoint prints `Section <i
 
 | Checkpoint | Section | Username / feature | Saved result |
 | --- | --- | --- | --- |
+| Edit and toggle before first Apply | feature | Adadiscard日😀 / enabled | Not saved |
+| Keyboard Cancel | feature | Ada / disabled | Not saved |
 | Initial | account | Ada / disabled | Not saved |
 | Insert `本` | account | Ada本 / disabled | Not saved |
 | Select Feature | feature | Ada本 / disabled | Not saved |
@@ -49,18 +51,21 @@ The program supplies normalized input itself. Each checkpoint prints `Section <i
 | Control+A | account | Ada本! / enabled, selection 0:7 | Saved 2: Ada本!; feature enabled |
 | Replace with `日😀` | account | 日😀 / enabled | Saved 2: Ada本!; feature enabled |
 | Keyboard Apply | account | 日😀 / enabled | Saved 3: 日😀; feature enabled |
+| Edit and toggle after Apply | feature | 日😀! / disabled | Saved 3: 日😀; feature enabled |
+| Gamepad Cancel | feature | 日😀 / enabled | Saved 3: 日😀; feature enabled |
+| Return to Account | account | 日😀 / enabled | Saved 3: 日😀; feature enabled |
 
 It ends with:
 
 ```text
-3 owned saves; 12 host commands; 640x360 RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)
+3 owned saves; 22 host commands; 640x360 RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)
 ```
 
 The process exits nonzero with diagnostics on failure. This is a window-free example with placeholder text and synthetic glyph marks; a native host supplies its own window, physical input normalization and rendering services.
 
 ## Compose the application and its styles
 
-`Settings` accepts the selected section and four controlled values: username edit state, enabled boolean, derived summary string and saved-result string. Iteration over the fixed `account`, `feature`, `about` list creates ordinary Buttons with `section-<id>` identities; `* ` marks the selected choice and `selected-section` names it. A C++ branch composes only Account's TextInput, Feature's Checkbox or About's help. Summary, Apply and saved result follow every branch. `Field` is a reusable typed function with a default gap and ordered children. Explicit IDs identify `username`, `toggle`, `section-help`, `summary`, `apply` and `save-result` across full-tree replacement.
+`Settings` accepts the selected section and four controlled values: username edit state, enabled boolean, derived summary string and saved-result string. Iteration over the fixed `account`, `feature`, `about` list creates ordinary Buttons with `section-<id>` identities; `* ` marks the selected choice and `selected-section` names it. A C++ branch composes only Account's TextInput, Feature's Checkbox or About's help. Summary, an Apply/Cancel Row and saved result follow every branch. `Field` is a reusable typed function with a default gap and ordered children. Explicit IDs identify `username`, `toggle`, `section-help`, `summary`, `apply`, `cancel` and `save-result` across full-tree replacement.
 
 `application_styles` keeps reusable form, control and status class declarations separate from composition. `Props::classes` attaches them; Apply supplies a typed instance background override. `prepare` passes the sheet and lowered instance declarations to the shared resolver. Change that palette to restyle the application through the existing cascade. Theme switching and interaction-state rules are demonstrated in the [larger Settings fixture](development.md#settings-form-fixture).
 
@@ -72,15 +77,19 @@ One session owns named `username`, `enabled` and `save-result` observations. A p
 
 `Host::execute` proposes copies in `next_username`, `next_draft`, `next_result` and `next_selected`. Editing calls the pure `edit_text` transform with an owned request matching the accepted owner/revision. Toggling changes the candidate boolean; section commands change only candidate selection. Apply formats the next save result. Only after the whole candidate presentation succeeds does `operate` append an owned `SettingsData` copy to `saves`, accept host values and publish. Section changes append no save, and further draft edits cannot mutate an earlier record or its displayed result. This synchronous in-memory operation has no persistence or asynchronous/fallible save protocol.
 
-The host registers six ordinary action/command mappings, including the three section choices, and publishes explicit eligibility for each presentation. `operate` resolves the live action owner against the accepted command generation and semantic input, then uses one executor and increasing sequence stream. Inspecting an outer execution result alone is insufficient: the host checks its outcome before staging. Each logical keyboard/gamepad Apply uses the same descriptor and host operation after dispatch returns.
+`Host::applied` starts with the initial draft and changes only when an Apply presentation is accepted. Cancel restores that copy, preserving the selected section, saved copies and saved-result Text. Two pure `edit_text` transforms select all current bytes and replace them with the applied username; the owner stays the same, revision advances twice, and selection collapses at the restored buffer end. Both transforms remain local until preparation succeeds. Cancel therefore also works while Account is absent.
+
+The host registers seven ordinary action/command mappings, including the three section choices, and publishes explicit eligibility for each presentation. `operate` resolves the live action owner against the accepted command generation and semantic input, then uses one executor and increasing sequence stream. Inspecting an outer execution result alone is insufficient: the host checks its outcome before staging. Each logical keyboard/gamepad Apply or Cancel uses its ordinary descriptor and host operation after dispatch returns.
 
 ## Route editing before navigation
 
 `input` validates a normalized event and refreshes focus against the accepted tree. It first requires a present username owner, then compares that owner with eligible refreshed focus. Two empty optionals must never count as a focused field. When username is eligible and focused, committed `tessera::TextInput` becomes an insert request. Left/Right/Home/End become movement, Shift extends selection, and Backspace/Delete become erase requests. Exact Control+A, without repeat or Shift/Alt/Super, selects byte range `0:text.size()` through the same edit command. Other Control/Alt/Super modified keys are outside this mapping. Consumed editing input returns before logical navigation; other raw keys/text are ignored by this bounded host.
 
-The remaining logical events go to `FocusDispatcher`. Four `FocusNext` events traverse the three choices to username; committed text inserts `本` after `Ada`. Two `FocusPrevious` events reach Feature, and keyboard `Activate` selects it. Two `FocusNext` events reach Checkbox; activation toggles true. The next focus step reaches Apply for logical gamepad activation. Two previous steps reach About for gamepad selection. The script resets focus to exercise absent username plus empty focus; committed text and all supported editing keys on Feature/About leave observations and command count unchanged. From empty focus, `FocusNext`/`Activate` returns to Account, retaining the edit lifetime and 6:6 selection. Three next steps reach username, `!` changes only the draft, and the next step reaches Apply for keyboard activation. Each activated choice retains its author-ID focus after replacement. A real host maps Tab/D-pad and Enter/A into these logical events and owns the monotonic clock/repeat policy; changing `CommandSource` does not poll a device.
+The remaining logical events go to `FocusDispatcher`. The script first edits both fields and reaches Cancel by traversing through Apply; keyboard activation restores initial values while Feature remains selected. It returns to Account and clears focus before the following edit/Apply sequence. Four `FocusNext` events traverse the three choices to username; committed text inserts `本` after `Ada`. Two `FocusPrevious` events reach Feature, and keyboard `Activate` selects it. Two `FocusNext` events reach Checkbox; activation toggles true. The next focus step reaches Apply for logical gamepad activation. Two previous steps reach About for gamepad selection. The script resets focus to exercise absent username plus empty focus; committed text and all supported editing keys on Feature/About leave observations and command count unchanged. From empty focus, `FocusNext`/`Activate` returns to Account, retaining the edit lifetime and 6:6 selection. Three next steps reach username, `!` changes only the draft, and the next step reaches Apply for keyboard activation. Each activated choice retains its author-ID focus after replacement. A real host maps Tab/D-pad and Enter/A into these logical events and owns the monotonic clock/repeat policy; changing `CommandSource` does not poll a device.
 
 After the second Apply, the script returns to username, uses Shift+Home for reversed selection 7:0, then Control+A for 0:7. Committed `日😀` replaces the entire value and the next keyboard Apply saves it. Selection alone preserves draft bytes; both selection and replacement preserve the two earlier owned saves and saved result until Apply. Checks also send Control+A with no focus, Apply focus and absent Account, plus repeated or additionally modified chords while username is focused, requiring unchanged command generation and observations for these ignored inputs.
+
+After the third Apply, another username edit and feature toggle create `日😀!` / false across category changes. Logical gamepad activation of Cancel restores `日😀` / true, retaining Feature selection and all three saves. Returning to Account exposes the restored username at byte selection 7:7 with the same owner and a newer revision.
 
 Offsets are UTF-8 bytes at scalar boundaries: `Ada本` ends at byte 6; `Ada本!` and `日😀` each end at byte 7. Each accepted text edit or caret/byte-selection command advances the edit revision; section selection preserves it. The [logical editing contract](../architecture/input.md#implemented-logical-string-editing) owns bounds and rejection rules. TextInput exposes label, committed bytes and selection as ordinary Text/button semantics; it supplies no native editable accessibility adapter or caret geometry.
 
@@ -90,4 +99,4 @@ Offsets are UTF-8 bytes at scalar boundaries: `Ada本` ends at byte 6; `Ada本!`
 
 The sheet, shaper and lowered source/style inputs are borrowed synchronously during preparation. The accepted presentation owns its command snapshot, tree, resolved styles, layout, inspection and paint. Dispatch/command views borrow that presentation only until their calls return; replacement invalidates old tree handles. `focus.refresh` recovers by explicit author ID after acceptance. Session publication follows successful preparation.
 
-`observe` resolves author IDs from owned inspection and compares selected markers/name, the conditional branch, username/byte selection or Checkbox when present, summary and saved result with host observations. It checks visible geometry within the 640×360 logical viewport, repeats CPU captures at twelve accepted checkpoints, and checks that branch and draft changes affect pixels. Capture fixes scale one and time zero. The rasterizer outlives its borrowed glyph cache, and the cache outlives the capture adapter; capture returns owned RGBA8 bytes in memory. The [larger fixture](../integrations/settings-app.md) demonstrates dynamic section-list mutation, constrained scrolling, richer styles and replay of accepted views through the same runtime. A smaller viewport requires an explicit host scroll/reveal policy; resizing alone does not connect that operation.
+`observe` resolves author IDs from owned inspection and compares selected markers/name, the conditional branch, username/byte selection or Checkbox when present, summary and saved result with host observations. It checks visible geometry within the 640×360 logical viewport, repeats CPU captures at accepted checkpoints, and checks that branch and draft changes affect pixels. Capture fixes scale one and time zero. The rasterizer outlives its borrowed glyph cache, and the cache outlives the capture adapter; capture returns owned RGBA8 bytes in memory. The [larger fixture](../integrations/settings-app.md) demonstrates dynamic section-list mutation, constrained scrolling, richer styles and replay of accepted views through the same runtime. A smaller viewport requires an explicit host scroll/reveal policy; resizing alone does not connect that operation.

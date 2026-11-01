@@ -59,8 +59,11 @@ ui::Element Settings(const std::string& selected, ui::Value<TextEditState> usern
             {.node = {.id = "toggle", .classes = {"control"}}})}));
     else rows.push_back(Field({"About"}, {ui::Text("Apply saves the whole draft.", {.id = "section-help"})}));
     rows.push_back(ui::Text(summary, {.id = "summary", .classes = {"status"}}));
-    rows.push_back(ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .classes = {"control"},
-        .style = {.background = Color{0.6f, 0.75f, 0.95f, 1}}}}));
+    rows.push_back(ui::Row({
+        ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .classes = {"control"},
+            .style = {.background = Color{0.6f, 0.75f, 0.95f, 1}}}}),
+        ui::Button("Cancel", "settings.cancel", {.node = {.id = "cancel", .classes = {"control"}}})},
+        {.style = {.gap = 12.f}}));
     rows.push_back(ui::Text(saved, {.id = "save-result", .classes = {"status"}}));
     return ui::Column(std::move(rows), {.id = "settings", .classes = {"form"}});
 }
@@ -78,6 +81,7 @@ std::string saved_caption(std::size_t count, const SettingsData& data) {
 struct Host final : CommandHost {
     TextEditState username = take(make_text_edit_state(1, "Ada"));
     SettingsData draft{username.text, false};
+    SettingsData applied = draft;
     std::vector<SettingsData> saves;
     std::string result = "Not saved";
     std::string selected = "account", next_selected;
@@ -97,6 +101,16 @@ struct Host final : CommandHost {
             if (!candidate) return {CommandOutcomeStatus::error, {}, std::move(candidate.diagnostics)};
             next_username = std::move(*candidate.value);
             next_draft.username = next_username.text;
+        } else if (invocation.command == "settings.cancel") {
+            // Restore through the public edit API, retaining the owner and advancing revisions.
+            auto selection = edit_text(username, {username.owner, username.revision,
+                TextEditSelection{0, username.text.size()}});
+            if (!selection) return {CommandOutcomeStatus::error, {}, std::move(selection.diagnostics)};
+            auto restored = edit_text(*selection.value, {username.owner, selection.value->revision,
+                TextEditInsert{applied.username}});
+            if (!restored) return {CommandOutcomeStatus::error, {}, std::move(restored.diagnostics)};
+            next_username = std::move(*restored.value);
+            next_draft = applied;
         } else if (invocation.command == "settings.toggle") next_draft.feature = !draft.feature;
         else if (invocation.command.starts_with("settings.section.")) next_selected = invocation.command.substr(17);
         else {
@@ -108,7 +122,7 @@ struct Host final : CommandHost {
 };
 
 constexpr Size viewport{640, 360};
-const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply",
+const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply", "settings.cancel",
     "settings.section.account", "settings.section.feature", "settings.section.about"}};
 struct Presentation {
     CommandSnapshot commands;
@@ -172,15 +186,18 @@ int main() {
         const auto sheet = application_styles();
         const auto registry = take(CommandRegistry::create(
             {{"settings.edit", "Edit username"}, {"settings.toggle", "Toggle feature"}, {"settings.apply", "Apply settings"},
+                {"settings.cancel", "Cancel pending settings"},
                 {"settings.section.account", "Select Account"}, {"settings.section.feature", "Select Feature"},
                 {"settings.section.about", "Select About"}},
             {{"settings.edit", "settings.edit"}, {"settings.toggle", "settings.toggle"}, {"settings.apply", "settings.apply"},
+                {"settings.cancel", "settings.cancel"},
                 {"settings.section.account", "settings.section.account"}, {"settings.section.feature", "settings.section.feature"},
                 {"settings.section.about", "settings.section.about"}}));
         std::uint64_t generation = 0, sequence = 0;
         auto commands = [&] {
             return take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
                 {{"settings.edit", {true}}, {"settings.toggle", {true}}, {"settings.apply", {true}},
+                    {"settings.cancel", {true}},
                     {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}}}));
         };
         PlaceholderTextShaper text;
@@ -213,7 +230,10 @@ int main() {
                 });
                 (void)take(std::move(candidate));
             }
-            if (host.applying) host.saves.push_back(host.next_draft); // Owned synchronous copy, once.
+            if (host.applying) {
+                host.saves.push_back(host.next_draft); // Owned synchronous copy, once.
+                host.applied = host.next_draft;
+            }
             host.username = std::move(host.next_username);
             host.draft = std::move(host.next_draft); host.result = std::move(host.next_result);
             host.selected = std::move(host.next_selected);
@@ -295,7 +315,7 @@ int main() {
         auto send = [&](auto event, CommandSource source = CommandSource::keyboard) {
             input({std::chrono::microseconds{++tick}, std::move(event)}, source);
         };
-        auto observations = [&] { return std::tuple{host.selected, host.username, host.draft, host.saves, host.result,
+        auto observations = [&] { return std::tuple{host.selected, host.username, host.draft, host.applied, host.saves, host.result,
             sequence, accepted.commands.generation(), accepted.inspection, accepted.paint,
             take(focus.refresh(accepted.hit())).focused}; };
         auto ignore_editing = [&] {
@@ -306,6 +326,33 @@ int main() {
             send(KeyDown{Key::a, {.control = true}});
             require(observations() == before, "Absent username consumed editing input");
         };
+        // Before the first Apply, Cancel restores initial values even with Account absent.
+        const auto initial_edit = host.username;
+        for (const auto* id : {"section-account", "section-feature", "section-about", "username"}) {
+            send(FocusNext{}); focused(id);
+        }
+        send(tessera::TextInput{"discard日😀"});
+        send(FocusPrevious{}); send(FocusPrevious{}); focused("section-feature");
+        send(Activate{});
+        send(FocusNext{}); send(FocusNext{}); focused("toggle");
+        send(Activate{});
+        require(host.draft != host.applied && host.draft.feature, "Initial pending edits missing");
+        (void)observe();
+        const auto before_initial_cancel = host.username;
+        send(FocusNext{}); focused("apply");
+        send(FocusNext{}); focused("cancel");
+        send(Activate{}); focused("cancel");
+        require(host.selected == "feature" && host.draft == SettingsData{"Ada", false} &&
+            host.applied == host.draft && host.saves.empty() && host.result == "Not saved" &&
+            host.username.owner == initial_edit.owner && host.username.text == "Ada" &&
+            host.username.revision == before_initial_cancel.revision + 2 &&
+            host.username.anchor == 3 && host.username.caret == 3 && sequence == 4,
+            "Initial Cancel changed selection, saved values or edit lifetime");
+        (void)observe();
+        focus.reset();
+        send(FocusNext{}); send(Activate{}); focused("section-account");
+        focus.reset();
+        const auto command_start = sequence, edit_start = host.username.revision;
         const auto initial = observe();
         const auto unfocused = observations();
         send(KeyDown{Key::a, {.control = true}});
@@ -315,7 +362,7 @@ int main() {
         }
         send(tessera::TextInput{"本"}); focused("username");
         require(host.username.text == "Ada本" && host.username.anchor == 6 && host.username.caret == 6 &&
-            host.username.revision == 2 && host.saves.empty(), "First edit differs or saved prematurely");
+            host.username.revision == edit_start + 1 && host.saves.empty(), "First edit differs or saved prematurely");
         const auto retained_edit = host.username;
         const auto edited_account = observe();
         require(edited_account != initial, "Editing did not change pixels");
@@ -355,13 +402,13 @@ int main() {
         send(FocusNext{}); focused("section-about");
         send(FocusNext{}); focused("username");
         send(tessera::TextInput{"!"}); focused("username");
-        require(host.draft == SettingsData{"Ada本!", true} && host.username.revision == 3 &&
+        require(host.draft == SettingsData{"Ada本!", true} && host.username.revision == edit_start + 2 &&
             host.saves == std::vector<SettingsData>{{"Ada本", true}} &&
             host.result == "Saved 1: Ada本; feature enabled", "Later edit changed the owned save");
         require(observe() != returned_account, "Later draft edit did not change pixels");
         send(FocusNext{}); focused("apply");
         send(Activate{}); focused("apply");
-        require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} && sequence == 8,
+        require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} && sequence == command_start + 8,
             "Second Apply or once-only command count differs");
         (void)observe();
         const auto apply_focused = observations();
@@ -379,7 +426,7 @@ int main() {
         send(KeyDown{Key::a, {.control = true}}); focused("username");
         require(host.username.owner == before_select.owner && host.username.revision == before_select.revision + 1 &&
             host.username.text == before_select.text && host.username.anchor == 0 && host.username.caret == 7 &&
-            host.draft == SettingsData{"Ada本!", true} && host.saves.size() == 2 && sequence == 10,
+            host.draft == SettingsData{"Ada本!", true} && host.saves.size() == 2 && sequence == command_start + 10,
             "Select All did not publish one full UTF-8 selection command");
         const auto selected_all = observe();
         send(tessera::TextInput{"日😀"}); focused("username");
@@ -390,10 +437,37 @@ int main() {
         require(observe() != selected_all, "Whole-field replacement did not change pixels");
         send(FocusNext{}); focused("apply");
         send(Activate{}); focused("apply");
-        require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}, {"日😀", true}} && sequence == 12,
+        require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}, {"日😀", true}} &&
+            host.applied == host.draft && sequence == command_start + 12,
             "Replacement Apply or once-only command count differs");
         (void)observe();
-        std::cout << "3 owned saves; 12 host commands; " << extent.width << 'x' << extent.height
+        // Cancel both fields against the latest Apply, retaining all earlier save copies.
+        const auto saved_copies = host.saves;
+        const auto saved_result = host.result;
+        send(FocusPrevious{}); focused("username");
+        send(tessera::TextInput{"!"});
+        send(FocusPrevious{}); send(FocusPrevious{}); focused("section-feature");
+        send(Activate{});
+        send(FocusNext{}); send(FocusNext{}); focused("toggle");
+        send(Activate{});
+        require(host.draft == SettingsData{"日😀!", false}, "Later pending edits missing");
+        (void)observe();
+        const auto before_cancel = host.username;
+        send(FocusNext{}); send(FocusNext{}); focused("cancel");
+        send(Activate{}, CommandSource::gamepad); focused("cancel");
+        require(host.selected == "feature" && host.draft == SettingsData{"日😀", true} &&
+            host.applied == host.draft && host.saves == saved_copies && host.result == saved_result &&
+            host.username.owner == before_cancel.owner && host.username.text == "日😀" &&
+            host.username.revision == before_cancel.revision + 2 &&
+            host.username.anchor == 7 && host.username.caret == 7 && sequence == command_start + 16,
+            "Cancel did not restore the latest Apply or changed unrelated state");
+        (void)observe();
+        focus.reset();
+        send(FocusNext{}); send(Activate{}); focused("section-account");
+        require(host.draft == host.applied && host.saves == saved_copies && host.result == saved_result,
+            "Returning to Account lost cancelled values");
+        (void)observe();
+        std::cout << host.saves.size() << " owned saves; " << sequence << " host commands; " << extent.width << 'x' << extent.height
             << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
