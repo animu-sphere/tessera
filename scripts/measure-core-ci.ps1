@@ -1,14 +1,15 @@
-# Core-only configure/build/test phases shared by CI and local measurements.
+# Configure/build/test phases shared by CI and local measurements.
 [CmdletBinding()]
 param(
     [string]$BuildDirectory = 'build-ci',
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug',
-    [ValidateSet('pr', 'fixtures', 'imports', 'wide', 'full')][string]$Suite = 'full',
+    [ValidateSet('core', 'consumer', 'pr', 'fixtures', 'imports', 'wide', 'full')][string]$Suite = 'full',
     [ValidateRange(1, 64)][int]$BuildParallelism = 2,
     [ValidateRange(1, 64)][int]$TestParallelism = 2
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$examplesEnabled = if ($Suite -in @('core', 'consumer')) { 'OFF' } else { 'ON' }
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $build = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BuildDirectory)
 $reused = Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt')
@@ -16,6 +17,8 @@ $artifacts = Join-Path $build "ci-$($Configuration.ToLowerInvariant())-$Suite"
 New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 $phases = New-Object 'System.Collections.Generic.List[object]'
 $buildTargets = @(switch ($Suite) {
+    'core' { @('tessera_pr_tests') }
+    'consumer' { @('tessera_core') }
     'pr' { @('tessera_pr_tests') }
     'fixtures' { @('tessera_fixture_tests') }
     'imports' { @('tessera_pr_tests') }
@@ -24,6 +27,7 @@ $buildTargets = @(switch ($Suite) {
 })
 $context = [ordered]@{
     configuration = $Configuration; suite = $Suite; reused_build = $reused
+    examples_enabled = $examplesEnabled
     build_parallelism = $BuildParallelism; test_parallelism = $TestParallelism
     build_targets = @($buildTargets)
     execution_environment = $(if ($env:GITHUB_ACTIONS -eq 'true') { 'github-actions' } else { 'local' })
@@ -58,16 +62,16 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
     $context['worktree_changes'] = @(& git -C $repo status --short)
 }
 Invoke-Phase 'configure' 'cmake' @('-S', $repo, '-B', $build, '-A', 'x64',
-    '-DBUILD_TESTING=ON', '-DTESSERA_BUILD_TESTING=ON', '-DTESSERA_BUILD_EXAMPLES=ON',
+    '-DBUILD_TESTING=ON', '-DTESSERA_BUILD_TESTING=ON', "-DTESSERA_BUILD_EXAMPLES=$examplesEnabled",
     '-DTESSERA_BUILD_VULKAN=OFF', '-DTESSERA_BUILD_FONTS=OFF')
 $buildArguments = @('--build', $build, '--config', $Configuration, '--parallel', "$BuildParallelism")
 if ($buildTargets) { $buildArguments += @('--target') + $buildTargets }
 Invoke-Phase 'build' 'cmake' ($buildArguments + @('--', '/nodeReuse:false'))
-# PR suites add the long fixtures and/or add_subdirectory imports to the fast
-# contract/smoke checks. Wide and full execute the complete test inventory;
-# full also builds every enabled target. FetchContent is manual only. Import
-# checks are RUN_SERIAL in CTest, so the worker count applies to runtime checks.
+# Legacy suites retain their selections. Imports build isolated hosts serially;
+# FetchContent is manual only.
 $selection = switch ($Suite) {
+    'core' { @('-L', '^contract$') }
+    'consumer' { @('-R', '^source_consumer_add_subdirectory$') }
     'pr' { @('-L', '^(contract|smoke)$') }
     'fixtures' { @('-L', '^(contract|smoke|fixture)$') }
     'imports' { @('-L', '^(contract|smoke|import)$') }
@@ -83,7 +87,7 @@ Invoke-Phase 'test' 'ctest' (@('--test-dir', $build, '-C', $Configuration,
 Copy-Item -LiteralPath (Join-Path $build 'Testing/Temporary/CTestCostData.txt') -Destination $artifacts
 if ($env:GITHUB_STEP_SUMMARY) {
     $targetSummary = if ($buildTargets) { $buildTargets -join ', ' } else { 'default (all enabled targets)' }
-    "Build target: $targetSummary; reused build: $reused." >> $env:GITHUB_STEP_SUMMARY
+    "Build target: $targetSummary; examples: $examplesEnabled; reused build: $reused." >> $env:GITHUB_STEP_SUMMARY
     "### Core $Configuration / $Suite`n`n| Phase | Seconds | Exit |`n| --- | ---: | ---: |" >> $env:GITHUB_STEP_SUMMARY
     foreach ($phase in $phases) {
         "| $($phase.name) | $([math]::Round($phase.seconds, 2)) | $($phase.exit_code) |" >> $env:GITHUB_STEP_SUMMARY

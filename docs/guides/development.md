@@ -112,7 +112,11 @@ Compare available hosted queue/job/step durations separately from local timing, 
 
 ### CI scopes and reproducible measurements
 
-The [PR workflow](../../.github/workflows/ci.yml) reports documentation/metadata and a Windows x64 Debug core job on every PR. Its [scope selector](../../scripts/select-ci.ps1) skips the native phases for documentation-only changes: Markdown anywhere, `docs/`, issue templates, the documentation checker and the license. Ordinary C++/header/example/fixture-data changes run the `pr` suite (`contract` and `smoke`); changes under `examples/renderer-diagnostics/`, `examples/settings/` or `tests/integrations/` add the long `fixture` checks (`fixtures`); build files, workflows, scripts and unknown paths add the `add_subdirectory` imports (`imports`); both triggers, or an unavailable diff, select `wide`. FetchContent has no automatic CTest registration; its public import path remains available for manual checks. Selection occurs inside the reporting job. The [selector regression checks](../../scripts/test-select-ci.ps1) cover mixed changes, missing input and conservative fallback.
+The [PR workflow](../../.github/workflows/ci.yml) reports documentation/metadata and the existing `Core / windows-x64 / Debug` job on every PR. Its [scope selector](../../scripts/select-ci.ps1) skips configure/build/test for documentation-only changes: Markdown anywhere, `docs/`, issue templates, the documentation checker and the license. Other changes first run `core`: examples OFF, only runtime/widget `contract` checks, four CTest workers. Selection stays inside the reporting job so documentation-only changes cannot leave a required check pending.
+
+Public headers under `include/`, CMake/build/consumer files, scripts/workflows, unknown paths or an unavailable diff additionally run `consumer` in the same build directory. It keeps examples OFF and selects only `source_consumer_add_subdirectory`: an independent minimal host linking `tessera::core`, not a copied sample application. Core objects are reused; the host retains its isolated build and serial execution.
+
+There is no example-specific change detection or PR example build/run, even when examples or their fixtures change. Example compilation, all smokes and Diagnostics/Settings fixtures belong to main integration; regressions specific to those applications may therefore first appear after merge. The [selector regression checks](../../scripts/test-select-ci.ps1) cover ordinary/mixed changes, missing input and conservative core-consumer fallback. Optional Vulkan/font/native-host changes still require their dedicated checks; a core-only run does not validate those modules. FetchContent remains manual only.
 
 The [integration workflow](../../.github/workflows/integration.yml) runs the complete registered core suite in Debug and Release on main pushes or manual dispatch, including add_subdirectory source imports. The [release workflow](../../.github/workflows/release.yml) retains tag/manual release verification and publication. Neither workflow runs FetchContent; automatic coverage no longer detects regressions specific to that import branch. Optional GPU/font/native evidence follows its separate procedures. Cancel superseded PR/integration runs; do not cancel tag publication through their concurrency groups.
 
@@ -120,25 +124,29 @@ Run the same measured phases locally from PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-select-ci.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Debug -Suite core -TestParallelism 4
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Debug -Suite consumer -TestParallelism 4
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Debug -Suite full
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Release -Suite full
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Debug -Suite pr
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Debug -Suite fixtures
 ```
 
-The measurement script configures a Windows x64 core-only Visual Studio build with tests/examples enabled and optional modules disabled. Build selection and CTest selection correspond as follows:
+The measurement script configures Windows x64 Visual Studio with testing ON and Vulkan/fonts OFF. Examples are OFF for both PR suites (`core` and `consumer`), ON otherwise. Existing `pr`/`fixtures`/`imports`/`wide`/`full` meanings remain available for manual use. Build selection and CTest selection correspond as follows:
 
-| Suite | Parent build target | CTest selection |
-| --- | --- | --- |
-| `pr` | `tessera_pr_tests` | `contract` + `smoke` |
-| `fixtures` | `tessera_fixture_tests` | `pr` + `fixture` |
-| `imports` | `tessera_pr_tests` | `pr` + `import` |
-| `wide` | `tessera_wide_tests` | No filter |
-| `full` | Default build (all enabled targets) | No filter |
+| Suite | Examples | Parent build target | CTest selection |
+| --- | --- | --- | --- |
+| `core` | OFF | `tessera_pr_tests` | `contract` only |
+| `consumer` | OFF | `tessera_core` | Only `source_consumer_add_subdirectory` |
+| `pr` | ON | `tessera_pr_tests` | `contract` + `smoke` |
+| `fixtures` | ON | `tessera_fixture_tests` | `pr` + `fixture` |
+| `imports` | ON | `tessera_pr_tests` | `pr` + `import` |
+| `wide` | ON | `tessera_wide_tests` | No filter |
+| `full` | ON | Default build (all enabled targets) | No filter |
 
-[Test registration](../../cmake/TesseraTesting.cmake) associates each runtime test's executable and label with its build group in one place. Fixture targets depend on the PR group; the wide group also covers an opted-in native host. The measurement script does not maintain executable lists. Imports configure/build their own isolated hosts during CTest and need no extra parent executable. Selecting a narrow suite does not delete executables left by an earlier wide build; use a fresh directory to measure avoided compilation.
+[Test registration](../../cmake/TesseraTesting.cmake) associates each runtime test's executable and label with its build group in one place. With examples OFF, the PR group depends only on contracts. Fixture targets depend on the PR group; the wide group also covers an opted-in native host. Imports configure/build their own isolated hosts during CTest. The PR `consumer` suite selects only the minimal core host; copied application imports remain in the legacy `imports`/`wide`/`full` selections, not PR CI. Selecting a narrow suite does not delete executables left by an earlier wide build; use a fresh directory to verify that no examples were built or to measure avoided compilation.
 
-It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. The JSON also records selected build targets (an empty array means the default build), fresh/reused cache, local/GitHub Actions execution, OS, logical processor count and parallelism. Native failures stop the run with a nonzero exit while retaining completed phase measurements. Build parallelism defaults to two and test workers to two; import checks remain `RUN_SERIAL` in CTest, so nested builds never overlap each other or runtime checks. These settings are measurement conditions, not universal speed guarantees. Record hosted and local timings separately; Debug PR feedback does not replace full Debug/Release integration.
+It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. The JSON also records suite, examples ON/OFF, selected build targets (an empty array means the default build), fresh/reused cache, local/GitHub Actions execution, OS, logical processor count and parallelism. Core and consumer phases have separate artifact directories even when they share the build cache. Native failures stop the run with a nonzero exit while retaining completed phase measurements. Build parallelism defaults to two and test workers to two; the PR workflow explicitly requests four test workers without changing build parallelism. Import checks remain `RUN_SERIAL` in CTest, so nested builds never overlap each other or runtime checks. These settings are measurement conditions, not universal speed guarantees. Record hosted and local timings separately; Debug PR feedback does not replace full Debug/Release integration. [Support](../reference/support-matrix.md#core-pr-separation-evidence--2026-11-04) records the fresh before/after comparison and its limits.
 
 ## Scalar CPU capture workflow
 
