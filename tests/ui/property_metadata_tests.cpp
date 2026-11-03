@@ -21,7 +21,7 @@ tessera::Property sample(tessera::PropertyType type) {
     switch (type) {
     case tessera::PropertyType::boolean: return true;
     case tessera::PropertyType::number: return 2.5;
-    case tessera::PropertyType::string: return std::string("x");
+    case tessera::PropertyType::string: return std::string("bottom");
     case tessera::PropertyType::reference: return tessera::NodeReference{"target"};
     }
     return false;
@@ -30,7 +30,7 @@ std::string encoded(tessera::PropertyType type) {
     switch (type) {
     case tessera::PropertyType::boolean: return "true";
     case tessera::PropertyType::number: return "2.5";
-    case tessera::PropertyType::string: return "\"x\"";
+    case tessera::PropertyType::string: return "\"bottom\"";
     case tessera::PropertyType::reference: return R"({"ref":"target"})";
     }
     return {};
@@ -52,7 +52,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 5, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 9, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");

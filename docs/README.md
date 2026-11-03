@@ -57,6 +57,7 @@ For application authors, begin with [Getting Started](guides/getting-started.md)
 | [SplitPane guide](guides/split-pane.md) | Public C++ composition and explicit host adjustment wiring | A second layout/input/semantic contract or test-result history |
 | [Stack guide](guides/stack.md) | Public in-parent overlay composition and viewport toolbar procedure | A second layout/input contract, portals, modal behavior or test-result history |
 | [Grid guide](guides/grid.md) | Public Inspector property columns, narrow inputs and controlled-edit procedure | A second layout/input contract, advanced Grid placement or test-result history |
+| [Popup/Tooltip guide](guides/popup-tooltip.md) | Root-sibling anchored composition and explicit host interaction procedure | A second layout/input contract, generalized Portal/modal behavior or test-result history |
 | [Renderer telemetry guide](guides/renderer-diagnostics.md) | Copy/build/run and source walkthrough for telemetry composition and the synthetic snapshot host | A second API/consumer contract, native renderer integration or test-result history |
 | [Testing](guides/testing.md) | Verification responsibilities, owner-test references, tier/selection and measurement policy, documentation checks | Complete test-target inventory, workflow implementation or capability status |
 | [Dependencies](reference/dependencies.md) | Adopted/candidate choices, acquisition and licensing policy, including font licensing | Validated configuration claims |

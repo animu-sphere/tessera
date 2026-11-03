@@ -21,6 +21,7 @@ A capability without a row has no implementation claim here: consult [current](.
 
 | Area | Status and scope | Evidence |
 | --- | --- | --- |
+| Popup and Tooltip | Validated Windows x64 core-only Debug: root-sibling anchor placement, four sides, flip/shift, width-wrapped sizing, scroll/resize and missing/clipped-anchor suppression, CPU pixel/hit order, outside-press/Cancel dismissal, focus recovery and pointer-transparent hover/focus help. Ordinary commands and JSON v1 properties; no generalized Portal, modal scope, native/device, GPU, Release or other-platform validation for this slice | [Popup/Tooltip evidence](#popup-and-tooltip-evidence--2026-11-04) |
 | Grid and Inspector property columns | Validated Windows x64 core-only Debug: explicit fixed/content/fractional tracks, min/max allocation, gaps/alignment, intrinsic and width-wrapped rows, shared scroll/clip/CPU-hit geometry and located rejection. Public Inspector edits preserve peer values/focus at narrow widths and reject measurement without accepting text; normalized pointer/keyboard/gamepad routing, theme destinations and Replay v1/v2 retain the ordinary boundaries. No spanning, implicit tracks, native/device, GPU, Release or other-platform validation for this slice | [Grid evidence](#grid-evidence--2026-11-04) |
 | Stack and in-parent viewport toolbar | Validated Windows x64 core-only Debug: overlapping content-box placement, independent child alignment/limits, intrinsic and width-wrapped heights, nested scroll/clip coordinates, source-located validation, CPU pixel/hit order and Replay v1/v2 placement preservation. Public toolbar commands cover normalized pointer/keyboard/gamepad input and resize. No Portal, popup anchoring, modal scope, native/device, GPU, Release or other-platform validation for this slice | [Stack evidence](#stack-evidence--2026-11-04) |
 | UI tree, properties, serialization | Validated for Box/Text documents: JSON v1 round trips, located validation failures, metadata, and handle lifetime | [foundation](#foundation-evidence--2026-10-05), [subsystem contracts](#subsystem-contract-evidence--2026-10-05) |
@@ -81,6 +82,17 @@ Vulkan submission counters are not timing or profiling evidence.
 | Windows / Linux / macOS | Windows x64/MSVC Debug/Release core and combined font/Vulkan checks, and Win32 menu smoke and physical mouse/controller sessions verified below; Linux/macOS and other Windows toolchains unvalidated |
 
 Core, offscreen Vulkan, and Win32 host evidence below are distinct. Physical-device evidence is limited to one mouse, one USB DualSense, and one original Bluetooth Joy-Con L/R pair on this machine. Real-text offscreen and native menu images use the declared Noto fixtures on one configuration; no evidence establishes packaging or broad Windows support.
+
+## Popup and Tooltip evidence — 2026-11-04
+
+- Configuration: reused `build` parent and minimal nested import, Windows x64, Visual Studio 18 2026, Debug, optional fonts/Vulkan OFF, examples ON. No performance or fresh-build claim.
+- Owners: [Popup/Tooltip checks](../../tests/input/popup_tests.cpp), [property/encoding agreement](../../tests/ui/property_metadata_tests.cpp), [inspection observations](../../tests/inspection/inspection_tests.cpp), [dedicated consumer](../../examples/popup-tooltip/main.cpp) and [independent public-header consumer](../../tests/cmake/consumer/main.cpp). The [guide](../guides/popup-tooltip.md) owns composition and explicit host staging.
+- Executed commands and results:
+  - `cmake -S . -B build`: passed.
+  - `cmake --build build --config Debug --target tessera_pr_tests --parallel 4`: passed.
+  - `ctest --test-dir build -C Debug -L contract --output-on-failure --parallel 4`: all 50 contracts passed, including ordinary layout, pointer/focus/scroll, semantics, inspection, paint/CPU and replay.
+  - `ctest --test-dir build -C Debug -R '^(popup_tooltip|source_consumer_add_subdirectory)$' --output-on-failure`: dedicated operation smoke and independent configure/build/link/run consumer passed.
+- CPU evidence is a selective background-pixel/clip/hit fixture with text paint disabled, not widget screenshots or real-font rendering. The application uses normalized scripted input and placeholder metrics, with ordinary command resolution/execution. No generalized Portal, modal scope, native window/device, accessibility description adapter, controller-specific replay format, Release or other-platform acceptance is claimed.
 
 ## Grid evidence — 2026-11-04
 

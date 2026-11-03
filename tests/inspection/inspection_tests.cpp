@@ -84,10 +84,14 @@ void capture_joins_one_generation() {
         {"disabled", tessera::Property{false}, false},
         {"focusable", tessera::Property{true}, true},
         {"labelled_by", std::nullopt, false},
+        {"pointer_events", tessera::Property{true}, false},
+        {"popup_anchor", std::nullopt, false},
+        {"popup_gap", tessera::Property{4.0}, false},
+        {"popup_side", tessera::Property{std::string("bottom")}, false},
         {"separator", tessera::Property{false}, false}};
     check(start.properties == box_properties, "Box properties follow descriptors with absence values");
-    check(elements[1].properties.size() == 4 && elements[1].properties[3].name == "text" &&
-              elements[1].properties[3].authored,
+    check(elements[1].properties.size() == 5 && elements[1].properties[4].name == "text" &&
+              elements[1].properties[4].authored,
           "Text elements also observe the text descriptor");
 
     const auto& box = fixture.layout.boxes[2];

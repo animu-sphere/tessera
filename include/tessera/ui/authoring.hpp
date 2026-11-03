@@ -82,6 +82,13 @@ struct SplitPaneProps {
     std::string label = "Resize panes";
     bool disabled = false;
 };
+enum class PopupSide { bottom, top, left, right };
+struct PopupProps {
+    Props node;
+    bool open = false;
+    PopupSide side = PopupSide::bottom;
+    float gap = 4;
+};
 // If the parent cannot hold both minima, keep them and clip the overflow.
 Result<float> split_pane_size_at(SplitPaneLimits, float available, float requested);
 
@@ -104,6 +111,8 @@ private:
     friend Element Column(std::vector<Element>, Props);
     friend Element Stack(std::vector<Element>, Props);
     friend Element Grid(std::vector<Element>, Props);
+    friend Element Popup(std::string, std::vector<Element>, PopupProps);
+    friend Element Tooltip(std::string, Value<std::string>, PopupProps);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -127,6 +136,11 @@ Element Column(std::vector<Element> children, Props = {});
 Element Stack(std::vector<Element> children, Props = {});
 // Row-major children, one per explicit cell; no implicit tracks or spanning.
 Element Grid(std::vector<Element> children, Props = {});
+// Root children, after ordinary content. Missing, hidden or fully clipped anchors
+// suppress the subtree. No reparenting, modal scope or focus trap.
+Element Popup(std::string anchor, std::vector<Element> children, PopupProps = {});
+// Noninteractive text popup; the host controls visibility from hover/focus.
+Element Tooltip(std::string anchor, Value<std::string> text, PopupProps = {});
 // A Column with scroll overflow. Constrain its size through Props::style;
 // the host owns offsets and routes wheel input/focus reveal through input/scroll.
 Element ScrollView(std::vector<Element> children, Props = {});

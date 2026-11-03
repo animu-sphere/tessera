@@ -22,7 +22,8 @@ struct HitTestResult {
 
 std::vector<Diagnostic> validate(const HitTestInput&);
 // Reverse preorder, half-open border boxes. Visibility is local; disabled is inherited.
-// Transparent/zero-opacity boxes remain eligible. No implicit clips or transforms.
+// Transparent/zero-opacity boxes remain eligible. pointer_events:false excludes a
+// subtree from pointer hits only. No implicit clips or transforms.
 Result<HitTestResult> hit_test(const HitTestInput&, Point position);
 
 struct PointerState {

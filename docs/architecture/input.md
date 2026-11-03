@@ -6,6 +6,20 @@
 - Targeting uses coherent logical geometry and shared eligibility. Keyboard/gamepad navigation and semantic operations follow ordinary action/command boundaries.
 - Host actions execute after traversal; generation/lifetime checks reject stale targets rather than invoking expired owners.
 
+## Implemented Popup and Tooltip interaction
+
+[popup.hpp](../../include/tessera/input/popup.hpp) supplies host-owned policy for the controlled [Popup/Tooltip compositions](ui-model.md#implemented-c-form-authoring). No dispatcher writes application state or runs actions. All calls validate a coherent snapshot; dispatch additionally validates normalized events and monotonic timestamps. Rejected calls preserve state. Stable author IDs, not borrowed nodes, survive replacement.
+
+`PopupDispatcher(id)` requires a popup ID. `refresh` runs on every accepted view, including closed ones. Opening requests focus on the first ordinary eligible focusable descendant once; compatible replacement does not steal focus again. Closing requests focus on the surviving eligible anchor. Unavailable geometry, hidden/disabled anchors or owner removal requests dismissal without restoring expired or ineligible handles. Apply returned `focus` through `FocusDispatcher`; ordinary focus recovery remains the fallback.
+
+Dispatch runs before pointer/focus routing. Any pointer press outside the popup, logical Cancel or unmodified Escape requests controlled dismissal, marks the event consumed and requests anchor focus. Inside events pass to ordinary pointer dispatch, navigation and command execution. On consumed dismissal, cancel/reset any ordinary pointer press so its later release cannot click through. Selection commands close in the host, followed by refresh. There is no focus trap, modal input capture, navigation override or implicit native pointer capture.
+
+`TooltipDispatcher(anchor)` returns immediate visibility while its eligible anchor (or a descendant) is hovered or focused. It retains one normalized pointer position/identity, recomputes stationary hover on refresh, and clears matching hover on PointerCancel. Cancel/Escape or a press suppresses help until both hover and focus leave. Pass current-snapshot focus after ordinary focus routing; stale handles fail explicitly. The host can hide help while a Popup is open and owns scheduling, optional delays and window-focus normalization. The dispatcher does not consume events.
+
+`pointer_events: false` excludes a node and its descendants from pointer hits independently of disabled state. It does not suppress painting, semantic text, focus eligibility or semantic actions; Tooltip composition contains only nonfocusable Text. Thus help never intercepts the anchor or a control beneath it. Ordinary popup option buttons remain ordinary semantic buttons; no tooltip role, accessibility description relationship or native accessibility adapter is introduced.
+
+The [owner checks](../../tests/input/popup_tests.cpp) and [dedicated example](../../examples/popup-tooltip/main.cpp) verify lifetime, dismissal, hover/focus suppression, transparent hit routing and pointer/keyboard/gamepad command parity. The [guide](../guides/popup-tooltip.md) owns the host procedure.
+
 ## Implemented SplitPane adjustment
 
 [split_pane.hpp](../../include/tessera/input/split_pane.hpp) connects the public [SplitPane composition](ui-model.md#implemented-c-form-authoring) to normalized input without callbacks or platform types. `split_pane_geometry(input, id)` resolves the generated three-child structure against a coherent hit-test snapshot, joining the actual first-pane/handle boxes, parent content size, orientation and wrapper minima. It returns separator eligibility through shared semantics. Absent or hidden generated parts return an absent geometry; malformed structure and invalid snapshots return actionable diagnostics.
