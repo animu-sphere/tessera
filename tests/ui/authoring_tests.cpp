@@ -1,6 +1,7 @@
 #include <tessera/ui/authoring.hpp>
 #include "../check.hpp"
 #include <iostream>
+#include <limits>
 
 using namespace tessera;
 using namespace tessera::authoring;
@@ -179,6 +180,51 @@ void controlled_dropdown() {
         "Dropdown generated controls bypassed document depth bounds");
 }
 
+void controlled_slider() {
+    Session ui;
+    const SliderRange range{-20, 80, 5};
+    auto first = take(ui.lower(Slider("Volume", 30, range, "toggle",
+        {.node = {.id = "volume", .source = origin}}), actions));
+    const auto& root = first.document.root;
+    check(root.events.at("activate") == "toggle" && root.properties.at("focusable") == Property{true} &&
+        root.children[0].properties.at("text") == Property{std::string("Volume: 30")} &&
+        root.children[1].id == "volume-track" && root.children[1].children[1].id == "volume-thumb" &&
+        first.styles[3].width == Dimension::points(96), "Slider caption, identity or thumb position differs");
+    check(validate_sources(first.document, first.sources).empty() &&
+        first.sources.nodes.back().style_argument == origin, "Slider generated parts lost caller provenance");
+    const auto disabled = take(ui.lower(Slider("Volume", 80, range, "toggle", {.disabled = true}), actions));
+    check(disabled.document.root.properties.at("disabled") == Property{true} &&
+        disabled.styles[3].width == Dimension::points(192) && first.styles[3].width == Dimension::points(96),
+        "Slider disabled/max replacement changed earlier candidate");
+    check(take(slider_value_at(range, -100)) == -20 && take(slider_value_at(range, 100)) == 80 &&
+        take(slider_value_at(range, .525)) == 35 && take(slider_value_at(range, .524)) == 30,
+        "Slider clamping or nearest-stop tie policy differs");
+    const SliderRange wide{std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), 1};
+    check(take(slider_value_at(wide, 0)) == wide.minimum && take(slider_value_at(wide, 1)) == wide.maximum,
+        "Slider full integer range overflowed");
+    for (double position : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
+        check(!slider_value_at(range, position), "Nonfinite Slider position accepted");
+    int reads = 0;
+    const auto pending = ui.computed("slider-pending", [&] { ++reads; return std::string("Pending"); });
+    for (SliderRange invalid : {SliderRange{1, 1, 1}, {2, 1, 1}, {0, 10, 0}, {0, 10, -1}, {0, 10, 3}}) {
+        const auto rejected = ui.lower(Column({Text(pending), Slider("Volume", 0, invalid, "toggle",
+            {.node = {.source = origin}})}), actions);
+        check(!rejected && has(rejected.diagnostics, "slider_range", "/root/children/1") && reads == 0 &&
+            rejected.diagnostics[0].source->location == origin && !slider_value_at(invalid, .5),
+            "Invalid Slider range must reject before evaluation with caller source");
+    }
+    for (int value : {-25, 85, 31}) {
+        const auto rejected = ui.lower(Slider("Volume", value, range, "toggle", {.node = {.source = origin}}), actions);
+        check(!rejected && has(rejected.diagnostics, "slider_value", "/root") &&
+            rejected.diagnostics[0].source->location == origin, "Invalid Slider value accepted or unlocated");
+    }
+    check(!ui.lower(Slider("Volume", 30, range, "unknown"), actions), "Unregistered Slider action accepted");
+    auto deepest = Slider("Volume", 30, range, "toggle");
+    for (std::size_t i = 3; i < max_document_depth; ++i) deepest = Column({deepest});
+    check(bool(ui.lower(deepest, actions)) && !ui.lower(Column({deepest}), actions),
+        "Slider generated parts bypassed depth bounds");
+}
+
 void controlled_checkbox() {
     Session ui;
     const auto checked = ui.state("checked", false);
@@ -322,7 +368,7 @@ void bounded_descriptions() {
 int main() {
     try {
         composition_and_updates(); rejection_and_preflight(); controlled_checkbox(); controlled_text_input();
-        scroll_view_contract(); controlled_dropdown(); lifetimes_and_recovery(); bounded_descriptions();
+        scroll_view_contract(); controlled_dropdown(); controlled_slider(); lifetimes_and_recovery(); bounded_descriptions();
         std::cout << "Authoring composition, state, diagnostics and lifetime checks passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

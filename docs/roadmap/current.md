@@ -23,7 +23,6 @@ The [Settings consumer](../integrations/settings-app.md#proposed-application-wor
 
 Pick any unblocked item and deliver it whole, including its widget, example wiring, tests and guide update in one PR:
 
-- Numeric setting with a Slider (keyboard, pointer, bounded value, actionable validation).
 - Native window host for the starter (window, input, presentation) on the primary supported platform.
 - Public-API friction fixes found while doing the above: event registration, state updates, styling, error display.
 

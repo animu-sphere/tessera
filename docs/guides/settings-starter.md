@@ -43,34 +43,34 @@ The program supplies normalized input itself. Each checkpoint prints `Section <i
 | Insert `本` | account | Ada本 / disabled | Not saved |
 | Select Feature | feature | Ada本 / disabled | Not saved |
 | Toggle | feature | Ada本 / enabled | Not saved |
-| Gamepad Apply | feature | Ada本 / enabled | Saved 1: Ada本; feature enabled; theme system |
-| Select About | about | Ada本 / enabled | Saved 1: Ada本; feature enabled; theme system |
-| Return to Account | account | Ada本 / enabled | Saved 1: Ada本; feature enabled; theme system |
-| Insert `!` | account | Ada本! / enabled | Saved 1: Ada本; feature enabled; theme system |
-| Keyboard Apply | account | Ada本! / enabled | Saved 2: Ada本!; feature enabled; theme system |
-| Control+A | account | Ada本! / enabled, selection 0:7 | Saved 2: Ada本!; feature enabled; theme system |
-| Replace with `日😀` | account | 日😀 / enabled | Saved 2: Ada本!; feature enabled; theme system |
-| Keyboard Apply | account | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system |
-| Edit and toggle after Apply | feature | 日😀! / disabled | Saved 3: 日😀; feature enabled; theme system |
-| Gamepad Cancel | feature | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system |
-| Return to Account | account | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system |
-| Wheel each pane to both limits | account | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system |
-| Pointer About then Account | account | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system |
-| Pending username and Dark preference | account | 日😀? / enabled | Saved 3: 日😀; feature enabled; theme system |
-| About, pointer Light, Apply | about | 日😀? / enabled | Saved 4: 日😀?; feature enabled; theme light |
-| Select Dark, then Cancel | about | 日😀? / enabled | Saved 4: 日😀?; feature enabled; theme light |
+| Gamepad Apply | feature | Ada本 / enabled | Saved 1: Ada本; feature enabled; theme system; volume 50 |
+| Select About | about | Ada本 / enabled | Saved 1: Ada本; feature enabled; theme system; volume 50 |
+| Return to Account | account | Ada本 / enabled | Saved 1: Ada本; feature enabled; theme system; volume 50 |
+| Insert `!` | account | Ada本! / enabled | Saved 1: Ada本; feature enabled; theme system; volume 50 |
+| Keyboard Apply | account | Ada本! / enabled | Saved 2: Ada本!; feature enabled; theme system; volume 50 |
+| Control+A | account | Ada本! / enabled, selection 0:7 | Saved 2: Ada本!; feature enabled; theme system; volume 50 |
+| Replace with `日😀` | account | 日😀 / enabled | Saved 2: Ada本!; feature enabled; theme system; volume 50 |
+| Keyboard Apply | account | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system; volume 50 |
+| Edit and toggle after Apply | feature | 日😀! / disabled | Saved 3: 日😀; feature enabled; theme system; volume 50 |
+| Gamepad Cancel | feature | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system; volume 50 |
+| Return to Account | account | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system; volume 50 |
+| Wheel each pane to both limits | account | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system; volume 50 |
+| Pointer About then Account | account | 日😀 / enabled | Saved 3: 日😀; feature enabled; theme system; volume 50 |
+| Pending username and Dark preference | account | 日😀? / enabled | Saved 3: 日😀; feature enabled; theme system; volume 50 |
+| About, pointer Light, Apply | about | 日😀? / enabled | Saved 4: 日😀?; feature enabled; theme light; volume 50 |
+| Select Dark, then Cancel | about | 日😀? / enabled | Saved 4: 日😀?; feature enabled; theme light; volume 50 |
 
-It ends with:
+The numeric sequence then focuses Volume, checks endpoints/steps and pointer dragging, Applies volume 75, edits both volume and username across categories, and Cancels back to that fifth save. Earlier saves remain unchanged. It ends with:
 
 ```text
-4 owned saves; 38 host commands; 640x240 RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)
+5 owned saves; 53 host commands; 640x240 RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)
 ```
 
 The process exits nonzero with diagnostics on failure. This is a window-free example with placeholder text and synthetic glyph marks; a native host supplies its own window, physical input normalization and rendering services.
 
 ## Compose the application and its styles
 
-`Settings` accepts the selected section, theme key, expansion flag and four controlled values: username edit state, enabled boolean, derived summary string and saved-result string. Iteration over the fixed `account`, `feature`, `about` list creates ordinary Buttons with `section-<id>` identities; `* ` marks the selected choice and `selected-section` names it. A C++ branch composes only Account's TextInput, Feature's Checkbox or About's help. A fixed title sits above a Row containing two `ScrollView` panes: the 140×64 category sidebar and 440×144 form. The form contains the selected-section label, conditional branch, Theme Dropdown, summary, Apply/Cancel Row and saved result. Both panes use 12-unit gaps in a 640×240 logical viewport. `Field` is a reusable typed function with a default gap and ordered children. Explicit IDs identify `username`, `toggle`, `section-help`, `summary`, `apply`, `cancel` and `save-result` across full-tree replacement.
+`Settings` accepts the selected section, theme key, expansion flag, integer volume and four controlled observations: username edit state, enabled boolean, derived summary string and saved-result string. Iteration over the fixed `account`, `feature`, `about` list creates ordinary Buttons with `section-<id>` identities; `* ` marks the selected choice and `selected-section` names it. A C++ branch composes only Account's TextInput, Feature's Checkbox or About's help. A fixed title sits above a Row containing two `ScrollView` panes: the 140×64 category sidebar and 440×144 form. The form contains the selected-section label, conditional branch, Theme Dropdown, summary, Apply/Cancel Row, saved result and Volume Slider. Both panes use 12-unit gaps in a 640×240 logical viewport. `Field` is a reusable typed function with a default gap and ordered children. Explicit IDs identify `username`, `toggle`, `section-help`, `summary`, `apply`, `cancel` and `save-result` across full-tree replacement.
 
 `application_styles` keeps reusable form, control and status class declarations separate from composition. `Props::classes` attaches them; Apply supplies a typed instance background override. `prepare` passes the sheet and lowered instance declarations to the shared resolver. Change that palette to restyle the application through the existing cascade. Theme switching and interaction-state rules are demonstrated in the [larger Settings fixture](development.md#settings-form-fixture).
 
@@ -78,13 +78,13 @@ One session owns named `username`, `enabled` and `save-result` observations. A p
 
 ## Own the draft and saved copies in the host
 
-`Host::username` owns the accepted `TextEditState`: a never-reused nonzero owner, revision, committed UTF-8 bytes and byte anchor/caret. `Host::draft` owns `{username, feature, theme}` and `Host::selected` owns section selection independently of text selection. The session values observe that host state; they do not own application saving. These lifetimes span all branch replacements, so returning to Account restores the exact edit owner, revision and selection.
+`Host::username` owns the accepted `TextEditState`: a never-reused nonzero owner, revision, committed UTF-8 bytes and byte anchor/caret. `Host::draft` owns `{username, feature, theme, volume}` and `Host::selected` owns section selection independently of text selection. The session values observe that host state; they do not own application saving. These lifetimes span all branch replacements, so returning to Account restores the exact edit owner, revision and selection.
 
 `Host::execute` proposes copies in `next_username`, `next_draft`, `next_result`, `next_selected` and `next_theme_open`. Editing calls the pure `edit_text` transform with an owned request matching the accepted owner/revision. Toggling changes the candidate boolean; section commands change only candidate selection. Apply formats the next save result. Only after the whole candidate presentation succeeds does `operate` append an owned `SettingsData` copy to `saves`, accept host values and publish. Section changes append no save, and further draft edits cannot mutate an earlier record or its displayed result. This synchronous in-memory operation has no persistence or asynchronous/fallible save protocol.
 
 `Host::applied` starts with the initial draft and changes only when an Apply presentation is accepted. Cancel restores that copy, preserving the selected section, saved copies and saved-result Text. Two pure `edit_text` transforms select all current bytes and replace them with the applied username; the owner stays the same, revision advances twice, and selection collapses at the restored buffer end. Both transforms remain local until preparation succeeds. Cancel therefore also works while Account is absent.
 
-The host registers ordinary action/command mappings for editing, toggling, Apply/Cancel, section selection and the Dropdown, and publishes explicit eligibility for each presentation. `operate` resolves the live action owner against the accepted command generation and semantic input, then uses one executor and increasing sequence stream. Inspecting an outer execution result alone is insufficient: the host checks its outcome before staging. Each logical keyboard/gamepad Apply or Cancel uses its ordinary descriptor and host operation after dispatch returns.
+The host registers ordinary action/command mappings for editing, toggling, Apply/Cancel, section selection, the Dropdown and Volume, and publishes explicit eligibility for each presentation. `operate` resolves the live action owner against the accepted command generation and semantic input, then uses one executor and increasing sequence stream. Inspecting an outer execution result alone is insufficient: the host checks its outcome before staging. Each logical keyboard/gamepad Apply or Cancel uses its ordinary descriptor and host operation after dispatch returns.
 
 ## Route editing before navigation
 
@@ -117,6 +117,24 @@ The host changes only `next_draft.theme` on selection. It accepts the key and ex
 
 The script adds `?` to the username, opens/dismisses the Dropdown through normalized Cancel and raw Escape (ignoring modified/repeated Escape), selects Dark by logical gamepad activation, switches to About, selects Light by pointer release and Applies once. It then selects Dark and uses the Cancel button to restore Light. Inspection and repeated CPU captures check accepted checkpoints; earlier owned saves stay unchanged. `DropdownProps::disabled` disables its trigger and every option; `DropdownOption::disabled` disables one choice. Invalid selected keys and empty/duplicate option keys return source-located lowering diagnostics, as defined by the [form contract](../architecture/ui-model.md#implemented-c-form-authoring).
 
+## Adjust a numeric preference
+
+Volume sits at the end of the form, after the saved result, and remains present across category changes. Its integer draft starts at 50, with range 0 through 100 in steps of 5:
+
+```cpp
+constexpr ui::SliderRange volume_range{0, 100, 5};
+ui::Slider("Volume", volume, volume_range, "settings.volume",
+    {.node = {.id = "volume", .classes = {"control"}}});
+```
+
+Focus navigation reveals the complete control. While Volume holds focus, unmodified Left/Down decrease one step, Right/Up increase one step, and Home/End select the endpoints. Repeated keys follow the same step policy. Bounds clamp without executing redundant commands; modified keys and keys focused elsewhere do not edit volume. Ordinary logical or semantic activation increases one step up to maximum.
+
+A primary press on the visible track immediately selects the nearest stop and focuses Volume. The host uses ordinary clipped `hit_test` before taking capture. `volume-track` supplies geometry: normalize X between thumb centers at track origin plus 4 and track right minus 4, then call `ui::slider_value_at`. A host-owned pointer identity survives full-tree replacements; moves and primary release continue to resolve the current `volume` command owner and clamp outside-track positions. Other pointers, secondary buttons and additional presses cannot modify that capture. `PointerCancel` ends capture while retaining the last accepted draft; its later release does nothing. Non-pointer navigation/editing and a wheel offset change also end capture. A native host must supply OS capture/loss events; this script only supplies normalized events.
+
+Each changed value uses `settings.volume`, one sequence and the same full-presentation staging as other edits. The optional owned request carries the proposed integer; a payload-free activation proposes one increment. Invalid ranges, off-step or out-of-range values reject with actionable diagnostics before candidate acceptance. The smoke stages volume 101 and checks that accepted host values, saves and presentation remain unchanged. The owner tests cover source locations, invalid ranges, step snapping, nonfinite positions and full integer endpoints.
+
+Apply copies volume with the rest of the draft and appends `; volume <value>` to the result. Cancel restores it from the applied copy, retaining category selection and saved records. Category/Dropdown changes and numeric editing preserve the independent username edit owner/revision/selection. The final sequence checks keyboard limits/repeat/modifiers, visible pixel changes, primary drag across replacements, outside-track clamping, foreign-pointer/secondary-release rejection, capture cancellation, fifth Apply at 75 and Cancel of pending numeric/text edits.
+
 ## Stage, accept and observe
 
 `prepare` returns a complete candidate only after lowering, command eligibility, tree creation, style resolution, layout, inspection and paint succeed. Until then, the accepted host draft, save records and presentation stay intact. On a returned staging failure, `operate` restores the three session observations to accepted host values and exits with the stage diagnostics. It does not publish the failed candidate or save it. The consumed command sequence and candidate generation counter are not rewound. Allocation failures and arbitrary exceptions have no general rollback guarantee; rejection/retry and stale-owner injection belong to the [Settings regression fixture](../../examples/settings/main.cpp).
@@ -131,6 +149,6 @@ The sheet, shaper and lowered source/style inputs are borrowed synchronously dur
 
 `ScrollOffsets` stores applied offsets under `categories` and `settings-form`, independently of transient node indices. `prepare` resolves these IDs in each newly lowered tree and builds the per-node layout offset span. `stage` prepares a complete candidate, refreshes a copied focus dispatcher, and optionally uses `scroll_into_view` to prepare again with the offsets needed to reveal focus. `accept` stores layout's clamped offsets only after staging succeeds, then refreshes focus and pointer state against the accepted tree. Replaced-tree pointer presses are cancelled by the ordinary dispatcher.
 
-Wheel events use `route_scroll` at their normalized pointer position and stage only when offsets change. They preserve logical focus without revealing it, and execute no host command. Logical focus navigation and accepted command replacements reveal focus before acceptance; moving from the sidebar to a field or Apply/Cancel therefore reaches controls outside the initial clip. Pointer dispatch uses that same clipped geometry and activates only on release. Category clicks leave logical focus unchanged; closing Dropdown choices explicitly restores its trigger focus. A native adapter supplies physical events and frame scheduling.
+Wheel events use `route_scroll` at their normalized pointer position and stage only when offsets change. They preserve logical focus without revealing it, and execute no host command. Logical focus navigation and accepted command replacements reveal focus before acceptance; moving from the sidebar to a field or Apply/Cancel therefore reaches controls outside the initial clip. Button pointer dispatch uses that same clipped geometry and activates only on release; Slider track input follows the numeric policy above. Category clicks leave logical focus unchanged; closing Dropdown choices explicitly restores its trigger focus. A native adapter supplies physical events and frame scheduling.
 
-The smoke traverses every control by keyboard while checking that it is revealed, retains all edit/Apply/Cancel checks, and sends oversized positive/negative wheel deltas to each pane. It checks independent offsets, clamping, unchanged focus and application values. After wheel-revealing About, pointer press/release selects About then Account through ordinary commands, retaining the draft and three saved copies. This checkpoint has 24 commands; the subsequent Dropdown sequence brings the final count to 38. Scrolling and navigation add no application commands.
+The smoke traverses every control by keyboard while checking that it is revealed, retains all edit/Apply/Cancel checks, and sends oversized positive/negative wheel deltas to each pane. It checks independent offsets, clamping, unchanged focus and application values. After wheel-revealing About, pointer press/release selects About then Account through ordinary commands, retaining the draft and three saved copies. This checkpoint has 24 commands; the subsequent Dropdown sequence brings the count to 38; numeric editing and its Apply/Cancel sequence bring the final count to 53. Scrolling and navigation add no application commands.
