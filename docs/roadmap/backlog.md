@@ -22,9 +22,8 @@ The delivered application flow is described by the [Settings starter](../guides/
 
 ## Layout follow-ups
 
-Build on [SplitPane](../guides/split-pane.md), start with Stack/Overlay and use public C++ application examples to choose the following layout tasks:
+Build on [SplitPane](../guides/split-pane.md) and the delivered in-parent [Stack/viewport toolbar](../guides/stack.md). Use public C++ application examples to choose the following layout tasks:
 
-- **Stack/Overlay:** add overlapping children within one parent rectangle, per-child edge/center alignment and consistent paint/hit-test order, clipping and visibility. Exercise it with a viewport toolbar, loading indicator or badge.
 - **Absolute positioning:** add explicit offsets/sizes and simple edge-based placement against a documented parent content or padding box, with children outside normal flow. Check shared render, hit-test, scroll and clip coordinates in the example.
 - **Grid:** add explicit rows/columns, fixed and flexible tracks, row/column gaps, basic alignment and min/max allocation. Use Inspector property rows to verify shared label/value columns, text height and input bounds at narrow widths.
 - **Intrinsic sizing:** extend text measurement and min/max sizing for Popup or Inspector examples that expose missing content-size behavior.

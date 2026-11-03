@@ -8,4 +8,6 @@ The Settings/Inspector resize operation is delivered in the [changelog](../../CH
 
 ## Next operation
 
-Choose an application operation for [Stack/Overlay, Absolute or Grid](backlog.md#layout-follow-ups) before promoting its scope. These remain inactive candidates; this handoff does not authorize adjacent runtime changes.
+The in-parent Stack/Overlay operation is delivered: a [viewport toolbar](../guides/stack.md) accepts pointer, keyboard/gamepad commands and stays aligned on resize. [Support](../reference/support-matrix.md#stack-evidence--2026-11-04) owns validation evidence and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No Stack work items remain.
+
+Choose an application operation for [Absolute or Grid](backlog.md#layout-follow-ups) before promoting its scope. These remain inactive candidates; this handoff does not authorize adjacent runtime changes, Portal or modal behavior.

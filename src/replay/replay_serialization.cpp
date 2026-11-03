@@ -27,11 +27,13 @@ const T& as(const JsonValue& value, const std::string& path, std::string_view ex
     if (const auto* result = std::get_if<T>(&value.value)) return *result;
     fail("schema_type", path, "Expected " + std::string(expected) + ".");
 }
-const Object& object(const JsonValue& value, const std::string& path, std::initializer_list<std::string_view> fields) {
+const Object& object(const JsonValue& value, const std::string& path, std::initializer_list<std::string_view> fields,
+                     std::initializer_list<std::string_view> optional = {}) {
     const auto& result = as<Object>(value, path, "an object");
     for (const auto& [key, child] : result) {
         (void)child;
-        if (std::find(fields.begin(), fields.end(), key) == fields.end())
+        if (std::find(fields.begin(), fields.end(), key) == fields.end() &&
+            std::find(optional.begin(), optional.end(), key) == optional.end())
             fail("unknown_field", path + "/" + detail::pointer_token(key), "Remove this unknown replay field.");
     }
     for (auto field : fields)
@@ -84,7 +86,7 @@ E choice(const JsonValue& value, const std::string& path, const std::array<std::
 }
 
 // Names are indexed by enumeration value.
-constexpr std::array<std::string_view, 2> display_names{"flex", "none"};
+constexpr std::array<std::string_view, 3> display_names{"flex", "none", "stack"};
 constexpr std::array<std::string_view, 2> direction_names{"column", "row"};
 constexpr std::array<std::string_view, 4> justify_names{"start", "center", "end", "space_between"};
 constexpr std::array<std::string_view, 4> align_names{"start", "center", "end", "stretch"};
@@ -139,12 +141,17 @@ Modifiers modifiers(const JsonValue& value, const std::string& path) {
 ResolvedStyle style(const JsonValue& value, const std::string& path) {
     const auto& o = object(value, path, {"display", "direction", "justify", "align", "overflow", "width", "height",
         "min_width", "min_height", "max_width", "max_height", "margin", "border", "padding", "gap", "grow", "shrink",
-        "visibility", "opacity", "background", "border_color", "corner_radius", "text", "color"});
+        "visibility", "opacity", "background", "border_color", "corner_radius", "text", "color"},
+        {"stack_horizontal", "stack_vertical"});
     ResolvedStyle s;
     s.display = choice<Display>(o.at("display"), path + "/display", display_names);
     s.direction = choice<FlexDirection>(o.at("direction"), path + "/direction", direction_names);
     s.justify = choice<Justify>(o.at("justify"), path + "/justify", justify_names);
     s.align = choice<Align>(o.at("align"), path + "/align", align_names);
+    if (const auto field = o.find("stack_horizontal"); field != o.end())
+        s.stack_horizontal = choice<Align>(field->second, path + "/stack_horizontal", align_names);
+    if (const auto field = o.find("stack_vertical"); field != o.end())
+        s.stack_vertical = choice<Align>(field->second, path + "/stack_vertical", align_names);
     s.overflow = choice<Overflow>(o.at("overflow"), path + "/overflow", overflow_names);
     s.width = dimension(o.at("width"), path + "/width");
     s.height = dimension(o.at("height"), path + "/height");
@@ -461,7 +468,7 @@ JsonValue dimension_json(const Dimension& d) {
 JsonValue maximum_json(float value) { return std::isinf(value) ? text("none") : real_json(value); }
 
 JsonValue style_json(const ResolvedStyle& s) {
-    return JsonValue{Object{
+    Object result{
         {"display", name(s.display, display_names)}, {"direction", name(s.direction, direction_names)},
         {"justify", name(s.justify, justify_names)}, {"align", name(s.align, align_names)},
         {"overflow", name(s.overflow, overflow_names)}, {"width", dimension_json(s.width)},
@@ -476,7 +483,12 @@ JsonValue style_json(const ResolvedStyle& s) {
         {"text", JsonValue{Object{{"font", number(s.text.font.value)}, {"size", real_json(s.text.size)},
                                   {"line_height", s.text.line_height ? real_json(*s.text.line_height) : text("normal")},
                                   {"weight", number(s.text.weight)}}}},
-        {"color", color_json(s.color)}}};
+        {"color", color_json(s.color)}};
+    if (s.stack_horizontal != Align::stretch)
+        result["stack_horizontal"] = name(s.stack_horizontal, align_names);
+    if (s.stack_vertical != Align::stretch)
+        result["stack_vertical"] = name(s.stack_vertical, align_names);
+    return JsonValue{std::move(result)};
 }
 JsonValue styles_json(const std::vector<ResolvedStyle>& values) {
     Array result;

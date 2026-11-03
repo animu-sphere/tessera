@@ -41,6 +41,8 @@ Assignment assign(StyleDeclarations& d, std::string_view property, const ThemeVa
     FIELD("direction", direction)
     FIELD("justify", justify)
     FIELD("align", align)
+    FIELD("stack_horizontal", stack_horizontal)
+    FIELD("stack_vertical", stack_vertical)
     FIELD("overflow", overflow)
     FIELD("width", width)
     FIELD("height", height)

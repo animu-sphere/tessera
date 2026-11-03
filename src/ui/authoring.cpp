@@ -206,6 +206,14 @@ Element Column(std::vector<Element> children, Props props) {
     return Element(std::move(data));
 }
 
+Element Stack(std::vector<Element> children, Props props) {
+    if (props.style.display != Display::none) props.style.display = Display::stack;
+    auto data = std::make_shared<detail::ElementData>();
+    data->props = std::move(props);
+    data->children = std::move(children);
+    return Element(std::move(data));
+}
+
 Element ScrollView(std::vector<Element> children, Props props) {
     props.style.overflow = Overflow::scroll;
     return Column(std::move(children), std::move(props));
