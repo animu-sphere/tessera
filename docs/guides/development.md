@@ -78,8 +78,10 @@ Use the [verification ownership and selection policy](testing.md#verification-ow
 
 ```powershell
 cmake --build build --config Debug --target tessera_authoring_tests tessera_renderer_diagnostics tessera_renderer_diagnostics_tests
-ctest --test-dir build -C Debug -R '^(authoring|renderer_diagnostics|renderer_diagnostics_contract)$' --output-on-failure --no-tests=error
+ctest --test-dir build -C Debug -R '^(authoring|renderer_diagnostics|renderer_diagnostics_contract\..*)$' --output-on-failure --no-tests=error -j 2
 ```
+
+The Diagnostics fixture registers one `renderer_diagnostics_contract.<scenario>` check per independent scenario so `ctest -j` spreads its Debug cost; `tessera_renderer_diagnostics_tests` without arguments runs every scenario in one process, and it accepts scenario names (for example `msaa outlines`) to run a subset directly.
 
 Choose other target/test names from [CMake registration](../../CMakeLists.txt), including [independent consumers](../../tests/cmake/register.cmake), rather than copying this selection for every change. `ctest -R` selects execution only; an unrestricted build still compiles all enabled targets. A source-import CTest configures/builds its own host project. Use Release when that configuration is affected or collecting wider integration/release evidence; documentation-only changes use the [documentation check](testing.md#documentation-verification).
 
