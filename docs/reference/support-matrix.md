@@ -21,6 +21,7 @@ A capability without a row has no implementation claim here: consult [current](.
 
 | Area | Status and scope | Evidence |
 | --- | --- | --- |
+| Grid and Inspector property columns | Validated Windows x64 core-only Debug: explicit fixed/content/fractional tracks, min/max allocation, gaps/alignment, intrinsic and width-wrapped rows, shared scroll/clip/CPU-hit geometry and located rejection. Public Inspector edits preserve peer values/focus at narrow widths and reject measurement without accepting text; normalized pointer/keyboard/gamepad routing, theme destinations and Replay v1/v2 retain the ordinary boundaries. No spanning, implicit tracks, native/device, GPU, Release or other-platform validation for this slice | [Grid evidence](#grid-evidence--2026-11-04) |
 | Stack and in-parent viewport toolbar | Validated Windows x64 core-only Debug: overlapping content-box placement, independent child alignment/limits, intrinsic and width-wrapped heights, nested scroll/clip coordinates, source-located validation, CPU pixel/hit order and Replay v1/v2 placement preservation. Public toolbar commands cover normalized pointer/keyboard/gamepad input and resize. No Portal, popup anchoring, modal scope, native/device, GPU, Release or other-platform validation for this slice | [Stack evidence](#stack-evidence--2026-11-04) |
 | UI tree, properties, serialization | Validated for Box/Text documents: JSON v1 round trips, located validation failures, metadata, and handle lifetime | [foundation](#foundation-evidence--2026-10-05), [subsystem contracts](#subsystem-contract-evidence--2026-10-05) |
 | First-app onboarding | Validated core-only Debug/Release: the two-file first app copies into an independent CMake project, links only `tessera::core` through both local import forms, and executes named state/derived text, typed composition, logical keyboard/gamepad commands, author-ID focus recovery, semantic inspection and repeat/restored synthetic CPU captures. Getting Started and the source walkthrough describe its explicit host boundary; no native window, real font or device session | [onboarding](#first-app-onboarding-evidence--2026-10-17) |
@@ -80,6 +81,17 @@ Vulkan submission counters are not timing or profiling evidence.
 | Windows / Linux / macOS | Windows x64/MSVC Debug/Release core and combined font/Vulkan checks, and Win32 menu smoke and physical mouse/controller sessions verified below; Linux/macOS and other Windows toolchains unvalidated |
 
 Core, offscreen Vulkan, and Win32 host evidence below are distinct. Physical-device evidence is limited to one mouse, one USB DualSense, and one original Bluetooth Joy-Con L/R pair on this machine. Real-text offscreen and native menu images use the declared Noto fixtures on one configuration; no evidence establishes packaging or broad Windows support.
+
+## Grid evidence — 2026-11-04
+
+- Configuration: fresh `build` parent and minimal nested import, Windows x64, Visual Studio 18 2026/MSVC 19.51.36256.0, Windows SDK 10.0.26100.0, Debug, optional fonts/Vulkan OFF; parent examples ON.
+- Owners: [Grid geometry/CPU-hit checks](../../tests/layout/grid_tests.cpp), [authoring](../../tests/ui/authoring_tests.cpp), [theme destinations](../../tests/style/theme_tests.cpp), [Replay codec/playback](../../tests/replay/replay_serialization_tests.cpp), and the [Inspector](../../examples/grid-inspector/main.cpp). The [guide](../guides/grid.md) owns public composition and host procedures.
+- Executed commands and results:
+  - `cmake -S . -B build -G "Visual Studio 18 2026" -A x64`: passed.
+  - `cmake --build build --config Debug --target tessera_pr_tests --parallel 4 -- /nodeReuse:false`: passed.
+  - `ctest --test-dir build -C Debug -L '^contract$' --output-on-failure --no-tests=error --parallel 4`: all 49 contracts passed, including existing Flex/Stack, paint/CPU, input, semantics and replay contracts.
+  - `ctest --test-dir build -C Debug -R '^(grid_inspector|source_consumer_add_subdirectory)$' --output-on-failure --no-tests=error`: Inspector smoke and the independent public-header/link/run consumer passed.
+- CPU evidence is a selective colored-box scroll/clip/hit fixture, not Inspector screenshots. The window-free Inspector uses placeholder text metrics, committed text and logical input; rejected measurement retains the accepted tree and both edit states before a fresh retry. Legacy non-Grid replay canonical bytes remain unchanged. No real-font, physical-device, native-window, GPU, Release or other-platform acceptance is claimed.
 
 ## Stack evidence — 2026-11-04
 

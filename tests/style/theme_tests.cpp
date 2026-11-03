@@ -84,7 +84,10 @@ void exact_types_and_destinations() {
         {"opacity", 0.7f}, {"background", red}, {"border_color", green}, {"corner_radius", 4.0f},
         {"text/font", FontId{9}}, {"text/size", 24.0f}, {"text/line_height", std::optional<float>{28.0f}},
         {"text/weight", std::uint16_t{600}}, {"color", blue},
-        {"stack_horizontal", Align::end}, {"stack_vertical", Align::center}};
+        {"stack_horizontal", Align::end}, {"stack_vertical", Align::center},
+        {"grid_columns", std::vector<GridTrack>{GridTrack::points(80), GridTrack::fraction(2, 20, 200)}},
+        {"grid_rows", std::vector<GridTrack>{GridTrack{}}}, {"column_gap", 8.f}, {"row_gap", 4.f},
+        {"grid_horizontal", Align::center}, {"grid_vertical", Align::end}};
     Theme theme; StyleRule rule{StyleSelector::of_id("button"), {}};
     for (const auto& [field, value] : fields) {
         theme.variables.push_back({field, value}); rule.variables.push_back(binding(field, field));
@@ -101,6 +104,10 @@ void exact_types_and_destinations() {
     expected.background = red; expected.border_color = green; expected.corner_radius = 4;
     expected.text = {FontId{9}, 24, 28.0f, 600}; expected.color = blue;
     expected.stack_horizontal = Align::end; expected.stack_vertical = Align::center;
+    expected.grid_columns = {GridTrack::points(80), GridTrack::fraction(2, 20, 200)};
+    expected.grid_rows = {GridTrack{}};
+    expected.column_gap = 8; expected.row_gap = 4;
+    expected.grid_horizontal = Align::center; expected.grid_vertical = Align::end;
     check(result.value->at(1) == expected, "Every token reaches the declared style destination");
     theme.variables[24].value = ThemeValue{std::optional<float>{}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});

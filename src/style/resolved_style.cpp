@@ -9,12 +9,14 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     const std::string path(base);
-    check.enumeration(style.display, Display::stack, path + "/display");
+    check.enumeration(style.display, Display::grid, path + "/display");
     check.enumeration(style.direction, FlexDirection::row, path + "/direction");
     check.enumeration(style.justify, Justify::space_between, path + "/justify");
     check.enumeration(style.align, Align::stretch, path + "/align");
     check.enumeration(style.stack_horizontal, Align::stretch, path + "/stack_horizontal");
     check.enumeration(style.stack_vertical, Align::stretch, path + "/stack_vertical");
+    check.enumeration(style.grid_horizontal, Align::stretch, path + "/grid_horizontal");
+    check.enumeration(style.grid_vertical, Align::stretch, path + "/grid_vertical");
     check.enumeration(style.overflow, Overflow::scroll, path + "/overflow");
     check.enumeration(style.visibility, Visibility::hidden, path + "/visibility");
 
@@ -41,6 +43,32 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     check.non_negative(style.gap, path + "/gap");
     check.non_negative(style.grow, path + "/grow");
     check.non_negative(style.shrink, path + "/shrink");
+    check.non_negative(style.column_gap, path + "/column_gap");
+    check.non_negative(style.row_gap, path + "/row_gap");
+    const auto tracks = [&](const std::vector<GridTrack>& values, const std::string& location) {
+        if (values.size() > max_grid_tracks) {
+            check.error("grid_track_bound", location, "Use at most 256 explicit tracks per axis.");
+            return;
+        }
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            const auto& track = values[i];
+            const auto at = location + "/" + std::to_string(i);
+            check.enumeration(track.kind, GridTrack::Kind::fraction, at + "/kind");
+            check.non_negative(track.value, at + "/value");
+            if (track.kind == GridTrack::Kind::fraction && track.value == 0)
+                check.error("out_of_range", at + "/value", "Use a positive fractional track weight.");
+            check.non_negative(track.minimum, at + "/minimum");
+            if (std::isnan(track.maximum))
+                check.error("invalid_number", at + "/maximum", "Use a number or +infinity.");
+            else if (track.maximum < 0)
+                check.error("out_of_range", at + "/maximum", "Expected a value >= 0.");
+            else if (std::isfinite(track.minimum) && track.minimum > track.maximum)
+                check.error("conflicting_constraints", at + "/minimum",
+                            "Lower the track minimum or raise its maximum.");
+        }
+    };
+    tracks(style.grid_columns, path + "/grid_columns");
+    tracks(style.grid_rows, path + "/grid_rows");
 
     check.range(style.opacity, path + "/opacity", 0, 1, "an opacity in [0, 1]");
     check.color(style.background, path + "/background");

@@ -41,6 +41,19 @@ The public headers are [geometry.hpp](../../include/tessera/layout/geometry.hpp)
 
 The [Stack checks](../../tests/layout/stack_tests.cpp) cover numeric placement/limits, intrinsic and wrapped heights, nested scroll/clip coordinates, hidden/non-displayed layers, geometry rejection and selective CPU pixel/hit agreement. The [viewport toolbar](../../examples/viewport-toolbar/main.cpp) exercises public composition, ordinary commands, normalized pointer/keyboard/gamepad input and viewport resize without a native host.
 
+## Implemented Grid placement
+
+`Display::grid` and public [`authoring::Grid`](../guides/grid.md) arrange ordinary children in explicit row-major cells of the parent **content box**. They introduce no node kind or separate render/input geometry.
+
+- **Explicit shape.** `grid_columns` and `grid_rows` must each contain 1–256 `GridTrack` values. Displayed children occupy one cell each in tree order, with no spanning, implicit tracks or placement indices. `Display::none` children are omitted before placement; hidden children retain their cells and local visibility behavior. Missing axes report `grid_tracks` at `/styles/<index>/grid_columns` or `/grid_rows`; too many displayed children report `grid_capacity` at `/styles/<index>`. Unoccupied cells remain empty.
+- **Tracks and allocation.** A default `GridTrack{}` is content-sized (`automatic`); `GridTrack::points(n)` uses a fixed logical size; `GridTrack::fraction(weight, minimum, maximum)` uses a positive weight. Every kind supports `minimum` (0) and `maximum` (+infinity). Fixed and automatic tracks clamp their fixed size or largest child margin-box contribution into those limits. On a constrained axis, fractional tracks start at their minima and share positive remaining space by weight after fixed/automatic tracks and gaps, freezing capped tracks and redistributing their unused shares. Minima never shrink, so undersized containers overflow at the trailing edge. Capped tracks can leave trailing space. This is not CSS Grid's fractional-track sizing algorithm.
+- **Intrinsic and wrapped sizes.** Without an assigned axis size, automatic and fractional tracks use the largest natural contribution in each track, clamped to its limits; fixed tracks retain their size. Grid's automatic width is the sum of those columns, column gaps, border and padding. Determine assigned columns and child widths before measuring row contributions, including nested Flex/Stack/Grid and wrapped text; automatic Grid height is the sum of those rows, row gaps, border and padding. Automatic rows keep these measured heights when the Grid has extra height; fractional rows use their declared minima/weights on a constrained height and may be shorter than their content. As elsewhere, automatic root dimensions fill the viewport.
+- **Cell alignment.** Each child uses `grid_horizontal`/`grid_vertical` (`Align`, both default `stretch`). Automatic stretch fills its cell less margins, clamped to child min/max and border/padding floors; fixed axes keep their clamped size. Non-stretched width uses the natural basis and height is measured at the assigned width. Start/stretch use the leading margin edge; center/end use half/all positive remaining space after both margins and child size. Overflow never shifts the child behind the leading edge. Tracks do not automatically grow to fit a child's minimum or clip individual cells.
+- **Other controls and coordinates.** `column_gap`/`row_gap` appear between explicit tracks, including empty cells. Grid's own `direction`, `justify`, `align`, `gap`, and its children's `grow`/`shrink` do not distribute cells. Grid can still grow/shrink as a Flex child; each child's own container controls remain ordinary. Results stay in tree preorder, with existing paint/hit ordering, focus eligibility and ancestor clip/scroll rules. Scroll extents retain the ordinary direct-child margin-box rule above, not a separate track rectangle.
+- **Validation.** Track arrays over 256 report `grid_track_bound`; invalid kinds, nonfinite/negative values and conflicting min/max use the [style rules](styling.md#implemented-resolved-style-contract) at `/grid_columns/<i>` or `/grid_rows/<i>`. Zero fractional weight is `out_of_range` at `/value`. Gaps and alignment use ordinary numeric/enum validation. Geometry overflow rejects the entire layout candidate.
+
+The [Grid owner checks](../../tests/layout/grid_tests.cpp) cover allocation, caps/minima, alignment, intrinsic/wrapped row sizing, display/visibility, scroll/clip coordinates, selective CPU pixels/hits and rejection. The [Inspector example](../../examples/grid-inspector/main.cpp) verifies shared columns, narrow input bounds, controlled editing, normalized pointer/keyboard/gamepad routing, resize retention and a rejected measurement without a native host.
+
 ## Boundary
 
 ```text
@@ -69,7 +82,7 @@ Scale/viewport changes must be supplied coherently at an update boundary. Specif
 | 5 | Wrapping | Width-constrained text and declared line breaking |
 | 6 | Absolute/anchored positioning | Position against a declared containing box or anchor |
 | 7 | Richer intrinsic sizing | Content-driven sizing with explicit constraints |
-| 8 | Grid | Explicit rows/columns before advanced placement |
+| 8 | Grid | Implemented explicit row-major tracks under the Grid contract above; advanced placement remains deferred |
 | 9 | [Virtualization](../proposals/virtualization.md#proposed-virtualization-foundation) | Realized keyed items, estimated extents, stable scrolling |
 
 Extension order is a dependency guide; milestone scope lives in [current](../roadmap/current.md) and [backlog](../roadmap/backlog.md). Text measurement always goes through `TextShaper`.

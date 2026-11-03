@@ -156,6 +156,35 @@ void stack_contract() {
         "Invalid Stack placement needs a source-located authoring diagnostic");
 }
 
+void grid_contract() {
+    Session ui;
+    const auto candidate = take(ui.lower(Grid({Text("Label"), Button("Value", "toggle",
+        {.node = {.id = "value", .style = {.grid_horizontal = Align::end, .grid_vertical = Align::center}}})},
+        {.id = "inspector", .classes = {"properties"}, .style = {.display = Display::stack,
+            .grid_columns = std::vector<GridTrack>{GridTrack::points(80), GridTrack::fraction()},
+            .grid_rows = std::vector<GridTrack>{GridTrack{}}, .column_gap = 8.f, .row_gap = 4.f},
+            .source = origin}), actions));
+    const auto tree = take(UiTree::create(candidate.document, actions));
+    const StyleSheet sheet;
+    const auto styles = take(resolve_styles({tree.get(), &sheet, {}, candidate.styles}));
+    check(tree->size() == 4 && styles[0].display == Display::grid && styles[0].grid_columns.size() == 2 &&
+        styles[0].grid_rows.size() == 1 && styles[0].column_gap == 8 && styles[0].row_gap == 4 &&
+        styles[2].grid_horizontal == Align::end && styles[2].grid_vertical == Align::center &&
+        styles[3].grid_horizontal == Align::stretch && styles[3].grid_columns.empty(),
+        "Grid must lower ordinary children and non-inherited tracks/placement");
+    check(candidate.document.root.id == "inspector" &&
+        candidate.document.root.classes == std::vector<std::string>{"properties"} &&
+        validate_sources(candidate.document, candidate.sources).empty() &&
+        candidate.sources.nodes[0].style_argument == origin, "Grid must preserve identity and provenance");
+    check(take(ui.lower(Grid({}, {.style = {.display = Display::none}}))).styles[0].display == Display::none,
+        "An explicitly non-displayed Grid must remain absent");
+    const auto invalid = ui.lower(Grid({}, {.style = {
+        .grid_columns = std::vector<GridTrack>{GridTrack::fraction(0)}}, .source = origin}));
+    check(!invalid && has(invalid.diagnostics, "out_of_range", "/root/style/grid_columns/0/value") &&
+        invalid.diagnostics[0].source && invalid.diagnostics[0].source->location == origin,
+        "Invalid Grid tracks need source-located authoring diagnostics");
+}
+
 void controlled_dropdown() {
     Session ui;
     const ValidationContext menu_actions{{"open", "system", "dark"}};
@@ -400,7 +429,7 @@ int main() {
     try {
         composition_and_updates(); rejection_and_preflight(); controlled_checkbox(); controlled_text_input();
         scroll_view_contract(); controlled_dropdown(); controlled_slider(); lifetimes_and_recovery(); bounded_descriptions();
-        stack_contract(); controlled_dropdown(); controlled_slider(); lifetimes_and_recovery(); bounded_descriptions();
+        stack_contract(); grid_contract(); controlled_dropdown(); controlled_slider(); lifetimes_and_recovery(); bounded_descriptions();
         std::cout << "Authoring composition, state, diagnostics and lifetime checks passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

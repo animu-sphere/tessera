@@ -215,6 +215,38 @@ void stack_styles_round_trip() {
     check(load(save(host)) == host, "Stack placement must also survive the host-state recording version");
 }
 
+void grid_styles_round_trip() {
+    auto source = recording();
+    auto& grid = source.styles[0];
+    grid.display = tessera::Display::grid;
+    grid.grid_columns = {tessera::GridTrack::points(50), tessera::GridTrack::fraction(2, 20, 140)};
+    grid.grid_rows = {tessera::GridTrack{}, tessera::GridTrack::fraction()};
+    grid.column_gap = 6;
+    grid.row_gap = 4;
+    source.styles[1].grid_horizontal = tessera::Align::end;
+    source.styles[1].grid_vertical = tessera::Align::center;
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::ReplayResize{{160, 100}});
+    source.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
+    source.steps.push_back(tessera::InputEvent{2us, tessera::Activate{}});
+    const auto json = save(source);
+    check(load(json) == source && save(load(json)) == json,
+        "Grid tracks, limits, gaps and alignment must round-trip in initial/reloaded views");
+    check(tessera::compare_replay(play(source), play(load(json))).empty(),
+        "Restored Grid must preserve geometry, paint, semantics and actions after resizing");
+    auto invalid = tessera::load_replay(changed(json, "\"kind\":\"fraction\"", "\"kind\":\"bad\""));
+    check(!invalid && has(invalid.diagnostics, "unknown_value", "/steps/0/styles/0/grid_columns/1/kind"),
+        "Unknown Grid track kinds must locate their encoded field");
+    invalid = tessera::load_replay(changed(json, "\"column_gap\":6", "\"column_gap\":-1"));
+    check(!invalid && has(invalid.diagnostics, "out_of_range", "/steps/0/styles/0/column_gap"),
+        "Malformed Grid gaps must fail before playback");
+    source.version = tessera::replay_host_version;
+    check(load(save(source)) == source, "Grid must round-trip under host-state replay v2");
+    const auto legacy = save(recording());
+    check(legacy.find("grid_") == std::string::npos && legacy.find("column_gap") == std::string::npos &&
+        load(legacy) == recording(), "Default Grid fields must not change legacy canonical recordings");
+}
+
 void loading_rejects_malformed_input() {
     auto base_recording = recording();
     base_recording.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
@@ -254,7 +286,7 @@ void loading_rejects_malformed_input() {
     reject(changed(base, "\"viewport\":{\"height\":120,", "\"viewport\":{\"height\":-1,"), "out_of_range",
            "/viewport/height");
     reject(changed(base, "\"opacity\":1", "\"opacity\":2"), "out_of_range", "/styles/0/opacity");
-    reject(changed(base, "\"display\":\"flex\"", "\"display\":\"grid\""), "unknown_value", "/styles/0/display");
+    reject(changed(base, "\"display\":\"flex\"", "\"display\":\"table\""), "unknown_value", "/styles/0/display");
     reject(changed(base, "\"max_width\":\"none\"", "\"max_width\":\"auto\""), "unknown_value", "/styles/0/max_width");
     reject(changed(base, "\"width\":\"auto\"", "\"width\":null"), "schema_type", "/styles/0/width");
     reject(changed(base, "\"weight\":400", "\"weight\":70000"), "schema_type", "/styles/0/text/weight");
@@ -403,6 +435,7 @@ int main() {
         round_trip_preserves_every_field();
         loaded_recordings_replay_identically();
         stack_styles_round_trip();
+        grid_styles_round_trip();
         loading_rejects_malformed_input();
         saving_rejects_invalid_recordings();
         playback_checks_the_environment();

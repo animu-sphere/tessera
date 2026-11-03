@@ -10,4 +10,8 @@ The Settings/Inspector resize operation is delivered in the [changelog](../../CH
 
 The in-parent Stack/Overlay operation is delivered: a [viewport toolbar](../guides/stack.md) accepts pointer, keyboard/gamepad commands and stays aligned on resize. [Support](../reference/support-matrix.md#stack-evidence--2026-11-04) owns validation evidence and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No Stack work items remain.
 
-Choose an application operation for [Absolute or Grid](backlog.md#layout-follow-ups) before promoting its scope. These remain inactive candidates; this handoff does not authorize adjacent runtime changes, Portal or modal behavior.
+## Inspector Grid
+
+The [Grid Inspector operation](../guides/grid.md) is delivered: shared label/value columns, narrow-width wrapped rows and controlled input preserve ordinary commands, edits and focus on resize. [Support](../reference/support-matrix.md#grid-evidence--2026-11-04) owns validation evidence and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No Inspector Grid work items remain.
+
+Choose an application operation from the [layout follow-ups](backlog.md#layout-follow-ups) before promoting further scope. Absolute positioning, advanced Grid placement, Portal and modal behavior remain inactive.
