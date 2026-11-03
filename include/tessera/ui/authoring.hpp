@@ -102,6 +102,7 @@ private:
     friend Element TextInput(Value<std::string>, Value<TextEditState>, std::string, TextInputProps);
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
+    friend Element Stack(std::vector<Element>, Props);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -119,6 +120,10 @@ Element Checkbox(Value<std::string> label, Value<bool> checked, std::string acti
 Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps = {});
 Element Row(std::vector<Element> children, Props = {});
 Element Column(std::vector<Element> children, Props = {});
+// Overlapping children in one content box, later children on top. Each child's
+// stack_horizontal/stack_vertical selects start/center/end/stretch independently.
+// Ordinary clipping, visibility, focus and action routing still apply; no portal.
+Element Stack(std::vector<Element> children, Props = {});
 // A Column with scroll overflow. Constrain its size through Props::style;
 // the host owns offsets and routes wheel input/focus reveal through input/scroll.
 Element ScrollView(std::vector<Element> children, Props = {});

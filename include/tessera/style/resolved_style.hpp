@@ -19,7 +19,7 @@ struct Dimension {
     bool operator==(const Dimension&) const = default;
 };
 
-enum class Display : std::uint8_t { flex, none };
+enum class Display : std::uint8_t { flex, none, stack };
 enum class Visibility : std::uint8_t { visible, hidden };
 enum class FlexDirection : std::uint8_t { column, row };
 enum class Justify : std::uint8_t { start, center, end, space_between };
@@ -60,6 +60,10 @@ struct ResolvedStyle {
     // Text
     TextStyle text;
     Color color{0, 0, 0, 1};
+
+    // Placement within a Stack parent's content box; does not affect this node's children.
+    Align stack_horizontal = Align::stretch;
+    Align stack_vertical = Align::stretch;
 
     bool operator==(const ResolvedStyle&) const = default;
 };

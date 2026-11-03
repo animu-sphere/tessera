@@ -97,11 +97,14 @@ private:
             const auto children = displayed_children(index);
             for (const auto child : children) {
                 const auto& child_style = styles_[child];
-                along(content, row) += preferred(child, row) + total(child_style.margin, row);
+                const float extent = preferred(child, row) + total(child_style.margin, row);
+                along(content, row) = style.display == Display::stack
+                    ? std::max(along(content, row), extent) : along(content, row) + extent;
                 along(content, !row) = std::max(along(content, !row),
                                                 preferred(child, !row) + total(child_style.margin, !row));
             }
-            if (!children.empty()) along(content, row) += style.gap * static_cast<float>(children.size() - 1);
+            if (style.display != Display::stack && !children.empty())
+                along(content, row) += style.gap * static_cast<float>(children.size() - 1);
         }
         Size size;
         for (bool horizontal : {true, false}) {
@@ -118,16 +121,20 @@ private:
                 height = measure(index, node, content_width).height;
             } else {
                 const auto children = displayed_children(index);
+                const bool stack = style.display == Display::stack;
                 const bool row = style.direction == FlexDirection::row;
-                const auto widths = row ? flex(style, children, content_width, content_width) : std::vector<float>{};
+                const auto widths = row && !stack
+                    ? flex(style, children, content_width, content_width) : std::vector<float>{};
                 for (std::size_t i = 0; i < children.size(); ++i) {
                     const auto child = children[i];
-                    const float child_width = row ? widths[i] : column_width(style, child, content_width);
+                    const float child_width = stack
+                        ? aligned_width(styles_[child].stack_horizontal, child, content_width)
+                        : row ? widths[i] : aligned_width(style.align, child, content_width);
                     const float extent = limits(styles_[child], false).clamp(basis(child, child_width).height) +
                                          total(styles_[child].margin, false);
-                    height = row ? std::max(height, extent) : height + extent;
+                    height = row || stack ? std::max(height, extent) : height + extent;
                 }
-                if (!row && !children.empty()) height += style.gap * static_cast<float>(children.size() - 1);
+                if (!row && !stack && !children.empty()) height += style.gap * static_cast<float>(children.size() - 1);
             }
             size.height = height + total(style.border, false) + total(style.padding, false);
         }
@@ -139,9 +146,9 @@ private:
         return limits(styles_[index], horizontal).clamp(along(basis(index), horizontal));
     }
 
-    float column_width(const ResolvedStyle& parent, std::uint32_t child, float available) {
+    float aligned_width(Align align, std::uint32_t child, float available) {
         const auto& style = styles_[child];
-        return parent.align == Align::stretch && style.width.kind == Dimension::Kind::automatic
+        return align == Align::stretch && style.width.kind == Dimension::Kind::automatic
             ? limits(style, true).clamp(available - total(style.margin, true)) : preferred(child, true);
     }
 
@@ -171,6 +178,32 @@ private:
         const auto children = displayed_children(index);
         if (children.empty()) {
             if (style.overflow == Overflow::scroll) scroll(at, {}, {});
+            return;
+        }
+
+        if (style.display == Display::stack) {
+            std::vector<Rect> boxes;
+            boxes.reserve(children.size());
+            for (const auto child : children) {
+                const auto& child_style = styles_[child];
+                Rect box{{}, {aligned_width(child_style.stack_horizontal, child, content.size.width), 0}};
+                const float room = content.size.height - total(child_style.margin, false);
+                box.size.height = child_style.stack_vertical == Align::stretch &&
+                    child_style.height.kind == Dimension::Kind::automatic
+                    ? limits(child_style, false).clamp(room)
+                    : limits(child_style, false).clamp(basis(child, box.size.width).height);
+                for (bool horizontal : {true, false}) {
+                    const auto align = horizontal ? child_style.stack_horizontal : child_style.stack_vertical;
+                    const float free = std::max(0.0f, along(content.size, horizontal) -
+                        total(child_style.margin, horizontal) - along(box.size, horizontal));
+                    const float offset = align == Align::center ? free / 2 : align == Align::end ? free : 0;
+                    along(box.origin, horizontal) = along(content.origin, horizontal) +
+                        leading(child_style.margin, horizontal) + offset;
+                }
+                boxes.push_back(box);
+            }
+            if (style.overflow == Overflow::scroll) scroll(at, children, boxes);
+            for (std::size_t i = 0; i < children.size(); ++i) place(children[i], at, boxes[i]);
             return;
         }
 
@@ -259,7 +292,7 @@ private:
             const auto& child_style = styles_[child];
             const auto bounds = limits(child_style, row);
             const float base = along(basis(child, row ? std::nullopt :
-                std::optional<float>{column_width(style, child, content_width)}), row);
+                std::optional<float>{aligned_width(style.align, child, content_width)}), row);
             items.push_back({base, bounds.clamp(base), base, 0, bounds, false});
             space -= total(child_style.margin, row);
             hypothetical += items.back().target;

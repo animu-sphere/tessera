@@ -12,7 +12,8 @@
 
 | Group | Field: values (default) |
 | --- | --- |
-| Layout | `display`: `flex`, `none` (`flex`); `direction`: `column`, `row` (`column`); `justify`: `start`, `center`, `end`, `space_between` (`start`); `align`: `start`, `center`, `end`, `stretch` (`stretch`); `overflow`: `visible`, `clip`, `scroll` (`visible`) |
+| Layout | `display`: `flex`, `none`, `stack` (`flex`); `direction`: `column`, `row` (`column`); `justify`: `start`, `center`, `end`, `space_between` (`start`); `align`: `start`, `center`, `end`, `stretch` (`stretch`); `overflow`: `visible`, `clip`, `scroll` (`visible`) |
+| Stack child placement | `stack_horizontal`, `stack_vertical`: `start`, `center`, `end`, `stretch` (`stretch`); applied only by a `display: stack` parent, independently of the child's own container alignment |
 | Sizing | `width`/`height`: `Dimension` `automatic` or `points(n)` (`automatic`); `min_width`/`min_height` (0); `max_width`/`max_height` (+infinity) |
 | Spacing | `margin`, `border`, `padding`: `Edges` (all 0); `gap` (0); `grow` (0); `shrink` (0) |
 | Paint | `visibility`: `visible`, `hidden` (`visible`); `opacity` in [0, 1] (1); `background`, `border_color` (transparent); `corner_radius` (0) |

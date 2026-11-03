@@ -188,6 +188,33 @@ void loaded_recordings_replay_identically() {
     check(play(load(session_json)) == session.value->output(), "A saved session must replay its output");
 }
 
+void stack_styles_round_trip() {
+    auto source = recording();
+    source.styles[0].display = tessera::Display::stack;
+    source.styles[1].stack_horizontal = tessera::Align::end;
+    source.styles[1].stack_vertical = tessera::Align::start;
+    source.styles[3].stack_horizontal = tessera::Align::center;
+    source.styles[3].stack_vertical = tessera::Align::end;
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
+    source.steps.push_back(tessera::InputEvent{2us, tessera::Activate{}});
+    const auto json = save(source);
+    check(load(json) == source && save(load(json)) == json,
+        "Stack display and each child's placement must survive initial/reload round trips");
+    const auto original = play(source);
+    check(tessera::compare_replay(original, play(load(json))).empty(),
+        "Restored Stack playback must reproduce layout, paint, semantics and actions");
+    auto invalid = tessera::load_replay(changed(json, "\"stack_horizontal\":\"end\"", "\"stack_horizontal\":\"bad\""));
+    check(!invalid && has(invalid.diagnostics, "unknown_value", "/steps/0/styles/1/stack_horizontal"),
+        "Unknown encoded Stack placement must report its field");
+    const auto legacy = save(recording());
+    check(legacy.find("stack_horizontal") == std::string::npos && legacy.find("stack_vertical") == std::string::npos &&
+        load(legacy) == recording(), "Legacy recordings must retain their default placement and canonical encoding");
+    auto host = source;
+    host.version = tessera::replay_host_version;
+    check(load(save(host)) == host, "Stack placement must also survive the host-state recording version");
+}
+
 void loading_rejects_malformed_input() {
     auto base_recording = recording();
     base_recording.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
@@ -375,6 +402,7 @@ int main() {
     try {
         round_trip_preserves_every_field();
         loaded_recordings_replay_identically();
+        stack_styles_round_trip();
         loading_rejects_malformed_input();
         saving_rejects_invalid_recordings();
         playback_checks_the_environment();

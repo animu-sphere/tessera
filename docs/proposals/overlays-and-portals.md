@@ -2,6 +2,8 @@
 
 > Proposed design, not yet implemented. Active scope is in [current work](../roadmap/current.md).
 
+The implemented [Stack layout](../architecture/layout.md#implemented-stack-placement) is an in-parent overlay, not the presentation relocation proposed here. It keeps ordinary ancestry, clips and focus rules; [viewport toolbar usage](../guides/stack.md) does not promote OverlayRoot, Portal, popup anchoring or modal behavior.
+
 ## Proposed overlays and portals
 
 An overlay root provides a presentation layer for popups, tooltips, context menus, and modals outside ordinary content clipping. A portal changes presentation ancestry while retaining declared component/state ownership and stable identity. Define logical versus presentation parentage explicitly before adding it to the document schema.

@@ -49,6 +49,8 @@ struct StyleDeclarations {
     std::optional<float> corner_radius;
     TextDeclarations text;
     std::optional<Color> color;
+    std::optional<Align> stack_horizontal;
+    std::optional<Align> stack_vertical;
     bool operator==(const StyleDeclarations&) const = default;
 };
 

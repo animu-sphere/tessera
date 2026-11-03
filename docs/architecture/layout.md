@@ -30,6 +30,17 @@ The public headers are [geometry.hpp](../../include/tessera/layout/geometry.hpp)
 - **Display and visibility.** `Display::none` children and their subtrees take no space and add no gap. `Visibility::hidden` boxes keep geometry and gaps and report `visible == false`. Each box reports its own resolved visibility; the [prototype style resolver](styling.md#implemented-prototype-style-resolution) does not inherit it.
 - **Numerics.** Geometry uses `float` logical units without rounding or pixel snapping. Results are exact for dyadic fixture values and deterministic for identical input on one toolchain; proportional shares such as thirds are checked within 1e-4 logical units. Transform composition and snapping remain unspecified.
 
+## Implemented Stack placement
+
+`Display::stack` overlaps children within one parent **content box**. The public [`authoring::Stack`](../guides/stack.md) lowers to an ordinary Box with that display declaration. It does not relocate presentation ancestry, escape ancestor clipping, add z-index or create a modal/focus scope.
+
+- **Child sizing and placement.** Each child uses its own `stack_horizontal` and `stack_vertical` (`Align`, both default `stretch`). On an automatic axis, stretch fills the available content size less that child's margins, clamped to its min/max and border/padding floor. A fixed axis keeps its clamped fixed size. Non-stretched automatic width uses the natural basis; automatic height is remeasured at the final assigned width, including wrapped descendants. Start/stretch place at the leading margin edge; center/end use half/all positive space remaining after both margins and the border-box size. Overflow is safe: negative remaining space becomes zero, just as in Flex.
+- **Intrinsic size.** An automatic Stack basis is the maximum displayed child margin-box extent on each axis, plus the Stack's own border and padding, not the sum of children. Height is recomputed using each child's assigned width. The root still fills the viewport on automatic axes. Nested Stack/Flex containers retain the same sizing rules.
+- **Ignored Flex controls.** A Stack parent's `direction`, `justify`, `align` and `gap`, and its children's `grow`/`shrink`, do not affect overlapping placement. A Stack can itself grow/shrink as a child of a Flex parent. Its children's own Flex containers still use their ordinary Flex controls.
+- **Order, overflow and eligibility.** Result boxes remain in tree preorder: later sibling subtrees paint above earlier subtrees and reverse-preorder hit testing selects the topmost eligible box. There is no implicit pointer pass-through for transparent/zero-opacity overlays. Existing `overflow`, scroll extent/offset, ancestor clips, local visibility, inherited disabled state and `Display::none` behavior apply unchanged. Focus traversal retains declared order; directional navigation uses the shared resolved bounds.
+
+The [Stack checks](../../tests/layout/stack_tests.cpp) cover numeric placement/limits, intrinsic and wrapped heights, nested scroll/clip coordinates, hidden/non-displayed layers, geometry rejection and selective CPU pixel/hit agreement. The [viewport toolbar](../../examples/viewport-toolbar/main.cpp) exercises public composition, ordinary commands, normalized pointer/keyboard/gamepad input and viewport resize without a native host.
+
 ## Boundary
 
 ```text
@@ -52,7 +63,7 @@ Scale/viewport changes must be supplied coherently at an update boundary. Specif
 | Order | Capability | Intended behavior |
 | --- | --- | --- |
 | 1 | Fixed dimensions | Resolve explicit width/height with min/max constraints |
-| 2 | Stack | Ordered row or column children with margin, padding, and gap |
+| 2 | Row/Column and Stack | Ordered flow with margin/padding/gap; in-parent overlapping children under the implemented Stack contract |
 | 3 | Flex-like | Distribute available space with explicit alignment rules |
 | 4 | Scrolling/clipping | Separate viewport from content extent and scroll offset |
 | 5 | Wrapping | Width-constrained text and declared line breaking |

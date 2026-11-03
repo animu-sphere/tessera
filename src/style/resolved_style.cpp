@@ -9,10 +9,12 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     const std::string path(base);
-    check.enumeration(style.display, Display::none, path + "/display");
+    check.enumeration(style.display, Display::stack, path + "/display");
     check.enumeration(style.direction, FlexDirection::row, path + "/direction");
     check.enumeration(style.justify, Justify::space_between, path + "/justify");
     check.enumeration(style.align, Align::stretch, path + "/align");
+    check.enumeration(style.stack_horizontal, Align::stretch, path + "/stack_horizontal");
+    check.enumeration(style.stack_vertical, Align::stretch, path + "/stack_vertical");
     check.enumeration(style.overflow, Overflow::scroll, path + "/overflow");
     check.enumeration(style.visibility, Visibility::hidden, path + "/visibility");
 

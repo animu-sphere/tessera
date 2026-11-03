@@ -125,6 +125,37 @@ void scroll_view_contract() {
         "Invalid ScrollView constraints need a source-located diagnostic");
 }
 
+void stack_contract() {
+    Session ui;
+    const auto candidate = take(ui.lower(Stack({
+        Text("Scene", {.id = "scene"}),
+        Row({Button("Tools", "toggle")}, {.id = "toolbar",
+            .style = {.stack_horizontal = Align::end, .stack_vertical = Align::start}})},
+        {.id = "viewport", .classes = {"preview"},
+            .style = {.display = Display::flex, .overflow = Overflow::clip,
+                .width = Dimension::points(200)}, .source = origin}), actions));
+    const auto tree = take(UiTree::create(candidate.document, actions));
+    const StyleSheet sheet;
+    const auto styles = take(resolve_styles({tree.get(), &sheet, {}, candidate.styles}));
+    check(candidate.document.root.kind == NodeKind::box && tree->size() == 5 &&
+        styles[0].display == Display::stack && styles[0].overflow == Overflow::clip &&
+        styles[0].width == Dimension::points(200) && styles[2].direction == FlexDirection::row &&
+        styles[2].stack_horizontal == Align::end && styles[2].stack_vertical == Align::start &&
+        styles[3].stack_horizontal == Align::stretch,
+        "Stack must lower ordinary Box children and non-inherited placement declarations");
+    check(candidate.document.root.classes == std::vector<std::string>{"preview"} &&
+        validate_sources(candidate.document, candidate.sources).empty() &&
+        candidate.sources.nodes[0].style_argument == origin,
+        "Stack must preserve ordinary identity and caller provenance");
+    const auto hidden = take(ui.lower(Stack({Text("Scene")}, {.style = {.display = Display::none}})));
+    check(hidden.styles[0].display == Display::none, "An explicitly non-displayed Stack must remain absent");
+    const auto invalid = ui.lower(Stack({Text("Scene",
+        {.style = {.stack_horizontal = static_cast<Align>(9)}, .source = origin})}));
+    check(!invalid && has(invalid.diagnostics, "unknown_value", "/root/children/0/style/stack_horizontal") &&
+        invalid.diagnostics[0].source && invalid.diagnostics[0].source->location == origin,
+        "Invalid Stack placement needs a source-located authoring diagnostic");
+}
+
 void controlled_dropdown() {
     Session ui;
     const ValidationContext menu_actions{{"open", "system", "dark"}};
@@ -369,6 +400,7 @@ int main() {
     try {
         composition_and_updates(); rejection_and_preflight(); controlled_checkbox(); controlled_text_input();
         scroll_view_contract(); controlled_dropdown(); controlled_slider(); lifetimes_and_recovery(); bounded_descriptions();
+        stack_contract(); controlled_dropdown(); controlled_slider(); lifetimes_and_recovery(); bounded_descriptions();
         std::cout << "Authoring composition, state, diagnostics and lifetime checks passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
