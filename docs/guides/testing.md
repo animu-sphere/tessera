@@ -39,13 +39,15 @@ Repeated Tier 2 failure blocks the next release and takes repair priority. The [
 | Vulkan/fonts/native host | Affected module build and dedicated rendering/font/platform checks |
 | Release metadata/workflow | Metadata validation and the minimum affected build configuration |
 
-Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for quick application/consumer runs, `fixture` for the long Diagnostics/Settings fixtures, and `import` for independent host configure/build/link/run checks. [CMake registration](../../CMakeLists.txt) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects labels without removing tests. PRs run `fixture` checks when their fixture sources change and otherwise inherit them from Tier 2.
+Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for quick application/consumer runs, `fixture` for the long Diagnostics/Settings fixtures, and `import` for independent host configure/build/link/run checks. [Runtime registration](../../cmake/TesseraTesting.cmake) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects matching build groups and labels without removing tests. PRs run `fixture` checks when their fixture sources change and otherwise inherit them from Tier 2.
 
 The Settings Windows host adds an opt-in `native` label when `TESSERA_TEST_NATIVE_HOST=ON`. Its smoke creates and presents a desktop window, routes window messages and checks accepted application state; run it in a desktop session under the [starter procedure](settings-starter.md#run-in-a-windows-window). Default headless/import runs keep the no-argument consumer check. Injected window messages establish host wiring; physical-device and IME evidence remain separate.
 
 ### Measurement and safe reduction
 
 Before changing required checks or removing a duplicate test, compare available CI durations, identify equivalent owner coverage and verify the replacement detects the regressions the old check did. Keep slow substantive checks in wider tiers; a temporary flaky-check quarantine needs a reason, owner and return condition. [Development](development.md#focused-checks-and-timing) owns collection commands; support owns material baselines.
+
+Reduce redundant work before reducing coverage: measure configure, compile/link and CTest separately, and distinguish nested consumer builds, configurations, fresh/reused builds, local/hosted execution and parallelism. Profile expensive fixture host rebuilds before changing observation frequency; prefer test-side reuse of one accepted view and representative CPU/replay observations over test-only runtime caches. Keep independent scenarios separately schedulable with cost hints. Do not remove import `RUN_SERIAL` without verifying isolated directories, shared caches, build processes and resource usage; evaluate consumer deduplication separately from concurrency. Keep Debug PR checks and full Debug/Release integration until equivalent detection is established. Refine file-level selection only if measurements still justify its maintenance cost; preserve conservative fallback and avoid new fixed timing gates.
 
 ## High-value checks
 
@@ -68,7 +70,7 @@ Before changing required checks or removing a duplicate test, compare available 
 
 Use synthetic inputs and numeric output wherever possible. Golden serialized fixtures must assert semantics as well as deterministic formatting. Later dirty-update paths should agree with the full-tree reference calculation.
 
-[CMakeLists.txt](../../CMakeLists.txt) owns test registration. Subsystem pages link their focused checks; the [development guide](development.md) owns execution commands, and [support](../reference/support-matrix.md) owns dated outcomes/configurations. Checks should remain active in Release as well as Debug.
+[Runtime registration](../../cmake/TesseraTesting.cmake) and [consumer registration](../../tests/cmake/register.cmake) own core checks. Subsystem pages link their focused checks; the [development guide](development.md) owns execution commands, and [support](../reference/support-matrix.md) owns dated outcomes/configurations. Checks should remain active in Release as well as Debug.
 
 ## Replay fixtures
 

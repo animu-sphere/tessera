@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "configurePresets": [
+    {
+      "name": "core-dev",
+      "displayName": "Core development (Windows x64)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "TESSERA_BUILD_TESTING": "ON",
+        "TESSERA_BUILD_EXAMPLES": "ON",
+        "TESSERA_BUILD_VULKAN": "OFF",
+        "TESSERA_BUILD_FONTS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "core-dev",
+      "configurePreset": "core-dev",
+      "configuration": "Debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "core-dev",
+      "configurePreset": "core-dev",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

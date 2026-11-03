@@ -15,9 +15,20 @@ $reused = Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt')
 $artifacts = Join-Path $build "ci-$($Configuration.ToLowerInvariant())-$Suite"
 New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 $phases = New-Object 'System.Collections.Generic.List[object]'
+$buildTargets = @(switch ($Suite) {
+    'pr' { @('tessera_pr_tests') }
+    'fixtures' { @('tessera_fixture_tests') }
+    'imports' { @('tessera_pr_tests') }
+    'wide' { @('tessera_wide_tests') }
+    'full' { @() }
+})
 $context = [ordered]@{
     configuration = $Configuration; suite = $Suite; reused_build = $reused
     build_parallelism = $BuildParallelism; test_parallelism = $TestParallelism
+    build_targets = @($buildTargets)
+    execution_environment = $(if ($env:GITHUB_ACTIONS -eq 'true') { 'github-actions' } else { 'local' })
+    logical_processors = [Environment]::ProcessorCount
+    operating_system = [Environment]::OSVersion.VersionString
     started_utc = [datetime]::UtcNow.ToString('o'); source = $repo; build = $build
     phases = $phases
 }
@@ -49,8 +60,9 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 Invoke-Phase 'configure' 'cmake' @('-S', $repo, '-B', $build, '-A', 'x64',
     '-DBUILD_TESTING=ON', '-DTESSERA_BUILD_TESTING=ON', '-DTESSERA_BUILD_EXAMPLES=ON',
     '-DTESSERA_BUILD_VULKAN=OFF', '-DTESSERA_BUILD_FONTS=OFF')
-Invoke-Phase 'build' 'cmake' @('--build', $build, '--config', $Configuration,
-    '--parallel', "$BuildParallelism", '--', '/nodeReuse:false')
+$buildArguments = @('--build', $build, '--config', $Configuration, '--parallel', "$BuildParallelism")
+if ($buildTargets) { $buildArguments += @('--target') + $buildTargets }
+Invoke-Phase 'build' 'cmake' ($buildArguments + @('--', '/nodeReuse:false'))
 # PR suites add the long fixtures and/or add_subdirectory imports to the fast
 # contract/smoke checks; `wide` matches the release workflow's FetchContent
 # exclusion. Full runs execute both import modes, with no test filter. Import
@@ -71,6 +83,8 @@ Invoke-Phase 'test' 'ctest' (@('--test-dir', $build, '-C', $Configuration,
     '--output-log', (Join-Path $artifacts 'ctest.log')) + $selection)
 Copy-Item -LiteralPath (Join-Path $build 'Testing/Temporary/CTestCostData.txt') -Destination $artifacts
 if ($env:GITHUB_STEP_SUMMARY) {
+    $targetSummary = if ($buildTargets) { $buildTargets -join ', ' } else { 'default (all enabled targets)' }
+    "Build target: $targetSummary; reused build: $reused." >> $env:GITHUB_STEP_SUMMARY
     "### Core $Configuration / $Suite`n`n| Phase | Seconds | Exit |`n| --- | ---: | ---: |" >> $env:GITHUB_STEP_SUMMARY
     foreach ($phase in $phases) {
         "| $($phase.name) | $([math]::Round($phase.seconds, 2)) | $($phase.exit_code) |" >> $env:GITHUB_STEP_SUMMARY
