@@ -93,7 +93,9 @@ ctest --test-dir build -C Debug -R '^(authoring|renderer_diagnostics|renderer_di
 
 The Diagnostics fixture registers one `renderer_diagnostics_contract.<scenario>` check per independent scenario so `ctest -j` spreads its Debug cost; `tessera_renderer_diagnostics_tests` without arguments runs every scenario in one process, and it accepts scenario names (for example `msaa outlines`) to run a subset directly.
 
-Choose other target/test names from [runtime registration](../../cmake/TesseraTesting.cmake), including [independent consumers](../../tests/cmake/register.cmake), rather than copying this selection for every change. `ctest -R` selects execution only; an unrestricted build still compiles all enabled targets. The suite targets below restrict the build as well. A source-import CTest configures/builds its own host project. Use Release when that configuration is affected or collecting wider integration/release evidence; documentation-only changes use the [documentation check](testing.md#documentation-verification).
+Its setup-only `reveal` helper plans the shorter forward/backward focus traversal against one accepted view using the public focus dispatcher, then routes real Tab/Shift+Tab or logical gamepad events through the host. Explicit navigation/parity scenarios and every accepted-view/rejection assertion remain; this avoids full-wrap setup rebuilds without adding a runtime cache.
+
+Choose other target/test names from [runtime registration](../../cmake/TesseraTesting.cmake), including [independent consumers](../../tests/cmake/register.cmake), rather than copying this selection for every change. `ctest -R` selects execution only; an unrestricted build still compiles all enabled targets. The suite targets below restrict the build as well. An automatic source-import CTest configures/builds its own add_subdirectory host project. Use Release when that configuration is affected or collecting wider integration/release evidence; documentation-only changes use the [documentation check](testing.md#documentation-verification).
 
 For a baseline, configure/build with the ordinary workflow and collect the inventory and complete test results in each configuration, without adding the focused regex:
 
@@ -110,9 +112,9 @@ Compare available hosted queue/job/step durations separately from local timing, 
 
 ### CI scopes and reproducible measurements
 
-The [PR workflow](../../.github/workflows/ci.yml) reports documentation/metadata and a Windows x64 Debug core job on every PR. Its [scope selector](../../scripts/select-ci.ps1) skips the native phases for documentation-only changes: Markdown anywhere, `docs/`, issue templates, the documentation checker and the license. Ordinary C++/header/example/fixture-data changes run the `pr` suite (`contract` and `smoke`); changes under `examples/renderer-diagnostics/`, `examples/settings/` or `tests/integrations/` add the long `fixture` checks (`fixtures`); build files, workflows, scripts and unknown paths add the `add_subdirectory` imports (`imports`); both triggers, or an unavailable diff, select `wide`. FetchContent imports and the unfiltered suite run only in integration. Selection occurs inside the reporting job. The [selector regression checks](../../scripts/test-select-ci.ps1) cover mixed changes, missing input and conservative fallback.
+The [PR workflow](../../.github/workflows/ci.yml) reports documentation/metadata and a Windows x64 Debug core job on every PR. Its [scope selector](../../scripts/select-ci.ps1) skips the native phases for documentation-only changes: Markdown anywhere, `docs/`, issue templates, the documentation checker and the license. Ordinary C++/header/example/fixture-data changes run the `pr` suite (`contract` and `smoke`); changes under `examples/renderer-diagnostics/`, `examples/settings/` or `tests/integrations/` add the long `fixture` checks (`fixtures`); build files, workflows, scripts and unknown paths add the `add_subdirectory` imports (`imports`); both triggers, or an unavailable diff, select `wide`. FetchContent has no automatic CTest registration; its public import path remains available for manual checks. Selection occurs inside the reporting job. The [selector regression checks](../../scripts/test-select-ci.ps1) cover mixed changes, missing input and conservative fallback.
 
-The [integration workflow](../../.github/workflows/integration.yml) runs the complete core suite in Debug and Release on main pushes or manual dispatch, including both source imports. The [release workflow](../../.github/workflows/release.yml) retains tag/manual release verification and publication. Optional GPU/font/native evidence follows its separate procedures. Cancel superseded PR/integration runs; do not cancel tag publication through their concurrency groups.
+The [integration workflow](../../.github/workflows/integration.yml) runs the complete registered core suite in Debug and Release on main pushes or manual dispatch, including add_subdirectory source imports. The [release workflow](../../.github/workflows/release.yml) retains tag/manual release verification and publication. Neither workflow runs FetchContent; automatic coverage no longer detects regressions specific to that import branch. Optional GPU/font/native evidence follows its separate procedures. Cancel superseded PR/integration runs; do not cancel tag publication through their concurrency groups.
 
 Run the same measured phases locally from PowerShell:
 
@@ -130,13 +132,13 @@ The measurement script configures a Windows x64 core-only Visual Studio build wi
 | --- | --- | --- |
 | `pr` | `tessera_pr_tests` | `contract` + `smoke` |
 | `fixtures` | `tessera_fixture_tests` | `pr` + `fixture` |
-| `imports` | `tessera_pr_tests` | `pr` + `import`, excluding `_FetchContent$` |
-| `wide` | `tessera_wide_tests` | Everything except `_FetchContent$` |
+| `imports` | `tessera_pr_tests` | `pr` + `import` |
+| `wide` | `tessera_wide_tests` | No filter |
 | `full` | Default build (all enabled targets) | No filter |
 
 [Test registration](../../cmake/TesseraTesting.cmake) associates each runtime test's executable and label with its build group in one place. Fixture targets depend on the PR group; the wide group also covers an opted-in native host. The measurement script does not maintain executable lists. Imports configure/build their own isolated hosts during CTest and need no extra parent executable. Selecting a narrow suite does not delete executables left by an earlier wide build; use a fresh directory to measure avoided compilation.
 
-It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. The JSON also records selected build targets (an empty array means the default build), fresh/reused cache, local/GitHub Actions execution, OS, logical processor count and parallelism. Native failures stop the run with a nonzero exit while retaining completed phase measurements. Build parallelism defaults to two and test workers to two; import checks remain `RUN_SERIAL` in CTest, so nested builds never overlap each other or runtime checks. These settings are measurement conditions, not universal speed guarantees. Record hosted and local timings separately; Debug PR feedback does not replace full Debug/Release and both imports on main.
+It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. The JSON also records selected build targets (an empty array means the default build), fresh/reused cache, local/GitHub Actions execution, OS, logical processor count and parallelism. Native failures stop the run with a nonzero exit while retaining completed phase measurements. Build parallelism defaults to two and test workers to two; import checks remain `RUN_SERIAL` in CTest, so nested builds never overlap each other or runtime checks. These settings are measurement conditions, not universal speed guarantees. Record hosted and local timings separately; Debug PR feedback does not replace full Debug/Release integration.
 
 ## Scalar CPU capture workflow
 
@@ -208,9 +210,19 @@ ctest --test-dir build-source-consumer -C Debug --output-on-failure
 
 Use `-DTESSERA_IMPORT_MODE=FetchContent` in a separate build directory for the other import. To exercise optional backend linkage, add `-DCONSUMER_WITH_VULKAN=ON` and the explicit SDK/Slang cache overrides from the optional workflow below. The backend fixture rejects an empty host context and requires no GPU or native window. Use the same build and CTest commands with `Release` for that configuration.
 
-Standalone CTest invokes both imports automatically; enabling Vulkan adds backend consumer checks. The [driver](../../tests/cmake/run-consumer.cmake) forwards the configured generator, platform, toolset, toolchain and optional SDK paths into isolated host builds. Per-phase logs, executables and libraries are under `<build>/source-consumers/<import>[-vulkan]/<configuration>`; fixture tests are separate from runtime GPU tests. Configuration evidence and limits belong to [support](../reference/support-matrix.md#source-consumption-evidence--2026-10-11).
+Automatic CTest imports use add_subdirectory only, including when Vulkan is enabled. The [registration](../../tests/cmake/register.cmake) retains each application's independent copied-project check rather than relying on the minimal host for application behavior:
 
-The hosted [release workflow](../../.github/workflows/release.yml) uses `ctest --test-dir build -C <configuration> --output-on-failure --no-tests=error -E '_FetchContent$'` to exclude FetchContent consumer checks from CI while retaining the add_subdirectory consumers. Local CTest without that filter exercises both import forms.
+| Consumer | Verification responsibility |
+| --- | --- |
+| `source_consumer` | Public alias compile/link requirements, embedded development defaults, host project/testing ownership, no core-only Vulkan/Slang discovery, document/tree use |
+| `first_app_consumer` | Copied two-file CMake application and its state/composition/input/CPU smoke |
+| `settings_starter_consumer` | Copied three-file application, Windows host libraries and window-free edit/Apply/Cancel smoke |
+| `renderer_diagnostics_consumer` | Copied panel/host/sample sources and synthetic telemetry/settings smoke |
+| `source_consumer_vulkan` (optional) | Backend alias linkage and empty-context rejection without a GPU/window |
+
+The [driver](../../tests/cmake/run-consumer.cmake) forwards the configured generator, platform, toolset, toolchain and optional SDK paths into isolated host builds. Per-phase logs, executables and libraries are under `<build>/source-consumers/<import>[-vulkan]/<configuration>` (copied applications add their starter name before the import); fixture tests are separate from runtime GPU tests. Imports remain `RUN_SERIAL`; this change does not establish safe concurrency.
+
+FetchContent support, its local-source project options and the manual configure/build/test commands above remain available, but no default, PR, integration or release CTest run exercises it. Run the affected consumer manually when changing or certifying that import path, including copied applications through their own guides. Removing those automatic checks reduces repeated independent builds; it is not evidence that FetchContent itself is intrinsically slower. Historical configuration evidence and current limits belong to [support](../reference/support-matrix.md#source-consumption-evidence--2026-10-11).
 
 ## Optional Vulkan workflow
 
@@ -347,7 +359,7 @@ cmake --build build-atlas-core --config Debug --parallel 4
 
 [VERSION](../../VERSION) holds the single `MAJOR.MINOR.PATCH` value; CMake reads it as the project version. A release is cut only after the active milestone's exit criteria are accepted against [support](../reference/support-matrix.md); 0.x versions carry no API/ABI compatibility guarantee. Patch releases fix defects in released scope; otherwise development continues on `main` without maintenance branches.
 
-1. Rerun full core Debug/Release and both independent source-import modes in fresh build directories, plus the optional Vulkan/font/native workflows needed by the release's claims, and record results and unavailable environments in support. Resolve persistent integration/periodic-suite failures before acceptance; the [tier policy](testing.md#validation-tiers) owns gate responsibilities.
+1. Rerun full core Debug/Release and independent add_subdirectory consumers in fresh build directories, plus manual FetchContent checks when that import path is affected or recertified and the optional Vulkan/font/native workflows needed by the release's claims. Record results and unavailable environments in support. Resolve persistent integration/periodic-suite failures before acceptance; the [tier policy](testing.md#validation-tiers) owns gate responsibilities.
 2. In the release pull request, set `VERSION` and turn the changelog's `## Unreleased` section into `## vX.Y.Z — YYYY-MM-DD`.
 3. Before merging, check the metadata locally:
 
@@ -362,7 +374,7 @@ cmake --build build-atlas-core --config Debug --parallel 4
    git push origin vX.Y.Z
    ```
 
-The [release workflow](../../.github/workflows/release.yml) then checks that the tag matches `VERSION` and has a dated changelog section, builds and tests the core in Debug and Release with Vulkan disabled, and publishes a source-only GitHub Release whose notes are that changelog section. 0.x releases are marked as pre-releases. Hosted runners have no GPU or interactive session, so the GPU fixtures and native menu smoke are not part of this gate; their evidence comes from step 1. Manual dispatch performs the same verification without publishing. PR metadata/core checks use the [PR workflow](../../.github/workflows/ci.yml); full Debug/Release and both imports use the [integration workflow](../../.github/workflows/integration.yml).
+The [release workflow](../../.github/workflows/release.yml) then checks that the tag matches `VERSION` and has a dated changelog section, builds and tests the core in Debug and Release with Vulkan disabled, and publishes a source-only GitHub Release whose notes are that changelog section. 0.x releases are marked as pre-releases. Hosted runners have no GPU or interactive session, so the GPU fixtures and native menu smoke are not part of this gate; their evidence comes from step 1. Manual dispatch performs the same verification without publishing. PR metadata/core checks use the [PR workflow](../../.github/workflows/ci.yml); full Debug/Release and add_subdirectory imports use the [integration workflow](../../.github/workflows/integration.yml). FetchContent remains manual only.
 
 No binaries or installed packages are published; consumers build from source. Packaging scope is owned by the [backlog](../roadmap/backlog.md).
 

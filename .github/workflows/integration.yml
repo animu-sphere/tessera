@@ -33,7 +33,7 @@ jobs:
           ./scripts/test-select-ci.ps1
       - name: Check release metadata
         run: cmake -P cmake/release.cmake
-      - name: Configure, build and test both imports
+      - name: Configure, build and test full core
         run: ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration ${{ matrix.config }} -Suite full
       - name: Upload measurements and failures
         if: always()

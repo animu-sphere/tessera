@@ -1,7 +1,7 @@
 # Conservative PR selection. Unknown paths and missing diffs widen the suite.
 # Suites: pr (contract+smoke), fixtures (+ long Diagnostics/Settings fixtures),
-# imports (+ add_subdirectory imports), wide (both). Both imports and the full
-# unfiltered suite run only in integration.
+# imports (+ add_subdirectory imports), wide (fixtures and imports).
+# Full integration also builds every enabled target. FetchContent is manual only.
 [CmdletBinding()]
 param([AllowEmptyCollection()][string[]]$Paths = @())
 Set-StrictMode -Version Latest

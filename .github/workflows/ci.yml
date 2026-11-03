@@ -2,8 +2,8 @@ name: CI
 
 # Keep reporting jobs present even for documentation-only PRs. Scope decisions
 # happen inside the Core job, so a required check cannot be left pending.
-# Long fixtures and imports run on PRs only when their sources change; both
-# import modes and the unfiltered suite belong to integration.yml.
+# Long fixtures and imports run on PRs only when their sources change;
+# the unfiltered suite belongs to integration.yml. FetchContent is manual only.
 on:
   pull_request:
   workflow_dispatch:

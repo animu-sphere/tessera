@@ -61,14 +61,14 @@ if(TESSERA_BUILD_EXAMPLES)
     tessera_add_check(settings tessera_settings fixture)
     # Rounded local Debug seconds schedule long fixtures first on fresh builds.
     set_tests_properties(settings PROPERTIES COST 70)
-    set_tests_properties(renderer_diagnostics_contract.outlines renderer_diagnostics_contract.scene_lights
-        PROPERTIES COST 45)
-    set_tests_properties(renderer_diagnostics_contract.msaa PROPERTIES COST 42)
-    set_tests_properties(renderer_diagnostics_contract.numeric_ambient PROPERTIES COST 35)
-    set_tests_properties(renderer_diagnostics_contract.numeric_direct PROPERTIES COST 30)
-    set_tests_properties(renderer_diagnostics_contract.key_direction PROPERTIES COST 25)
-    set_tests_properties(renderer_diagnostics_contract.telemetry renderer_diagnostics_contract.two_numeric_fields
-        PROPERTIES COST 22)
-    set_tests_properties(renderer_diagnostics_contract.material_view renderer_diagnostics_contract.reset
-        PROPERTIES COST 9)
+    set_tests_properties(renderer_diagnostics_contract.outlines PROPERTIES COST 22)
+    set_tests_properties(renderer_diagnostics_contract.scene_lights PROPERTIES COST 21)
+    set_tests_properties(renderer_diagnostics_contract.msaa PROPERTIES COST 19)
+    set_tests_properties(renderer_diagnostics_contract.numeric_ambient renderer_diagnostics_contract.key_direction
+        PROPERTIES COST 24)
+    set_tests_properties(renderer_diagnostics_contract.numeric_direct renderer_diagnostics_contract.telemetry
+        PROPERTIES COST 23)
+    set_tests_properties(renderer_diagnostics_contract.two_numeric_fields PROPERTIES COST 21)
+    set_tests_properties(renderer_diagnostics_contract.material_view PROPERTIES COST 5)
+    set_tests_properties(renderer_diagnostics_contract.reset PROPERTIES COST 9)
 endif()
