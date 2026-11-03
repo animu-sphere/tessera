@@ -140,10 +140,13 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         add_test(NAME editor_prototype COMMAND tessera_editor_prototype)
         add_test(NAME settings COMMAND tessera_settings)
         # Consumer checks retain their complete assertions; labels only select
-        # execution tiers. Nested import builds have their own label below.
+        # execution tiers. The two long Diagnostics/Settings fixtures carry the
+        # `fixture` label so PR runs can select them only when their sources
+        # change. Nested import builds have their own label below.
         set_tests_properties(first_app settings_starter renderer_diagnostics
-            renderer_diagnostics_contract hello_ui flex_layout pointer_menu
-            tool_panel editor_prototype settings PROPERTIES LABELS smoke)
+            hello_ui flex_layout pointer_menu tool_panel editor_prototype
+            PROPERTIES LABELS smoke)
+        set_tests_properties(renderer_diagnostics_contract settings PROPERTIES LABELS fixture)
     endif()
     include(tests/cmake/register.cmake)
 endif()

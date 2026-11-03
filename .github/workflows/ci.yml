@@ -2,6 +2,8 @@ name: CI
 
 # Keep reporting jobs present even for documentation-only PRs. Scope decisions
 # happen inside the Core job, so a required check cannot be left pending.
+# Long fixtures and imports run on PRs only when their sources change; both
+# import modes and the unfiltered suite belong to integration.yml.
 on:
   pull_request:
   workflow_dispatch:
@@ -34,7 +36,9 @@ jobs:
   core:
     name: Core / windows-x64 / Debug
     runs-on: windows-latest
-    timeout-minutes: 30
+    # The `wide` fallback (fixtures plus add_subdirectory imports) needs the
+    # headroom; `pr` runs finish well inside it.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,11 +66,8 @@ jobs:
         if: steps.scope.outputs.run_core == 'true'
         env:
           CI_SUITE: ${{ steps.scope.outputs.suite }}
-        run: |
-          # Import checks launch nested builds; keep them serial until separate
-          # measurements establish safe hosted concurrency for those processes.
-          $parallel = if ($env:CI_SUITE -eq 'full') { 1 } else { 2 }
-          ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration Debug -Suite $env:CI_SUITE -TestParallelism $parallel
+        # Import checks are RUN_SERIAL in CTest; two workers apply to runtime checks.
+        run: ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration Debug -Suite $env:CI_SUITE -TestParallelism 2
       - name: Upload measurements and failures
         if: always() && steps.scope.outputs.run_core == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

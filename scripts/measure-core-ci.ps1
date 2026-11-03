@@ -3,9 +3,9 @@
 param(
     [string]$BuildDirectory = 'build-ci',
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug',
-    [ValidateSet('pr', 'full', 'release')][string]$Suite = 'full',
+    [ValidateSet('pr', 'fixtures', 'imports', 'wide', 'full')][string]$Suite = 'full',
     [ValidateRange(1, 64)][int]$BuildParallelism = 2,
-    [ValidateRange(1, 64)][int]$TestParallelism = 1
+    [ValidateRange(1, 64)][int]$TestParallelism = 2
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -51,11 +51,17 @@ Invoke-Phase 'configure' 'cmake' @('-S', $repo, '-B', $build, '-A', 'x64',
     '-DTESSERA_BUILD_VULKAN=OFF', '-DTESSERA_BUILD_FONTS=OFF')
 Invoke-Phase 'build' 'cmake' @('--build', $build, '--config', $Configuration,
     '--parallel', "$BuildParallelism", '--', '/nodeReuse:false')
-$selection = @()
-if ($Suite -eq 'pr') { $selection = @('-L', '^(contract|smoke)$') }
-# Preserve the release workflow's existing FetchContent exclusion. Full runs
-# execute both import modes, with no test filter.
-if ($Suite -eq 'release') { $selection = @('-E', '_FetchContent$') }
+# PR suites add the long fixtures and/or add_subdirectory imports to the fast
+# contract/smoke checks; `wide` matches the release workflow's FetchContent
+# exclusion. Full runs execute both import modes, with no test filter. Import
+# checks are RUN_SERIAL in CTest, so the worker count applies to runtime checks.
+$selection = switch ($Suite) {
+    'pr' { @('-L', '^(contract|smoke)$') }
+    'fixtures' { @('-L', '^(contract|smoke|fixture)$') }
+    'imports' { @('-L', '^(contract|smoke|import)$', '-E', '_FetchContent$') }
+    'wide' { @('-E', '_FetchContent$') }
+    default { @() }
+}
 & ctest --test-dir $build -C $Configuration --show-only=json-v1 @selection |
     Set-Content -Encoding utf8 (Join-Path $artifacts 'inventory.json')
 if ($LASTEXITCODE -ne 0) { throw 'CTest inventory failed' }

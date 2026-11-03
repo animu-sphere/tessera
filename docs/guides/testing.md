@@ -39,7 +39,7 @@ Repeated Tier 2 failure blocks the next release and takes repair priority. The [
 | Vulkan/fonts/native host | Affected module build and dedicated rendering/font/platform checks |
 | Release metadata/workflow | Metadata validation and the minimum affected build configuration |
 
-Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for application/consumer fixtures, and `import` for independent host configure/build/link/run checks. [CMake registration](../../CMakeLists.txt) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects labels without removing tests.
+Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for quick application/consumer runs, `fixture` for the long Diagnostics/Settings fixtures, and `import` for independent host configure/build/link/run checks. [CMake registration](../../CMakeLists.txt) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects labels without removing tests. PRs run `fixture` checks when their fixture sources change and otherwise inherit them from Tier 2.
 
 ### Measurement and safe reduction
 
