@@ -21,10 +21,10 @@ The [Settings consumer](../integrations/settings-app.md#proposed-application-wor
 
 ### Work items
 
-Pick any unblocked item and deliver it whole, including its widget, example wiring, tests and guide update in one PR:
+The [Windows starter host](../guides/settings-starter.md#run-in-a-windows-window) now implements the required application flow through public APIs. Focused native and copied-consumer evidence is in [support](../reference/support-matrix.md#settings-native-host-evidence--2026-11-03).
 
-- Native window host for the starter (window, input, presentation) on the primary supported platform.
-- Public-API friction fixes found while doing the above: event registration, state updates, styling, error display.
+- Run the Tier 3 release checks for the milestone and record platform/configuration limits before release acceptance.
+- Fix application or public-API failures found during that acceptance; do not expand the widget catalog without an application need.
 
 ### Exit criteria
 

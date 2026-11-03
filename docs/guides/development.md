@@ -68,6 +68,10 @@ ctest --test-dir build -C Debug -R '^(authoring|settings)$' --output-on-failure
 
 Use `Release` for the other configuration. The executable prints its command/frame observations and exits nonzero on a failed check. It uses placeholder text and synthetic glyph coverage, captures in memory, and opens no window. The [consumer boundary](../integrations/settings-app.md#implemented-form-skeleton-boundary) owns its operations and replay limits; [support](../reference/support-matrix.md#c-form-authoring-evidence--2026-10-16) owns configuration/results.
 
+## Settings starter native host
+
+The [copyable Settings starter](settings-starter.md#run-in-a-windows-window) also has a Windows desktop mode, using the Windows SDK with the ordinary CPU renderer. Build `tessera_settings_starter` and run it with `--native` for interaction or `--native-smoke` for an automated window/input/presentation check. The no-argument smoke remains window-free. Configure with `-DTESSERA_TEST_NATIVE_HOST=ON` to register `settings_starter_native` under the `native` label; run it in a desktop session. The starter guide owns the complete copy/build/run commands and host limitations; [support](../reference/support-matrix.md#settings-native-host-evidence--2026-11-03) records executed checks.
+
 ## Focused checks and timing
 
 Use the [verification ownership and selection policy](testing.md#verification-ownership) to choose checks. After configuring the core build above, an authoring/Diagnostics change can build and run just the affected executables:

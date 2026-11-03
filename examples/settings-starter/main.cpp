@@ -10,6 +10,10 @@
 #include <map>
 #include <stdexcept>
 #include <tuple>
+#include <string_view>
+#ifdef _WIN32
+#include "native_win32.hpp"
+#endif
 
 using namespace tessera;
 namespace ui = tessera::authoring;
@@ -210,8 +214,14 @@ struct SyntheticGlyphs final : GlyphRasterizer {
 };
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        const bool native = argc == 2 && (std::string_view(argv[1]) == "--native" ||
+            std::string_view(argv[1]) == "--native-smoke");
+        require(argc == 1 || native, "Usage: settings_starter [--native | --native-smoke]");
+#ifndef _WIN32
+        require(!native, "The Settings native host currently requires Windows");
+#endif
         ui::Session session;
         Host host;
         const auto username = session.state("username", host.username);
@@ -282,6 +292,8 @@ int main() {
                 "Navigation did not reveal the focused control");
         };
         auto operate = [&](const ActionRequest& action, CommandSource source, std::optional<TextEditRequest> edit = {}) {
+            // A TextInput click/activation focuses it; only committed edits carry a request.
+            if (action.action == "settings.edit" && !edit) return;
             const auto current = accepted.semantic();
             const auto invocation = take(accepted.commands.resolve_action(current, action,
                 accepted.commands.generation(), {}, source, ++sequence));
@@ -379,6 +391,11 @@ int main() {
                 std::holds_alternative<PointerUp>(event.data) || std::holds_alternative<PointerCancel>(event.data)) {
                 if (volume_pointer) return;
                 const auto dispatched = take(pointer.dispatch(accepted.hit(), event));
+                if (const auto* down = std::get_if<PointerDown>(&event.data);
+                    down && down->button == PointerButton::primary)
+                    for (const auto& state : dispatched.pointers)
+                        if (state.pointer == down->pointer && state.pressed)
+                            (void)take(focus.focus(accepted.hit(), *state.pressed));
                 for (const auto& action : dispatched.actions) operate(action, source);
                 return;
             }
@@ -440,6 +457,131 @@ int main() {
             }
         };
 
+#ifdef _WIN32
+        if (native) {
+            settings_native::Glyphs glyphs;
+            GlyphCache native_cache(glyphs);
+            CpuFrameCapture native_frames(&native_cache);
+            settings_native::Window window;
+            window.input = input;
+            window.capture = [&] {
+                return take(native_frames.capture({accepted.commands.generation(), viewport, 1,
+                    take(capture_extent(viewport, 1)), &accepted.paint, 0us}));
+            };
+            window.focused = [&]() -> std::optional<Rect> {
+                const auto target = take(focus.refresh(accepted.hit())).focused;
+                if (!target || !take(scroll_into_view(accepted.hit(), *target)).empty()) return {};
+                return accepted.layout.boxes[target->index].border_box;
+            };
+            window.editing = [&] {
+                const auto owner = accepted.tree->find("username");
+                return owner && take(focus.refresh(accepted.hit())).focused == owner;
+            };
+            auto smoke = [&](settings_native::Window& native_window) {
+                auto key = [&](WPARAM code) { native_window.message(WM_KEYDOWN, code, 1); };
+                auto seek = [&](const char* id) {
+                    for (int i = 0; i < 24; ++i) {
+                        if (take(focus.refresh(accepted.hit())).focused == accepted.tree->find(id)) {
+                            focused(id); return;
+                        }
+                        key(VK_TAB);
+                    }
+                    throw std::runtime_error(std::string("Native Tab cannot reach ") + id);
+                };
+                auto center = [&](const char* id) {
+                    const auto& rect = accepted.layout.boxes[accepted.tree->find(id)->index].border_box;
+                    return native_window.physical({rect.origin.x + rect.size.width / 2, rect.origin.y + rect.size.height / 2});
+                };
+                auto mouse = [&](UINT type, POINT point) {
+                    native_window.message(type, type == WM_LBUTTONDOWN ? MK_LBUTTON : 0, MAKELPARAM(point.x, point.y));
+                };
+                auto click = [&](const char* id) {
+                    const auto point = center(id);
+                    mouse(WM_LBUTTONDOWN, point); mouse(WM_LBUTTONUP, point);
+                };
+                auto wheel = [&](const char* pane, short delta) {
+                    auto point = center(pane); ClientToScreen(native_window.handle, &point);
+                    native_window.message(WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)), MAKELPARAM(point.x, point.y));
+                };
+                require(native_window.presentations > 0, "Native window did not present");
+                const auto glyph = take(native_cache.get({{}, 'A', 16 * 64}));
+                require(std::any_of(glyph->coverage.begin(), glyph->coverage.end(), [](auto value) { return value != 0; }),
+                    "Native glyph coverage is empty");
+                seek("username");
+                const auto before_click = sequence;
+                click("username"); key(VK_RETURN);
+                require(sequence == before_click && window.editing(), "TextInput activation executed an empty edit");
+                for (const wchar_t unit : std::wstring_view(L" 本\U0001f600")) native_window.message(WM_CHAR, unit);
+                const auto edited = host.username;
+                require(edited.text == "Ada 本😀", "Native UTF-16 text mapping differs");
+                seek("section-feature"); key(VK_RETURN);
+                seek("toggle"); click("toggle");
+                require(host.draft.feature && host.username == edited && host.saves.empty(), "Native category/toggle lost the draft");
+                seek("theme-trigger"); key(VK_SPACE);
+                native_window.message(WM_KEYDOWN, VK_ESCAPE, 1 | (LPARAM{1} << 30));
+                require(host.theme_open, "Repeated Escape dismissed native choices");
+                key(VK_ESCAPE);
+                require(!host.theme_open && host.draft.theme == "system", "Native Escape edited the preference");
+                key(VK_SPACE); seek("theme-option-dark"); key(VK_RETURN);
+                require(host.draft.theme == "dark" && !host.theme_open, "Native Dropdown did not select Dark");
+                seek("volume"); key(VK_END); key(VK_LEFT);
+                require(host.draft.volume == 95 && host.username == edited, "Native slider keyboard mapping differs");
+                auto track = [&](float fraction) {
+                    const auto& rect = accepted.layout.boxes[accepted.tree->find("volume-track")->index].border_box;
+                    return native_window.physical({rect.origin.x + 4 + fraction * (rect.size.width - 8),
+                        rect.origin.y + rect.size.height / 2});
+                };
+                mouse(WM_LBUTTONDOWN, track(.25f));
+                require(GetCapture() == native_window.handle, "Native slider did not capture the mouse");
+                mouse(WM_MOUSEMOVE, track(2));
+                require(host.draft.volume == 100, "Native outside-track drag did not clamp");
+                mouse(WM_LBUTTONUP, track(.75f));
+                require(host.draft.volume == 75 && GetCapture() != native_window.handle, "Native release/capture mapping differs");
+                mouse(WM_LBUTTONDOWN, track(.5f)); ReleaseCapture();
+                const auto cancelled_volume = host.draft.volume;
+                mouse(WM_LBUTTONUP, track(1));
+                require(host.draft.volume == cancelled_volume, "Capture loss executed a deferred slider edit");
+                mouse(WM_LBUTTONDOWN, track(.75f)); mouse(WM_LBUTTONUP, track(.75f));
+                seek("apply");
+                const auto apply_point = center("apply");
+                mouse(WM_LBUTTONDOWN, apply_point); native_window.message(WM_CANCELMODE);
+                mouse(WM_LBUTTONUP, apply_point);
+                require(host.saves.empty(), "Cancelled native press executed Apply");
+                key(VK_RETURN);
+                const auto applied = host.draft;
+                require(host.saves == std::vector<SettingsData>{applied} && applied.volume == 75,
+                    "Native Apply did not save exactly once");
+                // Repeated activation must not append another save.
+                native_window.message(WM_KEYDOWN, VK_RETURN, 1 | (LPARAM{1} << 30));
+                require(host.saves.size() == 1, "Native activation auto-repeat saved twice");
+                seek("section-account"); key(VK_RETURN); seek("username"); native_window.message(WM_CHAR, '!');
+                seek("volume"); key(VK_HOME); seek("cancel"); key(VK_RETURN);
+                require(host.draft == applied && host.selected == "account" && host.saves.size() == 1,
+                    "Native Cancel lost applied values, category or saves");
+                wheel("categories", -WHEEL_DELTA * 10); click("section-about");
+                require(host.selected == "about" && host.draft == applied, "Native wheel/pointer did not reach About");
+                wheel("settings-form", -WHEEL_DELTA * 10);
+                require(offsets.at("settings-form").y > 0, "Native wheel did not scroll the form");
+                // Resize creates letterboxing; pointer input must still match the shown geometry.
+                SetWindowPos(native_window.handle, nullptr, 0, 0, 1000, 620, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                RECT dpi_rect{}; GetWindowRect(native_window.handle, &dpi_rect);
+                dpi_rect.right += 40;
+                native_window.message(WM_DPICHANGED, MAKEWPARAM(144, 144), reinterpret_cast<LPARAM>(&dpi_rect));
+                RECT actual_rect{}; GetWindowRect(native_window.handle, &actual_rect);
+                require(actual_rect.right == dpi_rect.right && host.draft == applied, "Native DPI resize lost bounds or draft");
+                wheel("categories", WHEEL_DELTA * 10); click("section-account");
+                require(host.selected == "account" && host.draft == applied, "Resized pointer coordinates differ from presentation");
+                seek("username"); native_window.message(WM_CHAR, 0xd83d);
+                native_window.message(WM_KILLFOCUS); native_window.message(WM_CHAR, 0xde00);
+                require(host.draft == applied, "Focus loss retained an incomplete surrogate pair");
+                require(native_window.presentations > 10, "Native updates were not presented");
+                std::cout << "Native Settings smoke passed: window, text, focus, scroll, Dropdown, Slider, Apply/Cancel and capture loss; "
+                    << native_window.presentations << " presentations\n";
+            };
+            if (std::string_view(argv[1]) == "--native-smoke") return window.run(smoke);
+            return window.run();
+        }
+#endif
         SyntheticGlyphs raster;
         GlyphCache cache(raster);
         CpuFrameCapture frames(&cache);
@@ -687,6 +829,8 @@ int main() {
             "Pointer category selection changed retained state");
         require(offsets["settings-form"].y < account_bottom.y && offsets["settings-form"] == box("settings-form").scroll_limit(),
             "Shorter branch did not clamp the retained form offset");
+        focused("section-about");
+        send(Scroll{center(box("categories").padding_box()), {0, -4096}});
         click("section-account");
         require(host.selected == "account" && host.draft == host.applied && host.saves == saved_copies && host.result == saved_result,
             "Pointer category return lost retained state");

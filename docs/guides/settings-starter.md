@@ -1,6 +1,6 @@
 # Select, scroll, edit, Apply and Cancel Settings
 
-Extend [your first app](first-app.md) with the two-file [Settings starter](../../examples/settings-starter/main.cpp) and its [CMake project](../../examples/settings-starter/CMakeLists.txt). `Field` and `Settings` compose the application; `Host`, `prepare`, `operate` and `input` provide the explicit host boundary. The [form API](../architecture/ui-model.md#implemented-c-form-authoring) and [Settings consumer](../integrations/settings-app.md#implemented-copyable-editapply-starter-boundary) own their contracts.
+Extend [your first app](first-app.md) with the [Settings starter](../../examples/settings-starter/main.cpp), its [CMake project](../../examples/settings-starter/CMakeLists.txt) and [Windows host](../../examples/settings-starter/native_win32.hpp). `Field` and `Settings` compose the application; `Host`, `prepare`, `operate` and `input` provide the explicit host boundary. The [form API](../architecture/ui-model.md#implemented-c-form-authoring) and [Settings consumer](../integrations/settings-app.md#implemented-copyable-editapply-starter-boundary) own their contracts.
 
 ## Copy, build and run
 
@@ -8,7 +8,7 @@ Use the compiler and CMake prerequisites from [Getting Started](getting-started.
 
 ```powershell
 New-Item -ItemType Directory -Path build-settings-starter-source -Force | Out-Null
-Copy-Item examples/settings-starter/main.cpp, examples/settings-starter/CMakeLists.txt -Destination build-settings-starter-source
+Copy-Item examples/settings-starter/main.cpp, examples/settings-starter/CMakeLists.txt, examples/settings-starter/native_win32.hpp -Destination build-settings-starter-source
 cmake -S build-settings-starter-source -B build-settings-starter -G "Visual Studio 18 2026" -A x64 `
     -DTESSERA_SOURCE_DIR=C:/dev/tessera
 cmake --build build-settings-starter --config Debug --parallel 4 -- /nodeReuse:false
@@ -18,7 +18,7 @@ cmake --build build-settings-starter --config Release --parallel 4 -- /nodeReuse
 ctest --test-dir build-settings-starter -C Release --output-on-failure --no-tests=error
 ```
 
-Replace `C:/dev/tessera` with the absolute checkout path. Both copied files are self-contained application sources; they may live outside the checkout. The project links only `tessera::core`, inherits C++20 and public includes, and disables optional fonts/Vulkan. Embedded Tessera defaults exclude its tests/examples; the copied project's own CTest runs `settings_starter`.
+Replace `C:/dev/tessera` with the absolute checkout path. The three copied files are self-contained application sources; they may live outside the checkout. The project consumes only the public `tessera::core` target, inherits C++20 and public includes, and disables optional fonts/Vulkan. On Windows the application also links the Windows SDK's `user32` and `gdi32`. Embedded Tessera defaults exclude its tests/examples; the copied project's own default CTest runs the window-free `settings_starter` sequence.
 
 For local-source FetchContent, configure a separate directory with the same source:
 
@@ -31,7 +31,36 @@ cmake --build build-settings-starter-fetch --config Release --parallel 4 -- /nod
 ctest --test-dir build-settings-starter-fetch -C Release --output-on-failure --no-tests=error
 ```
 
-No network fetch is needed for either import. Independent checks copy these exact two files through the [consumer driver](../../tests/cmake/run-consumer.cmake). Actual configurations and results belong to [support](../reference/support-matrix.md#settings-starter-section-evidence--2026-10-17).
+No network fetch is needed for either import. Independent checks copy these exact three files through the [consumer driver](../../tests/cmake/run-consumer.cmake). Actual configurations and results belong to [support](../reference/support-matrix.md#settings-native-host-evidence--2026-11-03).
+
+## Run in a Windows window
+
+From the copied project built above:
+
+```powershell
+& .\build-settings-starter\Debug\settings_starter.exe --native
+& .\build-settings-starter\Debug\settings_starter.exe --native-smoke
+```
+
+For the repository target, use `build/Debug/tessera_settings_starter.exe` with the same arguments. `--native` opens an interactive window; `--native-smoke` opens it, exercises the window procedure, verifies application values and presentation, then closes it. Both require a Windows desktop session. Other platforms report that the native host requires Windows; running without arguments keeps the deterministic window-free sequence described below.
+
+- Click a category or control. A primary press focuses it; TextInput clicks focus without executing an empty edit. A dotted outline marks fully visible logical focus.
+- Tab and Shift+Tab traverse all controls and reveal them inside each pane. Enter or Space activates buttons, Checkboxes and Dropdown choices. In Username, Space inserts text and Enter leaves the draft unchanged.
+- Type in Username. Control+A selects the whole field; Left/Right, Home/End, Shift-selection, Backspace and Delete use the existing revisioned editing commands. Committed UTF-16 `WM_CHAR` pairs become one UTF-8 insertion. Clipboard and composition/IME integration are outside this host.
+- Wheel over either pane to scroll independently; horizontal wheel messages scroll horizontally. Choose Theme inline, or Escape to dismiss its choices. On Volume, arrows step and Home/End select limits; drag its track to adjust it.
+- Apply appends one in-memory settings copy. Cancel restores the most recently applied copy while retaining the selected category. Saves last only for this process.
+
+The host presents the ordinary CPU capture through a GDI DIB and supplies readable fixed-cell GDI glyph coverage for the existing placeholder scalar metrics. It scales and centers the fixed 640×240 logical canvas inside the client area; resizing and DPI changes retain that layout and use the same mapping for pointer input. It does not perform native text shaping or make portable font-image claims. Native pointer capture continues Slider drags outside the window; capture loss, focus loss, cancellation and resize end the gesture while retaining its last accepted value. Every UI mutation uses the same `input`, staging and command path as the scripted example. Win32 types remain in the application's host header.
+
+To register the native smoke with CTest, configure either the copied project or repository build with `-DTESSERA_TEST_NATIVE_HOST=ON`, rebuild, then run:
+
+```powershell
+ctest --test-dir build-settings-starter -C Debug -R '^settings_starter_native$' --output-on-failure --no-tests=error
+```
+
+This opt-in test has the `native` label and a 60-second timeout. It checks window presentation, pointer focus, committed text including a surrogate pair, Tab reachability, independent wheel scrolling, Dropdown choice, keyboard and captured Slider editing, capture loss, Apply/Cancel retention, activation repeat suppression and resized pointer mapping. Default headless/import tests do not require a desktop.
+
+## Run the scripted sequence
 
 The program supplies normalized input itself. Each checkpoint prints `Section <id>`, the `User ...` summary and the saved result, in this order:
 
@@ -66,7 +95,7 @@ The numeric sequence then focuses Volume, checks endpoints/steps and pointer dra
 5 owned saves; 53 host commands; 640x240 RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)
 ```
 
-The process exits nonzero with diagnostics on failure. This is a window-free example with placeholder text and synthetic glyph marks; a native host supplies its own window, physical input normalization and rendering services.
+The process exits nonzero with diagnostics on failure. Running without arguments is window-free and uses placeholder text and synthetic glyph marks; the Windows modes above supply the window, physical input normalization and display services.
 
 ## Compose the application and its styles
 
@@ -149,6 +178,6 @@ The sheet, shaper and lowered source/style inputs are borrowed synchronously dur
 
 `ScrollOffsets` stores applied offsets under `categories` and `settings-form`, independently of transient node indices. `prepare` resolves these IDs in each newly lowered tree and builds the per-node layout offset span. `stage` prepares a complete candidate, refreshes a copied focus dispatcher, and optionally uses `scroll_into_view` to prepare again with the offsets needed to reveal focus. `accept` stores layout's clamped offsets only after staging succeeds, then refreshes focus and pointer state against the accepted tree. Replaced-tree pointer presses are cancelled by the ordinary dispatcher.
 
-Wheel events use `route_scroll` at their normalized pointer position and stage only when offsets change. They preserve logical focus without revealing it, and execute no host command. Logical focus navigation and accepted command replacements reveal focus before acceptance; moving from the sidebar to a field or Apply/Cancel therefore reaches controls outside the initial clip. Button pointer dispatch uses that same clipped geometry and activates only on release; Slider track input follows the numeric policy above. Category clicks leave logical focus unchanged; closing Dropdown choices explicitly restores its trigger focus. A native adapter supplies physical events and frame scheduling.
+Wheel events use `route_scroll` at their normalized pointer position and stage only when offsets change. They preserve logical focus without revealing it, and execute no host command. Logical focus navigation and accepted command replacements reveal focus before acceptance; moving from the sidebar to a field or Apply/Cancel therefore reaches controls outside the initial clip. Button pointer dispatch uses that same clipped geometry, focuses its owner on a primary press and activates only on release; Slider track input follows the numeric policy above. Closing Dropdown choices explicitly restores its trigger focus. The Windows adapter supplies physical events and frame scheduling.
 
-The smoke traverses every control by keyboard while checking that it is revealed, retains all edit/Apply/Cancel checks, and sends oversized positive/negative wheel deltas to each pane. It checks independent offsets, clamping, unchanged focus and application values. After wheel-revealing About, pointer press/release selects About then Account through ordinary commands, retaining the draft and three saved copies. This checkpoint has 24 commands; the subsequent Dropdown sequence brings the count to 38; numeric editing and its Apply/Cancel sequence bring the final count to 53. Scrolling and navigation add no application commands.
+The smoke traverses every control by keyboard while checking that it is revealed, retains all edit/Apply/Cancel checks, and sends oversized positive/negative wheel deltas to each pane. It checks independent offsets, clamping, unchanged focus and application values. After wheel-revealing About, pointer press/release selects and focuses About; scrolling the sidebar back reveals Account for the return click. Both commands retain the draft and three saved copies. This checkpoint has 24 commands; the subsequent Dropdown sequence brings the count to 38; numeric editing and its Apply/Cancel sequence bring the final count to 53. Scrolling and navigation add no application commands.

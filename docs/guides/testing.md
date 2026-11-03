@@ -41,6 +41,8 @@ Repeated Tier 2 failure blocks the next release and takes repair priority. The [
 
 Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for quick application/consumer runs, `fixture` for the long Diagnostics/Settings fixtures, and `import` for independent host configure/build/link/run checks. [CMake registration](../../CMakeLists.txt) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects labels without removing tests. PRs run `fixture` checks when their fixture sources change and otherwise inherit them from Tier 2.
 
+The Settings Windows host adds an opt-in `native` label when `TESSERA_TEST_NATIVE_HOST=ON`. Its smoke creates and presents a desktop window, routes window messages and checks accepted application state; run it in a desktop session under the [starter procedure](settings-starter.md#run-in-a-windows-window). Default headless/import runs keep the no-argument consumer check. Injected window messages establish host wiring; physical-device and IME evidence remain separate.
+
 ### Measurement and safe reduction
 
 Before changing required checks or removing a duplicate test, compare available CI durations, identify equivalent owner coverage and verify the replacement detects the regressions the old check did. Keep slow substantive checks in wider tiers; a temporary flaky-check quarantine needs a reason, owner and return condition. [Development](development.md#focused-checks-and-timing) owns collection commands; support owns material baselines.
