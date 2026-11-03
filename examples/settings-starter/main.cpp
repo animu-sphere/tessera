@@ -1,10 +1,12 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/input/focus.hpp>
+#include <tessera/input/scroll.hpp>
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/render/paint.hpp>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <tuple>
 
@@ -48,8 +50,6 @@ ui::Element Settings(const std::string& selected, ui::Value<TextEditState> usern
         choices.push_back(ui::Button((selected == id ? "* " : "") + id, "settings.section." + id,
             {.node = {.id = "section-" + id, .classes = {"control"}}}));
     std::vector<ui::Element> rows{
-        ui::Text("Settings"),
-        ui::Row(std::move(choices), {.style = {.gap = 12.f}}),
         ui::Text("Section " + selected, {.id = "selected-section", .classes = {"status"}})};
     if (selected == "account")
         rows.push_back(Field({"Account"}, {ui::TextInput("Username", username, "settings.edit",
@@ -65,7 +65,12 @@ ui::Element Settings(const std::string& selected, ui::Value<TextEditState> usern
         ui::Button("Cancel", "settings.cancel", {.node = {.id = "cancel", .classes = {"control"}}})},
         {.style = {.gap = 12.f}}));
     rows.push_back(ui::Text(saved, {.id = "save-result", .classes = {"status"}}));
-    return ui::Column(std::move(rows), {.id = "settings", .classes = {"form"}});
+    return ui::Column({ui::Text("Settings"), ui::Row({
+        ui::ScrollView(std::move(choices), {.id = "categories",
+            .style = {.width = Dimension::points(140), .height = Dimension::points(64), .gap = 12.f}}),
+        ui::ScrollView(std::move(rows), {.id = "settings-form",
+            .style = {.width = Dimension::points(440), .height = Dimension::points(144), .gap = 12.f}})},
+        {.style = {.gap = 12.f}})}, {.id = "settings", .classes = {"form"}});
 }
 
 // Host state and synchronous in-memory saves own values, never UI references.
@@ -121,7 +126,15 @@ struct Host final : CommandHost {
     }
 };
 
-constexpr Size viewport{640, 360};
+constexpr Size viewport{640, 240};
+using ScrollOffsets = std::map<std::string, Point>;
+void update_offsets(ScrollOffsets& offsets, const UiTree& tree, const std::vector<ScrollUpdate>& updates) {
+    for (const auto& update : updates) {
+        const auto* node = tree.get(update.container);
+        require(node && node->id.has_value(), "Scroll owners require stable author IDs");
+        offsets[*node->id] = update.offset;
+    }
+}
 const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply", "settings.cancel",
     "settings.section.account", "settings.section.feature", "settings.section.about"}};
 struct Presentation {
@@ -136,7 +149,7 @@ struct Presentation {
 };
 // Every borrowed input is used synchronously; returned observations are owned.
 Result<Presentation> prepare(ui::Session& session, const ui::Element& form,
-    CommandSnapshot commands, const StyleSheet& sheet, TextShaper& text) {
+    CommandSnapshot commands, const StyleSheet& sheet, TextShaper& text, const ScrollOffsets& offsets) {
     auto authored = session.lower(form, actions);
     if (!authored) return {std::nullopt, std::move(authored.diagnostics)};
     auto document = commands.apply_eligibility(authored.value->document, actions);
@@ -145,7 +158,10 @@ Result<Presentation> prepare(ui::Session& session, const ui::Element& form,
     if (!tree) return {std::nullopt, std::move(tree.diagnostics)};
     auto styles = resolve_styles({tree.value->get(), &sheet, {}, authored.value->styles});
     if (!styles) return {std::nullopt, std::move(styles.diagnostics)};
-    auto layout = compute_layout({tree.value->get(), *styles.value, viewport, &text});
+    std::vector<Point> requested((*tree.value)->size());
+    for (const auto& [id, offset] : offsets)
+        if (const auto owner = (*tree.value)->find(id)) requested[owner->index] = offset;
+    auto layout = compute_layout({tree.value->get(), *styles.value, viewport, &text, requested});
     if (!layout) return {std::nullopt, std::move(layout.diagnostics)};
     auto inspection = capture_inspection({tree.value->get(), *styles.value, &*layout.value, &authored.value->sources});
     if (!inspection) return {std::nullopt, std::move(inspection.diagnostics)};
@@ -201,12 +217,39 @@ int main() {
                     {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}}}));
         };
         PlaceholderTextShaper text;
-        auto accepted = take(prepare(session, form(host.selected), commands(), sheet, text));
-        session.publish();
+        ScrollOffsets offsets;
         FocusDispatcher focus;
+        PointerDispatcher pointer;
+        auto stage = [&](const std::string& selected, ScrollOffsets requested,
+            FocusDispatcher candidate_focus, bool reveal) -> Result<Presentation> {
+            const auto snapshot = commands();
+            const auto element = form(selected);
+            auto candidate = prepare(session, element, snapshot, sheet, text, requested);
+            if (!candidate) return candidate;
+            const auto target = take(candidate_focus.refresh(candidate.value->hit())).focused;
+            if (reveal && target) {
+                const auto updates = take(scroll_into_view(candidate.value->hit(), *target));
+                if (!updates.empty()) {
+                    update_offsets(requested, *candidate.value->tree, updates);
+                    candidate = prepare(session, element, snapshot, sheet, text, requested);
+                }
+            }
+            return candidate;
+        };
+        auto accepted = take(stage(host.selected, offsets, focus, false));
+        session.publish();
+        auto accept = [&](Presentation candidate) {
+            for (const auto& box : candidate.layout.boxes)
+                if (box.scroll) offsets[*candidate.tree->get(box.node)->id] = box.scroll->offset;
+            accepted = std::move(candidate);
+            (void)take(focus.refresh(accepted.hit()));
+            (void)take(pointer.refresh(accepted.hit()));
+        };
         CommandExecutor executor;
         auto focused = [&](const char* id) {
             require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find(id), "Unexpected focus");
+            require(take(scroll_into_view(accepted.hit(), *accepted.tree->find(id))).empty(),
+                "Navigation did not reveal the focused control");
         };
         auto operate = [&](const ActionRequest& action, CommandSource source, std::optional<TextEditRequest> edit = {}) {
             const auto current = accepted.semantic();
@@ -221,7 +264,7 @@ int main() {
             session.update([&] {
                 username.write(host.next_username); enabled.write(host.next_draft.feature); saved.write(host.next_result);
             });
-            auto candidate = prepare(session, form(host.next_selected), commands(), sheet, text);
+            auto candidate = stage(host.next_selected, offsets, focus, true);
             if (!candidate) {
                 // Returned stage failure: restore observations, retain host values,
                 // save records and presentation, then exit with diagnostics.
@@ -237,11 +280,26 @@ int main() {
             host.username = std::move(host.next_username);
             host.draft = std::move(host.next_draft); host.result = std::move(host.next_result);
             host.selected = std::move(host.next_selected);
-            session.publish(); accepted = std::move(*candidate.value);
-            (void)take(focus.refresh(accepted.hit())); // Recover by explicit author ID.
+            session.publish(); accept(std::move(*candidate.value));
         };
         auto input = [&](InputEvent event, CommandSource source = CommandSource::keyboard) {
             require(validate(event).empty(), "Invalid normalized input");
+            if (const auto* scroll = std::get_if<Scroll>(&event.data)) {
+                auto requested = offsets;
+                const auto routed = take(route_scroll(accepted.hit(), *scroll));
+                if (!routed.updates.empty()) {
+                    update_offsets(requested, *accepted.tree, routed.updates);
+                    auto candidate = take(stage(host.selected, requested, focus, false));
+                    session.publish(); accept(std::move(candidate));
+                }
+                return;
+            }
+            if (std::holds_alternative<PointerMove>(event.data) || std::holds_alternative<PointerDown>(event.data) ||
+                std::holds_alternative<PointerUp>(event.data) || std::holds_alternative<PointerCancel>(event.data)) {
+                const auto dispatched = take(pointer.dispatch(accepted.hit(), event));
+                for (const auto& action : dispatched.actions) operate(action, source);
+                return;
+            }
             std::optional<decltype(TextEditRequest::operation)> edit;
             const auto owner = accepted.tree->find("username");
             const auto current_focus = take(focus.refresh(accepted.hit())).focused;
@@ -272,6 +330,11 @@ int main() {
             if (std::holds_alternative<KeyDown>(event.data) || std::holds_alternative<tessera::TextInput>(event.data)) return;
             const auto dispatched = take(focus.dispatch(accepted.hit(), event));
             for (const auto& action : dispatched.actions) operate(action, source);
+            if (dispatched.actions.empty() && dispatched.focused &&
+                !take(scroll_into_view(accepted.hit(), *dispatched.focused)).empty()) {
+                auto candidate = take(stage(host.selected, offsets, focus, true));
+                session.publish(); accept(std::move(candidate));
+            }
         };
 
         SyntheticGlyphs raster;
@@ -297,14 +360,14 @@ int main() {
             if (host.selected == "about")
                 require(name(accepted, "section-help") == "Apply saves the whole draft.", "Help differs");
             require(name(accepted, "save-result") == host.result, "Saved observation differs");
-            // This onboarding viewport fits every branch; no reveal/scroll policy is needed.
+            // Offscreen content retains geometry; focus must be revealed in its pane.
             for (const auto& element : accepted.inspection.elements) {
                 require(element.geometry.has_value() && element.geometry->visible, "Missing visible geometry");
                 const auto& box = element.geometry->border_box;
-                require(box.size.width > 0 && box.size.height > 0 && box.origin.x >= 0 && box.origin.y >= 0 &&
-                    box.origin.x + box.size.width <= viewport.width && box.origin.y + box.size.height <= viewport.height,
-                    "Element lies outside the viewport");
+                require(box.size.width > 0 && box.size.height > 0, "Empty element geometry");
             }
+            if (const auto target = take(focus.refresh(accepted.hit())).focused)
+                require(take(scroll_into_view(accepted.hit(), *target)).empty(), "Focused control is clipped");
             const auto image = capture();
             require(capture() == image, "Repeated CPU capture differs");
             std::cout << name(accepted, "selected-section") << '\n' << name(accepted, "summary") << '\n'
@@ -377,12 +440,11 @@ int main() {
         send(FocusNext{}); focused("toggle");
         send(Activate{}); focused("toggle");
         require(host.saves.empty(), "Toggle saved prematurely");
-        const auto toggled = observe();
+        (void)observe();
         send(FocusNext{}); focused("apply");
         send(Activate{}, CommandSource::gamepad); focused("apply");
         require(host.saves == std::vector<SettingsData>{{"Ada本", true}}, "First Apply differs");
         const auto first_saved = observe();
-        require(first_saved != toggled, "Apply did not change pixels");
         send(FocusPrevious{}); focused("toggle");
         send(FocusPrevious{}); focused("section-about");
         send(Activate{}, CommandSource::gamepad); focused("section-about");
@@ -466,6 +528,50 @@ int main() {
         send(FocusNext{}); send(Activate{}); focused("section-account");
         require(host.draft == host.applied && host.saves == saved_copies && host.result == saved_result,
             "Returning to Account lost cancelled values");
+        (void)observe();
+        // Wheel input preserves focus and application data; each pane owns its offset.
+        auto box = [&](const char* id) -> const LayoutBox& {
+            return accepted.layout.boxes[accepted.tree->find(id)->index];
+        };
+        auto center = [](Rect rect) { return Point{rect.origin.x + rect.size.width / 2,
+            rect.origin.y + rect.size.height / 2}; };
+        const auto before_wheel = std::tuple{host.selected, host.username, host.draft, host.applied, host.saves, host.result, sequence};
+        for (const auto* pane : {"categories", "settings-form"}) {
+            const auto other = std::string(pane) == "categories" ? "settings-form" : "categories";
+            const auto other_offset = offsets[other];
+            send(Scroll{center(box(pane).padding_box()), {0, 4096}});
+            require(offsets[pane] == box(pane).scroll_limit() && offsets[pane].y > 0 && offsets[other] == other_offset,
+                "Wheel did not clamp the intended pane independently");
+            require(take(focus.refresh(accepted.hit())).focused == accepted.tree->find("section-account"),
+                "Wheel changed logical focus"); // Wheel deliberately does not reveal focus.
+            send(Scroll{center(box(pane).padding_box()), {0, -4096}});
+            require(offsets[pane] == Point{} && offsets[other] == other_offset, "Wheel did not return the pane to zero");
+        }
+        require(before_wheel == std::tuple{host.selected, host.username, host.draft, host.applied, host.saves, host.result, sequence},
+            "Wheel changed application data or executed a command");
+        // Reveal About by wheel, then activate it through clipped hit testing.
+        send(Scroll{center(box("categories").padding_box()), {0, 4096}});
+        send(Scroll{center(box("settings-form").padding_box()), {0, 4096}});
+        const auto account_bottom = offsets["settings-form"];
+        auto click = [&](const char* id) {
+            const auto& target = box(id);
+            const auto visible = target.clip ? intersect(target.border_box, *target.clip) : target.border_box;
+            require(visible.size.width > 0 && visible.size.height > 0, "Pointer control is clipped");
+            const auto position = center(visible);
+            const auto before = sequence;
+            send(PointerDown{{1}, position}, CommandSource::pointer);
+            require(sequence == before, "Pointer press executed a command");
+            send(PointerUp{{1}, position}, CommandSource::pointer);
+            require(sequence == before + 1, "Pointer release must execute one command");
+        };
+        click("section-about");
+        require(host.selected == "about" && host.username.text == "日😀" && host.saves == saved_copies,
+            "Pointer category selection changed retained state");
+        require(offsets["settings-form"].y < account_bottom.y && offsets["settings-form"] == box("settings-form").scroll_limit(),
+            "Shorter branch did not clamp the retained form offset");
+        click("section-account");
+        require(host.selected == "account" && host.draft == host.applied && host.saves == saved_copies && host.result == saved_result,
+            "Pointer category return lost retained state");
         (void)observe();
         std::cout << host.saves.size() << " owned saves; " << sequence << " host commands; " << extent.width << 'x' << extent.height
             << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";

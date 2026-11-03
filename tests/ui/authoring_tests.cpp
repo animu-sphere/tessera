@@ -101,6 +101,29 @@ void rejection_and_preflight() {
     check(reads == 1, "Preflight rejection must permit repair");
 }
 
+void scroll_view_contract() {
+    Session ui;
+    // ScrollView keeps ordinary identity/style/source handling and constrains
+    // overflow independently of a caller's competing container declarations.
+    const auto view = ScrollView({Text("Content", {.id = "content"})}, {.id = "list",
+        .classes = {"pane"}, .style = {.direction = FlexDirection::row, .overflow = Overflow::visible,
+            .width = Dimension::points(100), .height = Dimension::points(40), .gap = 8.f}, .source = origin});
+    const auto candidate = take(ui.lower(view));
+    const auto tree = take(UiTree::create(candidate.document));
+    const StyleSheet sheet;
+    const auto styles = take(resolve_styles({tree.get(), &sheet, {}, candidate.styles}));
+    check(tree->size() == 2 && tree->find("content") && candidate.document.root.classes == std::vector<std::string>{"pane"} &&
+        styles[0].direction == FlexDirection::column && styles[0].overflow == Overflow::scroll &&
+        styles[0].width == Dimension::points(100) && styles[0].height == Dimension::points(40) && styles[0].gap == 8,
+        "ScrollView must use ordinary Column lowering and retain supplied styles/identity");
+    check(validate_sources(candidate.document, candidate.sources).empty() &&
+        candidate.sources.nodes[0].style_argument == origin, "ScrollView lost its caller's source");
+    const auto invalid = ui.lower(ScrollView({Text("Content")},
+        {.style = {.height = Dimension::points(-1)}, .source = origin}));
+    check(!invalid && invalid.diagnostics[0].source && invalid.diagnostics[0].source->location == origin,
+        "Invalid ScrollView constraints need a source-located diagnostic");
+}
+
 void controlled_checkbox() {
     Session ui;
     const auto checked = ui.state("checked", false);
@@ -244,7 +267,7 @@ void bounded_descriptions() {
 int main() {
     try {
         composition_and_updates(); rejection_and_preflight(); controlled_checkbox(); controlled_text_input();
-        lifetimes_and_recovery(); bounded_descriptions();
+        scroll_view_contract(); lifetimes_and_recovery(); bounded_descriptions();
         std::cout << "Authoring composition, state, diagnostics and lifetime checks passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
