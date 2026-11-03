@@ -2,6 +2,10 @@
 
 Dated delivery history and release records. Each release is a `## vX.Y.Z — YYYY-MM-DD` section matching [VERSION](VERSION); unreleased entries collect under `## Unreleased`. Live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).
 
+## Unreleased
+
+- Added public horizontal/vertical controlled SplitPane composition using existing Flex, host-owned logical size and minima, compatible handle capture, keyboard/gamepad adjustment and resize clamping. The [Settings starter](examples/settings-starter/main.cpp) connects a draggable sidebar/editor boundary, DPI-scaled native viewport and resize cursor while retaining pending edits, scroll and Apply/Cancel state. The Box separator marker projects ordinary adjustable separator actions through semantics, inspection and replay; numeric accessibility ranges remain out of scope. [Usage](docs/guides/split-pane.md), [host procedure](docs/guides/settings-starter.md#resize-the-sidebar) and [validation](docs/reference/support-matrix.md#splitpane-evidence--2026-11-03) describe the delivered operation.
+
 ## v0.5.0 — 2026-11-03
 
 - Completed the public C++ Settings application: category selection, text/Checkbox/Slider editing, independent scrolling, retained Apply/Cancel state, Dropdown selection and an interactive Windows desktop host. Release validation is recorded in [support](docs/reference/support-matrix.md#v050-release-validation--2026-11-03). Follow-up layout work starts with [SplitPane](docs/roadmap/current.md#splitpane), then [Stack/Overlay and further layout tasks](docs/roadmap/backlog.md#layout-follow-ups).

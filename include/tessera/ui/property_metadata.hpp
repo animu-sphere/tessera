@@ -14,6 +14,7 @@ inline constexpr std::string_view text = "text";
 inline constexpr std::string_view focusable = "focusable";
 inline constexpr std::string_view disabled = "disabled";
 inline constexpr std::string_view labelled_by = "labelled_by";
+inline constexpr std::string_view separator = "separator";
 } // namespace property_names
 
 // Mirrors the `Property` alternatives; no coercion between types.

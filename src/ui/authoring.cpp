@@ -1,4 +1,5 @@
 #include <tessera/ui/authoring.hpp>
+#include <tessera/ui/property_metadata.hpp>
 #include <set>
 #include <algorithm>
 #include <cmath>
@@ -14,11 +15,13 @@ struct ElementData {
     std::optional<Value<TextEditState>> editing;
     bool selection = false;
     std::optional<std::string> action;
+    std::map<std::string, Property, std::less<>> properties;
     std::vector<Element> children;
     std::vector<Diagnostic> diagnostics;
 };
 
 struct Lowerer {
+    static Element split_pane(Element, Element, float, std::string, SplitPaneProps, FlexDirection);
     Presentation result;
     std::vector<const ElementData*> elements;
     std::vector<Diagnostic> errors;
@@ -60,6 +63,7 @@ struct Lowerer {
         node.kind = data.kind;
         node.id = data.props.id;
         node.classes = data.props.classes;
+        node.properties = data.properties;
         if (data.text) {
             const auto* literal = std::get_if<std::string>(&data.text->value_);
             node.properties["text"] = literal ? *literal : std::string{};
@@ -294,6 +298,91 @@ Element Slider(std::string label, int value, SliderRange range, std::string acti
     data->disabled = props.disabled;
     data->action = std::move(action);
     return Element(std::move(data));
+}
+
+namespace {
+std::vector<Diagnostic> split_limits_errors(SplitPaneLimits limits) {
+    if (!std::isfinite(limits.minimum_first) || limits.minimum_first < 0 ||
+        !std::isfinite(limits.minimum_second) || limits.minimum_second < 0 ||
+        !std::isfinite(limits.handle_size) || limits.handle_size <= 0)
+        return {{"split_pane_limits", Severity::error, {},
+            "Supply finite nonnegative pane minima and a finite positive logical handle size."}};
+    return {};
+}
+}
+
+Result<float> split_pane_size_at(SplitPaneLimits limits, float available, float requested) {
+    auto errors = split_limits_errors(limits);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    if (!std::isfinite(available) || available < 0 || !std::isfinite(requested))
+        return {std::nullopt, {{"split_pane_size", Severity::error, {},
+            "Supply a finite nonnegative parent content size and a finite requested pane size."}}};
+    const auto maximum = std::max(limits.minimum_first, available - limits.handle_size - limits.minimum_second);
+    return {std::clamp(requested, limits.minimum_first, maximum), {}};
+}
+
+Element detail::Lowerer::split_pane(Element first, Element second, float size, std::string action,
+    SplitPaneProps props, FlexDirection direction) {
+    auto data = std::make_shared<detail::ElementData>();
+    data->diagnostics = split_limits_errors(props.limits);
+    if (!std::isfinite(size) || size < 0)
+        data->diagnostics.push_back({"split_pane_size", Severity::error, {},
+            "Supply a finite nonnegative first-pane logical size."});
+    if (!props.node.id || props.node.id->empty())
+        data->diagnostics.push_back({"split_pane_id", Severity::error, {},
+            "Give SplitPane a stable author ID for its handle and retained host state."});
+    const std::string id = props.node.id.value_or("");
+    const bool horizontal = direction == FlexDirection::row;
+    auto pane = [&](Element child, const char* suffix, bool leading) {
+        auto content = child.data_ ? std::make_shared<detail::ElementData>(*child.data_) :
+            std::shared_ptr<detail::ElementData>{};
+        if (content) {
+            content->props.style.grow = 1.f;
+            content->props.style.shrink = 1.f;
+            child = Element(std::move(content));
+        }
+        Props node{.id = id + suffix, .source = props.node.source};
+        auto& style = node.style;
+        style.direction = direction;
+        style.overflow = Overflow::clip;
+        style.grow = leading ? 0.f : 1.f;
+        style.shrink = leading ? 1.f : 0.f;
+        if (horizontal) {
+            style.width = Dimension::points(leading ? size : 0);
+            style.min_width = leading ? props.limits.minimum_first : props.limits.minimum_second;
+        } else {
+            style.height = Dimension::points(leading ? size : 0);
+            style.min_height = leading ? props.limits.minimum_first : props.limits.minimum_second;
+        }
+        return horizontal ? Row({std::move(child)}, std::move(node)) : Column({std::move(child)}, std::move(node));
+    };
+    auto handle = std::make_shared<detail::ElementData>();
+    handle->props.id = id + "-handle";
+    handle->props.source = props.node.source;
+    handle->props.style.background = Color{0.45f, 0.5f, 0.6f, 1};
+    if (horizontal) handle->props.style.width = Dimension::points(props.limits.handle_size);
+    else handle->props.style.height = Dimension::points(props.limits.handle_size);
+    handle->properties[std::string(property_names::separator)] = true;
+    handle->properties["labelled_by"] = NodeReference{id + "-handle-label"};
+    handle->disabled = props.disabled;
+    handle->action = std::move(action);
+    handle->children.push_back(Text(props.label + ": " + std::to_string(size) + " logical units",
+        {.id = id + "-handle-label", .style = {.display = Display::none}, .source = props.node.source}));
+    data->children = {pane(std::move(first), "-first", true), Element(std::move(handle)),
+        pane(std::move(second), "-second", false)};
+    data->props = std::move(props.node);
+    data->props.style.direction = direction;
+    data->props.style.justify = Justify::start;
+    data->props.style.align = Align::stretch;
+    data->props.style.gap = 0.f;
+    data->props.style.overflow = Overflow::clip;
+    return Element(std::move(data));
+}
+Element HorizontalSplitPane(Element first, Element second, float size, std::string action, SplitPaneProps props) {
+    return detail::Lowerer::split_pane(std::move(first), std::move(second), size, std::move(action), std::move(props), FlexDirection::row);
+}
+Element VerticalSplitPane(Element first, Element second, float size, std::string action, SplitPaneProps props) {
+    return detail::Lowerer::split_pane(std::move(first), std::move(second), size, std::move(action), std::move(props), FlexDirection::column);
 }
 
 Result<Presentation> Session::lower(const Element& element, const ValidationContext& context) {

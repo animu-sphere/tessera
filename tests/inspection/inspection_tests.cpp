@@ -83,7 +83,8 @@ void capture_joins_one_generation() {
     const std::vector<tessera::PropertyObservation> box_properties{
         {"disabled", tessera::Property{false}, false},
         {"focusable", tessera::Property{true}, true},
-        {"labelled_by", std::nullopt, false}};
+        {"labelled_by", std::nullopt, false},
+        {"separator", tessera::Property{false}, false}};
     check(start.properties == box_properties, "Box properties follow descriptors with absence values");
     check(elements[1].properties.size() == 4 && elements[1].properties[3].name == "text" &&
               elements[1].properties[3].authored,

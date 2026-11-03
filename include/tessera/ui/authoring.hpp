@@ -71,6 +71,20 @@ struct SliderProps {
 // (ties toward maximum). Invalid ranges/positions return actionable diagnostics.
 Result<int> slider_value_at(SliderRange, double position);
 
+struct SplitPaneLimits {
+    float minimum_first = 80;
+    float minimum_second = 80;
+    float handle_size = 8;
+};
+struct SplitPaneProps {
+    Props node; // A stable ID is required; generated parts use this ID as a prefix.
+    SplitPaneLimits limits;
+    std::string label = "Resize panes";
+    bool disabled = false;
+};
+// If the parent cannot hold both minima, keep them and clip the overflow.
+Result<float> split_pane_size_at(SplitPaneLimits, float available, float requested);
+
 // Immutable composition values. Copying shares descriptions, never state/owners.
 class Element final {
 public:
@@ -90,6 +104,8 @@ private:
     friend Element Column(std::vector<Element>, Props);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
+    friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
+    friend Element VerticalSplitPane(Element, Element, float, std::string, SplitPaneProps);
 };
 
 Element Text(Value<std::string>, Props = {});
@@ -115,6 +131,12 @@ Element Dropdown(std::string label, std::string selected, std::vector<DropdownOp
 // Generated IDs: <id>-track, <id>-fill, <id>-thumb. The host owns input,
 // commands and values; map thumb centers over track width minus 8 units.
 Element Slider(std::string label, int value, SliderRange, std::string action, SliderProps = {});
+// Controlled first-pane border-box size in logical units. Flex clamps it to the
+// parent; the host retains the resolved size and routes adjustment commands.
+// Horizontal places panes left/right; Vertical places them top/bottom. Nest to
+// compose more panes. Parts: <id>-first, -handle, -handle-label, -second.
+Element HorizontalSplitPane(Element first, Element second, float size, std::string action, SplitPaneProps = {});
+Element VerticalSplitPane(Element first, Element second, float size, std::string action, SplitPaneProps = {});
 
 struct Presentation {
     UiDocument document;

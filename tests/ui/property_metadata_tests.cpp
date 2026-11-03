@@ -52,7 +52,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 4, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 5, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");
@@ -69,7 +69,7 @@ void descriptor_table() {
     check(std::is_sorted(descriptors.begin(), descriptors.end(),
                          [](const auto& a, const auto& b) { return a.name < b.name; }), "Descriptors must be ordered by name");
     for (const auto name : {tessera::property_names::text, tessera::property_names::focusable,
-                            tessera::property_names::disabled, tessera::property_names::labelled_by})
+                            tessera::property_names::disabled, tessera::property_names::labelled_by, tessera::property_names::separator})
         check(names.contains(name), "Named property lacks a descriptor");
     check(!tessera::find_property_descriptor("Text") && !tessera::find_property_descriptor(""),
           "Lookup must be exact and case-sensitive");

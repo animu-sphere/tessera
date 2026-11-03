@@ -2,6 +2,7 @@
 #include <tessera/commands/execution.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/input/scroll.hpp>
+#include <tessera/input/split_pane.hpp>
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/render/paint.hpp>
@@ -49,8 +50,10 @@ ui::Element Field(FieldProps props, std::vector<ui::Element> children) {
 }
 const std::vector<std::string> sections{"account", "feature", "about"};
 constexpr ui::SliderRange volume_range{0, 100, 5};
+constexpr ui::SplitPaneLimits pane_limits{96, 240, 8};
 ui::Element Settings(const std::string& selected, ui::Value<TextEditState> username, ui::Value<bool> enabled,
-    ui::Value<std::string> summary, ui::Value<std::string> saved, const std::string& theme, bool theme_open, int volume) {
+    ui::Value<std::string> summary, ui::Value<std::string> saved, const std::string& theme, bool theme_open, int volume,
+    float sidebar_size) {
     std::vector<ui::Element> choices;
     for (const auto& id : sections)
         choices.push_back(ui::Button((selected == id ? "* " : "") + id, "settings.section." + id,
@@ -76,12 +79,13 @@ ui::Element Settings(const std::string& selected, ui::Value<TextEditState> usern
     rows.push_back(ui::Text(saved, {.id = "save-result", .classes = {"status"}}));
     rows.push_back(ui::Slider("Volume", volume, volume_range, "settings.volume",
         {.node = {.id = "volume", .classes = {"control"}}}));
-    return ui::Column({ui::Text("Settings"), ui::Row({
+    return ui::Column({ui::Text("Settings"), ui::HorizontalSplitPane(
         ui::ScrollView(std::move(choices), {.id = "categories",
-            .style = {.width = Dimension::points(140), .height = Dimension::points(64), .gap = 12.f}}),
+            .style = {.height = Dimension::points(64), .gap = 12.f}}),
         ui::ScrollView(std::move(rows), {.id = "settings-form",
-            .style = {.width = Dimension::points(440), .height = Dimension::points(144), .gap = 12.f}})},
-        {.style = {.gap = 12.f}})}, {.id = "settings", .classes = {"form"}});
+            .style = {.height = Dimension::points(144), .gap = 12.f}}),
+        sidebar_size, "settings.split", {.node = {.id = "settings-panes", .style = {.height = Dimension::points(144)}},
+            .limits = pane_limits, .label = "Resize sidebar"})}, {.id = "settings", .classes = {"form"}});
 }
 
 // Host state and synchronous in-memory saves own values, never UI references.
@@ -111,11 +115,14 @@ struct Host final : CommandHost {
     bool applying = false;
     bool theme_open = false, next_theme_open = false;
     std::optional<int> volume_request;
+    float sidebar_size = 140, next_sidebar_size = 140;
+    std::optional<float> split_request;
 
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         next_username = username; next_draft = draft; next_result = result;
         next_selected = selected;
         next_theme_open = theme_open;
+        next_sidebar_size = sidebar_size;
         applying = invocation.command == "settings.apply";
         if (invocation.command == "settings.edit") {
             require(edit.has_value(), "Editing requires an owned request");
@@ -133,6 +140,9 @@ struct Host final : CommandHost {
             if (!restored) return {CommandOutcomeStatus::error, {}, std::move(restored.diagnostics)};
             next_username = std::move(*restored.value);
             next_draft = applied;
+        } else if (invocation.command == "settings.split") {
+            require(split_request.has_value(), "Split adjustment requires an owned size request");
+            next_sidebar_size = *split_request;
         } else if (invocation.command == "settings.volume") {
             next_draft.volume = volume_request.value_or(std::min(volume_range.maximum, draft.volume + volume_range.step));
         } else if (invocation.command == "settings.toggle") next_draft.feature = !draft.feature;
@@ -161,6 +171,7 @@ void update_offsets(ScrollOffsets& offsets, const UiTree& tree, const std::vecto
     }
 }
 const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply", "settings.cancel", "settings.volume",
+    "settings.split",
     "settings.theme.toggle", "settings.theme.system", "settings.theme.light", "settings.theme.dark",
     "settings.section.account", "settings.section.feature", "settings.section.about"}};
 struct Presentation {
@@ -173,9 +184,15 @@ struct Presentation {
     HitTestInput hit() const { return {tree.get(), styles, &layout}; }
     SemanticInput semantic() const { return {tree.get(), styles, &layout}; }
 };
+const LayoutBox& box_for(const Presentation& presentation, NodeHandle node) {
+    const auto found = std::find_if(presentation.layout.boxes.begin(), presentation.layout.boxes.end(),
+        [&](const auto& box) { return box.node == node; });
+    require(found != presentation.layout.boxes.end(), "Missing layout geometry");
+    return *found;
+}
 // Every borrowed input is used synchronously; returned observations are owned.
 Result<Presentation> prepare(ui::Session& session, const ui::Element& form,
-    CommandSnapshot commands, const StyleSheet& sheet, TextShaper& text, const ScrollOffsets& offsets) {
+    CommandSnapshot commands, const StyleSheet& sheet, TextShaper& text, const ScrollOffsets& offsets, Size available) {
     auto authored = session.lower(form, actions);
     if (!authored) return {std::nullopt, std::move(authored.diagnostics)};
     auto document = commands.apply_eligibility(authored.value->document, actions);
@@ -187,7 +204,7 @@ Result<Presentation> prepare(ui::Session& session, const ui::Element& form,
     std::vector<Point> requested((*tree.value)->size());
     for (const auto& [id, offset] : offsets)
         if (const auto owner = (*tree.value)->find(id)) requested[owner->index] = offset;
-    auto layout = compute_layout({tree.value->get(), *styles.value, viewport, &text, requested});
+    auto layout = compute_layout({tree.value->get(), *styles.value, available, &text, requested});
     if (!layout) return {std::nullopt, std::move(layout.diagnostics)};
     auto inspection = capture_inspection({tree.value->get(), *styles.value, &*layout.value, &authored.value->sources});
     if (!inspection) return {std::nullopt, std::move(inspection.diagnostics)};
@@ -230,19 +247,21 @@ int main(int argc, char** argv) {
         const auto summary = session.computed("summary", [username, enabled] {
             return "User " + username.read().text + (enabled.read() ? "; feature enabled" : "; feature disabled");
         });
-        auto form = [&](const std::string& selected, const std::string& theme, bool open, int volume) {
-            return Settings(selected, username, enabled, summary, saved, theme, open, volume);
+        auto form = [&](const std::string& selected, const std::string& theme, bool open, int volume, float sidebar_size) {
+            return Settings(selected, username, enabled, summary, saved, theme, open, volume, sidebar_size);
         };
         const auto sheet = application_styles();
         const auto registry = take(CommandRegistry::create(
             {{"settings.edit", "Edit username"}, {"settings.toggle", "Toggle feature"}, {"settings.apply", "Apply settings"},
                 {"settings.cancel", "Cancel pending settings"}, {"settings.volume", "Adjust volume"},
+                {"settings.split", "Resize sidebar"},
                 {"settings.theme.toggle", "Open or close theme choices"}, {"settings.theme.system", "Use system theme"},
                 {"settings.theme.light", "Use light theme"}, {"settings.theme.dark", "Use dark theme"},
                 {"settings.section.account", "Select Account"}, {"settings.section.feature", "Select Feature"},
                 {"settings.section.about", "Select About"}},
             {{"settings.edit", "settings.edit"}, {"settings.toggle", "settings.toggle"}, {"settings.apply", "settings.apply"},
                 {"settings.cancel", "settings.cancel"}, {"settings.volume", "settings.volume"},
+                {"settings.split", "settings.split"},
                 {"settings.theme.toggle", "settings.theme.toggle"}, {"settings.theme.system", "settings.theme.system"},
                 {"settings.theme.light", "settings.theme.light"}, {"settings.theme.dark", "settings.theme.dark"},
                 {"settings.section.account", "settings.section.account"}, {"settings.section.feature", "settings.section.feature"},
@@ -252,6 +271,7 @@ int main(int argc, char** argv) {
             return take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
                 {{"settings.edit", {true}}, {"settings.toggle", {true}}, {"settings.apply", {true}},
                     {"settings.cancel", {true}}, {"settings.volume", {true}},
+                    {"settings.split", {true}},
                     {"settings.theme.toggle", {true}}, {"settings.theme.system", {true}},
                     {"settings.theme.light", {true}}, {"settings.theme.dark", {true}},
                     {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}}}));
@@ -260,18 +280,27 @@ int main(int argc, char** argv) {
         ScrollOffsets offsets;
         FocusDispatcher focus;
         PointerDispatcher pointer;
+        SplitPaneDispatcher splitter("settings-panes");
+        Size canvas = viewport;
         auto stage = [&](const std::string& selected, ScrollOffsets requested,
             FocusDispatcher candidate_focus, bool reveal, const std::string& theme, bool open, int volume) -> Result<Presentation> {
             const auto snapshot = commands();
-            const auto element = form(selected, theme, open, volume);
-            auto candidate = prepare(session, element, snapshot, sheet, text, requested);
+            auto element = form(selected, theme, open, volume, host.next_sidebar_size);
+            auto candidate = prepare(session, element, snapshot, sheet, text, requested, canvas);
             if (!candidate) return candidate;
+            const auto geometry = take(split_pane_geometry(candidate.value->hit(), "settings-panes"));
+            require(geometry.has_value(), "Missing Settings splitter");
+            if (geometry->size != host.next_sidebar_size) {
+                element = form(selected, theme, open, volume, geometry->size);
+                candidate = prepare(session, element, snapshot, sheet, text, requested, canvas);
+                if (!candidate) return candidate;
+            }
             const auto target = take(candidate_focus.refresh(candidate.value->hit())).focused;
             if (reveal && target) {
                 const auto updates = take(scroll_into_view(candidate.value->hit(), *target));
                 if (!updates.empty()) {
                     update_offsets(requested, *candidate.value->tree, updates);
-                    candidate = prepare(session, element, snapshot, sheet, text, requested);
+                    candidate = prepare(session, element, snapshot, sheet, text, requested, canvas);
                 }
             }
             return candidate;
@@ -284,6 +313,9 @@ int main(int argc, char** argv) {
             accepted = std::move(candidate);
             (void)take(focus.refresh(accepted.hit()));
             (void)take(pointer.refresh(accepted.hit()));
+            const auto split = take(splitter.refresh(accepted.hit()));
+            require(split.size.has_value(), "Settings splitter lost its size");
+            host.sidebar_size = host.next_sidebar_size = *split.size;
         };
         CommandExecutor executor;
         auto focused = [&](const char* id) {
@@ -294,6 +326,7 @@ int main(int argc, char** argv) {
         auto operate = [&](const ActionRequest& action, CommandSource source, std::optional<TextEditRequest> edit = {}) {
             // A TextInput click/activation focuses it; only committed edits carry a request.
             if (action.action == "settings.edit" && !edit) return;
+            if (action.action == "settings.split" && !host.split_request) return;
             const auto current = accepted.semantic();
             const auto invocation = take(accepted.commands.resolve_action(current, action,
                 accepted.commands.generation(), {}, source, ++sequence));
@@ -318,6 +351,7 @@ int main(int argc, char** argv) {
                 session.update([&] {
                     username.write(host.username); enabled.write(host.draft.feature); saved.write(host.result);
                 });
+                host.next_sidebar_size = host.sidebar_size;
                 (void)take(std::move(candidate));
             }
             if (host.applying) {
@@ -341,12 +375,23 @@ int main(int argc, char** argv) {
             host.volume_request.reset();
         };
         auto volume_at = [&](Point position) {
-            const auto& track = accepted.layout.boxes[accepted.tree->find("volume-track")->index].border_box;
+            const auto& track = box_for(accepted, *accepted.tree->find("volume-track")).border_box;
             require(track.size.width > 8, "Slider track has no travel");
             return take(ui::slider_value_at(volume_range, (position.x - track.origin.x - 4) / (track.size.width - 8)));
         };
         auto input = [&](InputEvent event, CommandSource source = CommandSource::keyboard) {
             require(validate(event).empty(), "Invalid normalized input");
+            const auto split = take(splitter.dispatch(accepted.hit(), event, take(focus.refresh(accepted.hit())).focused));
+            if (split.handled) {
+                volume_pointer.reset(); pointer.reset();
+                if (split.focus) (void)take(focus.focus(accepted.hit(), *split.focus));
+                if (split.action) {
+                    host.split_request = split.size;
+                    operate(*split.action, source);
+                    host.split_request.reset();
+                }
+                return;
+            }
             if (const auto* cancel = std::get_if<PointerCancel>(&event.data); cancel && volume_pointer == cancel->pointer) {
                 volume_pointer.reset(); return; // Keep the last accepted draft; no deferred release action.
             }
@@ -465,17 +510,30 @@ int main(int argc, char** argv) {
             settings_native::Window window;
             window.input = input;
             window.capture = [&] {
-                return take(native_frames.capture({accepted.commands.generation(), viewport, 1,
-                    take(capture_extent(viewport, 1)), &accepted.paint, 0us}));
+                return take(native_frames.capture({accepted.commands.generation(), canvas, 1,
+                    take(capture_extent(canvas, 1)), &accepted.paint, 0us}));
             };
             window.focused = [&]() -> std::optional<Rect> {
                 const auto target = take(focus.refresh(accepted.hit())).focused;
                 if (!target || !take(scroll_into_view(accepted.hit(), *target)).empty()) return {};
-                return accepted.layout.boxes[target->index].border_box;
+                return box_for(accepted, *target).border_box;
             };
             window.editing = [&] {
                 const auto owner = accepted.tree->find("username");
                 return owner && take(focus.refresh(accepted.hit())).focused == owner;
+            };
+            window.resized = [&](Size available) {
+                const auto target = take(focus.refresh(accepted.hit())).focused;
+                const bool reveal = target && take(scroll_into_view(accepted.hit(), *target)).empty();
+                canvas = available;
+                auto candidate = take(stage(host.selected, offsets, focus, reveal,
+                    host.draft.theme, host.theme_open, host.draft.volume));
+                session.publish(); accept(std::move(candidate));
+            };
+            window.resize_cursor = [&](Point point) {
+                const auto geometry = take(split_pane_geometry(accepted.hit(), "settings-panes"));
+                return geometry && geometry->enabled &&
+                    (splitter.dragging() || take(hit_test(accepted.hit(), point)).target == geometry->handle);
             };
             auto smoke = [&](settings_native::Window& native_window) {
                 auto key = [&](WPARAM code) { native_window.message(WM_KEYDOWN, code, 1); };
@@ -489,7 +547,7 @@ int main(int argc, char** argv) {
                     throw std::runtime_error(std::string("Native Tab cannot reach ") + id);
                 };
                 auto center = [&](const char* id) {
-                    const auto& rect = accepted.layout.boxes[accepted.tree->find(id)->index].border_box;
+                    const auto& rect = box_for(accepted, *accepted.tree->find(id)).border_box;
                     return native_window.physical({rect.origin.x + rect.size.width / 2, rect.origin.y + rect.size.height / 2});
                 };
                 auto mouse = [&](UINT type, POINT point) {
@@ -527,7 +585,7 @@ int main(int argc, char** argv) {
                 seek("volume"); key(VK_END); key(VK_LEFT);
                 require(host.draft.volume == 95 && host.username == edited, "Native slider keyboard mapping differs");
                 auto track = [&](float fraction) {
-                    const auto& rect = accepted.layout.boxes[accepted.tree->find("volume-track")->index].border_box;
+                    const auto& rect = box_for(accepted, *accepted.tree->find("volume-track")).border_box;
                     return native_window.physical({rect.origin.x + 4 + fraction * (rect.size.width - 8),
                         rect.origin.y + rect.size.height / 2});
                 };
@@ -542,6 +600,25 @@ int main(int argc, char** argv) {
                 mouse(WM_LBUTTONUP, track(1));
                 require(host.draft.volume == cancelled_volume, "Capture loss executed a deferred slider edit");
                 mouse(WM_LBUTTONDOWN, track(.75f)); mouse(WM_LBUTTONUP, track(.75f));
+                seek("settings-panes-handle");
+                const auto split_draft = std::tuple{host.username, host.draft, host.saves, host.selected, offsets};
+                key(VK_HOME); key(VK_RIGHT);
+                require(host.sidebar_size == 104, "Native SplitPane keyboard adjustment differs");
+                auto split_point = center("settings-panes-handle");
+                require(window.resize_cursor(take(split_pane_geometry(accepted.hit(), "settings-panes"))->bounds.origin),
+                    "Native SplitPane did not expose a resize cursor");
+                mouse(WM_LBUTTONDOWN, split_point);
+                require(GetCapture() == native_window.handle && splitter.dragging(), "Native SplitPane did not capture");
+                split_point.x += static_cast<LONG>(std::lround(40.f * GetDpiForWindow(native_window.handle) / 96));
+                mouse(WM_MOUSEMOVE, split_point);
+                require(std::abs(host.sidebar_size - 144) < 1 && splitter.dragging(),
+                    "Native SplitPane drag lost logical coordinates or capture on replacement");
+                ReleaseCapture();
+                const auto cancelled_split = host.sidebar_size;
+                split_point.x += 80; mouse(WM_LBUTTONUP, split_point);
+                require(host.sidebar_size == cancelled_split && !splitter.dragging() &&
+                    split_draft == std::tuple{host.username, host.draft, host.saves, host.selected, offsets},
+                    "Native SplitPane cancellation changed pending edits, scroll or saves");
                 seek("apply");
                 const auto apply_point = center("apply");
                 mouse(WM_LBUTTONDOWN, apply_point); native_window.message(WM_CANCELMODE);
@@ -562,7 +639,7 @@ int main(int argc, char** argv) {
                 require(host.selected == "about" && host.draft == applied, "Native wheel/pointer did not reach About");
                 wheel("settings-form", -WHEEL_DELTA * 10);
                 require(offsets.at("settings-form").y > 0, "Native wheel did not scroll the form");
-                // Resize creates letterboxing; pointer input must still match the shown geometry.
+                // Client size and DPI define the logical viewport, not a scaled fixed canvas.
                 SetWindowPos(native_window.handle, nullptr, 0, 0, 1000, 620, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
                 RECT dpi_rect{}; GetWindowRect(native_window.handle, &dpi_rect);
                 dpi_rect.right += 40;
@@ -571,11 +648,29 @@ int main(int argc, char** argv) {
                 require(actual_rect.right == dpi_rect.right && host.draft == applied, "Native DPI resize lost bounds or draft");
                 wheel("categories", WHEEL_DELTA * 10); click("section-account");
                 require(host.selected == "account" && host.draft == applied, "Resized pointer coordinates differ from presentation");
+                seek("username"); wheel("settings-form", -WHEEL_DELTA * 10);
+                const auto user_scroll = offsets.at("settings-form");
+                require(!take(scroll_into_view(accepted.hit(), *accepted.tree->find("username"))).empty(),
+                    "Native scroll-away fixture did not hide focus");
+                SetWindowPos(native_window.handle, nullptr, 0, 0, 1100, 620, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                require(offsets.at("settings-form") == user_scroll,
+                    "Native resize revealed focus the user deliberately scrolled away from");
+                seek("settings-panes-handle"); key(VK_END);
+                const auto large_split = host.sidebar_size;
+                mouse(WM_LBUTTONDOWN, center("settings-panes-handle"));
+                SetWindowPos(native_window.handle, nullptr, 0, 0, 440, 420, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                require(!splitter.dragging() && host.sidebar_size < large_split &&
+                    host.sidebar_size == take(split_pane_geometry(accepted.hit(), "settings-panes"))->maximum &&
+                    host.draft == applied, "Native resize did not cancel and clamp the SplitPane");
+                const auto clamped_split = host.sidebar_size;
+                SetWindowPos(native_window.handle, nullptr, 0, 0, 1000, 620, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                require(host.sidebar_size == clamped_split && host.saves.size() == 1,
+                    "Native viewport growth restored an obsolete split or saved state");
                 seek("username"); native_window.message(WM_CHAR, 0xd83d);
                 native_window.message(WM_KILLFOCUS); native_window.message(WM_CHAR, 0xde00);
                 require(host.draft == applied, "Focus loss retained an incomplete surrogate pair");
                 require(native_window.presentations > 10, "Native updates were not presented");
-                std::cout << "Native Settings smoke passed: window, text, focus, scroll, Dropdown, Slider, Apply/Cancel and capture loss; "
+                std::cout << "Native Settings smoke passed: window, text, focus, scroll, Dropdown, Slider, SplitPane, Apply/Cancel and capture loss; "
                     << native_window.presentations << " presentations\n";
             };
             if (std::string_view(argv[1]) == "--native-smoke") return window.run(smoke);
@@ -613,6 +708,7 @@ int main(int argc, char** argv) {
                 "Collapsed Dropdown retained options");
             // Offscreen content retains geometry; focus must be revealed in its pane.
             for (const auto& element : accepted.inspection.elements) {
+                if (element.id == "settings-panes-handle-label") continue;
                 require(element.geometry.has_value() && element.geometry->visible, "Missing visible geometry");
                 const auto& box = element.geometry->border_box;
                 require((box.size.width > 0 || (element.id == "volume-fill" && host.draft.volume == volume_range.minimum)) &&
@@ -643,13 +739,13 @@ int main(int argc, char** argv) {
         };
         // Before the first Apply, Cancel restores initial values even with Account absent.
         const auto initial_edit = host.username;
-        for (const auto* id : {"section-account", "section-feature", "section-about", "username"}) {
+        for (const auto* id : {"section-account", "section-feature", "section-about", "settings-panes-handle", "username"}) {
             send(FocusNext{}); focused(id);
         }
         send(tessera::TextInput{"discard日😀"});
-        send(FocusPrevious{}); send(FocusPrevious{}); focused("section-feature");
+        send(FocusPrevious{}); send(FocusPrevious{}); send(FocusPrevious{}); focused("section-feature");
         send(Activate{});
-        send(FocusNext{}); send(FocusNext{}); focused("toggle");
+        send(FocusNext{}); send(FocusNext{}); send(FocusNext{}); focused("toggle");
         send(Activate{});
         require(host.draft != host.applied && host.draft.feature, "Initial pending edits missing");
         (void)observe();
@@ -673,7 +769,7 @@ int main(int argc, char** argv) {
         const auto unfocused = observations();
         send(KeyDown{Key::a, {.control = true}});
         require(observations() == unfocused, "Unfocused username consumed Select All");
-        for (const auto* id : {"section-account", "section-feature", "section-about", "username"}) {
+        for (const auto* id : {"section-account", "section-feature", "section-about", "settings-panes-handle", "username"}) {
             send(FocusNext{}); focused(id);
         }
         send(tessera::TextInput{"本"}); focused("username");
@@ -682,6 +778,7 @@ int main(int argc, char** argv) {
         const auto retained_edit = host.username;
         const auto edited_account = observe();
         require(edited_account != initial, "Editing did not change pixels");
+        send(FocusPrevious{}); focused("settings-panes-handle");
         send(FocusPrevious{}); focused("section-about");
         send(FocusPrevious{}); focused("section-feature");
         send(Activate{}); focused("section-feature");
@@ -690,6 +787,7 @@ int main(int argc, char** argv) {
         require(observe() != edited_account, "Branch selection did not change pixels");
         ignore_editing(); // Absent username while a section choice holds focus.
         send(FocusNext{}); focused("section-about");
+        send(FocusNext{}); focused("settings-panes-handle");
         send(FocusNext{}); focused("toggle");
         send(Activate{}); focused("toggle");
         require(host.saves.empty(), "Toggle saved prematurely");
@@ -701,6 +799,7 @@ int main(int argc, char** argv) {
         const auto first_saved = observe();
         send(FocusPrevious{}); focused("theme-trigger");
         send(FocusPrevious{}); focused("toggle");
+        send(FocusPrevious{}); focused("settings-panes-handle");
         send(FocusPrevious{}); focused("section-about");
         send(Activate{}, CommandSource::gamepad); focused("section-about");
         require(host.selected == "about", "About selection differs");
@@ -717,6 +816,7 @@ int main(int argc, char** argv) {
         require(returned_account != about, "Account return did not change pixels");
         send(FocusNext{}); focused("section-feature");
         send(FocusNext{}); focused("section-about");
+        send(FocusNext{}); focused("settings-panes-handle");
         send(FocusNext{}); focused("username");
         send(tessera::TextInput{"!"}); focused("username");
         require(host.draft == SettingsData{"Ada本!", true} && host.username.revision == edit_start + 2 &&
@@ -767,9 +867,9 @@ int main(int argc, char** argv) {
         send(FocusPrevious{}); focused("theme-trigger");
         send(FocusPrevious{}); focused("username");
         send(tessera::TextInput{"!"});
-        send(FocusPrevious{}); send(FocusPrevious{}); focused("section-feature");
+        send(FocusPrevious{}); send(FocusPrevious{}); send(FocusPrevious{}); focused("section-feature");
         send(Activate{});
-        send(FocusNext{}); send(FocusNext{}); focused("toggle");
+        send(FocusNext{}); send(FocusNext{}); send(FocusNext{}); focused("toggle");
         send(Activate{});
         require(host.draft == SettingsData{"日😀!", false}, "Later pending edits missing");
         (void)observe();
@@ -791,7 +891,7 @@ int main(int argc, char** argv) {
         (void)observe();
         // Wheel input preserves focus and application data; each pane owns its offset.
         auto box = [&](const char* id) -> const LayoutBox& {
-            return accepted.layout.boxes[accepted.tree->find(id)->index];
+            return box_for(accepted, *accepted.tree->find(id));
         };
         auto center = [](Rect rect) { return Point{rect.origin.x + rect.size.width / 2,
             rect.origin.y + rect.size.height / 2}; };
@@ -971,6 +1071,47 @@ int main(int argc, char** argv) {
         require(host.selected == "feature" && host.draft == volume_applied && host.saves == volume_saves &&
             host.result == volume_result && host.username.text == volume_applied.username,
             "Cancel did not restore volume and text while retaining category and saves");
+        (void)observe();
+        seek("section-account"); send(Activate{});
+        seek("username"); send(tessera::TextInput{"split"});
+        seek("settings-panes-handle");
+        const auto split_retained = std::tuple{host.selected, host.username, host.draft, host.applied, host.saves, host.result, offsets};
+        const auto before_split_image = capture();
+        auto split_center = [&] {
+            return center(take(split_pane_geometry(accepted.hit(), "settings-panes"))->bounds);
+        };
+        auto split_position = split_center();
+        send(PointerDown{{9}, split_position}, CommandSource::pointer);
+        require(splitter.dragging(), "Settings splitter did not capture");
+        split_position.x += 32;
+        send(PointerMove{{9}, split_position}, CommandSource::pointer);
+        require(host.sidebar_size == 172 && splitter.dragging() && capture() != before_split_image,
+            "Settings split did not resize visible panes through replacement");
+        send(PointerCancel{{9}}, CommandSource::pointer);
+        split_position.x += 32;
+        send(PointerUp{{9}, split_position}, CommandSource::pointer);
+        require(host.sidebar_size == 172 && !splitter.dragging(), "Settings cancelled drag applied a release");
+        send(KeyDown{Key::left}); require(host.sidebar_size == 164, "Settings splitter keyboard step differs");
+        send(Navigate{Direction::right}, CommandSource::gamepad);
+        require(host.sidebar_size == 172 && split_retained ==
+            std::tuple{host.selected, host.username, host.draft, host.applied, host.saves, host.result, offsets},
+            "Settings splitter changed pending edits, category, scrolling or Apply/Cancel state");
+        canvas.width = 420;
+        auto narrow = take(stage(host.selected, offsets, focus, true, host.draft.theme, host.theme_open, host.draft.volume));
+        session.publish(); accept(std::move(narrow));
+        require(host.sidebar_size == 148, "Settings parent resize did not clamp its canonical split");
+        canvas = viewport;
+        auto wide = take(stage(host.selected, offsets, focus, true, host.draft.theme, host.theme_open, host.draft.volume));
+        session.publish(); accept(std::move(wide));
+        require(host.sidebar_size == 148 && host.username == std::get<1>(split_retained),
+            "Settings growth restored an old split or lost text");
+        const auto before_split_apply = host.draft;
+        seek("apply"); send(Activate{});
+        require(host.saves.back() == before_split_apply && host.saves.size() == volume_saves.size() + 1 &&
+            host.sidebar_size == 148, "Apply lost the split or failed to save the independent draft");
+        seek("username"); send(tessera::TextInput{"cancel"});
+        seek("cancel"); send(Activate{});
+        require(host.draft == before_split_apply && host.sidebar_size == 148, "Cancel restored a stale split");
         (void)observe();
         std::cout << host.saves.size() << " owned saves; " << sequence << " host commands; " << extent.width << 'x' << extent.height
             << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";
