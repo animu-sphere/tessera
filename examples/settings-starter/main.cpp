@@ -44,8 +44,9 @@ ui::Element Field(FieldProps props, std::vector<ui::Element> children) {
         {.style = {.gap = props.gap}});
 }
 const std::vector<std::string> sections{"account", "feature", "about"};
+constexpr ui::SliderRange volume_range{0, 100, 5};
 ui::Element Settings(const std::string& selected, ui::Value<TextEditState> username, ui::Value<bool> enabled,
-    ui::Value<std::string> summary, ui::Value<std::string> saved, const std::string& theme, bool theme_open) {
+    ui::Value<std::string> summary, ui::Value<std::string> saved, const std::string& theme, bool theme_open, int volume) {
     std::vector<ui::Element> choices;
     for (const auto& id : sections)
         choices.push_back(ui::Button((selected == id ? "* " : "") + id, "settings.section." + id,
@@ -69,6 +70,8 @@ ui::Element Settings(const std::string& selected, ui::Value<TextEditState> usern
         ui::Button("Cancel", "settings.cancel", {.node = {.id = "cancel", .classes = {"control"}}})},
         {.style = {.gap = 12.f}}));
     rows.push_back(ui::Text(saved, {.id = "save-result", .classes = {"status"}}));
+    rows.push_back(ui::Slider("Volume", volume, volume_range, "settings.volume",
+        {.node = {.id = "volume", .classes = {"control"}}}));
     return ui::Column({ui::Text("Settings"), ui::Row({
         ui::ScrollView(std::move(choices), {.id = "categories",
             .style = {.width = Dimension::points(140), .height = Dimension::points(64), .gap = 12.f}}),
@@ -82,11 +85,13 @@ struct SettingsData {
     std::string username;
     bool feature = false;
     std::string theme = "system";
+    int volume = 50;
     bool operator==(const SettingsData&) const = default;
 };
 std::string saved_caption(std::size_t count, const SettingsData& data) {
     return "Saved " + std::to_string(count) + ": " + data.username +
-        (data.feature ? "; feature enabled" : "; feature disabled") + "; theme " + data.theme;
+        (data.feature ? "; feature enabled" : "; feature disabled") + "; theme " + data.theme +
+        "; volume " + std::to_string(data.volume);
 }
 struct Host final : CommandHost {
     TextEditState username = take(make_text_edit_state(1, "Ada"));
@@ -101,6 +106,7 @@ struct Host final : CommandHost {
     std::string next_result;
     bool applying = false;
     bool theme_open = false, next_theme_open = false;
+    std::optional<int> volume_request;
 
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         next_username = username; next_draft = draft; next_result = result;
@@ -123,6 +129,8 @@ struct Host final : CommandHost {
             if (!restored) return {CommandOutcomeStatus::error, {}, std::move(restored.diagnostics)};
             next_username = std::move(*restored.value);
             next_draft = applied;
+        } else if (invocation.command == "settings.volume") {
+            next_draft.volume = volume_request.value_or(std::min(volume_range.maximum, draft.volume + volume_range.step));
         } else if (invocation.command == "settings.toggle") next_draft.feature = !draft.feature;
         else if (invocation.command == "settings.theme.toggle") next_theme_open = !theme_open;
         else if (invocation.command.starts_with("settings.theme.")) {
@@ -148,7 +156,7 @@ void update_offsets(ScrollOffsets& offsets, const UiTree& tree, const std::vecto
         offsets[*node->id] = update.offset;
     }
 }
-const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply", "settings.cancel",
+const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply", "settings.cancel", "settings.volume",
     "settings.theme.toggle", "settings.theme.system", "settings.theme.light", "settings.theme.dark",
     "settings.section.account", "settings.section.feature", "settings.section.about"}};
 struct Presentation {
@@ -212,19 +220,19 @@ int main() {
         const auto summary = session.computed("summary", [username, enabled] {
             return "User " + username.read().text + (enabled.read() ? "; feature enabled" : "; feature disabled");
         });
-        auto form = [&](const std::string& selected, const std::string& theme, bool open) {
-            return Settings(selected, username, enabled, summary, saved, theme, open);
+        auto form = [&](const std::string& selected, const std::string& theme, bool open, int volume) {
+            return Settings(selected, username, enabled, summary, saved, theme, open, volume);
         };
         const auto sheet = application_styles();
         const auto registry = take(CommandRegistry::create(
             {{"settings.edit", "Edit username"}, {"settings.toggle", "Toggle feature"}, {"settings.apply", "Apply settings"},
-                {"settings.cancel", "Cancel pending settings"},
+                {"settings.cancel", "Cancel pending settings"}, {"settings.volume", "Adjust volume"},
                 {"settings.theme.toggle", "Open or close theme choices"}, {"settings.theme.system", "Use system theme"},
                 {"settings.theme.light", "Use light theme"}, {"settings.theme.dark", "Use dark theme"},
                 {"settings.section.account", "Select Account"}, {"settings.section.feature", "Select Feature"},
                 {"settings.section.about", "Select About"}},
             {{"settings.edit", "settings.edit"}, {"settings.toggle", "settings.toggle"}, {"settings.apply", "settings.apply"},
-                {"settings.cancel", "settings.cancel"},
+                {"settings.cancel", "settings.cancel"}, {"settings.volume", "settings.volume"},
                 {"settings.theme.toggle", "settings.theme.toggle"}, {"settings.theme.system", "settings.theme.system"},
                 {"settings.theme.light", "settings.theme.light"}, {"settings.theme.dark", "settings.theme.dark"},
                 {"settings.section.account", "settings.section.account"}, {"settings.section.feature", "settings.section.feature"},
@@ -233,7 +241,7 @@ int main() {
         auto commands = [&] {
             return take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
                 {{"settings.edit", {true}}, {"settings.toggle", {true}}, {"settings.apply", {true}},
-                    {"settings.cancel", {true}},
+                    {"settings.cancel", {true}}, {"settings.volume", {true}},
                     {"settings.theme.toggle", {true}}, {"settings.theme.system", {true}},
                     {"settings.theme.light", {true}}, {"settings.theme.dark", {true}},
                     {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}}}));
@@ -243,9 +251,9 @@ int main() {
         FocusDispatcher focus;
         PointerDispatcher pointer;
         auto stage = [&](const std::string& selected, ScrollOffsets requested,
-            FocusDispatcher candidate_focus, bool reveal, const std::string& theme, bool open) -> Result<Presentation> {
+            FocusDispatcher candidate_focus, bool reveal, const std::string& theme, bool open, int volume) -> Result<Presentation> {
             const auto snapshot = commands();
-            const auto element = form(selected, theme, open);
+            const auto element = form(selected, theme, open, volume);
             auto candidate = prepare(session, element, snapshot, sheet, text, requested);
             if (!candidate) return candidate;
             const auto target = take(candidate_focus.refresh(candidate.value->hit())).focused;
@@ -258,7 +266,7 @@ int main() {
             }
             return candidate;
         };
-        auto accepted = take(stage(host.selected, offsets, focus, false, host.draft.theme, host.theme_open));
+        auto accepted = take(stage(host.selected, offsets, focus, false, host.draft.theme, host.theme_open, host.draft.volume));
         session.publish();
         auto accept = [&](Presentation candidate) {
             for (const auto& box : candidate.layout.boxes)
@@ -290,7 +298,8 @@ int main() {
             // Closing choices returns keyboard focus to their stable trigger.
             if (host.theme_open && !host.next_theme_open)
                 (void)take(candidate_focus.focus(accepted.hit(), *accepted.tree->find("theme-trigger")));
-            auto candidate = stage(host.next_selected, offsets, candidate_focus, true, host.next_draft.theme, host.next_theme_open);
+            auto candidate = stage(host.next_selected, offsets, candidate_focus, true, host.next_draft.theme, host.next_theme_open,
+                host.next_draft.volume);
             if (!candidate) {
                 // Returned stage failure: restore observations, retain host values,
                 // save records and presentation, then exit with diagnostics.
@@ -310,24 +319,70 @@ int main() {
             focus = std::move(candidate_focus);
             session.publish(); accept(std::move(*candidate.value));
         };
+        // Host capture uses a stable author ID and pointer identity, never a tree handle.
+        std::optional<PointerId> volume_pointer;
+        auto set_volume = [&](int value, CommandSource source) {
+            if (value == host.draft.volume) return;
+            const auto action = take(request_semantic_action(accepted.semantic(), *accepted.tree->find("volume"), "activate"));
+            host.volume_request = value;
+            operate(action, source);
+            host.volume_request.reset();
+        };
+        auto volume_at = [&](Point position) {
+            const auto& track = accepted.layout.boxes[accepted.tree->find("volume-track")->index].border_box;
+            require(track.size.width > 8, "Slider track has no travel");
+            return take(ui::slider_value_at(volume_range, (position.x - track.origin.x - 4) / (track.size.width - 8)));
+        };
         auto input = [&](InputEvent event, CommandSource source = CommandSource::keyboard) {
             require(validate(event).empty(), "Invalid normalized input");
+            if (const auto* cancel = std::get_if<PointerCancel>(&event.data); cancel && volume_pointer == cancel->pointer) {
+                volume_pointer.reset(); return; // Keep the last accepted draft; no deferred release action.
+            }
+            if (const auto* move = std::get_if<PointerMove>(&event.data); move && volume_pointer == move->pointer) {
+                set_volume(volume_at(move->position), source); return;
+            }
+            if (const auto* up = std::get_if<PointerUp>(&event.data);
+                up && volume_pointer == up->pointer && up->button == PointerButton::primary) {
+                volume_pointer.reset(); set_volume(volume_at(up->position), source); return;
+            }
+            if (const auto* down = std::get_if<PointerDown>(&event.data); down && !volume_pointer &&
+                down->button == PointerButton::primary) {
+                // hit_test enforces the form clip, inherited disabled state and occlusion.
+                const auto hit = take(hit_test(accepted.hit(), down->position)).target;
+                if (hit && (hit == accepted.tree->find("volume-track") || hit == accepted.tree->find("volume-fill") ||
+                    hit == accepted.tree->find("volume-thumb"))) {
+                    pointer.reset();
+                    (void)take(focus.focus(accepted.hit(), *accepted.tree->find("volume")));
+                    volume_pointer = down->pointer;
+                    set_volume(volume_at(down->position), source);
+                    // A press at the current value still reveals newly focused content.
+                    if (!take(scroll_into_view(accepted.hit(), *accepted.tree->find("volume"))).empty()) {
+                        auto candidate = take(stage(host.selected, offsets, focus, true,
+                            host.draft.theme, host.theme_open, host.draft.volume));
+                        session.publish(); accept(std::move(candidate));
+                    }
+                    return;
+                }
+            }
             if (const auto* scroll = std::get_if<Scroll>(&event.data)) {
                 auto requested = offsets;
                 const auto routed = take(route_scroll(accepted.hit(), *scroll));
                 if (!routed.updates.empty()) {
                     update_offsets(requested, *accepted.tree, routed.updates);
-                    auto candidate = take(stage(host.selected, requested, focus, false, host.draft.theme, host.theme_open));
+                    volume_pointer.reset();
+                    auto candidate = take(stage(host.selected, requested, focus, false, host.draft.theme, host.theme_open, host.draft.volume));
                     session.publish(); accept(std::move(candidate));
                 }
                 return;
             }
             if (std::holds_alternative<PointerMove>(event.data) || std::holds_alternative<PointerDown>(event.data) ||
                 std::holds_alternative<PointerUp>(event.data) || std::holds_alternative<PointerCancel>(event.data)) {
+                if (volume_pointer) return;
                 const auto dispatched = take(pointer.dispatch(accepted.hit(), event));
                 for (const auto& action : dispatched.actions) operate(action, source);
                 return;
             }
+            volume_pointer.reset();
             std::optional<decltype(TextEditRequest::operation)> edit;
             const auto* key_down = std::get_if<KeyDown>(&event.data);
             if (host.theme_open && (std::holds_alternative<Cancel>(event.data) ||
@@ -338,6 +393,19 @@ int main() {
             }
             const auto owner = accepted.tree->find("username");
             const auto current_focus = take(focus.refresh(accepted.hit())).focused;
+            if (key_down && key_down->modifiers == Modifiers{} && current_focus == accepted.tree->find("volume")) {
+                int value = host.draft.volume;
+                switch (key_down->key) {
+                case Key::left: case Key::down: value -= volume_range.step; break;
+                case Key::right: case Key::up: value += volume_range.step; break;
+                case Key::home: value = volume_range.minimum; break;
+                case Key::end: value = volume_range.maximum; break;
+                default: break;
+                }
+                volume_pointer.reset();
+                set_volume(std::clamp(value, volume_range.minimum, volume_range.maximum), source);
+                return;
+            }
             if (owner && current_focus == owner) { // An absent owner must never match an empty focus.
                 if (const auto* insert = std::get_if<tessera::TextInput>(&event.data)) edit = TextEditInsert{insert->text};
                 if (const auto* key = std::get_if<KeyDown>(&event.data);
@@ -367,7 +435,7 @@ int main() {
             for (const auto& action : dispatched.actions) operate(action, source);
             if (dispatched.actions.empty() && dispatched.focused &&
                 !take(scroll_into_view(accepted.hit(), *dispatched.focused)).empty()) {
-                auto candidate = take(stage(host.selected, offsets, focus, true, host.draft.theme, host.theme_open));
+                auto candidate = take(stage(host.selected, offsets, focus, true, host.draft.theme, host.theme_open, host.draft.volume));
                 session.publish(); accept(std::move(candidate));
             }
         };
@@ -378,6 +446,7 @@ int main() {
         const auto extent = take(capture_extent(viewport, 1));
         auto capture = [&] { return take(frames.capture({0, viewport, 1, extent, &accepted.paint, 0us})); };
         auto observe = [&] {
+            require(name(accepted, "volume") == "Volume: " + std::to_string(host.draft.volume), "Slider value differs");
             require(name(accepted, "selected-section") == "Section " + host.selected, "Section name differs");
             for (const auto& id : sections)
                 require(name(accepted, "section-" + id) == (host.selected == id ? "* " : "") + id,
@@ -404,7 +473,8 @@ int main() {
             for (const auto& element : accepted.inspection.elements) {
                 require(element.geometry.has_value() && element.geometry->visible, "Missing visible geometry");
                 const auto& box = element.geometry->border_box;
-                require(box.size.width > 0 && box.size.height > 0, "Empty element geometry");
+                require((box.size.width > 0 || (element.id == "volume-fill" && host.draft.volume == volume_range.minimum)) &&
+                    box.size.height > 0, "Empty element geometry");
             }
             if (const auto target = take(focus.refresh(accepted.hit())).focused)
                 require(take(scroll_into_view(accepted.hit(), *target)).empty(), "Focused control is clipped");
@@ -500,7 +570,7 @@ int main() {
         send(Activate{}); focused("section-account");
         require(host.selected == "account" && host.username == retained_edit &&
             host.draft == SettingsData{"Ada本", true} && host.saves == std::vector<SettingsData>{{"Ada本", true}} &&
-            host.result == "Saved 1: Ada本; feature enabled; theme system", "Branch return changed retained observations");
+            host.result == "Saved 1: Ada本; feature enabled; theme system; volume 50", "Branch return changed retained observations");
         const auto returned_account = observe();
         require(returned_account != about, "Account return did not change pixels");
         send(FocusNext{}); focused("section-feature");
@@ -509,7 +579,7 @@ int main() {
         send(tessera::TextInput{"!"}); focused("username");
         require(host.draft == SettingsData{"Ada本!", true} && host.username.revision == edit_start + 2 &&
             host.saves == std::vector<SettingsData>{{"Ada本", true}} &&
-            host.result == "Saved 1: Ada本; feature enabled; theme system", "Later edit changed the owned save");
+            host.result == "Saved 1: Ada本; feature enabled; theme system; volume 50", "Later edit changed the owned save");
         require(observe() != returned_account, "Later draft edit did not change pixels");
         send(FocusNext{}); focused("theme-trigger");
         send(FocusNext{}); focused("apply");
@@ -540,7 +610,7 @@ int main() {
         require(host.username.text == "日😀" && host.username.anchor == 7 && host.username.caret == 7 &&
             host.username.revision == before_select.revision + 2 && host.draft == SettingsData{"日😀", true} &&
             host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} &&
-            host.result == "Saved 2: Ada本!; feature enabled; theme system", "Replacement changed a saved copy or split UTF-8");
+            host.result == "Saved 2: Ada本!; feature enabled; theme system; volume 50", "Replacement changed a saved copy or split UTF-8");
         require(observe() != selected_all, "Whole-field replacement did not change pixels");
         send(FocusNext{}); focused("theme-trigger");
         send(FocusNext{}); focused("apply");
@@ -675,6 +745,88 @@ int main() {
         seek("cancel"); send(Activate{});
         require(host.selected == "about" && host.draft == theme_applied && host.saves == theme_saves &&
             host.result == theme_result && host.draft.theme == "light", "Cancel did not restore the applied theme");
+        (void)observe();
+        // Numeric editing shares the same candidate/Apply/Cancel boundary.
+        const auto before_volume = std::tuple{host.selected, host.username, host.draft, host.saves, host.result};
+        const auto unfocused_volume = observations();
+        send(KeyDown{Key::end});
+        require(observations() == unfocused_volume, "Unfocused Slider consumed a key");
+        seek("volume");
+        const auto initial_volume_image = observe();
+        const auto ignored_volume = observations();
+        send(KeyDown{Key::left, {.control = true}});
+        send(KeyDown{Key::home, {.shift = true}});
+        require(observations() == ignored_volume, "Modified Slider key changed state");
+        const auto volume_start = sequence;
+        send(KeyDown{Key::home}); focused("volume");
+        require(host.draft.volume == 0, "Slider Home did not reach minimum");
+        const auto minimum = observations();
+        send(KeyDown{Key::left}); send(KeyDown{Key::down, {}, true});
+        require(observations() == minimum, "Slider underflow executed a command");
+        require(observe() != initial_volume_image, "Slider change did not change visible pixels");
+        send(KeyDown{Key::end});
+        require(host.draft.volume == 100, "Slider End did not reach maximum");
+        const auto maximum = observations();
+        send(KeyDown{Key::right}); send(KeyDown{Key::up, {}, true});
+        require(observations() == maximum, "Slider overflow executed a command");
+        send(KeyDown{Key::left, {}, true});
+        require(host.draft.volume == 95, "Slider repeat did not move one step");
+        send(KeyDown{Key::right});
+        require(host.draft.volume == 100 && sequence == volume_start + 4, "Slider step command count differs");
+        auto track_point = [&](float fraction) {
+            const auto& track = box("volume-track");
+            const auto visible = track.clip ? intersect(track.border_box, *track.clip) : track.border_box;
+            require(visible.size.height > 0, "Slider track is clipped");
+            return Point{track.border_box.origin.x + 4 + fraction * (track.border_box.size.width - 8),
+                visible.origin.y + visible.size.height / 2};
+        };
+        const auto before_secondary = observations();
+        send(PointerDown{{7}, track_point(.5f), PointerButton::secondary}, CommandSource::pointer);
+        send(PointerUp{{7}, track_point(.5f), PointerButton::secondary}, CommandSource::pointer);
+        require(observations() == before_secondary, "Secondary pointer changed Slider");
+        send(PointerDown{{7}, track_point(.5f)}, CommandSource::pointer);
+        require(host.draft.volume == 50, "Track press did not set nearest value");
+        const auto captured = observations();
+        send(PointerMove{{8}, track_point(0)}, CommandSource::pointer);
+        send(PointerUp{{7}, track_point(0), PointerButton::secondary}, CommandSource::pointer);
+        require(observations() == captured, "Foreign pointer/secondary release changed capture");
+        send(PointerMove{{7}, track_point(2)}, CommandSource::pointer);
+        require(host.draft.volume == 100, "Captured drag did not clamp beyond the track");
+        send(PointerMove{{7}, track_point(-1)}, CommandSource::pointer);
+        require(host.draft.volume == 0, "Captured drag lost ownership after tree replacement");
+        send(PointerCancel{{7}}, CommandSource::pointer);
+        const auto cancelled_drag = observations();
+        send(PointerMove{{7}, track_point(1)}, CommandSource::pointer);
+        send(PointerUp{{7}, track_point(1)}, CommandSource::pointer);
+        require(observations() == cancelled_drag, "Cancelled drag executed a deferred edit");
+        send(PointerDown{{7}, track_point(.5f)}, CommandSource::pointer);
+        send(PointerUp{{7}, track_point(.75f)}, CommandSource::pointer);
+        require(host.draft.volume == 75 && host.selected == std::get<0>(before_volume) &&
+            host.username == std::get<1>(before_volume) && host.draft.username == std::get<2>(before_volume).username &&
+            host.draft.feature == std::get<2>(before_volume).feature && host.draft.theme == std::get<2>(before_volume).theme &&
+            host.saves == std::get<3>(before_volume) && host.result == std::get<4>(before_volume),
+            "Slider changed independent settings or saved prematurely");
+        (void)observe();
+        const auto before_invalid_volume = observations();
+        auto invalid_volume = stage(host.selected, offsets, focus, true, host.draft.theme, host.theme_open, 101);
+        require(!invalid_volume && invalid_volume.diagnostics.front().code == "slider_value" &&
+            observations() == before_invalid_volume, "Invalid numeric candidate changed accepted state");
+        seek("apply"); send(Activate{}, CommandSource::gamepad);
+        const auto volume_applied = host.draft;
+        const auto volume_saves = host.saves;
+        const auto volume_result = host.result;
+        require(volume_saves.size() == theme_saves.size() + 1 && volume_saves.back().volume == 75 &&
+            std::equal(theme_saves.begin(), theme_saves.end(), volume_saves.begin()), "Apply did not copy volume once");
+        seek("volume"); send(KeyDown{Key::left});
+        seek("section-account"); send(Activate{});
+        seek("username"); send(tessera::TextInput{"^"});
+        seek("section-feature"); send(Activate{});
+        require(host.draft.volume == 70 && host.draft.username != volume_applied.username,
+            "Category replacement lost pending numeric/text edits");
+        seek("cancel"); send(Activate{});
+        require(host.selected == "feature" && host.draft == volume_applied && host.saves == volume_saves &&
+            host.result == volume_result && host.username.text == volume_applied.username,
+            "Cancel did not restore volume and text while retaining category and saves");
         (void)observe();
         std::cout << host.saves.size() << " owned saves; " << sequence << " host commands; " << extent.width << 'x' << extent.height
             << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";

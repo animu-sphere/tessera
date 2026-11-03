@@ -57,6 +57,19 @@ struct DropdownProps {
     bool expanded = false;
     bool disabled = false;
 };
+// Integer stops include both endpoints; step must divide the range exactly.
+struct SliderRange {
+    int minimum = 0;
+    int maximum = 100;
+    int step = 1;
+};
+struct SliderProps {
+    Props node;
+    bool disabled = false;
+};
+// Clamp a finite normalized position to [0,1], then round to the nearest stop
+// (ties toward maximum). Invalid ranges/positions return actionable diagnostics.
+Result<int> slider_value_at(SliderRange, double position);
 
 // Immutable composition values. Copying shares descriptions, never state/owners.
 class Element final {
@@ -76,6 +89,7 @@ private:
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
+    friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
 };
 
 Element Text(Value<std::string>, Props = {});
@@ -97,6 +111,10 @@ Element ScrollView(std::vector<Element> children, Props = {});
 // Options are ordinary buttons in layout, reached through normal focus/scroll.
 Element Dropdown(std::string label, std::string selected, std::vector<DropdownOption> options,
     std::string toggle_action, DropdownProps = {});
+// Controlled button semantics with a value caption and a 200-unit track.
+// Generated IDs: <id>-track, <id>-fill, <id>-thumb. The host owns input,
+// commands and values; map thumb centers over track width minus 8 units.
+Element Slider(std::string label, int value, SliderRange, std::string action, SliderProps = {});
 
 struct Presentation {
     UiDocument document;

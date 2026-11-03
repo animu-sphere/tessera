@@ -1,5 +1,7 @@
 #include <tessera/ui/authoring.hpp>
 #include <set>
+#include <algorithm>
+#include <cmath>
 
 namespace tessera::authoring {
 namespace detail {
@@ -239,6 +241,58 @@ Element Dropdown(std::string label, std::string selected, std::vector<DropdownOp
     data->props = std::move(props.node);
     data->children = std::move(children);
     data->diagnostics = std::move(errors);
+    return Element(std::move(data));
+}
+
+namespace {
+std::vector<Diagnostic> slider_range_errors(SliderRange range) {
+    const auto span = std::int64_t{range.maximum} - range.minimum;
+    if (span <= 0 || range.step <= 0 || span % range.step != 0)
+        return {{"slider_range", Severity::error, {},
+            "Set minimum < maximum and a positive step that divides maximum - minimum exactly."}};
+    return {};
+}
+}
+
+Result<int> slider_value_at(SliderRange range, double position) {
+    auto errors = slider_range_errors(range);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    if (!std::isfinite(position))
+        return {std::nullopt, {{"slider_position", Severity::error, {}, "Supply a finite normalized Slider position."}}};
+    const auto stops = (std::int64_t{range.maximum} - range.minimum) / range.step;
+    const auto stop = static_cast<std::int64_t>(std::floor(std::clamp(position, 0., 1.) * stops + 0.5));
+    return {static_cast<int>(std::int64_t{range.minimum} + stop * range.step), {}};
+}
+
+Element Slider(std::string label, int value, SliderRange range, std::string action, SliderProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    data->diagnostics = slider_range_errors(range);
+    if (data->diagnostics.empty() && (value < range.minimum || value > range.maximum ||
+        (std::int64_t{value} - range.minimum) % range.step != 0))
+        data->diagnostics.push_back({"slider_value", Severity::error, {},
+            "Supply a Slider value within [minimum, maximum] at a minimum + n * step stop."});
+    const auto fraction = data->diagnostics.empty() ?
+        (static_cast<double>(value) - range.minimum) / (static_cast<double>(range.maximum) - range.minimum) : 0.;
+    auto part = [&](const char* suffix, StyleDeclarations style) {
+        Props node;
+        if (props.node.id) node.id = *props.node.id + suffix;
+        node.source = props.node.source;
+        node.style = std::move(style);
+        return node;
+    };
+    data->children.push_back(Text(std::move(label) + ": " + std::to_string(value), {.source = props.node.source}));
+    data->children.push_back(Row({
+        Column({}, part("-fill", {.width = Dimension::points(static_cast<float>(192 * fraction)),
+            .height = Dimension::points(12), .background = Color{0.25f, 0.5f, 0.85f, 1}})),
+        Column({}, part("-thumb", {.width = Dimension::points(8), .height = Dimension::points(12),
+            .background = Color{0.1f, 0.2f, 0.4f, 1}}))},
+        part("-track", {.width = Dimension::points(200), .height = Dimension::points(12),
+            .gap = 0.f, .background = Color{0.75f, 0.78f, 0.82f, 1}})));
+    data->props = std::move(props.node);
+    data->props.style.direction = FlexDirection::column;
+    if (!data->props.style.gap) data->props.style.gap = 4.f;
+    data->disabled = props.disabled;
+    data->action = std::move(action);
     return Element(std::move(data));
 }
 
