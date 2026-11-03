@@ -22,10 +22,10 @@ The delivered application flow is described by the [Settings starter](../guides/
 
 ## Layout follow-ups
 
-Build on [SplitPane](../guides/split-pane.md) and the delivered in-parent [Stack/viewport toolbar](../guides/stack.md). Use public C++ application examples to choose the following layout tasks:
+Build on [SplitPane](../guides/split-pane.md), the delivered in-parent [Stack/viewport toolbar](../guides/stack.md) and [Grid Inspector](../guides/grid.md). Use public C++ application examples to choose the following layout tasks:
 
 - **Absolute positioning:** add explicit offsets/sizes and simple edge-based placement against a documented parent content or padding box, with children outside normal flow. Check shared render, hit-test, scroll and clip coordinates in the example.
-- **Grid:** add explicit rows/columns, fixed and flexible tracks, row/column gaps, basic alignment and min/max allocation. Use Inspector property rows to verify shared label/value columns, text height and input bounds at narrow widths.
+- **Grid follow-ups:** explicit child cell selection, spanning, implicit tracks or advanced allocation only when an application operation is blocked by the delivered explicit row-major Inspector contract.
 - **Intrinsic sizing:** extend text measurement and min/max sizing for Popup or Inspector examples that expose missing content-size behavior.
 - **Flex wrapping, align-self and baseline:** add the placement behavior used by toolbars, tags or aligned form controls, checking existing single-line Flex results alongside the new cases.
 - **Anchor positioning:** implement Dropdown, Tooltip or Context Menu placement and repositioning, including scrolling and anchor removal.

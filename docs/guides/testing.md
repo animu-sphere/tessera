@@ -59,7 +59,7 @@ Reduce redundant work before reducing coverage: measure configure, compile/link 
 | --- | --- |
 | [UI model](../architecture/ui-model.md) | Semantic round trip, stable ordering, schema/type failures, invalid IDs/references/versions, keyed instance reuse and disposal, async attempt/lifetime rejection and stale-value preservation, typed binding candidate rejection and full-tree parity |
 | [Reactive runtime](../architecture/reactive-runtime.md) | Chain/diamond coherence, dynamic edges, equality suppression, batching, cycle/reentrancy failures, fault-boundary containment, disposal and effect phases |
-| [Layout](../architecture/layout.md) | Fixed, Row/Column/Flex, [overlapping Stack](../../tests/layout/stack_tests.cpp), constraints, wrapped heights, nested spacing, scroll extents/offsets; later absolute/grid/intrinsic geometry |
+| [Layout](../architecture/layout.md) | Fixed, Row/Column/Flex, [overlapping Stack](../../tests/layout/stack_tests.cpp), [explicit Grid tracks/cells](../../tests/layout/grid_tests.cpp), constraints, wrapped heights, nested spacing, scroll extents/offsets; later absolute/advanced-grid/intrinsic geometry |
 | [Styling](../architecture/styling.md) | Selector matching, layer/source-order ties, inheritance, overrides, pseudo-state invalidation |
 | [Input](../architecture/input.md) | Hit testing, clip/transform agreement, cancellation, propagation, focus/navigation recovery, typed drop eligibility |
 | [Commands](../architecture/commands.md) | Equal invocation and eligibility across input sources, argument validation, disabled agreement with semantics, one transaction per gesture |

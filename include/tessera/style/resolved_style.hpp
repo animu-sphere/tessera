@@ -19,12 +19,27 @@ struct Dimension {
     bool operator==(const Dimension&) const = default;
 };
 
-enum class Display : std::uint8_t { flex, none, stack };
+enum class Display : std::uint8_t { flex, none, stack, grid };
 enum class Visibility : std::uint8_t { visible, hidden };
 enum class FlexDirection : std::uint8_t { column, row };
 enum class Justify : std::uint8_t { start, center, end, space_between };
 enum class Align : std::uint8_t { start, center, end, stretch };
 enum class Overflow : std::uint8_t { visible, clip, scroll };
+
+struct GridTrack {
+    enum class Kind : std::uint8_t { automatic, points, fraction };
+    Kind kind = Kind::automatic;
+    float value = 0;
+    float minimum = 0;
+    float maximum = std::numeric_limits<float>::infinity();
+    static constexpr GridTrack points(float value) noexcept { return {Kind::points, value}; }
+    static constexpr GridTrack fraction(float weight = 1, float minimum = 0,
+                                        float maximum = std::numeric_limits<float>::infinity()) noexcept {
+        return {Kind::fraction, weight, minimum, maximum};
+    }
+    bool operator==(const GridTrack&) const = default;
+};
+inline constexpr std::size_t max_grid_tracks = 256;
 
 // Typed values after defaults, inheritance, rules, and local overrides have been applied.
 // Default construction yields the primitive defaults.
@@ -64,6 +79,13 @@ struct ResolvedStyle {
     // Placement within a Stack parent's content box; does not affect this node's children.
     Align stack_horizontal = Align::stretch;
     Align stack_vertical = Align::stretch;
+
+    std::vector<GridTrack> grid_columns;
+    std::vector<GridTrack> grid_rows;
+    float column_gap = 0;
+    float row_gap = 0;
+    Align grid_horizontal = Align::stretch;
+    Align grid_vertical = Align::stretch;
 
     bool operator==(const ResolvedStyle&) const = default;
 };

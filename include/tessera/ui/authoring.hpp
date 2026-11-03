@@ -103,6 +103,7 @@ private:
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
     friend Element Stack(std::vector<Element>, Props);
+    friend Element Grid(std::vector<Element>, Props);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -124,6 +125,8 @@ Element Column(std::vector<Element> children, Props = {});
 // stack_horizontal/stack_vertical selects start/center/end/stretch independently.
 // Ordinary clipping, visibility, focus and action routing still apply; no portal.
 Element Stack(std::vector<Element> children, Props = {});
+// Row-major children, one per explicit cell; no implicit tracks or spanning.
+Element Grid(std::vector<Element> children, Props = {});
 // A Column with scroll overflow. Constrain its size through Props::style;
 // the host owns offsets and routes wheel input/focus reveal through input/scroll.
 Element ScrollView(std::vector<Element> children, Props = {});

@@ -86,7 +86,8 @@ E choice(const JsonValue& value, const std::string& path, const std::array<std::
 }
 
 // Names are indexed by enumeration value.
-constexpr std::array<std::string_view, 3> display_names{"flex", "none", "stack"};
+constexpr std::array<std::string_view, 4> display_names{"flex", "none", "stack", "grid"};
+constexpr std::array<std::string_view, 3> track_names{"auto", "points", "fraction"};
 constexpr std::array<std::string_view, 2> direction_names{"column", "row"};
 constexpr std::array<std::string_view, 4> justify_names{"start", "center", "end", "space_between"};
 constexpr std::array<std::string_view, 4> align_names{"start", "center", "end", "stretch"};
@@ -132,6 +133,20 @@ float maximum(const JsonValue& value, const std::string& path) {
     if (keyword(value, path, "none")) return std::numeric_limits<float>::infinity();
     return real(value, path);
 }
+std::vector<GridTrack> tracks(const JsonValue& value, const std::string& path) {
+    const auto& values = array(value, path);
+    if (values.size() > max_grid_tracks)
+        fail("grid_track_bound", path, "Use at most 256 explicit tracks per axis.");
+    std::vector<GridTrack> result;
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        const auto at = path + "/" + std::to_string(i);
+        const auto& o = object(values[i], at, {"kind", "value", "minimum", "maximum"});
+        result.push_back({choice<GridTrack::Kind>(o.at("kind"), at + "/kind", track_names),
+            real(o.at("value"), at + "/value"), real(o.at("minimum"), at + "/minimum"),
+            maximum(o.at("maximum"), at + "/maximum")});
+    }
+    return result;
+}
 Modifiers modifiers(const JsonValue& value, const std::string& path) {
     const auto& o = object(value, path, {"shift", "control", "alt", "super"});
     return {boolean(o.at("shift"), path + "/shift"), boolean(o.at("control"), path + "/control"),
@@ -142,7 +157,8 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
     const auto& o = object(value, path, {"display", "direction", "justify", "align", "overflow", "width", "height",
         "min_width", "min_height", "max_width", "max_height", "margin", "border", "padding", "gap", "grow", "shrink",
         "visibility", "opacity", "background", "border_color", "corner_radius", "text", "color"},
-        {"stack_horizontal", "stack_vertical"});
+        {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows",
+         "column_gap", "row_gap", "grid_horizontal", "grid_vertical"});
     ResolvedStyle s;
     s.display = choice<Display>(o.at("display"), path + "/display", display_names);
     s.direction = choice<FlexDirection>(o.at("direction"), path + "/direction", direction_names);
@@ -152,6 +168,18 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
         s.stack_horizontal = choice<Align>(field->second, path + "/stack_horizontal", align_names);
     if (const auto field = o.find("stack_vertical"); field != o.end())
         s.stack_vertical = choice<Align>(field->second, path + "/stack_vertical", align_names);
+    if (const auto field = o.find("grid_columns"); field != o.end())
+        s.grid_columns = tracks(field->second, path + "/grid_columns");
+    if (const auto field = o.find("grid_rows"); field != o.end())
+        s.grid_rows = tracks(field->second, path + "/grid_rows");
+    if (const auto field = o.find("column_gap"); field != o.end())
+        s.column_gap = real(field->second, path + "/column_gap");
+    if (const auto field = o.find("row_gap"); field != o.end())
+        s.row_gap = real(field->second, path + "/row_gap");
+    if (const auto field = o.find("grid_horizontal"); field != o.end())
+        s.grid_horizontal = choice<Align>(field->second, path + "/grid_horizontal", align_names);
+    if (const auto field = o.find("grid_vertical"); field != o.end())
+        s.grid_vertical = choice<Align>(field->second, path + "/grid_vertical", align_names);
     s.overflow = choice<Overflow>(o.at("overflow"), path + "/overflow", overflow_names);
     s.width = dimension(o.at("width"), path + "/width");
     s.height = dimension(o.at("height"), path + "/height");
@@ -467,6 +495,14 @@ JsonValue dimension_json(const Dimension& d) {
 }
 JsonValue maximum_json(float value) { return std::isinf(value) ? text("none") : real_json(value); }
 
+JsonValue tracks_json(const std::vector<GridTrack>& tracks) {
+    Array result;
+    for (const auto& track : tracks)
+        result.push_back(JsonValue{Object{{"kind", name(track.kind, track_names)}, {"value", real_json(track.value)},
+            {"minimum", real_json(track.minimum)}, {"maximum", maximum_json(track.maximum)}}});
+    return JsonValue{std::move(result)};
+}
+
 JsonValue style_json(const ResolvedStyle& s) {
     Object result{
         {"display", name(s.display, display_names)}, {"direction", name(s.direction, direction_names)},
@@ -488,6 +524,12 @@ JsonValue style_json(const ResolvedStyle& s) {
         result["stack_horizontal"] = name(s.stack_horizontal, align_names);
     if (s.stack_vertical != Align::stretch)
         result["stack_vertical"] = name(s.stack_vertical, align_names);
+    if (!s.grid_columns.empty()) result["grid_columns"] = tracks_json(s.grid_columns);
+    if (!s.grid_rows.empty()) result["grid_rows"] = tracks_json(s.grid_rows);
+    if (s.column_gap != 0) result["column_gap"] = real_json(s.column_gap);
+    if (s.row_gap != 0) result["row_gap"] = real_json(s.row_gap);
+    if (s.grid_horizontal != Align::stretch) result["grid_horizontal"] = name(s.grid_horizontal, align_names);
+    if (s.grid_vertical != Align::stretch) result["grid_vertical"] = name(s.grid_vertical, align_names);
     return JsonValue{std::move(result)};
 }
 JsonValue styles_json(const std::vector<ResolvedStyle>& values) {

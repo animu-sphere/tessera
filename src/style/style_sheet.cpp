@@ -43,6 +43,12 @@ void apply(const StyleDeclarations& d, ResolvedStyle& s) {
     set(d.align, s.align);
     set(d.stack_horizontal, s.stack_horizontal);
     set(d.stack_vertical, s.stack_vertical);
+    set(d.grid_columns, s.grid_columns);
+    set(d.grid_rows, s.grid_rows);
+    set(d.column_gap, s.column_gap);
+    set(d.row_gap, s.row_gap);
+    set(d.grid_horizontal, s.grid_horizontal);
+    set(d.grid_vertical, s.grid_vertical);
     set(d.overflow, s.overflow);
     set(d.width, s.width);
     set(d.height, s.height);

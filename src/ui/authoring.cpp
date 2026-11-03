@@ -219,6 +219,14 @@ Element ScrollView(std::vector<Element> children, Props props) {
     return Column(std::move(children), std::move(props));
 }
 
+Element Grid(std::vector<Element> children, Props props) {
+    if (props.style.display != Display::none) props.style.display = Display::grid;
+    auto data = std::make_shared<detail::ElementData>();
+    data->props = std::move(props);
+    data->children = std::move(children);
+    return Element(std::move(data));
+}
+
 Element Dropdown(std::string label, std::string selected, std::vector<DropdownOption> options,
     std::string toggle_action, DropdownProps props) {
     std::vector<Diagnostic> errors;
