@@ -78,6 +78,8 @@ public:
     std::function<tessera::CapturedImage()> capture;
     std::function<std::optional<tessera::Rect>()> focused;
     std::function<bool()> editing;
+    std::function<void(tessera::Size)> resized;
+    std::function<bool(tessera::Point)> resize_cursor;
     HWND handle = nullptr;
     unsigned presentations = 0;
 
@@ -95,7 +97,7 @@ public:
         RECT bounds{0, 0, MulDiv(960, dpi, 96), MulDiv(360, dpi, 96)};
         AdjustWindowRectExForDpi(&bounds, style, FALSE, 0, dpi);
         handle = CreateWindowExW(0, type.lpszClassName,
-            L"Tessera Settings - Tab: focus, Enter/Space: activate, wheel: scroll",
+            L"Tessera Settings - drag boundary: resize, Tab: focus, wheel: scroll",
             style, CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left, bounds.bottom - bounds.top,
             nullptr, nullptr, type.hInstance, this);
         check(handle != nullptr, "Cannot create Settings window");
@@ -132,10 +134,8 @@ private:
     std::exception_ptr failure;
     wchar_t high_surrogate = 0;
     Mapping mapping() const {
-        RECT client{}; GetClientRect(handle, &client);
-        const float width = static_cast<float>(client.right), height = static_cast<float>(client.bottom);
-        const float scale = std::max(.001f, std::min(width / 640, height / 240));
-        return {(width - 640 * scale) / 2, (height - 240 * scale) / 2, scale};
+        const float scale = static_cast<float>(GetDpiForWindow(handle)) / 96;
+        return {0, 0, scale};
     }
     tessera::Point logical(POINT point) const {
         const auto view = mapping();
@@ -231,7 +231,8 @@ private:
             const auto view = mapping();
             SetStretchBltMode(dc, COLORONCOLOR);
             const auto rows = StretchDIBits(dc, static_cast<int>(std::lround(view.x)), static_cast<int>(std::lround(view.y)),
-                static_cast<int>(std::lround(640 * view.scale)), static_cast<int>(std::lround(240 * view.scale)),
+                static_cast<int>(std::lround(image.extent.width * view.scale)),
+                static_cast<int>(std::lround(image.extent.height * view.scale)),
                 0, 0, image.extent.width, image.extent.height, image.pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);
             check(rows != 0 && rows != GDI_ERROR, "Cannot present Settings frame");
             if (const auto rect = focused()) {
@@ -246,6 +247,13 @@ private:
     }
     LRESULT dispatch(UINT type, WPARAM w, LPARAM l) {
         switch (type) {
+        case WM_SETCURSOR: {
+            if (LOWORD(l) != HTCLIENT) break;
+            POINT point{}; GetCursorPos(&point); ScreenToClient(handle, &point);
+            const int cursor = resize_cursor(logical(point)) ? 32644 : 32512;
+            SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(cursor)));
+            return TRUE;
+        }
         case WM_PAINT: paint(); return 0;
         case WM_ERASEBKGND: return 1;
         case WM_MOUSEMOVE:
@@ -272,7 +280,15 @@ private:
         case WM_CAPTURECHANGED:
             send(tessera::PointerCancel{{1}}, tessera::CommandSource::pointer); return 0;
         case WM_KILLFOCUS: case WM_CANCELMODE: cancel_pointer(); return 0;
-        case WM_SIZE: cancel_pointer(); InvalidateRect(handle, nullptr, FALSE); return 0;
+        case WM_SIZE: {
+            cancel_pointer();
+            RECT client{}; GetClientRect(handle, &client);
+            if (client.right > 0 && client.bottom > 0) {
+                const auto scale = mapping().scale;
+                resized({client.right / scale, client.bottom / scale});
+            }
+            InvalidateRect(handle, nullptr, FALSE); return 0;
+        }
         case WM_DPICHANGED: {
             const auto* rect = reinterpret_cast<const RECT*>(l);
             SetWindowPos(handle, nullptr, rect->left, rect->top, rect->right - rect->left,

@@ -13,11 +13,12 @@
 namespace tessera {
 
 // Prototype in-process projection; not a serialized schema or stable API. Roles are derived from the
-// existing vocabulary because JSON v1 has no role property.
+// existing vocabulary, including the Box separator marker.
 enum class SemanticRole : std::uint8_t {
     root,   // The document root when it has no other role.
     button, // A node with an `activate` binding. Text descendants name it and get no entries.
     text,   // A Text node outside a button.
+    separator, // A Box with separator=true; its activate binding requests host adjustment.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 

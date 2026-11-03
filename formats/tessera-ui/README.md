@@ -39,6 +39,8 @@ The caller must supply `start_game` in `ValidationContext.actions` to accept thi
 
 Identifiers reject U+0000–U+001F and U+007F; no other normalization is performed. Case and Unicode bytes are significant. A reference is an object containing exactly `ref`, whose value is an author ID. Forward references are allowed. Missing targets fail; this slice validates existence only, without relationship/focus behavior.
 
+The optional Box-only boolean `properties.separator` defaults to false without being materialized. When true it projects a separator role through [semantics](../../docs/architecture/semantics.md); its registered `activate` action, when eligible, requests host adjustment. This additive vocabulary introduces no widget node kind or callback. Older builds that do not recognize the marker reject it as an unknown property; migrate explicitly when exchanging documents with those builds.
+
 Unknown fields fail at every schema level. Unknown properties and bindings fail rather than being silently preserved. Extension keys must have a nonempty namespace and suffix separated by `:`. Extension values may contain nested objects/arrays, strings, finite numbers, booleans, or null. Metadata has no runtime behavior. It is semantically preserved; whitespace, object member order, numeric spelling, and escape spelling are normalized.
 
 ## Canonical output

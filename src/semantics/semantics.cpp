@@ -49,8 +49,11 @@ public:
             const auto* activate = binding == node.events.end() ? nullptr : &binding->second;
             const auto* text = text_of(node);
             std::optional<SemanticRole> role;
-            if (activate) role = SemanticRole::button;
-            else if (text && !(inherited != no_semantic_parent && tree_.nodes[inherited].role == SemanticRole::button))
+            const auto* separator = effective_property(node, property_names::separator);
+            if (separator && std::get<bool>(*separator)) role = SemanticRole::separator;
+            else if (activate) role = SemanticRole::button;
+            else if (text && !(inherited != no_semantic_parent &&
+                (tree_.nodes[inherited].role == SemanticRole::button || tree_.nodes[inherited].role == SemanticRole::separator)))
                 role = SemanticRole::text;
             else if (box.parent == no_layout_parent && node.kind == NodeKind::box) role = SemanticRole::root;
             if (!role) {
@@ -116,13 +119,13 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
     auto tree = projection.build();
     std::vector<Diagnostic> warnings;
     for (const auto& entry : tree.nodes) {
-        if (entry.role == SemanticRole::button && entry.name.empty())
+        if ((entry.role == SemanticRole::button || entry.role == SemanticRole::separator) && entry.name.empty())
             warnings.push_back({"missing_name", Severity::warning, "/nodes/" + std::to_string(entry.node.index),
-                                "Give the button visible Text content or a labelled_by reference to named text.", {}});
+                                "Give the control visible Text content or a labelled_by reference to named text.", {}});
     }
     if (const auto focused = projection.unexposed_focus(tree))
         warnings.push_back({"focus_not_exposed", Severity::warning, "/nodes/" + std::to_string(focused->index),
-                            "Make the focusable node a button with an activate binding, or move focusable to its button.", {}});
+                            "Expose the focusable control as a button or separator, or move focusable to its control owner.", {}});
     return {std::move(tree), std::move(warnings)};
 }
 
@@ -153,7 +156,7 @@ Result<ActionRequest> request_semantic_action(const SemanticInput& input, NodeHa
         }
     }
     check.error("unsupported_action", "/binding",
-                "The target does not expose this action; invoke a button's activate action, not its label or container.");
+                "The target does not expose this action; invoke a control's activate action, not its label or container.");
     return {std::nullopt, std::move(errors)};
 }
 

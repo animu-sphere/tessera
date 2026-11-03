@@ -54,6 +54,7 @@ For application authors, begin with [Getting Started](guides/getting-started.md)
 | [Getting Started](guides/getting-started.md) | First-app build/copy/run procedure and prerequisites | Capability evidence or future syntax |
 | [Your first app](guides/first-app.md) | Source walkthrough, composition and explicit host responsibilities | A second API/lifetime contract or test-result history |
 | [Settings starter](guides/settings-starter.md) | Copy/build/run and source walkthrough for controlled editing and owned Apply copies | A second API/consumer contract, expanded widget scope or test-result history |
+| [SplitPane guide](guides/split-pane.md) | Public C++ composition and explicit host adjustment wiring | A second layout/input/semantic contract or test-result history |
 | [Renderer telemetry guide](guides/renderer-diagnostics.md) | Copy/build/run and source walkthrough for telemetry composition and the synthetic snapshot host | A second API/consumer contract, native renderer integration or test-result history |
 | [Testing](guides/testing.md) | Verification responsibilities, owner-test references, tier/selection and measurement policy, documentation checks | Complete test-target inventory, workflow implementation or capability status |
 | [Dependencies](reference/dependencies.md) | Adopted/candidate choices, acquisition and licensing policy, including font licensing | Validated configuration claims |

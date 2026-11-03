@@ -12,7 +12,7 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-constexpr std::array<std::string_view, 3> roles{"root", "button", "text"};
+constexpr std::array<std::string_view, 4> roles{"root", "button", "text", "separator"};
 constexpr std::array<std::string_view, 3> sources{"none", "relationship", "content"};
 struct Failure { std::vector<Diagnostic> diagnostics; };
 
@@ -50,8 +50,8 @@ std::optional<std::string> optional_string(const JsonValue& value, const std::st
     if (std::holds_alternative<std::nullptr_t>(value.value)) return std::nullopt;
     return as<std::string>(value, path);
 }
-template<class E>
-E choice(const JsonValue& value, const std::string& path, const std::array<std::string_view, 3>& names) {
+template<class E, std::size_t N>
+E choice(const JsonValue& value, const std::string& path, const std::array<std::string_view, N>& names) {
     const auto& text = as<std::string>(value, path);
     for (std::size_t i = 0; i < names.size(); ++i) if (text == names[i]) return static_cast<E>(i);
     fail("unknown_value", path, "Use a declared semantic enumeration name.");
@@ -183,7 +183,7 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
                 check.error("invalid_parent", at + "/parent", "Keep each semantic subtree contiguous in preorder.");
             ancestors.push_back(static_cast<std::uint32_t>(i));
         }
-        check.enumeration(entry.role, SemanticRole::text, at + "/role");
+        check.enumeration(entry.role, SemanticRole::separator, at + "/role");
         check.enumeration(entry.name_source, NameSource::content, at + "/name_source");
         if (entry.role == SemanticRole::root && (entry.node != 0 || entry.parent != no_semantic_parent))
             check.error("invalid_role", at + "/role", "Only the authored root may have the root role.");
@@ -204,8 +204,9 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
         if ((!entry.enabled && entry.focusable) || (entry.focused && (!entry.focusable || focused)))
             check.error("invalid_state", at + "/focused", "Focus requires enabled/focusable state and at most one focused entry.");
         focused = focused || entry.focused;
-        if (entry.actions.size() > 1 || (!entry.actions.empty() && (!entry.enabled || entry.role != SemanticRole::button)))
-            check.error("invalid_action", at + "/actions", "Only an enabled button can expose one activate action.");
+        if (entry.actions.size() > 1 || (!entry.actions.empty() && (!entry.enabled ||
+            (entry.role != SemanticRole::button && entry.role != SemanticRole::separator))))
+            check.error("invalid_action", at + "/actions", "Only an enabled button or separator can expose one activate action.");
         for (std::size_t a = 0; a < entry.actions.size(); ++a) {
             const auto path = at + "/actions/" + std::to_string(a);
             if (entry.actions[a].binding != "activate") check.error("unsupported_action", path + "/binding", "Use activate.");

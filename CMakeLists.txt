@@ -43,6 +43,7 @@ add_library(tessera_core
     src/input/pointer.cpp
     src/input/focus.cpp
     src/input/scroll.cpp
+    src/input/split_pane.cpp
     src/commands/commands.cpp
     src/commands/execution.cpp
     src/commands/transactions.cpp
@@ -129,6 +130,10 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         set_tests_properties(${name} PROPERTIES LABELS contract)
     endforeach()
     set_tests_properties(async_allocation PROPERTIES TIMEOUT 30)
+    add_executable(tessera_split_pane_tests tests/input/split_pane_tests.cpp)
+    target_link_libraries(tessera_split_pane_tests PRIVATE tessera::core)
+    add_test(NAME split_pane COMMAND tessera_split_pane_tests)
+    set_tests_properties(split_pane PROPERTIES LABELS contract)
     if(TESSERA_BUILD_EXAMPLES)
         add_test(NAME first_app COMMAND tessera_first_app)
         add_test(NAME settings_starter COMMAND tessera_settings_starter)

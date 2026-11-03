@@ -16,11 +16,11 @@ The [testing guide](../guides/testing.md#measurement-and-safe-reduction) owns CI
 
 ## Widget candidates beyond the reference application
 
-The delivered application flow is described by the [Settings starter](../guides/settings-starter.md). Further candidates include a Label convenience, RadioButton/RadioGroup, Spacer/Separator, Toolbar, Tabs and InspectorRow. [SplitPane](current.md#splitpane) is the next active task; layout follow-ups are listed below. Build on the existing [authoring](../architecture/ui-model.md#implemented-c-form-authoring) model and the [shared authoring/lowering proposal](../proposals/cpp-authoring.md); add them when an application uses them.
+The delivered application flow is described by the [Settings starter](../guides/settings-starter.md), including its [SplitPane usage](../guides/split-pane.md). Further candidates include a Label convenience, RadioButton/RadioGroup, Spacer/Separator, Toolbar, Tabs and InspectorRow; layout follow-ups are listed below. Build on the existing [authoring](../architecture/ui-model.md#implemented-c-form-authoring) model and the [shared authoring/lowering proposal](../proposals/cpp-authoring.md); add them when an application uses them.
 
 ## Layout follow-ups
 
-After [SplitPane](current.md#splitpane), start with Stack/Overlay and use public C++ application examples to choose the following layout tasks:
+Build on [SplitPane](../guides/split-pane.md), start with Stack/Overlay and use public C++ application examples to choose the following layout tasks:
 
 - **Stack/Overlay:** add overlapping children within one parent rectangle, per-child edge/center alignment and consistent paint/hit-test order, clipping and visibility. Exercise it with a viewport toolbar, loading indicator or badge.
 - **Absolute positioning:** add explicit offsets/sizes and simple edge-based placement against a documented parent content or padding box, with children outside normal flow. Check shared render, hit-test, scroll and clip coordinates in the example.

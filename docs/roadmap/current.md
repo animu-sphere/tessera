@@ -4,15 +4,8 @@ Inactive candidates live in [backlog](backlog.md). [Support](../reference/suppor
 
 ## SplitPane
 
-Extend the public C++ [Settings starter](../../examples/settings-starter/main.cpp) into a resizable Settings/Inspector tool. The completed v0.5.0 application flow is recorded in the [changelog](../../CHANGELOG.md#v050--2026-11-03); the [starter guide](../guides/settings-starter.md) owns its copy/build/run procedure.
+The Settings/Inspector resize operation is delivered in the [changelog](../../CHANGELOG.md#unreleased), with capability and validation evidence in [support](../reference/support-matrix.md#splitpane-evidence--2026-11-03). The [public-API guide](../guides/split-pane.md) and [Settings starter](../guides/settings-starter.md#resize-the-sidebar) own usage and host procedures. No SplitPane work items remain.
 
-### Work items
+## Next operation
 
-- Add public horizontal and vertical two-pane components with a splitter handle, an initial split, minimum pane sizes and a logical handle size; compose multi-pane screens by nesting them.
-- Compose pane sizing with existing Flex constraints and route handle input through the ordinary pointer, keyboard and command APIs. Choose a canonical split ratio or logical size owned by the host/component.
-- Implement press/move/release/cancel, keyboard adjustment and clamping after parent-size changes. Retain the split through presentation replacements and handle capture loss or handle removal during a drag.
-- Map drag positions into the parent's logical coordinates and use the resolved handle geometry for drawing and hit testing. Connect resize cursors and separator/adjustable semantics through the available host and semantic APIs.
-- Add a draggable sidebar/editor boundary to the Settings/Inspector example, preserving category selection, pending edits, scrolling and Apply/Cancel state.
-- Cover both orientations, drag/resize clamping, cancellation, state retention and keyboard adjustment in the affected owner tests and consumer smoke; add a short public-API usage guide.
-
-The next layout tasks are [Stack/Overlay, Absolute and Grid](backlog.md#layout-follow-ups).
+Choose an application operation for [Stack/Overlay, Absolute or Grid](backlog.md#layout-follow-ups) before promoting its scope. These remain inactive candidates; this handoff does not authorize adjacent runtime changes.

@@ -6,6 +6,18 @@
 - Targeting uses coherent logical geometry and shared eligibility. Keyboard/gamepad navigation and semantic operations follow ordinary action/command boundaries.
 - Host actions execute after traversal; generation/lifetime checks reject stale targets rather than invoking expired owners.
 
+## Implemented SplitPane adjustment
+
+[split_pane.hpp](../../include/tessera/input/split_pane.hpp) connects the public [SplitPane composition](ui-model.md#implemented-c-form-authoring) to normalized input without callbacks or platform types. `split_pane_geometry(input, id)` resolves the generated three-child structure against a coherent hit-test snapshot, joining the actual first-pane/handle boxes, parent content size, orientation and wrapper minima. It returns separator eligibility through shared semantics. Absent or hidden generated parts return an absent geometry; malformed structure and invalid snapshots return actionable diagnostics.
+
+`SplitPaneDispatcher(id, keyboard_step)` is host-owned single-handle capture. Its finite positive step defaults to 8 logical units. A primary press on the ordinary clipped/topmost handle hit returns focus and starts capture without moving the split. Matching pointer moves and primary release subtract the current first-pane logical origin and the press's offset inside the handle; both clamp to the feasible range. The dispatcher emits an owned size and the handle's ordinary `ActionRequest` only for changed values. Execute it through the command registry/host and recompose; it never writes application state.
+
+Capture retains pointer identity, grab offset, orientation, handle size and action name, not live tree handles. `refresh` at every accepted replacement returns the resolved first size and preserves a compatible drag. Handle removal/hiding/disabling, action/orientation/handle-size changes end capture. `PointerCancel` for the captured pointer, logical Cancel or unmodified Escape end capture while retaining the last accepted size; later release requests no deferred action. Foreign pointers, secondary buttons and additional presses cannot change capture. Other non-pointer events end the drag before their ordinary routing. Invalid input leaves capture unchanged.
+
+When the supplied eligible focus is the handle, Left/Right adjust a horizontal split and Up/Down adjust a vertical split, including repeated keys and corresponding logical gamepad Navigate events. Home/End select limits; Activate proposes one positive step. Modified or orthogonal keys pass through. Bounds suppress redundant commands. Parent-size changes use Flex's resolved clamp; the host stores `refresh.size` before the next composition. Minima that cannot fit remain clipped and lock adjustment.
+
+Host OS capture, capture-loss cancellation and resize cursors remain explicit adapters. The [Settings host](../guides/settings-starter.md#resize-the-sidebar) wires them with the same resolved geometry. [Owner checks](../../tests/input/split_pane_tests.cpp) cover both axes, nested Flex, scrolled/padded coordinates and clip/hit/paint agreement, drag replacement/lifecycle, cancellation, keyboard/gamepad and resize clamping.
+
 ## Host boundary
 
 The host polls platform devices and translates their data into normalized Tessera events. Tessera does not poll OS input APIs.
