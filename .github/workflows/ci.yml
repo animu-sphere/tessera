@@ -66,8 +66,8 @@ jobs:
         if: steps.scope.outputs.run_core == 'true'
         env:
           CI_SUITE: ${{ steps.scope.outputs.suite }}
-        # Import checks are RUN_SERIAL in CTest; two workers apply to runtime checks.
-        run: ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration Debug -Suite $env:CI_SUITE -TestParallelism 2
+        # Import checks are RUN_SERIAL in CTest; four workers apply to runtime checks.
+        run: ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration Debug -Suite $env:CI_SUITE -TestParallelism 4
       - name: Upload measurements and failures
         if: always() && steps.scope.outputs.run_core == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
