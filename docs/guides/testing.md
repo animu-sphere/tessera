@@ -21,8 +21,8 @@ Add a test for a new failure mode, a new state/command path or an actual regress
 | Tier | Scope |
 | --- | --- |
 | 0 Local | Build affected targets; run the affected owner tests and one consumer smoke. Documentation-only changes use the documentation checker. |
-| 1 PR | One representative core environment, fast owner contracts and the affected consumer smoke. Widen for foundation/build changes. |
-| 2 Integration/periodic | Full core Debug/Release, major consumers, independent add_subdirectory imports, deterministic CPU/replay checks. Runs after main integration or on a schedule. |
+| 1 PR | One representative core environment, runtime/widget contracts with examples OFF. API/build/unknown changes add only the minimal independent core consumer, never copied examples. No example-specific change detection or PR example checks. |
+| 2 Integration/periodic | Full core Debug/Release with examples ON, all example smokes and Diagnostics/Settings fixtures, independent add_subdirectory imports, deterministic CPU/replay checks. Runs after main integration or on a schedule. |
 | 3 Release/platform | Version/tag/changelog consistency, full Debug/Release and add_subdirectory imports, plus optional module, GPU/font/native-host evidence for the supported configuration. FetchContent is manual when its path is affected or recertified. Unavailable hardware checks are unvalidated, never replaced by compile success. |
 
 Repeated Tier 2 failure blocks the next release and takes repair priority. The [development guide](development.md#release-workflow) owns release commands.
@@ -35,11 +35,13 @@ Repeated Tier 2 failure blocks the next release and takes repair priority. The [
 | C++ authoring/widget | Authoring, affected widget contract and one consumer |
 | Commands/input/reactive | Affected owner contracts, representative integration and replay |
 | Render/layout | Affected contracts, a CPU fixture and one consumer |
-| CMake/import configuration | At least one independent add_subdirectory consumer; manually check FetchContent when its import path is affected |
+| Example sources/fixtures | Local: affected example smoke/fixtures. PR: core contracts only; examples are checked after main integration |
+| Public headers | Core contracts and minimal independent add_subdirectory consumer; application API-usage regressions are detected by integration |
+| CMake/import configuration | Core contracts and minimal independent add_subdirectory consumer, not copied applications; manually check FetchContent when its import path is affected |
 | Vulkan/fonts/native host | Affected module build and dedicated rendering/font/platform checks |
 | Release metadata/workflow | Metadata validation and the minimum affected build configuration |
 
-Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for quick application/consumer runs, `fixture` for the long Diagnostics/Settings fixtures, and `import` for independent host configure/build/link/run checks. [Runtime registration](../../cmake/TesseraTesting.cmake) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects matching build groups and labels without removing tests. PRs run `fixture` checks when their fixture sources change and otherwise inherit them from Tier 2.
+Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for quick application/consumer runs, `fixture` for the long Diagnostics/Settings fixtures, and `import` for independent host configure/build/link/run checks. [Runtime registration](../../cmake/TesseraTesting.cmake) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects matching build groups and labels without removing tests. The standard PR `core` suite runs only `contract`; API/build/unknown changes and missing diffs add the `consumer` suite, selecting only `source_consumer_add_subdirectory`. Both keep examples OFF. All example smokes/fixtures and copied application imports run in Debug/Release integration even when those files changed in the PR; discovering those regressions after merge is an intentional trade-off. Documentation-only PRs keep the reporting jobs but skip native build/test phases. Existing manual suites remain unchanged.
 
 Automatic import checks cover add_subdirectory only. FetchContent remains supported by the source projects and manual [consumer procedure](development.md#source-consumption-workflow), but is not registered even in an unfiltered local or integration CTest run. Historical evidence for both modes is not continuous regression coverage.
 

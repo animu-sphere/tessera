@@ -2,8 +2,8 @@ name: CI
 
 # Keep reporting jobs present even for documentation-only PRs. Scope decisions
 # happen inside the Core job, so a required check cannot be left pending.
-# Long fixtures and imports run on PRs only when their sources change;
-# the unfiltered suite belongs to integration.yml. FetchContent is manual only.
+# PR builds keep examples OFF, including the minimal core import check.
+# All example verification belongs to integration.yml. FetchContent is manual only.
 on:
   pull_request:
   workflow_dispatch:
@@ -36,8 +36,7 @@ jobs:
   core:
     name: Core / windows-x64 / Debug
     runs-on: windows-latest
-    # The `wide` fallback (fixtures plus add_subdirectory imports) needs the
-    # headroom; `pr` runs finish well inside it.
+    # API/build/unknown changes also configure and build an independent core host.
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,13 +60,17 @@ jobs:
           $scope = ./scripts/select-ci.ps1 -Paths $paths
           "run_core=$($scope.RunCore.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "suite=$($scope.Suite)" >> $env:GITHUB_OUTPUT
-          "Core scope: run=$($scope.RunCore), suite=$($scope.Suite)." >> $env:GITHUB_STEP_SUMMARY
-      - name: Configure, build and test
+          "run_import=$($scope.RunImport.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "Core scope: run=$($scope.RunCore), suite=$($scope.Suite); core consumer=$($scope.RunImport)." >> $env:GITHUB_STEP_SUMMARY
+      - name: Core contracts (examples OFF)
         if: steps.scope.outputs.run_core == 'true'
         env:
           CI_SUITE: ${{ steps.scope.outputs.suite }}
-        # Import checks are RUN_SERIAL in CTest; four workers apply to runtime checks.
         run: ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration Debug -Suite $env:CI_SUITE -TestParallelism 4
+      - name: Core import compatibility (examples OFF)
+        if: steps.scope.outputs.run_import == 'true'
+        # No copied applications: this host links only tessera::core.
+        run: ./scripts/measure-core-ci.ps1 -BuildDirectory build -Configuration Debug -Suite consumer -TestParallelism 4
       - name: Upload measurements and failures
         if: always() && steps.scope.outputs.run_core == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

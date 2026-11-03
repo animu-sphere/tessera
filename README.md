@@ -1,5 +1,8 @@
 # Tessera
 
+[![CI](https://github.com/animu-sphere/tessera/actions/workflows/ci.yml/badge.svg)](https://github.com/animu-sphere/tessera/actions/workflows/ci.yml)
+[![Integration](https://github.com/animu-sphere/tessera/actions/workflows/integration.yml/badge.svg?branch=main)](https://github.com/animu-sphere/tessera/actions/workflows/integration.yml)
+
 Tessera is a deterministic GPU-native UI runtime for humans and agents, built for the animu-sphere ecosystem. It combines declarative, backend-neutral documents with explicit C++ ownership, and is designed so that people and machines inspect, operate, replay, and verify the same UI through one semantic model.
 
 The product goal is to make ordinary application UI easy to author through a high-level C++ surface and composed widgets, backed by that same runtime. See the [authoring direction](docs/product/vision.md) and [active reference-application scope](docs/roadmap/current.md); usable capabilities and validation evidence are recorded in the support matrix below.
