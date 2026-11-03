@@ -16,15 +16,26 @@ The [testing guide](../guides/testing.md#measurement-and-safe-reduction) owns CI
 
 ## Widget candidates beyond the reference application
 
-The required application flow is owned by [current](current.md#required-application-flow). Further candidates include a Label convenience, RadioButton/RadioGroup, Spacer/Separator, Stack/Overlay, Toolbar, Tabs, SplitPane and InspectorRow. Build on the existing [authoring](../architecture/ui-model.md#implemented-c-form-authoring) model and the [shared authoring/lowering proposal](../proposals/cpp-authoring.md); add them when an application uses them.
+The delivered application flow is described by the [Settings starter](../guides/settings-starter.md). Further candidates include a Label convenience, RadioButton/RadioGroup, Spacer/Separator, Toolbar, Tabs and InspectorRow. [SplitPane](current.md#splitpane) is the next active task; layout follow-ups are listed below. Build on the existing [authoring](../architecture/ui-model.md#implemented-c-form-authoring) model and the [shared authoring/lowering proposal](../proposals/cpp-authoring.md); add them when an application uses them.
 
-## After v0.4.0
+## Layout follow-ups
 
-v0.4.x patch candidates take regression fixes only. The practical-application milestone is owned by [current](current.md#v050--application-ui-kit).
+After [SplitPane](current.md#splitpane), start with Stack/Overlay and use public C++ application examples to choose the following layout tasks:
 
-## v0.5.0 follow-up candidates
+- **Stack/Overlay:** add overlapping children within one parent rectangle, per-child edge/center alignment and consistent paint/hit-test order, clipping and visibility. Exercise it with a viewport toolbar, loading indicator or badge.
+- **Absolute positioning:** add explicit offsets/sizes and simple edge-based placement against a documented parent content or padding box, with children outside normal flow. Check shared render, hit-test, scroll and clip coordinates in the example.
+- **Grid:** add explicit rows/columns, fixed and flexible tracks, row/column gaps, basic alignment and min/max allocation. Use Inspector property rows to verify shared label/value columns, text height and input bounds at narrow widths.
+- **Intrinsic sizing:** extend text measurement and min/max sizing for Popup or Inspector examples that expose missing content-size behavior.
+- **Flex wrapping, align-self and baseline:** add the placement behavior used by toolbars, tags or aligned form controls, checking existing single-line Flex results alongside the new cases.
+- **Anchor positioning:** implement Dropdown, Tooltip or Context Menu placement and repositioning, including scrolling and anchor removal.
+- **Percentage sizing, aspect ratio and responsive rules:** add sizing and viewport/container behavior with application layout examples.
+- **Docking and virtualization:** build larger tool workspaces and data views on the pane components, then measure and optimize their layout workloads.
 
-The [active milestone](current.md#v050--application-ui-kit) owns the objective and required flow. The candidates below follow it.
+Owners: [layout](../architecture/layout.md), [authoring](../architecture/ui-model.md#implemented-c-form-authoring), [input](../architecture/input.md), [overlays](../proposals/overlays-and-portals.md), [virtualization](../proposals/virtualization.md).
+
+## Application UI follow-ups
+
+The v0.5.0 Settings application is recorded in the [changelog](../../CHANGELOG.md#v050--2026-11-03). The candidates below extend its workflow.
 
 Depends on the high-level C++ authoring surface, reusable components and the reference application's input/style contracts.
 
@@ -32,10 +43,8 @@ Candidates:
 
 - Clipboard, undo/redo, multiline and broader IME under declared platform boundaries. For clipboard promotion, begin with selected UTF-8 copy/paste in the Settings starter; distinguish injected-service evidence from a concrete platform adapter and preserve draft/save observations on rejection.
 - Widgets and interactions beyond the active flow: context menus/dialogs, richer Inspector controls/themes, tree selection/TreeView and extra focus scopes.
-- A shared overlay abstraction only after concrete selection UI behavior requires it; see [overlays](../proposals/overlays-and-portals.md). The minimum selection UI required by current is active, but generic Portal is not.
+- Popup selection and shared overlay/Portal behavior for the [overlay examples](../proposals/overlays-and-portals.md), building on the layout follow-ups above.
 - A first practical DevTools/inspection UI using ordinary semantics, commands and observations.
-
-Promote only the minimum additional behavior needed by an application operation. The active milestone's release criteria live in current; these candidates add no separate completion gate. Platform text claims require dedicated evidence.
 
 Owners: [authoring](../proposals/cpp-authoring.md), [UI model](../architecture/ui-model.md), [input](../architecture/input.md), [styling](../architecture/styling.md), [layout](../architecture/layout.md), [inspection](../architecture/inspection.md).
 
