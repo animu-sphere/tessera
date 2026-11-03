@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -73,6 +74,8 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         error("unsupported_version", "/version", "Only document version 1 is supported; migrate explicitly.");
     std::map<std::string, std::string, std::less<>> ids;
     std::vector<std::pair<std::string, std::string>> references;
+    std::vector<std::pair<std::string, std::string>> anchors;
+    std::vector<std::string> popups;
     std::size_t count = 0;
     std::function<void(const UiNode&, const std::string&, std::size_t)> visit;
     visit = [&](const UiNode& node, const std::string& path, std::size_t depth) {
@@ -118,6 +121,25 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         }
         if (node.kind == NodeKind::text && !node.children.empty())
             error("invalid_children", path + "/children", "Text is a leaf; place children in a Box.");
+        if (const auto found = node.properties.find(property_names::popup_anchor); found != node.properties.end()) {
+            if (const auto* anchor = std::get_if<std::string>(&found->second)) {
+                check_string(*anchor, path + "/properties/popup_anchor", true);
+                anchors.emplace_back(*anchor, path);
+            }
+            popups.push_back(path);
+            if (depth != 2)
+                error("popup_parent", path, "Place popups directly under the document root, after ordinary content.");
+        }
+        if (const auto found = node.properties.find(property_names::popup_side); found != node.properties.end()) {
+            if (const auto* side = std::get_if<std::string>(&found->second);
+                side && *side != "bottom" && *side != "top" && *side != "left" && *side != "right")
+                error("popup_side", path + "/properties/popup_side", "Choose bottom, top, left, or right.");
+        }
+        if (const auto found = node.properties.find(property_names::popup_gap); found != node.properties.end()) {
+            if (const auto* gap = std::get_if<double>(&found->second);
+                gap && (!std::isfinite(*gap) || *gap < 0 || *gap > std::numeric_limits<float>::max()))
+                error("popup_gap", path + "/properties/popup_gap", "Use a finite, nonnegative logical gap within float range.");
+        }
         for (const auto& [event, action] : node.events) {
             const auto location = path + "/events/" + detail::pointer_token(event);
             if (event != "activate" && event != "cancel")
@@ -135,6 +157,23 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
     if (count > max_document_nodes) error("node_limit", "/root", "Document exceeds the node limit (10000).");
     for (const auto& [id, path] : references) {
         if (!ids.contains(id)) error("invalid_reference", path, "No node has author ID '" + id + "'.");
+    }
+    bool popup_seen = false;
+    for (std::size_t i = 0; i < root.children.size(); ++i) {
+        const bool popup = root.children[i].properties.contains(property_names::popup_anchor);
+        if (popup_seen && !popup)
+            error("popup_order", "/root/children/" + std::to_string(i),
+                  "Place ordinary content before all root popup children so paint and hit order agree.");
+        popup_seen = popup_seen || popup;
+    }
+    for (const auto& [anchor, path] : anchors) {
+        const auto target = ids.find(anchor);
+        if (target == ids.end()) continue; // An unmounted anchor suppresses its popup during layout.
+        for (const auto& popup : popups) {
+            if (target->second == popup || target->second.starts_with(popup + "/"))
+                error("popup_anchor", path + "/properties/popup_anchor",
+                      "Anchor to ordinary content, not a popup or its descendants.");
+        }
     }
     return errors;
 }

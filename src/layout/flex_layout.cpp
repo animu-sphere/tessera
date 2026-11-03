@@ -1,6 +1,7 @@
 #include <tessera/layout/layout_box.hpp>
 #include <tessera/ui/property_metadata.hpp>
 #include "../detail/layout_snapshot.hpp"
+#include "../detail/popup.hpp"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -53,6 +54,7 @@ public:
                 fixed.kind == Dimension::Kind::points ? fixed.value : available);
         }
         place(0, no_layout_parent, box);
+        place_popups(viewport);
         if (!errors_.empty()) return {std::nullopt, std::move(errors_)};
         const auto finite = [](const Rect& r) {
             return std::isfinite(r.origin.x) && std::isfinite(r.origin.y) &&
@@ -79,8 +81,47 @@ private:
     std::vector<std::uint32_t> displayed_children(std::uint32_t index) const {
         std::vector<std::uint32_t> result;
         for (const auto child : tree_.children(handle(index)))
-            if (styles_[child.index].display != Display::none) result.push_back(child.index);
+            if (styles_[child.index].display != Display::none && !detail::popup_anchor(*tree_.get(child)))
+                result.push_back(child.index);
         return result;
+    }
+
+    void place_popups(Size viewport) {
+        const auto boundary = intersect({{}, viewport}, result_.boxes.front().content_box());
+        for (const auto child : tree_.children(tree_.root())) {
+            const auto& node = *tree_.get(child);
+            if (!detail::popup_anchor(node) || styles_[child.index].display == Display::none) continue;
+            const auto* anchor_box = detail::popup_anchor_box(tree_, result_, node);
+            if (!anchor_box) continue;
+            const auto anchor = anchor_box->border_box;
+            const auto& style = styles_[child.index];
+            const float width = std::min(preferred(child.index, true), boundary.size.width);
+            const Size size{limits(style, true).clamp(width),
+                limits(style, false).clamp(std::min(boundary.size.height,
+                    basis(child.index, limits(style, true).clamp(width)).height))};
+            const auto& side = std::get<std::string>(*effective_property(node, property_names::popup_side));
+            const bool horizontal = side == "left" || side == "right";
+            bool after = side == "bottom" || side == "right";
+            const double gap = std::get<double>(*effective_property(node, property_names::popup_gap));
+            const double start = along(boundary.origin, horizontal);
+            const double end = start + along(boundary.size, horizontal);
+            const double anchor_start = along(anchor.origin, horizontal);
+            const double anchor_end = anchor_start + along(anchor.size, horizontal);
+            const double before_room = anchor_start - gap - start;
+            const double after_room = end - anchor_end - gap;
+            const double needed = along(size, horizontal);
+            if ((after ? after_room : before_room) < needed &&
+                (after ? before_room > after_room : after_room > before_room)) after = !after;
+            Point origin = anchor.origin;
+            const double main = after ? anchor_end + gap : anchor_start - gap - needed;
+            along(origin, horizontal) = static_cast<float>(std::clamp(main, start,
+                std::max(start, end - needed)));
+            const double cross_start = along(boundary.origin, !horizontal);
+            along(origin, !horizontal) = static_cast<float>(std::clamp(
+                static_cast<double>(along(origin, !horizontal)), cross_start,
+                std::max(cross_start, cross_start + along(boundary.size, !horizontal) - along(size, !horizontal))));
+            place(child.index, 0, {origin, size});
+        }
     }
 
     // Unclamped border-box size before flexing: a fixed dimension, else content plus border and padding.

@@ -151,6 +151,32 @@ Element Text(Value<std::string> text, Props props) {
     data->text = std::move(text);
     return Element(std::move(data));
 }
+Element Popup(std::string anchor, std::vector<Element> children, PopupProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    data->props = std::move(props.node);
+    data->props.style.direction = FlexDirection::column;
+    if (!data->props.style.overflow) data->props.style.overflow = Overflow::clip;
+    if (!props.open) data->props.style.display = Display::none;
+    data->properties["popup_anchor"] = std::move(anchor);
+    data->properties["popup_gap"] = static_cast<double>(props.gap);
+    std::string side;
+    switch (props.side) {
+    case PopupSide::bottom: side = "bottom"; break;
+    case PopupSide::top: side = "top"; break;
+    case PopupSide::left: side = "left"; break;
+    case PopupSide::right: side = "right"; break;
+    }
+    data->properties["popup_side"] = std::move(side);
+    data->children = std::move(children);
+    return Element(std::move(data));
+}
+Element Tooltip(std::string anchor, Value<std::string> text, PopupProps props) {
+    const auto source = props.node.source;
+    auto popup = Popup(std::move(anchor), {Text(std::move(text), {.source = source})}, std::move(props));
+    auto data = std::make_shared<detail::ElementData>(*popup.data_);
+    data->properties["pointer_events"] = false;
+    return Element(std::move(data));
+}
 Element Button(Value<std::string> label, std::string action, ButtonProps props) {
     auto data = std::make_shared<detail::ElementData>();
     data->props = std::move(props.node);

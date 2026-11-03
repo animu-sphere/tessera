@@ -46,7 +46,8 @@ struct LayoutBox {
     bool operator==(const LayoutBox&) const = default;
 };
 
-// Boxes in tree preorder. Display::none subtrees are absent. Owned; handles refer to the input tree.
+// Boxes in tree preorder. Display::none and unavailable-anchor popup subtrees are absent.
+// Owned; handles refer to the input tree.
 struct LayoutResult {
     std::vector<LayoutBox> boxes;
     bool operator==(const LayoutResult&) const = default;
@@ -65,7 +66,7 @@ struct LayoutInput {
 
 std::vector<Diagnostic> validate(const LayoutInput&);
 
-// Full-tree fixed/stack/flex layout; see docs/architecture/layout.md for the rules. Fails with validate()
+// Full-tree flex/stack/grid and anchored popup layout; see docs/architecture/layout.md. Fails with validate()
 // diagnostics, text measurement errors under /nodes/<index>, or non_finite_geometry.
 Result<LayoutResult> compute_layout(const LayoutInput&);
 

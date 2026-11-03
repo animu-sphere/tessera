@@ -20,11 +20,14 @@ public:
     explicit Targeting(const HitTestInput& input) : input_(input), by_node_(input.tree->size(), no_layout_parent) {
         const auto& boxes = input.layout->boxes;
         disabled_.reserve(boxes.size());
+        pointer_events_.reserve(boxes.size());
         for (std::size_t i = 0; i < boxes.size(); ++i) {
             const auto& box = boxes[i];
             by_node_[box.node.index] = static_cast<std::uint32_t>(i);
             disabled_.push_back(std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::disabled)) ||
                                 (box.parent != no_layout_parent && disabled_[box.parent]));
+            pointer_events_.push_back(std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::pointer_events)) &&
+                                      (box.parent == no_layout_parent || pointer_events_[box.parent]));
         }
     }
 
@@ -32,7 +35,8 @@ public:
         const auto& boxes = input_.layout->boxes;
         for (std::size_t i = boxes.size(); i > 0; --i) {
             const auto& box = boxes[i - 1];
-            if (eligible(i - 1) && inside(box.border_box, point) && (!box.clip || inside(*box.clip, point)))
+            if (eligible(i - 1) && pointer_events_[i - 1] &&
+                inside(box.border_box, point) && (!box.clip || inside(*box.clip, point)))
                 return box.node;
         }
         return {};
@@ -75,6 +79,7 @@ private:
     const HitTestInput& input_;
     std::vector<std::uint32_t> by_node_;
     std::vector<bool> disabled_;
+    std::vector<bool> pointer_events_;
 };
 
 } // namespace tessera::detail

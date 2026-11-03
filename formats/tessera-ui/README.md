@@ -41,6 +41,14 @@ Identifiers reject U+0000–U+001F and U+007F; no other normalization is perform
 
 The optional Box-only boolean `properties.separator` defaults to false without being materialized. When true it projects a separator role through [semantics](../../docs/architecture/semantics.md); its registered `activate` action, when eligible, requests host adjustment. This additive vocabulary introduces no widget node kind or callback. Older builds that do not recognize the marker reject it as an unknown property; migrate explicitly when exchanging documents with those builds.
 
+The additive popup vocabulary also remains version 1:
+
+- Box-only `popup_anchor` is a nonempty UTF-8 author-ID **string**, not a strict reference. Missing targets are legal lifecycle state and suppress the popup's layout. Popup nodes must be direct root children after all ordinary content; no popup or its descendants may be an anchor.
+- Box-only `popup_side` is exactly `bottom`, `top`, `left` or `right` (absent: `bottom`); `popup_gap` is a finite nonnegative number no greater than the maximum finite float (absent: 4). Both are inert without `popup_anchor`.
+- Box/Text `pointer_events` is boolean (absent: true). False excludes the entire subtree from pointer hits, but does not disable semantic text or keyboard focus.
+
+These are ordinary typed properties; defaults are never materialized by serialization. Their placement and interaction meanings belong to [layout](../../docs/architecture/layout.md#implemented-anchored-popups) and [input](../../docs/architecture/input.md#implemented-popup-and-tooltip-interaction). Older builds reject the new properties; the envelope version is not a backward-reader compatibility claim.
+
 Unknown fields fail at every schema level. Unknown properties and bindings fail rather than being silently preserved. Extension keys must have a nonempty namespace and suffix separated by `:`. Extension values may contain nested objects/arrays, strings, finite numbers, booleans, or null. Metadata has no runtime behavior. It is semantically preserved; whitespace, object member order, numeric spelling, and escape spelling are normalized.
 
 ## Canonical output

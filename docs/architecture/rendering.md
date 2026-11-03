@@ -210,6 +210,8 @@ Image encoding/export belongs to optional tooling, with explicit dependency/lice
 
 ## Proposed overlay paint
 
+Implemented root-sibling [Popup/Tooltip placement](layout.md#implemented-anchored-popups) needs no alternate paint path: ordinary preorder draws popup subtrees after content, using their actual root clips. The [CPU fixture](../../tests/input/popup_tests.cpp) checks pixel/hit agreement beyond the anchor's scroll clip.
+
 The [overlay/portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals) provides layer identity and presentation ancestry. Paint uses shared placement/clip geometry to place overlay commands after the appropriate content layer, without inheriting ordinary content clips accidentally. Define deterministic ordering and balanced stack boundaries; input must use the same presentation order. Portals do not bypass resource retirement or create backend-owned components.
 
 ## Assets

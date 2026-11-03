@@ -1,4 +1,5 @@
 #include "../detail/layout_snapshot.hpp"
+#include "../detail/popup.hpp"
 #include "../detail/checks.hpp"
 #include <cmath>
 #include <string>
@@ -23,6 +24,7 @@ std::vector<Diagnostic> validate_layout_snapshot(const UiTree* tree, std::span<c
     std::vector<Expected> expected;
     const auto visit = [&](const auto& self, NodeHandle node, std::uint32_t parent) -> void {
         if (styles[node.index].display == Display::none) return;
+        if (popup_anchor(*tree->get(node)) && !popup_anchor_box(*tree, *layout, *tree->get(node))) return;
         const auto index = static_cast<std::uint32_t>(expected.size());
         expected.push_back({node, parent});
         for (const auto child : tree->children(node)) self(self, child, index);

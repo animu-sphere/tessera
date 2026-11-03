@@ -93,7 +93,17 @@ Concrete application/widget requirements choose each extension. Strengthen Row/C
 
 The [prototype scrolling rule](#implemented-prototype-algorithm) makes viewport bounds, content extent, clamped offset, and effective clips available to both paint and hit testing, including nested scroll boxes; [input](input.md#implemented-scroll-routing) turns wheel deltas and reveal requests into new requested offsets.
 
-Proposed: overlay placement supports a source anchor, the declared viewport, or explicit logical coordinates, with bounded placement/fallback rules. Presentation ancestry can differ from component ownership under the [portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals). Layout supplies shared geometry and effective clips; input and paint must not independently recompute popup positions. Missing or removed anchors follow a declared dismissal/fallback policy and cannot leave targeting at obsolete coordinates.
+### Implemented anchored popups
+
+A Box declaring `popup_anchor` is a root child after ordinary content under the [model restrictions](ui-model.md#implemented-foundation-contract). Ordinary layout excludes these children from intrinsic measurement, flow, Grid capacity and scroll extents. After ordinary content, layout places each popup subtree in declared order, retaining the root as its parent. There is no alternate presentation ancestry or layer sorting. Paint, hit tests, semantic bounds and inspection consume the same ordinary preorder boxes.
+
+Placement uses the anchor's current border box, including ancestor scroll offsets. The placement boundary is the intersection of the logical viewport and the root content box. Width is the lesser of the ordinary preferred width and boundary width, clamped by the popup's own limits. Assigned-width measurement determines height, bounded by boundary height and clamped by ordinary limits. Border/padding/minimum floors can still exceed the boundary; explicit clip/scroll policies govern oversized descendants. Popup margins and flex/Stack/Grid child placement controls do not offset the anchored border box.
+
+The preferred `popup_side` starts at the anchor's leading cross edge, separated by `popup_gap` on the main axis. If that side cannot hold the popup and the opposite side has strictly more room, use the opposite side; ties retain the preference. Shift both axes into the boundary, starting at its leading edge when oversized. Geometry uses double intermediates for placement arithmetic, then the existing finite-geometry checks.
+
+An unmounted, display-none, locally hidden, zero-area or fully ancestor-clipped anchor suppresses the entire popup subtree. Missing anchors are intentional lifecycle state, not an unresolved strict document reference. Recalculation on scroll, resize or tree replacement never reuses obsolete anchor coordinates. The popup inherits clips from its actual root ancestry, not the anchor's scrolling ancestors. Root clipping is not bypassed. [Owner checks](../../tests/input/popup_tests.cpp) cover placement, flip/shift, viewport bounds, scroll suppression, CPU pixel/hit agreement and validation.
+
+Proposed: explicit logical-coordinate placement and presentation reparenting follow the [portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals). The delivered root-sibling operation does not implement either.
 
 ## Proposed rules to settle
 

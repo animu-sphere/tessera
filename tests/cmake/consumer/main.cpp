@@ -8,6 +8,7 @@
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/style/style_sheet.hpp>
 #include <tessera/input/text_edit.hpp>
+#include <tessera/input/popup.hpp>
 #include <concepts>
 #include <iostream>
 
@@ -35,6 +36,28 @@ int main() {
         {1, editing.value->revision, tessera::TextEditErase{}});
     if (!erased || erased.value->text != "日本" ||
         tessera::edit_text(*erased.value, {1, editing.value->revision, tessera::TextEditInsert{"stale"}})) return 41;
+    namespace ui = tessera::authoring;
+    const tessera::ValidationContext popup_actions{{"open", "choose"}};
+    const auto popup_form = form.lower(ui::Column({
+        ui::Button("Open", "open", {.node = {.id = "anchor"}}),
+        ui::Popup("anchor", {ui::Button("Choose", "choose", {.node = {.id = "choice"}})},
+            {.node = {.id = "popup"}, .open = true}),
+        ui::Tooltip("anchor", "Help", {.node = {.id = "help"}})}), popup_actions);
+    if (!popup_form) return 45;
+    const auto popup_tree = tessera::UiTree::create(popup_form.value->document, popup_actions);
+    if (!popup_tree) return 46;
+    const tessera::StyleSheet popup_sheet;
+    const auto popup_styles = tessera::resolve_styles({popup_tree.value->get(), &popup_sheet, {}, popup_form.value->styles});
+    if (!popup_styles) return 47;
+    tessera::PlaceholderTextShaper popup_text;
+    const auto popup_layout = tessera::compute_layout({popup_tree.value->get(), *popup_styles.value, {200, 120}, &popup_text});
+    if (!popup_layout) return 48;
+    const tessera::HitTestInput popup_hit{popup_tree.value->get(), *popup_styles.value, &*popup_layout.value};
+    tessera::PopupDispatcher popup("popup");
+    tessera::TooltipDispatcher tooltip("anchor");
+    const auto opened = popup.refresh(popup_hit);
+    const auto help = tooltip.refresh(popup_hit, (*popup_tree.value)->find("anchor"));
+    if (!opened || opened.value->focus != (*popup_tree.value)->find("choice") || !help || !help.value->visible) return 49;
     tessera::UiDocument document;
     document.root.id = "panel";
     tessera::UiNode title;

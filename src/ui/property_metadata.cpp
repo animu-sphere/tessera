@@ -14,13 +14,21 @@ static_assert(std::is_same_v<PropertyAlternative<PropertyType::reference>, NodeR
 
 std::span<const PropertyDescriptor> property_descriptors() noexcept {
     using enum PropertyStages;
-    static const std::array<PropertyDescriptor, 5> descriptors{{
+    static const std::array<PropertyDescriptor, 9> descriptors{{
         {property_names::disabled, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{false},
          input | semantics, PropertyCategory::interaction},
         {property_names::focusable, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{false},
          input | semantics, PropertyCategory::interaction},
         {property_names::labelled_by, PropertyType::reference, NodeKinds::all, NodeKinds::none, std::nullopt,
          semantics, PropertyCategory::accessibility},
+        {property_names::pointer_events, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{true},
+         input, PropertyCategory::interaction},
+        {property_names::popup_anchor, PropertyType::string, NodeKinds::box, NodeKinds::none, std::nullopt,
+         layout | paint | input | semantics, PropertyCategory::interaction},
+        {property_names::popup_gap, PropertyType::number, NodeKinds::box, NodeKinds::none, Property{4.0},
+         layout | paint | input | semantics, PropertyCategory::interaction},
+        {property_names::popup_side, PropertyType::string, NodeKinds::box, NodeKinds::none, Property{std::string("bottom")},
+         layout | paint | input | semantics, PropertyCategory::interaction},
         {property_names::separator, PropertyType::boolean, NodeKinds::box, NodeKinds::none, Property{false},
          semantics, PropertyCategory::accessibility},
         {property_names::text, PropertyType::string, NodeKinds::text, NodeKinds::text, std::nullopt,

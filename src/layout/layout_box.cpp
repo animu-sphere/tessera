@@ -1,5 +1,6 @@
 #include <tessera/layout/layout_box.hpp>
 #include "../detail/checks.hpp"
+#include "../detail/popup.hpp"
 #include <string>
 
 namespace tessera {
@@ -27,7 +28,7 @@ std::vector<Diagnostic> validate(const LayoutInput& input) {
         if (input.tree && input.styles.size() == input.tree->size()) {
             std::size_t count = 0;
             for (const auto child : input.tree->children({input.tree->root().tree, static_cast<std::uint32_t>(i)}))
-                if (input.styles[child.index].display != Display::none) ++count;
+                if (input.styles[child.index].display != Display::none && !detail::popup_anchor(*input.tree->get(child))) ++count;
             if (count > resolved.grid_columns.size() * resolved.grid_rows.size())
                 check.error("grid_capacity", path,
                     "Declare enough explicit Grid cells for every displayed child; implicit tracks are unsupported.");
