@@ -145,7 +145,17 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         add_executable(tessera_renderer_diagnostics_tests tests/integrations/renderer_diagnostics_tests.cpp
             examples/renderer-diagnostics/panel.cpp examples/renderer-diagnostics/host.cpp)
         target_link_libraries(tessera_renderer_diagnostics_tests PRIVATE tessera::core)
-        add_test(NAME renderer_diagnostics_contract COMMAND tessera_renderer_diagnostics_tests)
+        # One check per independent fixture scenario, so CTest workers share the
+        # Debug cost instead of serializing it behind one process. The names must
+        # match the scenario table in the test source, which rejects unknown ones.
+        set(TESSERA_DIAGNOSTICS_SCENARIOS telemetry numeric_direct numeric_ambient two_numeric_fields
+            msaa outlines scene_lights material_view key_direction reset)
+        set(TESSERA_DIAGNOSTICS_CONTRACT_TESTS)
+        foreach(scenario IN LISTS TESSERA_DIAGNOSTICS_SCENARIOS)
+            add_test(NAME renderer_diagnostics_contract.${scenario}
+                COMMAND tessera_renderer_diagnostics_tests ${scenario})
+            list(APPEND TESSERA_DIAGNOSTICS_CONTRACT_TESTS renderer_diagnostics_contract.${scenario})
+        endforeach()
         add_test(NAME hello_ui COMMAND tessera_hello_ui)
         add_test(NAME flex_layout COMMAND tessera_flex_layout)
         add_test(NAME pointer_menu COMMAND tessera_pointer_menu)
@@ -159,7 +169,20 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         set_tests_properties(first_app settings_starter renderer_diagnostics
             hello_ui flex_layout pointer_menu tool_panel editor_prototype
             PROPERTIES LABELS smoke)
-        set_tests_properties(renderer_diagnostics_contract settings PROPERTIES LABELS fixture)
+        set_tests_properties(${TESSERA_DIAGNOSTICS_CONTRACT_TESTS} settings PROPERTIES LABELS fixture)
+        # Schedule the long fixtures first when no cost data exists yet. Values are
+        # rounded local Debug seconds; CTest refines them from recorded runs.
+        set_tests_properties(settings PROPERTIES COST 70)
+        set_tests_properties(renderer_diagnostics_contract.outlines renderer_diagnostics_contract.scene_lights
+            PROPERTIES COST 45)
+        set_tests_properties(renderer_diagnostics_contract.msaa PROPERTIES COST 42)
+        set_tests_properties(renderer_diagnostics_contract.numeric_ambient PROPERTIES COST 35)
+        set_tests_properties(renderer_diagnostics_contract.numeric_direct PROPERTIES COST 30)
+        set_tests_properties(renderer_diagnostics_contract.key_direction PROPERTIES COST 25)
+        set_tests_properties(renderer_diagnostics_contract.telemetry renderer_diagnostics_contract.two_numeric_fields
+            PROPERTIES COST 22)
+        set_tests_properties(renderer_diagnostics_contract.material_view renderer_diagnostics_contract.reset
+            PROPERTIES COST 9)
     endif()
     include(tests/cmake/register.cmake)
 endif()

@@ -10,7 +10,7 @@ Choose follow-up scope from real applications and their authoring friction, begi
 
 The [testing guide](../guides/testing.md#measurement-and-safe-reduction) owns CI transition and measurement. These candidates run alongside feature work and do not block ordinary UI work.
 
-- Use available hosted durations and runner capacity/cost to decide whether daily coverage, parallelism, caching or build-target separation solves a measured bottleneck.
+- Use available hosted durations and runner capacity/cost to decide whether daily coverage, parallelism, caching or build-target separation solves a measured bottleneck. The [fixture cost evidence](../reference/support-matrix.md#diagnostics-fixture-cost-evidence--2026-11-03) leaves the example Diagnostics host's full-view re-stage on every focus move as a measured candidate (935 of its 1,661 Debug rebuilds were keyboard traversal steps). PR CI now requests four test workers; evaluate hosted durations before claiming its speedup.
 - Coordinate required-check/ruleset changes only after verifying the replacement under the testing guide. Preserve integration/import and release coverage, reporting on docs-only PRs and conservative scope fallback.
 - Reduce duplicate consumer assertions only with equivalent owner coverage and useful diagnostics.
 

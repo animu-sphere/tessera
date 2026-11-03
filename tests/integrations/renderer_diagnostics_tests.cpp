@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cctype>
 #include <set>
+#include <string_view>
+#include <vector>
 
 using namespace tessera;
 using namespace std::chrono_literals;
@@ -201,21 +203,21 @@ struct Fixture {
             require(view.tree->get(*view.tree->find("history-bars"))->children.empty() &&
                 name(view, "history-summary") == "History unavailable: no samples", "Empty history differs");
         }
+        // Reconstruct the accepted view through replay once and compare it with one direct CPU capture of
+        // the accepted paint. Repeated-run and repeated-capture determinism is owned by the replay,
+        // offscreen_runner and cpu_renderer checks, so neither is re-proven per observation here.
         ReplayRecording recording;
         recording.context = panel::context; recording.viewport = panel::viewport;
         recording.document = view.tree->document(); recording.styles = view.styles;
         recording.environment.scale = 1.25f; recording.environment.locale = "en";
         if (host->offset() != Point{}) recording.steps.push_back(InputEvent{1us, Scroll{{16, 16}, host->offset()}});
-        recording.steps.push_back(ReplayTick{2us});
-        const auto first = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
-        const auto repeated = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
-        require(first == repeated && first.output.generations.back().boxes == geometry(view) &&
-            first.output.generations.back().paint == view.paint &&
-            first.output.semantics.back().nodes == own_semantic_records(view.inspection.semantics), "Accepted replay differs");
+        const auto replayed = take(run_offscreen({&recording, &text, frames.backend(), &frames}));
+        require(replayed.output.generations.back().boxes == geometry(view) &&
+            replayed.output.generations.back().paint == view.paint &&
+            replayed.output.semantics.back().nodes == own_semantic_records(view.inspection.semantics), "Accepted replay differs");
         const auto extent = take(capture_extent(panel::viewport, 1.25f));
-        const auto image = take(frames.capture({0, panel::viewport, 1.25f, extent, &view.paint}));
-        require(first.frames.back().image == image && take(frames.capture({0, panel::viewport, 1.25f, extent, &view.paint})) == image,
-            "Repeated CPU bytes differ from accepted replay");
+        require(replayed.frames.back().image == take(frames.capture({0, panel::viewport, 1.25f, extent, &view.paint})),
+            "CPU bytes differ from accepted replay");
         ++observations;
     }
     template<class Event> void send(Event event, CommandSource source = CommandSource::keyboard) {
@@ -1595,8 +1597,36 @@ void reset_controls() {
     std::cout << f.observations << " reset view matches CPU/replay; all-settings reset, whole-operation rejection and rejected-stage retry verified\n";
 }
 
+// Scenarios are independent and run in this order without arguments; CTest registers each name as its own
+// check so the fixture spreads across test workers.
+struct Scenario { const char* name; void (*run)(); };
+constexpr Scenario scenarios[] = {
+    {"telemetry", run},
+    {"numeric_direct", [] { numeric_controls(panel::NumericField::direct); }},
+    {"numeric_ambient", [] { numeric_controls(panel::NumericField::ambient); }},
+    {"two_numeric_fields", two_numeric_fields},
+    {"msaa", msaa_controls},
+    {"outlines", [] { boolean_controls(false); }},
+    {"scene_lights", [] { boolean_controls(true); }},
+    {"material_view", material_view_controls},
+    {"key_direction", key_direction_controls},
+    {"reset", reset_controls},
+};
 }
-int main() {
-    try { run(); numeric_controls(panel::NumericField::direct); numeric_controls(panel::NumericField::ambient); two_numeric_fields(); msaa_controls(); boolean_controls(false); boolean_controls(true); material_view_controls(); key_direction_controls(); reset_controls(); }
+int main(int argc, char** argv) {
+    std::vector<const Scenario*> selected;
+    for (int i = 1; i < argc; ++i) {
+        const auto found = std::find_if(std::begin(scenarios), std::end(scenarios),
+            [&](const Scenario& scenario) { return std::string_view{scenario.name} == argv[i]; });
+        if (found == std::end(scenarios)) {
+            std::cerr << "Unknown scenario '" << argv[i] << "'. Known scenarios:";
+            for (const auto& scenario : scenarios) std::cerr << ' ' << scenario.name;
+            std::cerr << '\n';
+            return 2;
+        }
+        selected.push_back(&*found);
+    }
+    if (selected.empty()) for (const auto& scenario : scenarios) selected.push_back(&scenario);
+    try { for (const auto* scenario : selected) scenario->run(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
