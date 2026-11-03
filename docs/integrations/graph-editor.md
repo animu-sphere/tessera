@@ -1,8 +1,5 @@
 # Graph canvas and node editor
 
-> [!IMPORTANT]
-> Consumer design and requirements do not independently authorize core work. Proposed sections are Direction, and open decisions are Exploration. Promote only a demonstrated blocker into [current work](../roadmap/current.md), under the [agent policy](../agent-policy.md).
-
 ## Proposed scope
 
 Tessera should provide a domain-agnostic graph canvas for node-based editors in the style of Blender nodes, Unreal Blueprint, MaterialX graph editors, or Node-RED. It is a thin layer over ordinary components, layout, input, and custom paint, not a separate UI system. This page proposes a design.

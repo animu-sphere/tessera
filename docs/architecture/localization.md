@@ -6,9 +6,6 @@
 - Message resolution, Unicode/font processing, logical layout and semantic naming retain separate interfaces and settle coherently.
 - Translation changes preserve stable UI identity and host-owned data; core APIs do not import formatter/font-library types.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Proposed boundary and ownership
 
 Localization is UI runtime input, coordinated with text and layout through ordinary reactive dependencies. It covers message resolution and locale-sensitive formatting, rather than adding translation logic to individual widgets. A literal UTF-8 value remains useful for user content and non-translatable text; an application message retains its semantic identity until resolution.

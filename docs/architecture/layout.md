@@ -6,9 +6,6 @@
 - Logical geometry and clip/scroll observations are shared by paint, hit testing and semantic bounds; physical conversion belongs to rendering/host boundaries.
 - Full-tree calculation defines correctness for any incremental or virtualized path.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Implemented foundation contract
 
 The public headers are [geometry.hpp](../../include/tessera/layout/geometry.hpp) and [layout_box.hpp](../../include/tessera/layout/layout_box.hpp). Geometry uses `float` logical units with the origin at the top left, positive X right, and positive Y down. `Point`, `Size`, `Rect`, and `Edges` are plain values. `inset(rect, edges)` moves each side inward; an overconstrained axis keeps its origin offset and clamps its size to zero. `intersect(a, b)` returns the overlap; a disjoint axis keeps the larger origin with zero size. Device scale belongs to the renderer's frame information, not layout.

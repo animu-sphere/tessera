@@ -2,35 +2,29 @@
 
 Inactive milestone candidates live here; [current](current.md) owns the active scope. Versions are candidates without committed dates. Implementation and validation status is owned by the [support matrix](../reference/support-matrix.md).
 
-Everything here is planning context and does not authorize implementation during the active milestone. Promote only a demonstrated fixture requirement into current, with a minimum fix, observable acceptance and a stop condition under the [agent policy](../agent-policy.md). A detailed design or a candidate's dependencies do not activate adjacent work.
+Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below.
 
-Inspection foundations enter early so DevTools, accessibility, testing, and agents share the same identity/semantic/action boundaries. Build in-process observation and controlled host fixtures before CLI, snapshot comparison, transport, or optional MCP integration. Web shares this foundation; its broader host implementation follows runtime/text/lifecycle parity prerequisites below. External strategy phase numbers do not replace these candidate scopes.
-
-Choose follow-up scope from real applications and their measured authoring friction, beginning with the [Settings reference application](../integrations/settings-app.md). The candidate sequence moves from a practical UI kit through tooling, language boundaries and larger applications to measured scale. Each candidate below defines its own proof; its inventory is not an all-features release gate.
+Choose follow-up scope from real applications and their authoring friction, beginning with the [Settings reference application](../integrations/settings-app.md). The candidate sequence moves from a practical UI kit through tooling, language boundaries and larger applications to measured scale.
 
 ## Validation and CI follow-ups
 
-The [testing guide](../guides/testing.md#measurement-and-safe-reduction) owns CI transition, measurement and reduction safeguards. These inactive candidates run alongside feature work when promoted; they are not waiting periods for ordinary UI work or a release without actual failures.
+The [testing guide](../guides/testing.md#measurement-and-safe-reduction) owns CI transition and measurement. These candidates run alongside feature work and do not block ordinary UI work.
 
 - Use available hosted durations and runner capacity/cost to decide whether daily coverage, parallelism, caching or build-target separation solves a measured bottleneck.
 - Coordinate required-check/ruleset changes only after verifying the replacement under the testing guide. Preserve integration/import and release coverage, reporting on docs-only PRs and conservative scope fallback.
-- Reduce duplicate consumer assertions only with equivalent owner coverage and useful diagnostics; monitor for missed regressions under the testing guide rather than a fixed observation period.
-
-Promote only the next bounded step with measurement-backed acceptance and a stop condition. Before a release, aggregate full Debug/Release, both source imports, CPU/replay and the required available platform evidence under the active milestone's exit criteria.
+- Reduce duplicate consumer assertions only with equivalent owner coverage and useful diagnostics.
 
 ## Widget candidates beyond the reference application
 
-The required application flow is owned by [current](current.md#required-application-flow); this inventory does not add widget completion gates. Candidates include a Label convenience, RadioButton/RadioGroup, Slider, Spacer/Separator, Stack/Overlay, ScrollView/basic List, Toolbar, Tabs, SplitPane, Menu/MenuItem and InspectorRow. Use existing [authoring](../architecture/ui-model.md#implemented-c-form-authoring) and [numeric/choice consumer](../integrations/renderer-diagnostics.md) boundaries before promoting a new widget abstraction.
-
-Promote additional widgets from an application operation; do not implement this inventory for completeness. Prefer ordinary components and the [shared authoring/lowering model](../proposals/cpp-authoring.md); a full generalized API per widget is not required.
+The required application flow is owned by [current](current.md#required-application-flow). Further candidates include a Label convenience, RadioButton/RadioGroup, Spacer/Separator, Stack/Overlay, Toolbar, Tabs, SplitPane and InspectorRow. Build on the existing [authoring](../architecture/ui-model.md#implemented-c-form-authoring) model and the [shared authoring/lowering proposal](../proposals/cpp-authoring.md); add them when an application uses them.
 
 ## After v0.4.0
 
-v0.4.x patch candidates take regression fixes only. The practical-application milestone is owned by [current](current.md#v050--application-ui-kit). Other improvements stay inactive until a concrete consumer operation promotes them.
+v0.4.x patch candidates take regression fixes only. The practical-application milestone is owned by [current](current.md#v050--application-ui-kit).
 
 ## v0.5.0 follow-up candidates
 
-The [active milestone](current.md#v050--application-ui-kit) owns the objective and first consumer operation. The remaining candidates below stay inactive until a concrete operation promotes their minimum scope.
+The [active milestone](current.md#v050--application-ui-kit) owns the objective and required flow. The candidates below follow it.
 
 Depends on the high-level C++ authoring surface, reusable components and the reference application's input/style contracts.
 

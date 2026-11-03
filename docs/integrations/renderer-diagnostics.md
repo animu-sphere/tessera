@@ -43,7 +43,7 @@ Playback, object override editors, skeleton/avatar rows and scene-space marks de
 
 ## Proposed representative control boundary
 
-This section defines consumer operations and host policy, not a public numeric widget or working source API. [Current work](../roadmap/current.md#current-slice) selects the bounded implementation; the other operations in this section do not become prerequisites for it. Compose ordinary Checkbox, TextInput and Button elements in Rows/Columns under one controls disclosure header. Keep telemetry snapshots separate from accepted settings, capabilities and numeric drafts. Stable author IDs derive from setting names and operations, never displayed values or row indices.
+This section defines consumer operations and host policy, not a public numeric widget or working source API. Compose ordinary Checkbox, TextInput and Button elements in Rows/Columns under one controls disclosure header. Keep telemetry snapshots separate from accepted settings, capabilities and numeric drafts. Stable author IDs derive from setting names and operations, never displayed values or row indices.
 
 ### Proposed settings and capability observations
 

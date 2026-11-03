@@ -14,13 +14,12 @@ The host owns application state, windows, devices, and frame scheduling. Tessera
 - [Renderer telemetry](docs/guides/renderer-diagnostics.md): copy a composed diagnostics panel and synthetic snapshot host with scrolling and disclosure.
 - [Documentation index and ownership](docs/README.md)
 - [Product vision](docs/product/vision.md), [principles](docs/product/principles.md), [use cases](docs/product/use-cases.md) and [non-goals](docs/product/non-goals.md)
-- [Agent implementation policy](docs/agent-policy.md): authority, fixture-driven work, and subsystem stop rule
 - [Implementation and validation status](docs/reference/support-matrix.md)
 - [Active work](docs/roadmap/current.md) and [future candidates](docs/roadmap/backlog.md)
 - [Build workflow](docs/guides/development.md) and [testing strategy](docs/guides/testing.md)
 - [Delivery history](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 
-The roadmap's version labels are planning candidates. Only active roadmap scope authorizes repository-planned feature work; detailed designs and proposals do not schedule implementation. Consult the support matrix for actual capabilities and configurations.
+The roadmap's version labels are planning candidates. Consult the support matrix for actual capabilities and configurations.
 
 ## Community
 

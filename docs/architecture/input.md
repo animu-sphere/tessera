@@ -6,9 +6,6 @@
 - Targeting uses coherent logical geometry and shared eligibility. Keyboard/gamepad navigation and semantic operations follow ordinary action/command boundaries.
 - Host actions execute after traversal; generation/lifetime checks reject stale targets rather than invoking expired owners.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Host boundary
 
 The host polls platform devices and translates their data into normalized Tessera events. Tessera does not poll OS input APIs.

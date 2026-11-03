@@ -6,9 +6,6 @@
 - Names, state and action availability derive from shared runtime/interaction rules; external adapters do not maintain competing eligibility.
 - Semantic invocation uses ordinary action boundaries and rejects stale identities. Presentation relocation or absent paint cannot alone define logical meaning.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Proposed semantic projection
 
 `SemanticTree` is a backend-neutral projection of the settled UI snapshot, separate from paint commands and geometry. It represents meaning for accessibility, automated tests, external agents, and inspection. This section defines a proposal, not JSON v1 fields or a stable public API; the [implemented prototype](#implemented-prototype-projection) covers a small in-process subset. Actual capability status is in [support](../reference/support-matrix.md).
