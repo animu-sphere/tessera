@@ -77,6 +77,9 @@ Element Checkbox(Value<std::string> label, Value<bool> checked, std::string acti
 Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps = {});
 Element Row(std::vector<Element> children, Props = {});
 Element Column(std::vector<Element> children, Props = {});
+// A Column with scroll overflow. Constrain its size through Props::style;
+// the host owns offsets and routes wheel input/focus reveal through input/scroll.
+Element ScrollView(std::vector<Element> children, Props = {});
 
 struct Presentation {
     UiDocument document;

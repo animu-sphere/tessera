@@ -193,6 +193,11 @@ Element Column(std::vector<Element> children, Props props) {
     return Element(std::move(data));
 }
 
+Element ScrollView(std::vector<Element> children, Props props) {
+    props.style.overflow = Overflow::scroll;
+    return Column(std::move(children), std::move(props));
+}
+
 Result<Presentation> Session::lower(const Element& element, const ValidationContext& context) {
     detail::Lowerer lowering;
     if (!lowering.describe(element, lowering.result.document.root, "/root", 1))
