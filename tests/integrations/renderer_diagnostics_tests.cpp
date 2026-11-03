@@ -86,6 +86,43 @@ struct Fixture {
         return std::tuple{host->snapshot(), host->disclosure(), host->offset(), host->focused(),
             host->numeric(), host->ambient(), host->msaa(), host->outlines(), host->scene_lights(), host->material_view(), host->key_direction(), view.styles, view.commands.discover(), view.tree->document(), view.commands.generation(), view.inspection, geometry(view), view.paint};
     }
+    void reveal(const std::string& id, CommandSource source = CommandSource::keyboard) {
+        std::size_t steps = 0;
+        bool previous = false;
+        if (host->focused() != id) {
+            // Plan setup traversal on the accepted view without rebuilding the host for full Tab wraps.
+            const auto& view = host->view();
+            const auto target = view.tree->find(id);
+            require(target.has_value(), "Missing focus target " + id);
+            FocusDispatcher forward, backward;
+            if (const auto current = host->focused()) {
+                const auto owner = view.tree->find(*current);
+                require(owner.has_value(), "Missing focused owner " + *current);
+                take(forward.focus(view.hit(), *owner));
+                take(backward.focus(view.hit(), *owner));
+            }
+            for (std::size_t distance = 1; distance <= view.tree->size(); ++distance) {
+                const auto timestamp = std::chrono::microseconds{distance};
+                if (take(forward.dispatch(view.hit(), {timestamp, FocusNext{}})).focused == target) {
+                    steps = distance;
+                    break;
+                }
+                if (take(backward.dispatch(view.hit(), {timestamp, FocusPrevious{}})).focused == target) {
+                    steps = distance;
+                    previous = true;
+                    break;
+                }
+            }
+            require(steps != 0, "Unreachable focus target " + id);
+        }
+        for (std::size_t i = 0; i < steps; ++i) {
+            InputEvent event{std::chrono::microseconds{++tick}, KeyDown{Key::tab, {.shift = previous}}};
+            if (source == CommandSource::gamepad)
+                event.data = previous ? decltype(event.data){FocusPrevious{}} : decltype(event.data){FocusNext{}};
+            require(take(host->route(event, source, text)) && host->last_consumed(), "Expected consumed focus traversal");
+        }
+        require(host->focused() == id && visible(host->view(), id), "Focus/reveal failed: " + id);
+    }
     void verify() {
         const auto& view = host->view();
         const auto& root = box(view, "renderer-diagnostics");
@@ -445,8 +482,7 @@ void numeric_controls(panel::NumericField field) {
     };
     auto refresh = [&](panel::Snapshot snapshot) { require(take(host.refresh(std::move(snapshot), fixture.text)), "Expected refresh"); };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; host.focused() != id && i < 64; ++i) require(take(route(FocusNext{})), "Expected focus traversal");
-        require(host.focused() == id && visible(host.view(), id), "Numeric focus/reveal failed: " + id);
+        fixture.reveal(id);
     };
     auto click = [&](const std::string& id) {
         reveal(id);
@@ -659,9 +695,7 @@ void two_numeric_fields() {
     };
     auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::agent, f.text)); };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 64; ++i)
-            take(h.route({std::chrono::microseconds{++f.tick}, FocusNext{}}, CommandSource::gamepad, f.text));
-        require(h.focused() == id && visible(h.view(), id), "Two-field focus/reveal failed: " + id);
+        f.reveal(id, CommandSource::gamepad);
     };
     // Equal revisions cannot make a different field's lifetime valid, in either direction.
     require(h.numeric().draft.revision == h.ambient().draft.revision, "Initial revisions differ");
@@ -779,8 +813,7 @@ void msaa_controls() {
             require(take(h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, f.text)), "Expected MSAA input");
         };
         if (route < 3) {
-            for (int i = 0; h.focused() != "msaa-2" && i < 64; ++i) send(FocusNext{}, CommandSource::keyboard);
-            require(h.focused() == "msaa-2" && visible(h.view(), "msaa-2"), "MSAA traversal/reveal failed");
+            f.reveal("msaa-2");
             if (route == 0) {
                 const auto b = box(h.view(), "msaa-2").border_box;
                 const Point p{b.origin.x + 2, b.origin.y + 2};
@@ -812,8 +845,7 @@ void msaa_controls() {
         return h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, text ? *text : f.text);
     };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 64; ++i) take(send(KeyDown{Key::tab}));
-        require(h.focused() == id && visible(h.view(), id), "MSAA reveal failed: " + id);
+        f.reveal(id);
     };
     auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success) {
         auto result = take(h.execute(call, text));
@@ -990,9 +1022,7 @@ void boolean_controls(bool scene_lights) {
         require(state(h) == std::pair{initial, true}, "Initial Boolean control differs");
         if (route < 3) {
             const auto target = route == 2 ? previous : id;
-            for (int i = 0; h.focused() != target && i < 64; ++i)
-                send(KeyDown{Key::tab}, CommandSource::keyboard);
-            require(h.focused() == target && visible(h.view(), target), "Boolean control traversal/reveal failed");
+            f.reveal(target);
             if (route == 0) {
                 const auto b = box(h.view(), target).border_box;
                 const Point p{b.origin.x + 2, b.origin.y + 2};
@@ -1016,8 +1046,7 @@ void boolean_controls(bool scene_lights) {
         return h.route({std::chrono::microseconds{++f.tick}, std::move(event)}, source, text ? *text : f.text);
     };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 64; ++i) take(send(KeyDown{Key::tab}));
-        require(h.focused() == id && visible(h.view(), id), "Boolean control reveal failed: " + id);
+        f.reveal(id);
     };
     auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::agent, f.text)); };
     auto execute = [&](const CommandInvocation& call, TextShaper& text, bool success = true) {
@@ -1199,8 +1228,7 @@ void material_view_controls() {
             "Expected consumed material view input");
     };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 64; ++i) send(KeyDown{Key::tab});
-        require(h.focused() == id && visible(h.view(), id), "Material view traversal/reveal failed: " + id);
+        f.reveal(id);
     };
     auto invoke = [&](const std::string& id) { take(h.invoke(id, CommandSource::accessibility, f.text)); };
     auto execute = [&](const CommandInvocation& call, TextShaper& text) {
@@ -1322,8 +1350,7 @@ void key_direction_controls() {
             "Expected consumed key direction input");
     };
     auto reveal = [&](const std::string& id) {
-        for (int i = 0; h.focused() != id && i < 64; ++i) send(KeyDown{Key::tab});
-        require(h.focused() == id && visible(h.view(), id), "Key direction traversal/reveal failed: " + id);
+        f.reveal(id);
     };
     auto click = [&](const std::string& id) {
         reveal(id);

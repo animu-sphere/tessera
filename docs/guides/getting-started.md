@@ -48,7 +48,7 @@ ctest --test-dir build-first-app -C Release --output-on-failure --no-tests=error
 
 Replace `C:/dev/tessera` with the absolute path of your checkout. The copy and build directories may live outside it; `main.cpp` has no relative dependency on other example files. The standalone project imports the local source, links only `tessera::core`, and receives C++20 and public include/link requirements from that target. Tessera's embedded defaults exclude its own tests/examples. The host's `first_app` check belongs to the copied project.
 
-The project also accepts `-DTESSERA_IMPORT_MODE=FetchContent` in a separate build directory; it uses the same local checkout without fetching from a network. See [source consumption](development.md#source-consumption-workflow) for both import forms and embedded options. Independent checks copy these same two files and build/run each import in the selected configuration.
+The project also accepts `-DTESSERA_IMPORT_MODE=FetchContent` in a separate build directory; it uses the same local checkout without fetching from a network. See [source consumption](development.md#source-consumption-workflow) for both import forms and embedded options. Automatic independent checks copy these same two files and build/run add_subdirectory in the selected configuration; FetchContent verification is manual.
 
 ## Continue with the source
 

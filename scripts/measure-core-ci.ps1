@@ -64,14 +64,13 @@ $buildArguments = @('--build', $build, '--config', $Configuration, '--parallel',
 if ($buildTargets) { $buildArguments += @('--target') + $buildTargets }
 Invoke-Phase 'build' 'cmake' ($buildArguments + @('--', '/nodeReuse:false'))
 # PR suites add the long fixtures and/or add_subdirectory imports to the fast
-# contract/smoke checks; `wide` matches the release workflow's FetchContent
-# exclusion. Full runs execute both import modes, with no test filter. Import
+# contract/smoke checks. Wide and full execute the complete test inventory;
+# full also builds every enabled target. FetchContent is manual only. Import
 # checks are RUN_SERIAL in CTest, so the worker count applies to runtime checks.
 $selection = switch ($Suite) {
     'pr' { @('-L', '^(contract|smoke)$') }
     'fixtures' { @('-L', '^(contract|smoke|fixture)$') }
-    'imports' { @('-L', '^(contract|smoke|import)$', '-E', '_FetchContent$') }
-    'wide' { @('-E', '_FetchContent$') }
+    'imports' { @('-L', '^(contract|smoke|import)$') }
     default { @() }
 }
 & ctest --test-dir $build -C $Configuration --show-only=json-v1 @selection |
