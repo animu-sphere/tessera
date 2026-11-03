@@ -1,8 +1,5 @@
 # Path-finder integration
 
-> [!IMPORTANT]
-> Consumer design and requirements do not independently authorize core work. Proposed sections are Direction, and open decisions are Exploration. Promote only a demonstrated blocker into [current work](../roadmap/current.md), under the [agent policy](../agent-policy.md).
-
 ## Shared model
 
 ```text
@@ -43,7 +40,7 @@ Invalid JSON, schema validation, unsupported changes and text measurement/paint 
 
 One declared preview async string follows explicit host start/failure/retry/completion operations. Replacing the preview with an empty component removes its observation owner, clears host selection/editing state and delivers latest-attempt detachment once through explicit cleanup delivery; recreation creates a fresh observation and editing lifetime, so old completion/edit requests reject. Scope shutdown uses the same delivery boundary.
 
-Accepted component documents and styles feed ordinary replay, semantic operation requests and the CPU offscreen runner. Numeric geometry agrees with the accepted layout, repeated runs compare semantic/layout/action observations and owned RGBA8 bytes, and source label edits/removal/type replacement alter pixels. Inputs declare a fixed logical viewport/scale/time, placeholder shaping and an injected synthetic scalar rasterizer; images stay in memory and establish no real-font/native/GPU rendering claim. There is no editor transport, IME/clipboard adapter, editable caret geometry or serialized edit gesture protocol. [Current work](../roadmap/current.md#current-slice) owns integration scope; [development](../guides/development.md#editor-panel-fixture) owns execution procedures.
+Accepted component documents and styles feed ordinary replay, semantic operation requests and the CPU offscreen runner. Numeric geometry agrees with the accepted layout, repeated runs compare semantic/layout/action observations and owned RGBA8 bytes, and source label edits/removal/type replacement alter pixels. Inputs declare a fixed logical viewport/scale/time, placeholder shaping and an injected synthetic scalar rasterizer; images stay in memory and establish no real-font/native/GPU rendering claim. There is no editor transport, IME/clipboard adapter, editable caret geometry or serialized edit gesture protocol. [Current work](../roadmap/current.md) owns integration scope; [development](../guides/development.md#editor-panel-fixture) owns execution procedures.
 
 ## Proposed editor bridge
 

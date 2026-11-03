@@ -6,9 +6,6 @@
 - Measurement and shaping agree for the same text, font environment and constraints; cache reuse preserves that agreement.
 - Index units are explicit; UTF-8 byte offsets, code points, grapheme clusters and glyph indices are not interchangeable.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Implemented boundary
 
 [text.hpp](../../include/tessera/text/text.hpp) defines the abstraction. `TextShaper::measure(utf8, style, constraints)` returns `TextMetrics`; `TextShaper::shape(utf8, style, constraints)` returns a `GlyphRun` whose `metrics` equal `measure` for the same inputs. Constraints default to absent, preserving two-argument calls; implementations override the three-argument signatures. Shapers are borrowed by layout and paint for each call and may cache internally, so the operations are non-const. Results are owned values; no FreeType/HarfBuzz or other implementation type crosses the boundary.

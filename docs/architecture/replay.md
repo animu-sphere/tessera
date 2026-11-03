@@ -6,9 +6,6 @@
 - Recording versions and reproducibility conditions are validated; hidden wall-clock or external completion timing cannot determine expected output.
 - Observed generations, semantics, action order and completed captures must refer to the same declared execution conditions.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Proposed recording contract
 
 Replay reproduces a session through the ordinary runtime and injected host services. This is a versioned format/tool proposal: [prototype playback](#implemented-prototype-playback), [Replay JSON v1](#implemented-replay-json-v1), and explicit [Replay JSON v2](#implemented-replay-json-v2) implement the subsets described below, and recording/playback tools follow the [tooling boundary](#tooling-boundary).

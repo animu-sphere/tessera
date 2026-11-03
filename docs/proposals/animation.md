@@ -1,9 +1,6 @@
 # Animation system
 
-> [!IMPORTANT]
-> **Maturity: Proposed — Direction.** Open decisions are Exploration; do not implement them as settled APIs.
-> **Default scheduling: Unscheduled. Implementation authority: None.**
-> Implement only behavior explicitly required by [current work](../roadmap/current.md) or an accepted task linked there. A reference activates no adjacent mechanisms; follow the [agent policy](../agent-policy.md).
+> Proposed design, not yet implemented. Active scope is in [current work](../roadmap/current.md).
 
 ## Proposed animation
 

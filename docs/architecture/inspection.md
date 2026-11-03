@@ -6,9 +6,6 @@
 - Source information and unavailable observations are explicit; tooling cannot invent origins or inspect private application memory.
 - Operations use ordinary target eligibility, lifetime and command/transaction boundaries under adapter permissions.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Proposed shared inspection boundary
 
 Tessera should be operable by humans, test runners, and external agents through the same runtime. This proposal defines inspection and tooling boundaries, not a stable public API, wire format, CLI, or build option; the [implemented prototype](#implemented-prototype-capture-and-target-resolution) covers a small in-process subset. Capability and configuration evidence belongs in [support](../reference/support-matrix.md).

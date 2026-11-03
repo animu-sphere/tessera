@@ -17,5 +17,3 @@ Durable principles constrain design without scheduling features. Technical owner
 13. Ordinary application authors work through a small authoring surface and composed widgets. Convenience lowers into the shared runtime, style and ownership model; advanced low-level control does not define the normal learning path.
 14. Real application operations and measured authoring friction choose framework work. Prefer an application operation, authoring API, widget, demonstrated runtime gap, minimum fix and regression over speculative subsystem completion.
 15. Performance work follows correctness, a real workload, measurement and an identified bottleneck. Significant optimizations declare a baseline, metric, expected improvement, correctness reference and regression check; full-tree evaluation remains the reference.
-
-The [agent policy](../agent-policy.md) governs fixture-driven task selection and when subsystem work stops.

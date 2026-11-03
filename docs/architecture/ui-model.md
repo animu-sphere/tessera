@@ -6,9 +6,6 @@
 - Scoped keys, author IDs, runtime handles and owner lifetimes have distinct meanings. Compatible keyed reorder preserves state; incompatible replacement starts a fresh lifetime.
 - Disposed lifetimes cannot accept queued effects or stale async completions. Logical owner disposal does not bypass render completion-safe retirement.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Implemented foundation contract
 
 The public headers are [document.hpp](../../include/tessera/ui/document.hpp), [tree.hpp](../../include/tessera/ui/tree.hpp), and [serialization.hpp](../../include/tessera/ui/serialization.hpp). They depend only on the C++20 standard library. The serialized fields and normalization/rejection rules are owned by [JSON v1](../../formats/tessera-ui/README.md).

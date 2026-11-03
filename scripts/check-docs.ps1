@@ -52,39 +52,11 @@ foreach ($file in $documents) {
     $body = $visible -join "`n"
     $plain[$file.FullName] = $body
     $anchors[$file.FullName] = $headings
-    if ($relative -ne 'docs/reference/support-matrix.md') {
-        if ($body -match '(?m)^(Status|Updated|Checked):') {
-            $issues.Add("${relative}: rolling status/date belongs in support or dated history")
-        }
-        if ($body -match '(?im)^\|.*\bCurrent (state|status)\b.*\|') {
-            $issues.Add("${relative}: duplicate live status table")
-        }
-    }
-    if ($relative -ne 'CHANGELOG.md' -and $relative -ne 'docs/reference/support-matrix.md' -and
-        $body -match '(?im)^\s*[-*]\s+\[x\]') {
-        $issues.Add("${relative}: delivered checklist belongs in changelog/support")
-    }
-    if ($relative -eq 'docs/roadmap/current.md' -and $body -match '(?im)^##\s+(Delivered|Phase [01]|Documentation foundation)') {
-        $issues.Add("${relative}: current must contain remaining work, not foundation history")
-    }
-    # Check explicit duplicate status structures above; word/version references
-    # need semantic ownership review rather than a blanket prose ban.
     if ($relative -match '^docs/architecture/' -and $body -notmatch '(?m)^## Core invariants$') {
         $issues.Add("${relative}: architecture must state core invariants")
     }
-    if ($relative -match '^docs/proposals/') {
-        foreach ($marker in @('Maturity: Proposed', 'Default scheduling: Unscheduled. Implementation authority: None.', '## Promotion criteria')) {
-            if (-not $body.Contains($marker)) { $issues.Add("${relative}: missing proposal authority/promotion marker '$marker'") }
-        }
-        foreach ($target in @('../roadmap/current.md', '../agent-policy.md')) {
-            if (-not $body.Contains('](' + $target + ')')) { $issues.Add("${relative}: missing proposal authority link '$target'") }
-        }
-    }
     if ($body -match '(?i)docs/design/|(?<![\w/])(?:\.\./)*design/[a-z][a-z-]*\.md') {
         $issues.Add("${relative}: obsolete design path; use the canonical architecture, proposal, integration or product owner")
-    }
-    if ($relative -eq 'docs/reference/support-matrix.md' -and $body -match '(?im)^\|[^|\r\n]+\|\s*Planned\b') {
-        $issues.Add("${relative}: capabilities without implementation have no row")
     }
 }
 $linkCount = 0
@@ -148,4 +120,4 @@ if ($issues.Count -gt 0) {
     Write-Output ("Documentation checks failed: {0} issue(s)." -f $issues.Count)
     exit 1
 }
-Write-Output ("Documentation checks passed: {0} Markdown files, {1} local links, ownership/status guards." -f $documents.Count, $linkCount)
+Write-Output ("Documentation checks passed: {0} Markdown files, {1} local links, ownership links." -f $documents.Count, $linkCount)

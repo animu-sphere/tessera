@@ -6,9 +6,6 @@
 - Pure calculations cannot mutate graph or presentation state. Observed derivations settle coherently before publication; rejected candidates deliver no partial effects.
 - Disposal invalidates lifetime references and queued work, with deterministic child-first teardown and explicit host cleanup delivery.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Implemented in-process graph contract
 
 [runtime.hpp](../../include/tessera/reactive/runtime.hpp) defines `ReactiveRuntime`, `ReactiveOwner`, `Signal<T>`, `Computed<T>`, and `ReactiveError`; [runtime.cpp](../../src/reactive/runtime.cpp) owns the dependency graph. The runtime is noncopyable and nonmovable. Its operations run on its creating UI thread; background-thread entry and cross-runtime reads during calculations or equality comparisons fail. The core imports no host, renderer, text-service, or executor types.

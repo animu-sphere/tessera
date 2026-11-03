@@ -6,9 +6,6 @@
 - Layout consumes resolved values independently of rendering; backends consume resolved draw data independently of application/component state.
 - Execution, preview, replay, inspection and agent operation share ordinary runtime generations and eligibility boundaries.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Purpose and constraints
 
 [Product vision](../product/vision.md), [principles](../product/principles.md), [intended use cases](../product/use-cases.md) and [non-goals](../product/non-goals.md) own product intent. This page owns subsystem boundaries, dependency direction and coherent runtime updates.

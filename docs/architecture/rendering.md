@@ -6,9 +6,6 @@
 - Submission borrows a coherent snapshot and retains referenced resources until declared completion-safe retirement.
 - Paint order, blend/clip/transform boundaries and logical-to-physical conversion are explicit. Optimized paths preserve reference output under declared tolerances.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Implemented draw-list contract
 
 [draw_list.hpp](../../include/tessera/render/draw_list.hpp) defines `UiDrawList`, an owned ordered vector of commands. Later commands paint above earlier ones. Geometry is in logical units within the current transform.

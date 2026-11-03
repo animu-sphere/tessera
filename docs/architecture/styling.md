@@ -6,9 +6,6 @@
 - Cascade, inheritance and instance overrides use declared deterministic ordering and exact value types.
 - Property effects identify every affected consumer; a visual name alone cannot justify skipping layout, input or semantics.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Implemented resolved-style contract
 
 [resolved_style.hpp](../../include/tessera/style/resolved_style.hpp) defines `ResolvedStyle`, the typed values layout, paint, and interaction consume after resolution. Consumers take one resolved style per node, as described in [layout](layout.md), whether produced by the [prototype resolver](#implemented-prototype-style-resolution) or supplied directly by the host. Default construction yields primitive defaults.

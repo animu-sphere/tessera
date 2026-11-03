@@ -1,8 +1,5 @@
 # Conversational and agent workspaces
 
-> [!IMPORTANT]
-> Consumer design and requirements do not independently authorize core work. Proposed sections are Direction, and open decisions are Exploration. Promote only a demonstrated blocker into [current work](../roadmap/current.md), under the [agent policy](../agent-policy.md).
-
 ## Proposed scope
 
 Conversational applications (chat assistants, coding agents, AI workspaces) are a primary reference workload for Tessera. They are structured, asynchronous, streaming UI, not a text transcript in a scroll view. The same primitives serve IDEs, terminals, log viewers, documentation tools, dashboards, and agent control panels. This page proposes a design.

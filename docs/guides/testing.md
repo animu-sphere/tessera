@@ -4,74 +4,46 @@ Test algorithms and boundaries heavily; test appearance selectively. Keep tests 
 
 ## Verification ownership
 
-Guarantees belong at the boundary that implements them; consumers verify their use. Apply the [bounded acceptance rule](../agent-policy.md#verification-ownership-and-bounded-acceptance) before adding tests. Cite an inherited owner test and check that its assumptions match the application. An unchanged guarantee does not need a new exhaustive consumer proof.
+Guarantees belong at the boundary that implements them; consumers verify their use. When a change touches a subsystem, run that subsystem's owner tests; when it adds an application operation, test the operation through the consumer fixture. Unchanged runtime guarantees are covered by the owner tests below and need no new consumer proof.
 
-| Layer | Responsibility | Consumer scope |
+| Property | Owner test | Consumer check |
 | --- | --- | --- |
-| L1 Runtime contract | Universal invariants, validation, ownership, lifetime and consistency | Exercise affected owner tests when their boundary changes |
-| L2 Widget contract | Widget-specific input, state and public API | Representative success and boundary cases for the widget |
-| L3 Consumer integration | A real application operation through public APIs | Successful user flow, wiring and operation-specific risks |
-| L4 Host/platform | Source imports, compiler/configuration, GPU and OS integration | Affected integration changes and wider scheduled/release checks |
+| Once-only sequence consumption and stale command/activation rejection | [commands](../../tests/commands/commands_tests.cpp) | The intended command reaches the handler once |
+| Logical text draft/selection and edit owner/revision rejection | [text_edit](../../tests/input/text_edit_tests.cpp) | Correct field routing and one independent-field retention case |
+| Focus recovery, pointer cancellation and scroll geometry | [focus](../../tests/input/focus_tests.cpp), [pointer](../../tests/input/pointer_tests.cpp), [scroll](../../tests/input/scroll_tests.cpp) | A representative reachable operation |
+| Accepted settings/view retention after rejected staging | [Diagnostics fixture](../../tests/integrations/renderer_diagnostics_tests.cpp), [Settings fixture](../../examples/settings/main.cpp) | A new staging branch and retained unrelated state |
+| Deterministic CPU pixels and replay processing | [cpu_renderer](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [offscreen_runner](../../tests/inspection/offscreen_runner_tests.cpp) | Image comparisons only for changed drawing behavior |
 
-The source-backed responsibility map below identifies reusable checks, not executed results or a requirement to run every row for each operation. Host-specific guarantees stay with their host.
-
-| Property | Primary owner/check | Minimum consumer observation |
-| --- | --- | --- |
-| Once-only sequence consumption and stale command/activation rejection | [commands](../../tests/commands/commands_tests.cpp), including `execution_rejection_and_lifetime` | The intended command reaches the handler once with the correct identity |
-| Logical text draft/selection and edit owner/revision rejection | [text_edit](../../tests/input/text_edit_tests.cpp) | Correct field routing and one representative independent-field retention case; cross-field routing is a consumer risk |
-| Focus recovery, pointer cancellation and scroll geometry | [focus](../../tests/input/focus_tests.cpp), [pointer](../../tests/input/pointer_tests.cpp), [scroll](../../tests/input/scroll_tests.cpp) | A representative reachable operation using the application's normalized mappings |
-| Accepted settings/view retention after rejected staging | The host's [Diagnostics fixture](../../tests/integrations/renderer_diagnostics_tests.cpp) or [Settings fixture](../../examples/settings/main.cpp) | Cover a new staging branch and retained unrelated state; executor tests do not establish host atomicity |
-| Deterministic CPU pixels and replay processing | [cpu_renderer](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [offscreen_runner](../../tests/inspection/offscreen_runner_tests.cpp) | Representative accepted semantics/geometry/paint; add image comparisons for changed drawing behavior |
-
-Choose consumer checks by what the change introduces:
-
-- **Add** a check for a new failure mode, a trust boundary, a state-retention or command path, or an actual regression.
-- **Inherit** unchanged runtime invariants, such as lifetime, replay determinism and input-combination rejection, by citing the owner test and its assumptions.
-- **Do not multiply** input routes, injected failures and configurations; a consumer verifies its successful flow and its specific risks.
-- **Do not hurry deletion:** broad existing checks stay at wider tiers, and a duplicate is removed only under the [safe reduction](#measurement-and-safe-reduction) rules.
-
-Pointer and keyboard/gamepad/semantic routing must share ordinary commands. Check representative parity at the consumer's routing boundary; do not multiply every runtime failure by every input source. A first cross-layer failure mode, a real regression or a different trust/owner boundary warrants deeper L3 coverage with a stated reason and stop condition. Keep a minimal regression fixture and useful diagnostics rather than all edits multiplied by all injected failures. Distinguish inherited guarantees from checks executed for this change in the PR; update [support](../reference/support-matrix.md) only for material capability/support/evidence changes.
+Add a test for a new failure mode, a new state/command path or an actual regression. Pointer and keyboard/gamepad routing share ordinary commands, so one representative parity check per consumer is enough.
 
 ## Validation tiers
 
-This is the execution policy for selecting and evolving checks. Workflow configuration and required-check settings must be verified before claiming a tier is enforced; source/configuration findings and measured outcomes belong only in support.
+| Tier | Scope |
+| --- | --- |
+| 0 Local | Build affected targets; run the affected owner tests and one consumer smoke. Documentation-only changes use the documentation checker. |
+| 1 PR | One representative core environment, fast owner contracts and the affected consumer smoke. Widen for foundation/build changes. |
+| 2 Integration/periodic | Full core Debug/Release, major consumers, both independent import modes, deterministic CPU/replay checks. Runs after main integration or on a schedule. |
+| 3 Release/platform | Version/tag/changelog consistency, full Debug/Release and both imports, plus optional module, GPU/font/native-host evidence for the supported configuration. Unavailable hardware checks are unvalidated, never replaced by compile success. |
 
-| Tier | Scope and frequency | Avoid |
-| --- | --- | --- |
-| 0 Local | Build affected targets and run focused owner contracts plus a representative consumer smoke; documentation-only changes use the documentation checker. Aim for seconds to a few minutes, subject to measurement. | Full Debug/Release and every import mode for each change |
-| 1 PR | One representative core environment, fast owner contracts and a small affected consumer smoke. Widen for foundation/build changes and fall back to wider coverage for unknown changes. Aim for PR p95 within ten minutes using measured feedback; this improvement target is not a PR acceptance or release gate. | Checks unrelated to the change; duplicating the integration matrix |
-| 2 Integration/periodic | Full core Debug/Release, major consumers, both independent import modes, deterministic CPU/replay checks, saved durations and failures. Run after main integration or on a regular schedule; prefer daily coverage when runner capacity permits. | Blocking ordinary UI-operation changes on observation alone |
-| 3 Release/platform | Version/tag/changelog consistency, full required Debug/Release and both imports, plus optional module, GPU/font/native-host evidence for the supported configuration. Unavailable hardware checks are unvalidated, never replaced by compile success. | Claiming optional/native support beyond the executed configuration |
-
-Keep broad checks when moving them out of the PR gate. Repeated Tier 2 failure blocks the next release and takes repair priority; promote a missed critical regression check back to Tier 1. GPU/desktop checks require suitable runners or explicitly recorded local evidence. The release workflow remains responsible for release verification/publication; the [development guide](development.md#release-workflow) owns its commands.
+Repeated Tier 2 failure blocks the next release and takes repair priority. The [development guide](development.md#release-workflow) owns release commands.
 
 ### Change selection
 
-Start with a small explicit policy, not an elaborate path-selection engine. Select the union for mixed changes; unknown or cross-foundation changes fall back to full core coverage.
-
-| Change | Additional PR/local selection |
+| Change | PR/local selection |
 | --- | --- |
-| Documentation only | Documentation links/ownership checker; runtime build may be omitted |
-| C++ authoring/widget | Authoring, affected widget contract and one representative consumer |
+| Documentation only | Documentation checker |
+| C++ authoring/widget | Authoring, affected widget contract and one consumer |
 | Commands/input/reactive | Affected owner contracts, representative integration and replay |
-| Render/layout | Affected contracts, a CPU fixture and representative consumer |
+| Render/layout | Affected contracts, a CPU fixture and one consumer |
 | CMake/import configuration | At least one independent consumer import; both modes for broad import changes |
-| Vulkan/fonts/native host | Affected module build and dedicated rendering/font/platform checks under their environment requirements |
-| Release metadata/workflow | Metadata validation and the minimum affected build configuration; broader release checks at Tier 3 |
+| Vulkan/fonts/native host | Affected module build and dedicated rendering/font/platform checks |
+| Release metadata/workflow | Metadata validation and the minimum affected build configuration |
 
-Debug/Release and both import modes are wider integration/release obligations, not a new full matrix for every UI operation. Core fast contracts belong in the PR gate; full core coverage also belongs there for high-risk or uncertain changes. Source imports run for relevant build changes and at wider tiers. Replay/CPU checks run for affected runtime/render/replay changes and at wider tiers. Required checks must complete even for documentation-only PRs; put any skip inside a reporting job instead of leaving a path-filtered required workflow pending. If an automated matcher is introduced, test it, use a conservative fallback and review misses regularly.
-
-Core CTest labels express verification ownership: `contract` identifies runtime/widget owner checks, `smoke` identifies application/consumer fixtures, and `import` identifies independent host configure/build/link/run checks. A smoke label does not imply that its assertions are small or dispensable. [CMake registration](../../CMakeLists.txt) and [consumer registration](../../tests/cmake/register.cmake) own membership. The [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects these labels without removing tests or changing assertions; unfiltered full runs preserve all core checks.
+Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for application/consumer fixtures, and `import` for independent host configure/build/link/run checks. [CMake registration](../../CMakeLists.txt) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects labels without removing tests.
 
 ### Measurement and safe reduction
 
-For a protection change, identify the affected checks and equivalent owner coverage under L1-L4. Compare available CI baseline samples, separating queue, configure, compile and test time and declaring conditions/sample count. Use JUnit and CTest cost data to find the largest bottleneck; report median/p95 only when supported by the samples. Collect failure/rerun or cache observations when relevant. Missing data stays explicit, but no fixed run count or observation period gates feature work, CI adoption or release. [Development](development.md#focused-checks-and-timing) owns collection commands; support owns material baselines and artifacts.
-
-Introduce a few contract/smoke/import labels before using them to exclude tests. Labels alone do not reduce compilation time. Measure safe test parallelism, especially independent consumer configure/build jobs, before increasing it. Add cache or build-target separation only for a measured bottleneck; cache keys must include toolchain and dependency identity. Do not delete tests during classification.
-
-Before changing required checks, run the shorter workflow alongside the old gate long enough to verify that it works and retains detection of important regressions. Check actual branch protection/rulesets and relevant runner constraints, then coordinate the transition; no fixed period of full duplicate execution is required. Preserve the release workflow's FetchContent exclusion during initial measurement; wider coverage must exercise both imports before release acceptance.
-
-Reduce a duplicate assertion only with a concise reference to the equivalent owner test, applicable assumptions and preserved diagnostic value; no separate long report is required. Keep slow substantive checks in wider tiers. Monitor integration results after a gate/reduction change and restore protection for a missed critical regression; observation alone is not a release waiting period. A temporary flaky-check quarantine needs a reason, owner and return condition or expiry. Report failures and artifacts concisely. Judge improvements by usable application operations, change-to-merge lead time, longest required-check time (median/p95 where available) and post-merge regressions/time to repair. Prefer automatically available CI data; no per-PR metrics report is required. Stop CI expansion when owner coverage is preserved and feedback is actionable.
+Before changing required checks or removing a duplicate test, compare available CI durations, identify equivalent owner coverage and verify the replacement detects the regressions the old check did. Keep slow substantive checks in wider tiers; a temporary flaky-check quarantine needs a reason, owner and return condition. [Development](development.md#focused-checks-and-timing) owns collection commands; support owns material baselines.
 
 ## High-value checks
 
@@ -149,8 +121,6 @@ For Markdown-only changes, run from the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-docs.ps1
 ```
 
-The [checker](../../scripts/check-docs.ps1) validates relative file/directory links, Markdown heading fragments, code fences, canonical ownership links and misplaced rolling status/checklists. It also checks architecture invariants, proposal authority/promotion markers, obsolete documentation paths and planned-only support rows. The [wording rules](../README.md#status-and-wording-rules) require semantic review of competing status claims, not a blanket word/version ban. External links are left to a separate network check when needed; local verification requires no network. Runtime tests are unnecessary for documentation-only changes.
+The [checker](../../scripts/check-docs.ps1) validates relative file/directory links, Markdown heading fragments, code fences, canonical ownership links and architecture core-invariant sections. External links are not checked. Runtime tests are unnecessary for documentation-only changes.
 
-Review [canonical ownership and change routing](../README.md#canonical-owners): technical details belong in one subsystem page, active scope in current, future scope in backlog, delivery history in changelog, and live capability/configuration evidence in support. A proposed API/schema must be labeled and must not silently change JSON v1.
-
-Automated checks cannot establish semantic uniqueness or implementation truth. Review those manually against code and the owner-provided direction. Do not report runtime tests for a documentation-only check.
+Keep technical details in one subsystem page, active scope in current, delivery history in changelog, and capability/configuration evidence in support ([canonical owners](../README.md#canonical-owners)).

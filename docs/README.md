@@ -1,36 +1,32 @@
 # Documentation
 
-Repository documents are the only maintained plan and contract. Owner-provided direction documents are design inputs: when one is adopted, its content is merged into the owners below (intent into product, constraints into architecture, possible mechanisms into proposals, consumer requirements into integrations, verification procedures into guides, scheduling into current or backlog) and significant intake is recorded concisely in the [changelog](../CHANGELOG.md). Do not keep a summary of adopted direction here or link to files outside the repository. Illustrative CLI/build switches, environment variables, DSL syntax, API sketches, package names, directory layouts, speedup estimates, scale targets, and phase numbering in such inputs are not contracts.
+Repository documents are the maintained plan and contract. When an external direction document is adopted, merge its content into the owners below and record the intake in the [changelog](../CHANGELOG.md); do not link to files outside the repository.
 
 ## Consult by change
 
-For application authors, begin with [Getting Started](guides/getting-started.md) and [your first app](guides/first-app.md), then follow the Settings workflow. For repository changes, read [current work](roadmap/current.md) and nearby code/docs first; the rest are references as needed.
+For application authors, begin with [Getting Started](guides/getting-started.md) and [your first app](guides/first-app.md), then follow the Settings workflow. For repository changes, read [current work](roadmap/current.md) and the code/docs near the change; the rest are references as needed.
 
-- Scope or acceptance decisions: [agent policy](agent-policy.md).
-- Code changes: the affected subsystem contract and [testing selection](guides/testing.md#change-selection).
+- Code changes: the affected subsystem contract and the [testing guide](guides/testing.md#change-selection).
 - Structural/dependency changes: [architecture](architecture/overview.md); product intent: [vision](product/vision.md).
 - Support claims, evidence or release acceptance: [support matrix](reference/support-matrix.md).
-- Documentation moves/classification: the canonical owners below. Routine widget changes do not require reading every architecture or support page.
+- Documentation moves/classification: the canonical owners below.
 
-## Documentation authority
+## Directories
 
-| Directory | Purpose | Authority |
-| --- | --- | --- |
-| [Product](product/) | Why Tessera exists, principles, intended consumers and non-goals | Product intent; no implementation queue |
-| [Roadmap](roadmap/) | Active fixture and inactive candidates | Only current scope authorizes repository-planned feature work |
-| [Architecture](architecture/) | System boundaries, invariants and subsystem contracts | Constraints; Implemented/Proposed labels distinguish maturity |
-| [Reference](reference/) | Capability/configuration evidence and dependency policy | Support matrix is the only live implementation/validation record |
-| [Guides](guides/) | Build, test and supported operational procedures | Procedures; no future API design |
-| [Proposals](proposals/) | Possible mechanisms and promotion criteria | No independent implementation authority |
-| [Integrations](integrations/) | Consumer designs and requirements | No implicit new core requirements |
-
-Detailed Proposed sections are intentionally non-actionable unless the active fixture requires the specific behavior. Backlog candidates and integration examples do not expand active scope. The [agent policy](agent-policy.md) owns the authority and stop rules; current work owns the concrete slice. Follow links for constraints without treating the linked page as a task list.
+| Directory | Purpose |
+| --- | --- |
+| [Product](product/) | Why Tessera exists, principles, intended consumers and non-goals |
+| [Roadmap](roadmap/) | Active milestone and inactive candidates |
+| [Architecture](architecture/) | System boundaries, invariants and subsystem contracts; Implemented/Proposed labels distinguish maturity |
+| [Reference](reference/) | Capability/configuration evidence and dependency policy |
+| [Guides](guides/) | Build, test and operational procedures |
+| [Proposals](proposals/) | Possible mechanisms and promotion criteria |
+| [Integrations](integrations/) | Consumer designs and requirements |
 
 ## Canonical owners
 
 | Document | Owns | Does not own |
 | --- | --- | --- |
-| [Agent policy](agent-policy.md) | Implementation authority, fixture-driven task selection, verification ownership and bounded acceptance rules, subsystem stop rule | Feature scheduling, subsystem contracts, or capability evidence |
 | [Vision](product/vision.md) | Product purpose and differentiation | Feature scheduling or support claims |
 | [Principles](product/principles.md) | Durable product principles | Subsystem algorithms or milestone tasks |
 | [Use cases](product/use-cases.md) | Intended consumers and their design entry points | Capability support or implicit core requirements |
@@ -69,7 +65,7 @@ Detailed Proposed sections are intentionally non-actionable unless the active fi
 
 ## Proposal owners
 
-Proposals own possible mechanisms and promotion criteria. Their detailed sections constrain future choices without granting implementation authority.
+Proposals own possible mechanisms and promotion criteria.
 
 | Document | Owns | Does not own |
 | --- | --- | --- |
@@ -91,28 +87,13 @@ Proposals own possible mechanisms and promotion criteria. Their detailed section
 
 ## Contract labels
 
-Sections named **Implemented ... contract/boundary/algorithm** describe identifiable source APIs, with header links. Sections named **Proposed ...** describe designs to validate, not usable APIs or scheduled work. Accepted architectural direction constrains future choices; open decisions are exploration and must not be implemented directly as settled contracts. Keep the Implemented/Proposed labels distinct from implementation authority: neither a detailed mechanism nor an unresolved idea authorizes work without the active roadmap's specific requirement. Implementation and validation vocabulary is defined only in the [support matrix](reference/support-matrix.md#evidence-vocabulary).
-
-Design roles complement those maturity labels: **Contract** names normative invariants and the source-backed Implemented sections, **Direction** names Proposed architectural intent without scheduling, and **Exploration** names unresolved API/semantic choices. Architecture pages open with core invariants and a reading rule. Proposals open with their Proposed/Direction role, no independent authority, the default of no scheduled work, and promotion criteria. These are authority markers, not live capability status; actual scheduled behavior is defined only in current work.
-
-## Status and wording rules
-
-Keep live capability/configuration status in the support matrix and avoid competing status records. Review meaning and ownership rather than banning individual words:
-
-- Preserve source-backed **Implemented** and design-only **Proposed** labels and proposal authority markers. Temporal wording or a version reference is not itself a policy violation; do not turn it into a second progress tracker.
-- State an API's limits with its contract and link a proposal when relevant. Update that owner when the contract changes.
-- Scheduling belongs in current/backlog, test outcomes/configurations in support and delivery dates in changelog. Design pages may reference those owners without reproducing their records.
-- **Verification** sections state what must be verified and link the check files. They do not list missing fixtures or report outcomes.
-- Roadmap pages describe scope and exit criteria and link contracts; they do not describe how a capability currently behaves.
-- Support uses one short row per capability: status/scope, owner-test or consumer/evidence links, and limits. Add detail only for material evidence; routine UI PRs need no new history section. Preserve existing dated evidence and archive it only when useful. Capabilities without implementation have no row.
+Sections named **Implemented ...** describe source-backed APIs with header links. Sections named **Proposed ...** describe designs that are not yet implemented. Implementation and validation vocabulary is defined in the [support matrix](reference/support-matrix.md#evidence-vocabulary).
 
 ## Change routing
 
-1. **Contracts and procedures:** update the owner whose public contract or procedure changes. Link consumers to that owner; keep invariants, fields, defaults and lifetimes in one place. Agent policy owns decision rules, testing owns verification policy and development owns commands. Indexes change only for navigation/ownership.
-2. **Scope:** current owns active operations and observable acceptance; backlog owns inactive candidates. Promote only the needed part, leaving a link rather than duplicate active scope. A short behavior/risk/check summary under the [agent policy](agent-policy.md#verification-ownership-and-bounded-acceptance) is sufficient; no fixed four-item template or separate review article is required.
-3. **Support and evidence:** update support when a capability, support claim or material validation evidence changes. Routine executed checks belong in the PR. Distinguish those checks from inherited guarantees and never repeat a full matrix for each UI operation.
-4. **Delivery:** changelog owns significant deliveries, direction intake and release history. Remove completed work from current; do not create a changelog entry for every pre-implementation selection.
+1. **Contracts and procedures:** update the owner whose public contract or procedure changes; link to it from consumers instead of copying.
+2. **Scope:** current owns the active milestone; backlog owns inactive candidates. Remove completed work from current.
+3. **Support and evidence:** update support when a capability, support claim or material validation evidence changes. Routine check results belong in the PR.
+4. **Delivery:** changelog owns deliveries and release history.
 
-Do not copy milestone tables, rolling `Status:` summaries, toolchain results, or delivered checklists into indexes, guides, or design introductions. An API limitation belongs with its contract; the fact that a whole capability is absent belongs in support. Historical evidence is read in its dated context.
-
-Run [documentation checks](guides/testing.md#documentation-verification) after edits. They check links/anchors, code fences, required ownership links and explicit duplicate status structures. Review semantic ownership as well; a checker cannot prove that prose passages express the same contract. Documentation-only changes require no runtime tests.
+Run the [documentation checks](guides/testing.md#documentation-verification) after edits; they check links, anchors, code fences and ownership links. Documentation-only changes require no runtime tests.

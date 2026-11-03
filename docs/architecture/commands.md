@@ -6,9 +6,6 @@
 - Applications own command implementations, data mutations, transaction history and rollback outcomes.
 - Reactive update batches and application edit transactions are distinct; a non-editing action does not create an undo token.
 
-> [!NOTE]
-> Implemented sections describe source-backed contracts. Proposed sections are Direction, and open decisions are Exploration. Neither schedules implementation; see [documentation authority](../README.md#contract-labels) and the [agent policy](../agent-policy.md).
-
 ## Implemented in-process command boundary
 
 [commands.hpp](../../include/tessera/commands/commands.hpp) defines immutable owned `CommandRegistry`, `CommandSnapshot`, and `CommandInvocation` values. Registry copies share descriptor storage and a process-unique revision; replacement registries receive a distinct revision, even for equal descriptors. There is no global registry or callback. The host reserves command namespaces and passes the registry explicitly; subtree context follows the [context proposal](ui-model.md#proposed-context).
