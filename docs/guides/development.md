@@ -18,7 +18,17 @@ ctest --test-dir build -C Debug --output-on-failure
 & .\build\Debug\tessera_tool_panel.exe
 ```
 
-The default configuration enables the core, tests, and examples. Build output is under `build/Debug`; CTest logs are under `build/Testing/Temporary`. Examples describe their own output and placeholders. [CMakeLists.txt](../../CMakeLists.txt) owns target/options/test registration; do not mirror its complete inventory here.
+The default configuration enables the core, tests, and examples. Build output is under `build/Debug`; CTest logs are under `build/Testing/Temporary`. Examples describe their own output and placeholders. [CMakeLists.txt](../../CMakeLists.txt) connects the [options](../../cmake/TesseraOptions.cmake), [core/compiler settings](../../cmake/TesseraCore.cmake), [examples](../../cmake/TesseraExamples.cmake), [runtime test registration](../../cmake/TesseraTesting.cmake) and [independent consumers](../../tests/cmake/register.cmake); do not mirror their complete inventory here. These modules are included at the root to preserve existing target output and test working directories.
+
+On the documented Windows x64 Visual Studio 2026 toolchain, the optional [core-dev preset](../../CMakePresets.json) provides the same core-only development configuration:
+
+```powershell
+cmake --preset core-dev
+cmake --build --preset core-dev
+ctest --preset core-dev
+```
+
+The preset is a local convenience, not a platform support claim. Project option defaults live in [TesseraOptions.cmake](../../cmake/TesseraOptions.cmake); the [measurement script](../../scripts/measure-core-ci.ps1) remains the authority for CI configuration, suite selection and parallelism and chooses the installed default Visual Studio generator. The preset pins the documented local generator, does not select a CI suite and runs the full inventory. Use ordinary configure arguments for other toolchains or optional modules.
 
 The [tool-panel example](../../examples/tool-panel/main.cpp) uses synthetic keyboard navigation and placeholder text with no native window. It projects host-owned selection through a [reactive source and calculation](../architecture/reactive-runtime.md#implemented-in-process-graph-contract), explicitly flushes each update batch, then publishes selection-dependent [command eligibility](../architecture/commands.md#implemented-in-process-command-boundary), lowers disabled state into the shared UI document, and resolves an inspection command for the [host execution adapter](../architecture/commands.md#implemented-host-execution-and-result-boundary), which rechecks the invocation, consumes its sequence once, and validates the returned object identity. Selection and deselection rebuild the full UI snapshot; descriptor/query/argument inputs are owned C++ fixtures, not a command recording format. Item details live in a [fault boundary](../architecture/reactive-runtime.md#implemented-subtree-fault-boundary): the selected item has no host record, so flush reports a contained fault and the host prints fallback text while the panel still publishes. After each successful rebuild it [publishes](../architecture/reactive-runtime.md#implemented-effect-and-publication-boundary) the settled graph and delivers a notify-phase effect to a synthetic host status line. Inventory rows use [keyed component mounting](../architecture/ui-model.md#implemented-keyed-component-mounting) to register named pinned state automatically; their owners also hold a name observation, a label binding, and a synthetic thumbnail cleanup: a host reorder keeps the pinned row, its focus, and its binding without recalculation, removal delivers the row's cleanup, and reinsertion starts a new lifetime. Its panel owner also registers a synthetic host subscription's [external cleanup](../architecture/reactive-runtime.md#implemented-external-cleanup-boundary); shutdown closes the owner before the host explicitly delivers that operation and the status effect's last cleanup.
 
@@ -83,7 +93,7 @@ ctest --test-dir build -C Debug -R '^(authoring|renderer_diagnostics|renderer_di
 
 The Diagnostics fixture registers one `renderer_diagnostics_contract.<scenario>` check per independent scenario so `ctest -j` spreads its Debug cost; `tessera_renderer_diagnostics_tests` without arguments runs every scenario in one process, and it accepts scenario names (for example `msaa outlines`) to run a subset directly.
 
-Choose other target/test names from [CMake registration](../../CMakeLists.txt), including [independent consumers](../../tests/cmake/register.cmake), rather than copying this selection for every change. `ctest -R` selects execution only; an unrestricted build still compiles all enabled targets. A source-import CTest configures/builds its own host project. Use Release when that configuration is affected or collecting wider integration/release evidence; documentation-only changes use the [documentation check](testing.md#documentation-verification).
+Choose other target/test names from [runtime registration](../../cmake/TesseraTesting.cmake), including [independent consumers](../../tests/cmake/register.cmake), rather than copying this selection for every change. `ctest -R` selects execution only; an unrestricted build still compiles all enabled targets. The suite targets below restrict the build as well. A source-import CTest configures/builds its own host project. Use Release when that configuration is affected or collecting wider integration/release evidence; documentation-only changes use the [documentation check](testing.md#documentation-verification).
 
 For a baseline, configure/build with the ordinary workflow and collect the inventory and complete test results in each configuration, without adding the focused regex:
 
@@ -114,7 +124,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-core-ci.ps1 -BuildDirectory build-ci -Configuration Debug -Suite fixtures
 ```
 
-The measurement script configures a Windows x64 core-only Visual Studio build with tests/examples enabled and optional modules disabled. Use a new build directory for fresh measurements; a reused `CMakeCache.txt` is recorded explicitly. It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. Native failures stop the run with a nonzero exit while retaining completed phase measurements. `pr` selects `contract` and `smoke`; `fixtures` adds `fixture`; `imports` adds the `add_subdirectory` imports; `wide` applies only the release gate's `_FetchContent$` exclusion; `full` has no filter. Build parallelism defaults to two and test workers to two; import checks are `RUN_SERIAL` in CTest, so nested builds never overlap each other or runtime checks. These settings are measurement conditions, not universal speed guarantees.
+The measurement script configures a Windows x64 core-only Visual Studio build with tests/examples enabled and optional modules disabled. Build selection and CTest selection correspond as follows:
+
+| Suite | Parent build target | CTest selection |
+| --- | --- | --- |
+| `pr` | `tessera_pr_tests` | `contract` + `smoke` |
+| `fixtures` | `tessera_fixture_tests` | `pr` + `fixture` |
+| `imports` | `tessera_pr_tests` | `pr` + `import`, excluding `_FetchContent$` |
+| `wide` | `tessera_wide_tests` | Everything except `_FetchContent$` |
+| `full` | Default build (all enabled targets) | No filter |
+
+[Test registration](../../cmake/TesseraTesting.cmake) associates each runtime test's executable and label with its build group in one place. Fixture targets depend on the PR group; the wide group also covers an opted-in native host. The measurement script does not maintain executable lists. Imports configure/build their own isolated hosts during CTest and need no extra parent executable. Selecting a narrow suite does not delete executables left by an earlier wide build; use a fresh directory to measure avoided compilation.
+
+It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. The JSON also records selected build targets (an empty array means the default build), fresh/reused cache, local/GitHub Actions execution, OS, logical processor count and parallelism. Native failures stop the run with a nonzero exit while retaining completed phase measurements. Build parallelism defaults to two and test workers to two; import checks remain `RUN_SERIAL` in CTest, so nested builds never overlap each other or runtime checks. These settings are measurement conditions, not universal speed guarantees. Record hosted and local timings separately; Debug PR feedback does not replace full Debug/Release and both imports on main.
 
 ## Scalar CPU capture workflow
 

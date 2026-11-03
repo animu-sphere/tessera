@@ -1,0 +1,15 @@
+# Embedded consumers opt into Tessera's development targets independently of
+# their own BUILD_TESTING setting. Standalone workflows retain their defaults.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(tessera_development_defaults ON)
+    include(CTest)
+else()
+    set(tessera_development_defaults OFF)
+endif()
+option(TESSERA_BUILD_TESTING "Build Tessera checks when BUILD_TESTING is enabled" ${tessera_development_defaults})
+option(TESSERA_BUILD_EXAMPLES "Build the core-only examples" ${tessera_development_defaults})
+option(TESSERA_BUILD_VULKAN "Build the optional Vulkan renderer and GPU fixtures" OFF)
+option(TESSERA_BUILD_FONTS "Build the optional HarfBuzz/FreeType text services and font fixtures" OFF)
+if(WIN32 AND TESSERA_BUILD_EXAMPLES)
+    option(TESSERA_TEST_NATIVE_HOST "Run Settings native smoke (requires a desktop session)" OFF)
+endif()

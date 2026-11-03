@@ -14,6 +14,8 @@ $cases = @(
     @{ Paths = @('tests/integrations/renderer_diagnostics_tests.cpp', 'src/ui/document.cpp'); Core = $true; Suite = 'fixtures' },
     @{ Paths = @('examples/settings/main.cpp'); Core = $true; Suite = 'fixtures' },
     @{ Paths = @('CMakeLists.txt', 'docs/README.md'); Core = $true; Suite = 'imports' },
+    @{ Paths = @('CMakePresets.json'); Core = $true; Suite = 'imports' },
+    @{ Paths = @('cmake/TesseraTesting.cmake', 'cmake/TesseraOptions.cmake'); Core = $true; Suite = 'imports' },
     @{ Paths = @('tests/cmake/register.cmake'); Core = $true; Suite = 'imports' },
     @{ Paths = @('.github/workflows/ci.yml'); Core = $true; Suite = 'imports' },
     @{ Paths = @('scripts/select-ci.ps1'); Core = $true; Suite = 'imports' },
