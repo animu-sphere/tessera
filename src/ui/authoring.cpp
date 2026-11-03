@@ -1,4 +1,5 @@
 #include <tessera/ui/authoring.hpp>
+#include <set>
 
 namespace tessera::authoring {
 namespace detail {
@@ -12,6 +13,7 @@ struct ElementData {
     bool selection = false;
     std::optional<std::string> action;
     std::vector<Element> children;
+    std::vector<Diagnostic> diagnostics;
 };
 
 struct Lowerer {
@@ -47,6 +49,11 @@ struct Lowerer {
             return false;
         }
         const auto& data = *element.data_;
+        for (auto error : data.diagnostics) {
+            error.path = path;
+            if (data.props.source) error.source = DiagnosticSource{*data.props.source, DiagnosticOrigin::argument};
+            errors.push_back(std::move(error));
+        }
         elements.push_back(&data);
         node.kind = data.kind;
         node.id = data.props.id;
@@ -196,6 +203,43 @@ Element Column(std::vector<Element> children, Props props) {
 Element ScrollView(std::vector<Element> children, Props props) {
     props.style.overflow = Overflow::scroll;
     return Column(std::move(children), std::move(props));
+}
+
+Element Dropdown(std::string label, std::string selected, std::vector<DropdownOption> options,
+    std::string toggle_action, DropdownProps props) {
+    std::vector<Diagnostic> errors;
+    std::set<std::string> keys;
+    const DropdownOption* chosen = nullptr;
+    for (const auto& option : options) {
+        if (option.key.empty() || !keys.insert(option.key).second)
+            errors.push_back({"dropdown_options", Severity::error, {}, "Supply unique nonempty Dropdown option keys."});
+        if (option.key == selected) chosen = &option;
+    }
+    if (!chosen)
+        errors.push_back({"dropdown_selection", Severity::error, {}, "Select an existing Dropdown option key."});
+    auto control = [&](const std::string& suffix) {
+        Props node;
+        if (props.node.id) node.id = *props.node.id + suffix;
+        node.source = props.node.source;
+        return node;
+    };
+    std::vector<Element> children;
+    children.push_back(Button(label + ": " + (chosen ? chosen->label : selected) +
+        (props.expanded ? " [-]" : " [+]"), std::move(toggle_action),
+        {.node = control("-trigger"), .disabled = props.disabled}));
+    if (props.expanded) {
+        for (auto& option : options)
+            children.push_back(Button((option.key == selected ? "* " : "") + option.label,
+                std::move(option.action), {.node = control("-option-" + option.key),
+                    .disabled = props.disabled || option.disabled}));
+    }
+    auto data = std::make_shared<detail::ElementData>();
+    props.node.style.direction = FlexDirection::column;
+    if (!props.node.style.gap) props.node.style.gap = 8.f;
+    data->props = std::move(props.node);
+    data->children = std::move(children);
+    data->diagnostics = std::move(errors);
+    return Element(std::move(data));
 }
 
 Result<Presentation> Session::lower(const Element& element, const ValidationContext& context) {

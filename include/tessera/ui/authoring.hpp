@@ -46,6 +46,17 @@ struct TextInputProps {
     Props node;
     Value<bool> disabled = false;
 };
+struct DropdownOption {
+    std::string key;
+    std::string label;
+    std::string action;
+    bool disabled = false;
+};
+struct DropdownProps {
+    Props node;
+    bool expanded = false;
+    bool disabled = false;
+};
 
 // Immutable composition values. Copying shares descriptions, never state/owners.
 class Element final {
@@ -64,6 +75,7 @@ private:
     friend Element TextInput(Value<std::string>, Value<TextEditState>, std::string, TextInputProps);
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
+    friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
 };
 
 Element Text(Value<std::string>, Props = {});
@@ -80,6 +92,11 @@ Element Column(std::vector<Element> children, Props = {});
 // A Column with scroll overflow. Constrain its size through Props::style;
 // the host owns offsets and routes wheel input/focus reveal through input/scroll.
 Element ScrollView(std::vector<Element> children, Props = {});
+// Controlled inline dropdown: host commands own expansion and selected key.
+// With a node ID, generated controls use <id>-trigger / <id>-option-<key>.
+// Options are ordinary buttons in layout, reached through normal focus/scroll.
+Element Dropdown(std::string label, std::string selected, std::vector<DropdownOption> options,
+    std::string toggle_action, DropdownProps = {});
 
 struct Presentation {
     UiDocument document;

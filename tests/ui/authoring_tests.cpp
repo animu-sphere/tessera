@@ -124,6 +124,61 @@ void scroll_view_contract() {
         "Invalid ScrollView constraints need a source-located diagnostic");
 }
 
+void controlled_dropdown() {
+    Session ui;
+    const ValidationContext menu_actions{{"open", "system", "dark"}};
+    const std::vector<DropdownOption> options{{"system", "System", "system"}, {"dark", "Dark", "dark", true}};
+    const auto closed = take(ui.lower(Dropdown("Theme", "system", options, "open",
+        {.node = {.id = "theme", .source = origin}}), menu_actions));
+    const auto& trigger = closed.document.root.children[0];
+    check(closed.document.root.children.size() == 1 && trigger.id == "theme-trigger" &&
+        trigger.events.at("activate") == "open" &&
+        trigger.children[0].properties.at("text") == Property{std::string("Theme: System [+]")},
+        "Collapsed Dropdown must expose only its current value and trigger");
+    const auto expanded = take(ui.lower(Dropdown("Theme", "system", options, "open",
+        {.node = {.id = "theme", .classes = {"control"}, .style = {.gap = 4.f}, .source = origin},
+            .expanded = true}), menu_actions));
+    check(expanded.document.root.children.size() == 3 && expanded.styles[0].gap == 4 &&
+        expanded.styles[0].direction == FlexDirection::column &&
+        expanded.document.root.children[1].id == "theme-option-system" &&
+        expanded.document.root.children[1].children[0].properties.at("text") == Property{std::string("* System")} &&
+        expanded.document.root.children[2].properties.at("disabled") == Property{true} &&
+        expanded.document.root.children[2].events.at("activate") == "dark",
+        "Expanded choices must retain stable keys, selection, disabled state and ordinary actions");
+    check(validate_sources(expanded.document, expanded.sources).empty() &&
+        expanded.sources.nodes.back().property_arguments.at("text") == origin,
+        "Dropdown generated controls lost caller provenance");
+    const auto disabled = take(ui.lower(Dropdown("Theme", "dark", options, "open",
+        {.expanded = true, .disabled = true}), menu_actions));
+    for (const auto& child : disabled.document.root.children)
+        check(child.properties.at("disabled") == Property{true}, "Disabled Dropdown left an enabled control");
+    check(disabled.document.root.children[0].children[0].properties.at("text") ==
+        Property{std::string("Theme: Dark [-]")} && closed.document.root.children.size() == 1,
+        "Controlled Dropdown replacement changed an earlier candidate");
+    int reads = 0;
+    const auto pending = ui.computed("dropdown-pending", [&] { ++reads; return std::string("Pending"); });
+    for (const auto& invalid_options : {std::vector<DropdownOption>{},
+        std::vector<DropdownOption>{{"", "Empty", "system"}},
+        std::vector<DropdownOption>{{"system", "One", "system"}, {"system", "Two", "dark"}}}) {
+        const auto invalid = ui.lower(Column({Text(pending), Dropdown("Theme", "system", invalid_options, "open",
+            {.node = {.source = origin}})}), menu_actions);
+        check(!invalid && reads == 0 && invalid.diagnostics[0].source &&
+            invalid.diagnostics[0].source->location == origin,
+            "Invalid Dropdown options must reject before evaluating bindings and locate the caller");
+    }
+    const auto unknown = ui.lower(Dropdown("Theme", "missing", options, "open"), menu_actions);
+    check(!unknown && has(unknown.diagnostics, "dropdown_selection", "/root"), "Unknown selected key accepted");
+    auto unknown_action = options; unknown_action[1].action = "missing";
+    check(!ui.lower(Dropdown("Theme", "system", unknown_action, "open", {.expanded = true}), menu_actions),
+        "Unregistered expanded option action accepted");
+    check(!ui.lower(Dropdown("Theme", "system", options, "missing"), menu_actions),
+        "Unregistered Dropdown trigger accepted");
+    auto deepest = Dropdown("Theme", "system", options, "open", {.expanded = true});
+    for (std::size_t i = 3; i < max_document_depth; ++i) deepest = Column({deepest});
+    check(bool(ui.lower(deepest, menu_actions)) && !ui.lower(Column({deepest}), menu_actions),
+        "Dropdown generated controls bypassed document depth bounds");
+}
+
 void controlled_checkbox() {
     Session ui;
     const auto checked = ui.state("checked", false);
@@ -267,7 +322,7 @@ void bounded_descriptions() {
 int main() {
     try {
         composition_and_updates(); rejection_and_preflight(); controlled_checkbox(); controlled_text_input();
-        scroll_view_contract(); lifetimes_and_recovery(); bounded_descriptions();
+        scroll_view_contract(); controlled_dropdown(); lifetimes_and_recovery(); bounded_descriptions();
         std::cout << "Authoring composition, state, diagnostics and lifetime checks passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

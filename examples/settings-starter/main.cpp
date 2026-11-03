@@ -5,6 +5,7 @@
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/render/paint.hpp>
+#include <algorithm>
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -44,7 +45,7 @@ ui::Element Field(FieldProps props, std::vector<ui::Element> children) {
 }
 const std::vector<std::string> sections{"account", "feature", "about"};
 ui::Element Settings(const std::string& selected, ui::Value<TextEditState> username, ui::Value<bool> enabled,
-    ui::Value<std::string> summary, ui::Value<std::string> saved) {
+    ui::Value<std::string> summary, ui::Value<std::string> saved, const std::string& theme, bool theme_open) {
     std::vector<ui::Element> choices;
     for (const auto& id : sections)
         choices.push_back(ui::Button((selected == id ? "* " : "") + id, "settings.section." + id,
@@ -58,6 +59,9 @@ ui::Element Settings(const std::string& selected, ui::Value<TextEditState> usern
         rows.push_back(Field({"Feature"}, {ui::Checkbox("Enable feature", enabled, "settings.toggle",
             {.node = {.id = "toggle", .classes = {"control"}}})}));
     else rows.push_back(Field({"About"}, {ui::Text("Apply saves the whole draft.", {.id = "section-help"})}));
+    rows.push_back(ui::Dropdown("Theme", theme, {{"system", "System", "settings.theme.system"},
+        {"light", "Light", "settings.theme.light"}, {"dark", "Dark", "settings.theme.dark"}},
+        "settings.theme.toggle", {.node = {.id = "theme", .classes = {"control"}}, .expanded = theme_open}));
     rows.push_back(ui::Text(summary, {.id = "summary", .classes = {"status"}}));
     rows.push_back(ui::Row({
         ui::Button("Apply", "settings.apply", {.node = {.id = "apply", .classes = {"control"},
@@ -77,11 +81,12 @@ ui::Element Settings(const std::string& selected, ui::Value<TextEditState> usern
 struct SettingsData {
     std::string username;
     bool feature = false;
+    std::string theme = "system";
     bool operator==(const SettingsData&) const = default;
 };
 std::string saved_caption(std::size_t count, const SettingsData& data) {
     return "Saved " + std::to_string(count) + ": " + data.username +
-        (data.feature ? "; feature enabled" : "; feature disabled");
+        (data.feature ? "; feature enabled" : "; feature disabled") + "; theme " + data.theme;
 }
 struct Host final : CommandHost {
     TextEditState username = take(make_text_edit_state(1, "Ada"));
@@ -95,10 +100,12 @@ struct Host final : CommandHost {
     SettingsData next_draft;
     std::string next_result;
     bool applying = false;
+    bool theme_open = false, next_theme_open = false;
 
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         next_username = username; next_draft = draft; next_result = result;
         next_selected = selected;
+        next_theme_open = theme_open;
         applying = invocation.command == "settings.apply";
         if (invocation.command == "settings.edit") {
             require(edit.has_value(), "Editing requires an owned request");
@@ -117,7 +124,13 @@ struct Host final : CommandHost {
             next_username = std::move(*restored.value);
             next_draft = applied;
         } else if (invocation.command == "settings.toggle") next_draft.feature = !draft.feature;
-        else if (invocation.command.starts_with("settings.section.")) next_selected = invocation.command.substr(17);
+        else if (invocation.command == "settings.theme.toggle") next_theme_open = !theme_open;
+        else if (invocation.command.starts_with("settings.theme.")) {
+            const auto key = invocation.command.substr(15);
+            require(key == "system" || key == "light" || key == "dark", "Unknown theme");
+            next_draft.theme = key;
+            next_theme_open = false;
+        } else if (invocation.command.starts_with("settings.section.")) next_selected = invocation.command.substr(17);
         else {
             require(applying, "Unexpected command");
             next_result = saved_caption(saves.size() + 1, next_draft);
@@ -136,6 +149,7 @@ void update_offsets(ScrollOffsets& offsets, const UiTree& tree, const std::vecto
     }
 }
 const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply", "settings.cancel",
+    "settings.theme.toggle", "settings.theme.system", "settings.theme.light", "settings.theme.dark",
     "settings.section.account", "settings.section.feature", "settings.section.about"}};
 struct Presentation {
     CommandSnapshot commands;
@@ -198,15 +212,21 @@ int main() {
         const auto summary = session.computed("summary", [username, enabled] {
             return "User " + username.read().text + (enabled.read() ? "; feature enabled" : "; feature disabled");
         });
-        auto form = [&](const std::string& selected) { return Settings(selected, username, enabled, summary, saved); };
+        auto form = [&](const std::string& selected, const std::string& theme, bool open) {
+            return Settings(selected, username, enabled, summary, saved, theme, open);
+        };
         const auto sheet = application_styles();
         const auto registry = take(CommandRegistry::create(
             {{"settings.edit", "Edit username"}, {"settings.toggle", "Toggle feature"}, {"settings.apply", "Apply settings"},
                 {"settings.cancel", "Cancel pending settings"},
+                {"settings.theme.toggle", "Open or close theme choices"}, {"settings.theme.system", "Use system theme"},
+                {"settings.theme.light", "Use light theme"}, {"settings.theme.dark", "Use dark theme"},
                 {"settings.section.account", "Select Account"}, {"settings.section.feature", "Select Feature"},
                 {"settings.section.about", "Select About"}},
             {{"settings.edit", "settings.edit"}, {"settings.toggle", "settings.toggle"}, {"settings.apply", "settings.apply"},
                 {"settings.cancel", "settings.cancel"},
+                {"settings.theme.toggle", "settings.theme.toggle"}, {"settings.theme.system", "settings.theme.system"},
+                {"settings.theme.light", "settings.theme.light"}, {"settings.theme.dark", "settings.theme.dark"},
                 {"settings.section.account", "settings.section.account"}, {"settings.section.feature", "settings.section.feature"},
                 {"settings.section.about", "settings.section.about"}}));
         std::uint64_t generation = 0, sequence = 0;
@@ -214,6 +234,8 @@ int main() {
             return take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
                 {{"settings.edit", {true}}, {"settings.toggle", {true}}, {"settings.apply", {true}},
                     {"settings.cancel", {true}},
+                    {"settings.theme.toggle", {true}}, {"settings.theme.system", {true}},
+                    {"settings.theme.light", {true}}, {"settings.theme.dark", {true}},
                     {"settings.section.account", {true}}, {"settings.section.feature", {true}}, {"settings.section.about", {true}}}));
         };
         PlaceholderTextShaper text;
@@ -221,9 +243,9 @@ int main() {
         FocusDispatcher focus;
         PointerDispatcher pointer;
         auto stage = [&](const std::string& selected, ScrollOffsets requested,
-            FocusDispatcher candidate_focus, bool reveal) -> Result<Presentation> {
+            FocusDispatcher candidate_focus, bool reveal, const std::string& theme, bool open) -> Result<Presentation> {
             const auto snapshot = commands();
-            const auto element = form(selected);
+            const auto element = form(selected, theme, open);
             auto candidate = prepare(session, element, snapshot, sheet, text, requested);
             if (!candidate) return candidate;
             const auto target = take(candidate_focus.refresh(candidate.value->hit())).focused;
@@ -236,7 +258,7 @@ int main() {
             }
             return candidate;
         };
-        auto accepted = take(stage(host.selected, offsets, focus, false));
+        auto accepted = take(stage(host.selected, offsets, focus, false, host.draft.theme, host.theme_open));
         session.publish();
         auto accept = [&](Presentation candidate) {
             for (const auto& box : candidate.layout.boxes)
@@ -264,7 +286,11 @@ int main() {
             session.update([&] {
                 username.write(host.next_username); enabled.write(host.next_draft.feature); saved.write(host.next_result);
             });
-            auto candidate = stage(host.next_selected, offsets, focus, true);
+            auto candidate_focus = focus;
+            // Closing choices returns keyboard focus to their stable trigger.
+            if (host.theme_open && !host.next_theme_open)
+                (void)take(candidate_focus.focus(accepted.hit(), *accepted.tree->find("theme-trigger")));
+            auto candidate = stage(host.next_selected, offsets, candidate_focus, true, host.next_draft.theme, host.next_theme_open);
             if (!candidate) {
                 // Returned stage failure: restore observations, retain host values,
                 // save records and presentation, then exit with diagnostics.
@@ -280,6 +306,8 @@ int main() {
             host.username = std::move(host.next_username);
             host.draft = std::move(host.next_draft); host.result = std::move(host.next_result);
             host.selected = std::move(host.next_selected);
+            host.theme_open = host.next_theme_open;
+            focus = std::move(candidate_focus);
             session.publish(); accept(std::move(*candidate.value));
         };
         auto input = [&](InputEvent event, CommandSource source = CommandSource::keyboard) {
@@ -289,7 +317,7 @@ int main() {
                 const auto routed = take(route_scroll(accepted.hit(), *scroll));
                 if (!routed.updates.empty()) {
                     update_offsets(requested, *accepted.tree, routed.updates);
-                    auto candidate = take(stage(host.selected, requested, focus, false));
+                    auto candidate = take(stage(host.selected, requested, focus, false, host.draft.theme, host.theme_open));
                     session.publish(); accept(std::move(candidate));
                 }
                 return;
@@ -301,6 +329,13 @@ int main() {
                 return;
             }
             std::optional<decltype(TextEditRequest::operation)> edit;
+            const auto* key_down = std::get_if<KeyDown>(&event.data);
+            if (host.theme_open && (std::holds_alternative<Cancel>(event.data) ||
+                (key_down && key_down->key == Key::escape && key_down->modifiers == Modifiers{} && !key_down->repeat))) {
+                const auto action = take(request_semantic_action(accepted.semantic(), *accepted.tree->find("theme-trigger"), "activate"));
+                operate(action, source);
+                return;
+            }
             const auto owner = accepted.tree->find("username");
             const auto current_focus = take(focus.refresh(accepted.hit())).focused;
             if (owner && current_focus == owner) { // An absent owner must never match an empty focus.
@@ -332,7 +367,7 @@ int main() {
             for (const auto& action : dispatched.actions) operate(action, source);
             if (dispatched.actions.empty() && dispatched.focused &&
                 !take(scroll_into_view(accepted.hit(), *dispatched.focused)).empty()) {
-                auto candidate = take(stage(host.selected, offsets, focus, true));
+                auto candidate = take(stage(host.selected, offsets, focus, true, host.draft.theme, host.theme_open));
                 session.publish(); accept(std::move(candidate));
             }
         };
@@ -360,6 +395,11 @@ int main() {
             if (host.selected == "about")
                 require(name(accepted, "section-help") == "Apply saves the whole draft.", "Help differs");
             require(name(accepted, "save-result") == host.result, "Saved observation differs");
+            require(name(accepted, "theme-trigger") == "Theme: " +
+                std::string(host.draft.theme == "system" ? "System" : host.draft.theme == "light" ? "Light" : "Dark") +
+                (host.theme_open ? " [-]" : " [+]"), "Dropdown observation differs");
+            require(accepted.tree->find("theme-option-system").has_value() == host.theme_open,
+                "Collapsed Dropdown retained options");
             // Offscreen content retains geometry; focus must be revealed in its pane.
             for (const auto& element : accepted.inspection.elements) {
                 require(element.geometry.has_value() && element.geometry->visible, "Missing visible geometry");
@@ -402,6 +442,7 @@ int main() {
         require(host.draft != host.applied && host.draft.feature, "Initial pending edits missing");
         (void)observe();
         const auto before_initial_cancel = host.username;
+        send(FocusNext{}); focused("theme-trigger");
         send(FocusNext{}); focused("apply");
         send(FocusNext{}); focused("cancel");
         send(Activate{}); focused("cancel");
@@ -441,10 +482,12 @@ int main() {
         send(Activate{}); focused("toggle");
         require(host.saves.empty(), "Toggle saved prematurely");
         (void)observe();
+        send(FocusNext{}); focused("theme-trigger");
         send(FocusNext{}); focused("apply");
         send(Activate{}, CommandSource::gamepad); focused("apply");
         require(host.saves == std::vector<SettingsData>{{"Ada本", true}}, "First Apply differs");
         const auto first_saved = observe();
+        send(FocusPrevious{}); focused("theme-trigger");
         send(FocusPrevious{}); focused("toggle");
         send(FocusPrevious{}); focused("section-about");
         send(Activate{}, CommandSource::gamepad); focused("section-about");
@@ -457,7 +500,7 @@ int main() {
         send(Activate{}); focused("section-account");
         require(host.selected == "account" && host.username == retained_edit &&
             host.draft == SettingsData{"Ada本", true} && host.saves == std::vector<SettingsData>{{"Ada本", true}} &&
-            host.result == "Saved 1: Ada本; feature enabled", "Branch return changed retained observations");
+            host.result == "Saved 1: Ada本; feature enabled; theme system", "Branch return changed retained observations");
         const auto returned_account = observe();
         require(returned_account != about, "Account return did not change pixels");
         send(FocusNext{}); focused("section-feature");
@@ -466,8 +509,9 @@ int main() {
         send(tessera::TextInput{"!"}); focused("username");
         require(host.draft == SettingsData{"Ada本!", true} && host.username.revision == edit_start + 2 &&
             host.saves == std::vector<SettingsData>{{"Ada本", true}} &&
-            host.result == "Saved 1: Ada本; feature enabled", "Later edit changed the owned save");
+            host.result == "Saved 1: Ada本; feature enabled; theme system", "Later edit changed the owned save");
         require(observe() != returned_account, "Later draft edit did not change pixels");
+        send(FocusNext{}); focused("theme-trigger");
         send(FocusNext{}); focused("apply");
         send(Activate{}); focused("apply");
         require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} && sequence == command_start + 8,
@@ -476,6 +520,7 @@ int main() {
         const auto apply_focused = observations();
         send(KeyDown{Key::a, {.control = true}});
         require(observations() == apply_focused, "Apply focus consumed Select All");
+        send(FocusPrevious{}); focused("theme-trigger");
         send(FocusPrevious{}); focused("username");
         send(KeyDown{Key::home, {.shift = true}});
         require(host.username.anchor == 7 && host.username.caret == 0, "Expected reversed selection");
@@ -495,8 +540,9 @@ int main() {
         require(host.username.text == "日😀" && host.username.anchor == 7 && host.username.caret == 7 &&
             host.username.revision == before_select.revision + 2 && host.draft == SettingsData{"日😀", true} &&
             host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}} &&
-            host.result == "Saved 2: Ada本!; feature enabled", "Replacement changed a saved copy or split UTF-8");
+            host.result == "Saved 2: Ada本!; feature enabled; theme system", "Replacement changed a saved copy or split UTF-8");
         require(observe() != selected_all, "Whole-field replacement did not change pixels");
+        send(FocusNext{}); focused("theme-trigger");
         send(FocusNext{}); focused("apply");
         send(Activate{}); focused("apply");
         require(host.saves == std::vector<SettingsData>{{"Ada本", true}, {"Ada本!", true}, {"日😀", true}} &&
@@ -506,6 +552,7 @@ int main() {
         // Cancel both fields against the latest Apply, retaining all earlier save copies.
         const auto saved_copies = host.saves;
         const auto saved_result = host.result;
+        send(FocusPrevious{}); focused("theme-trigger");
         send(FocusPrevious{}); focused("username");
         send(tessera::TextInput{"!"});
         send(FocusPrevious{}); send(FocusPrevious{}); focused("section-feature");
@@ -515,6 +562,7 @@ int main() {
         require(host.draft == SettingsData{"日😀!", false}, "Later pending edits missing");
         (void)observe();
         const auto before_cancel = host.username;
+        send(FocusNext{}); focused("theme-trigger");
         send(FocusNext{}); send(FocusNext{}); focused("cancel");
         send(Activate{}, CommandSource::gamepad); focused("cancel");
         require(host.selected == "feature" && host.draft == SettingsData{"日😀", true} &&
@@ -572,6 +620,61 @@ int main() {
         click("section-account");
         require(host.selected == "account" && host.draft == host.applied && host.saves == saved_copies && host.result == saved_result,
             "Pointer category return lost retained state");
+        (void)observe();
+        // Dropdown commands retain independent edits and save only through Apply.
+        auto seek = [&](const char* id) {
+            for (int i = 0; i < 16; ++i) {
+                const auto owner = accepted.tree->find(id);
+                require(owner.has_value(), "Missing navigation target");
+                if (take(focus.refresh(accepted.hit())).focused == owner) {
+                    focused(id);
+                    return;
+                }
+                send(FocusNext{});
+            }
+            require(false, "Control unreachable by keyboard");
+        };
+        seek("username"); send(tessera::TextInput{"?"});
+        const auto pending_username = host.username;
+        const auto before_theme = host.draft;
+        seek("theme-trigger"); send(Activate{}); focused("theme-trigger");
+        require(host.theme_open && name(accepted, "theme-option-system") == "* System", "Dropdown did not open");
+        (void)observe();
+        send(FocusNext{}); focused("theme-option-system");
+        send(Cancel{}); focused("theme-trigger");
+        require(!host.theme_open && host.draft == before_theme, "Dismissal changed the draft");
+        send(Activate{});
+        const auto before_ignored_escape = observations();
+        send(KeyDown{Key::escape, {.control = true}});
+        send(KeyDown{Key::escape, {}, true});
+        require(observations() == before_ignored_escape, "Unsupported Escape chord changed the Dropdown");
+        send(KeyDown{Key::escape}); focused("theme-trigger");
+        require(!host.theme_open && host.draft == before_theme && host.saves == saved_copies,
+            "Escape dismissal changed pending values or saves");
+        send(Activate{}, CommandSource::gamepad);
+        seek("theme-option-dark"); send(Activate{}, CommandSource::gamepad); focused("theme-trigger");
+        require(!host.theme_open && host.draft.theme == "dark" && host.username == pending_username &&
+            host.draft.username == before_theme.username && host.draft.feature == before_theme.feature &&
+            host.saves == saved_copies && host.result == saved_result, "Theme selection changed independent observations");
+        (void)observe();
+        seek("section-about"); send(Activate{});
+        require(host.draft.theme == "dark" && host.username == pending_username, "Category replacement lost the theme draft");
+        seek("theme-trigger"); send(Activate{});
+        seek("theme-option-light"); click("theme-option-light"); focused("theme-trigger");
+        require(host.draft.theme == "light" && !host.theme_open && host.saves == saved_copies,
+            "Pointer choice saved prematurely");
+        seek("apply"); send(Activate{});
+        const auto theme_applied = host.draft;
+        const auto theme_saves = host.saves;
+        const auto theme_result = host.result;
+        require(theme_saves.size() == saved_copies.size() + 1 && theme_saves.back() == theme_applied &&
+            theme_applied.theme == "light" && std::equal(saved_copies.begin(), saved_copies.end(), theme_saves.begin()),
+            "Apply did not copy the selected theme exactly once");
+        seek("theme-trigger"); send(Activate{});
+        seek("theme-option-dark"); send(Activate{});
+        seek("cancel"); send(Activate{});
+        require(host.selected == "about" && host.draft == theme_applied && host.saves == theme_saves &&
+            host.result == theme_result && host.draft.theme == "light", "Cancel did not restore the applied theme");
         (void)observe();
         std::cout << host.saves.size() << " owned saves; " << sequence << " host commands; " << extent.width << 'x' << extent.height
             << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";
