@@ -13,12 +13,13 @@
 namespace tessera {
 
 // Prototype in-process projection; not a serialized schema or stable API. Roles are derived from the
-// existing vocabulary, including the Box separator marker.
+// existing vocabulary, including the Box separator and modal markers.
 enum class SemanticRole : std::uint8_t {
     root,   // The document root when it has no other role.
     button, // A node with an `activate` binding. Text descendants name it and get no entries.
     text,   // A Text node outside a button.
     separator, // A Box with separator=true; its activate binding requests host adjustment.
+    dialog, // The root-sibling Modal; labelled_by supplies its title.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 
@@ -40,7 +41,7 @@ struct SemanticNode {
     std::string name;
     NameSource name_source = NameSource::none;
     std::optional<NodeHandle> labelled_by; // Referenced node; it need not have an entry.
-    bool enabled = true;                   // False when the node or an ancestor is disabled.
+    bool enabled = true;                   // False when disabled or blocked by an active Modal.
     bool focusable = false;                // Focus eligibility, as FocusDispatcher decides it.
     bool focused = false;                  // The supplied focus is this eligible node.
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.

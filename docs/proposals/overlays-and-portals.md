@@ -1,8 +1,8 @@
 # Overlays and portals
 
-> Generalized portals and modal layers remain proposed. The bounded root-sibling [Popup/Tooltip operation](../guides/popup-tooltip.md) is implemented without presentation reparenting. Active scope is in [current work](../roadmap/current.md).
+> Generalized portals and stacked modal layers remain proposed. Bounded root-sibling [Popup/Tooltip](../guides/popup-tooltip.md) and single [Modal/Dialog](../guides/modal-dialog.md) operations are implemented without presentation reparenting. Active scope is in [current work](../roadmap/current.md).
 
-The implemented [Stack layout](../architecture/layout.md#implemented-stack-placement) is an in-parent overlay, not the presentation relocation proposed here. It keeps ordinary ancestry, clips and focus rules. The separate [anchored popup contract](../architecture/layout.md#implemented-anchored-popups) places explicitly composed root children outside the anchor's scroll clipping, retaining ordinary root ancestry and preorder. Neither operation promotes OverlayRoot, Portal or modal behavior.
+The implemented [Stack layout](../architecture/layout.md#implemented-stack-placement) is an in-parent overlay, not the presentation relocation proposed here. It keeps ordinary ancestry, clips and focus rules. The separate [anchored popup contract](../architecture/layout.md#implemented-anchored-popups) places explicitly composed root children outside the anchor's scroll clipping, retaining ordinary root ancestry and preorder. The [Modal contract](../architecture/input.md#implemented-modal-interaction) adds one last root sibling with shared scope/dismissal/recovery for settings-reset confirmation. None promotes OverlayRoot, Portal or nested/stacked modal lifetimes.
 
 ## Proposed overlays and portals
 

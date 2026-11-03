@@ -54,6 +54,14 @@ The [Stack checks](../../tests/layout/stack_tests.cpp) cover numeric placement/l
 
 The [Grid owner checks](../../tests/layout/grid_tests.cpp) cover allocation, caps/minima, alignment, intrinsic/wrapped row sizing, display/visibility, scroll/clip coordinates, selective CPU pixels/hits and rejection. The [Inspector example](../../examples/grid-inspector/main.cpp) verifies shared columns, narrow input bounds, controlled editing, normalized pointer/keyboard/gamepad routing, resize retention and a rejected measurement without a native host.
 
+## Implemented Modal placement
+
+A Box with `modal: true` is the single last root child, excluded from Flex/Stack/Grid flow, intrinsic contributions, cell capacity and scroll extents like a root Popup. Its border box is the intersection of viewport and root content, independent of its own dimensions/margins and background scroll offsets. Root ancestry, preorder, padding and clipping remain ordinary; no presentation relocation occurs. Closed composition has `display: none`.
+
+The [Modal composition](ui-model.md#implemented-c-form-authoring) uses Stack placement. Only for a Modal's direct children, automatic axes additionally fit available content less margins, subject to child minima/maxima and border/padding floors. Height is measured at the assigned width before bounding. Explicit sizes and impossible minima can still overflow and are clipped by the Modal. Dialog's ordinary scrollable panel therefore wraps and scrolls at narrow sizes instead of growing beyond the viewport; its offsets and focus reveal remain host-owned.
+
+The [owner fixture](../../tests/input/modal_tests.cpp) checks flow exclusion, padded viewport coordinates, resize/wrapping/scrolling, CPU pixels and hit order. [Input](input.md#implemented-modal-interaction) owns scope and dismissal; [usage](../guides/modal-dialog.md) owns composition.
+
 ## Boundary
 
 ```text

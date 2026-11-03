@@ -212,6 +212,8 @@ Image encoding/export belongs to optional tooling, with explicit dependency/lice
 
 Implemented root-sibling [Popup/Tooltip placement](layout.md#implemented-anchored-popups) needs no alternate paint path: ordinary preorder draws popup subtrees after content, using their actual root clips. The [CPU fixture](../../tests/input/popup_tests.cpp) checks pixel/hit agreement beyond the anchor's scroll clip.
 
+The implemented single [Modal/Dialog](layout.md#implemented-modal-placement) is the last root sibling and likewise uses ordinary preorder paint and shared clips. Its backdrop precedes its child panel; the [Modal CPU fixture](../../tests/input/modal_tests.cpp) checks backdrop pixel/hit agreement. No renderer-specific modal layer or Portal relocation is introduced.
+
 The [overlay/portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals) provides layer identity and presentation ancestry. Paint uses shared placement/clip geometry to place overlay commands after the appropriate content layer, without inheriting ordinary content clips accidentally. Define deterministic ordering and balanced stack boundaries; input must use the same presentation order. Portals do not bypass resource retirement or create backend-owned components.
 
 ## Assets

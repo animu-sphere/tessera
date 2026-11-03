@@ -50,7 +50,8 @@ public:
             const auto* text = text_of(node);
             std::optional<SemanticRole> role;
             const auto* separator = effective_property(node, property_names::separator);
-            if (separator && std::get<bool>(*separator)) role = SemanticRole::separator;
+            if (detail::modal(node)) role = SemanticRole::dialog;
+            else if (separator && std::get<bool>(*separator)) role = SemanticRole::separator;
             else if (activate) role = SemanticRole::button;
             else if (text && !(inherited != no_semantic_parent &&
                 (tree_.nodes[inherited].role == SemanticRole::button || tree_.nodes[inherited].role == SemanticRole::separator)))
@@ -63,7 +64,7 @@ public:
             }
 
             SemanticNode entry{box.node, node.id, inherited, static_cast<std::uint32_t>(i), *role};
-            entry.enabled = !targeting_.disabled(i);
+            entry.enabled = targeting_.eligible(i);
             // Entries are displayed and visible, so this is exactly focus dispatch eligibility.
             entry.focusable = targeting_.focusable(i);
             entry.focused = entry.focusable && input_.focused == box.node;
@@ -119,7 +120,8 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
     auto tree = projection.build();
     std::vector<Diagnostic> warnings;
     for (const auto& entry : tree.nodes) {
-        if ((entry.role == SemanticRole::button || entry.role == SemanticRole::separator) && entry.name.empty())
+        if ((entry.role == SemanticRole::button || entry.role == SemanticRole::separator ||
+             entry.role == SemanticRole::dialog) && entry.name.empty())
             warnings.push_back({"missing_name", Severity::warning, "/nodes/" + std::to_string(entry.node.index),
                                 "Give the control visible Text content or a labelled_by reference to named text.", {}});
     }
@@ -147,7 +149,7 @@ Result<ActionRequest> request_semantic_action(const SemanticInput& input, NodeHa
     const auto entry = std::find_if(tree.nodes.begin(), tree.nodes.end(),
                                     [&](const SemanticNode& item) { return item.node == target; });
     if (entry != tree.nodes.end() && !entry->enabled) {
-        check.error("disabled_target", "/target", "The target or an ancestor is disabled.");
+        check.error("disabled_target", "/target", "The target or an ancestor is disabled, or blocked by an active Modal.");
         return {std::nullopt, std::move(errors)};
     }
     if (entry != tree.nodes.end()) {

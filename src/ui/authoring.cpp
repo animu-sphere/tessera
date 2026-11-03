@@ -177,6 +177,34 @@ Element Tooltip(std::string anchor, Value<std::string> text, PopupProps props) {
     data->properties["pointer_events"] = false;
     return Element(std::move(data));
 }
+Element Modal(std::vector<Element> children, ModalProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    data->props = std::move(props.node);
+    data->props.style.display = props.open ? Display::stack : Display::none;
+    data->props.style.overflow = Overflow::clip;
+    if (!data->props.style.background) data->props.style.background = Color{0, 0, 0, 0.4f};
+    data->properties["modal"] = true;
+    data->children = std::move(children);
+    return Element(std::move(data));
+}
+Element Dialog(Value<std::string> title, std::vector<Element> children, DialogProps props) {
+    const auto prefix = props.node.id.value_or("");
+    if (!props.panel.id) props.panel.id = prefix + "-panel";
+    if (!props.panel.source) props.panel.source = props.node.source;
+    auto& style = props.panel.style;
+    if (!style.max_width) style.max_width = 360.f;
+    if (!style.stack_horizontal) style.stack_horizontal = Align::center;
+    if (!style.stack_vertical) style.stack_vertical = Align::center;
+    if (!style.overflow) style.overflow = Overflow::scroll;
+    if (!style.background) style.background = Color{1, 1, 1, 1};
+    children.insert(children.begin(), Text(std::move(title),
+        {.id = prefix + "-title", .source = props.node.source}));
+    auto layer = Modal({Column(std::move(children), std::move(props.panel))},
+        {.node = std::move(props.node), .open = props.open});
+    auto data = std::make_shared<detail::ElementData>(*layer.data_);
+    data->properties["labelled_by"] = NodeReference{prefix + "-title"};
+    return Element(std::move(data));
+}
 Element Button(Value<std::string> label, std::string action, ButtonProps props) {
     auto data = std::make_shared<detail::ElementData>();
     data->props = std::move(props.node);

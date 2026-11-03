@@ -41,6 +41,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
     tessera::UiDocument result;
     result.root.id = "target";
     tessera::UiNode child;
+    child.id = "child";
     child.kind = kind;
     for (const auto& descriptor : tessera::property_descriptors()) {
         if (descriptor.name != except && tessera::contains(descriptor.required, kind))
@@ -52,7 +53,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 9, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 10, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");

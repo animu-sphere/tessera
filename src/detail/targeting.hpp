@@ -2,6 +2,7 @@
 
 #include <tessera/input/pointer.hpp>
 #include <tessera/ui/property_metadata.hpp>
+#include "modal.hpp"
 #include <string_view>
 
 namespace tessera::detail {
@@ -28,7 +29,12 @@ public:
                                 (box.parent != no_layout_parent && disabled_[box.parent]));
             pointer_events_.push_back(std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::pointer_events)) &&
                                       (box.parent == no_layout_parent || pointer_events_[box.parent]));
+            if (modal(*input.tree->get(box.node)) && box.visible && !disabled_.back())
+                modal_ = static_cast<std::uint32_t>(i);
         }
+        for (std::size_t i = 0; i < boxes.size(); ++i)
+            scope_.push_back(modal_ == no_layout_parent || i == modal_ ||
+                (boxes[i].parent != no_layout_parent && scope_[boxes[i].parent]));
     }
 
     std::optional<NodeHandle> hit(Point point) const {
@@ -46,7 +52,8 @@ public:
     bool eligible(NodeHandle node) const {
         return input_.tree->get(node) && by_node_[node.index] != no_layout_parent && eligible(by_node_[node.index]);
     }
-    bool eligible(std::size_t box) const { return input_.layout->boxes[box].visible && !disabled_[box]; }
+    bool eligible(std::size_t box) const { return input_.layout->boxes[box].visible && !disabled_[box] && scope_[box]; }
+    bool in_scope(std::size_t box) const { return scope_[box]; }
     // Disabled by the node or an ancestor, regardless of visibility.
     bool disabled(std::size_t box) const { return disabled_[box]; }
     bool focusable(std::size_t box) const {
@@ -80,6 +87,8 @@ private:
     std::vector<std::uint32_t> by_node_;
     std::vector<bool> disabled_;
     std::vector<bool> pointer_events_;
+    std::vector<bool> scope_;
+    std::uint32_t modal_ = no_layout_parent;
 };
 
 } // namespace tessera::detail

@@ -12,7 +12,7 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-constexpr std::array<std::string_view, 4> roles{"root", "button", "text", "separator"};
+constexpr std::array<std::string_view, 5> roles{"root", "button", "text", "separator", "dialog"};
 constexpr std::array<std::string_view, 3> sources{"none", "relationship", "content"};
 struct Failure { std::vector<Diagnostic> diagnostics; };
 
@@ -183,7 +183,7 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
                 check.error("invalid_parent", at + "/parent", "Keep each semantic subtree contiguous in preorder.");
             ancestors.push_back(static_cast<std::uint32_t>(i));
         }
-        check.enumeration(entry.role, SemanticRole::separator, at + "/role");
+        check.enumeration(entry.role, SemanticRole::dialog, at + "/role");
         check.enumeration(entry.name_source, NameSource::content, at + "/name_source");
         if (entry.role == SemanticRole::root && (entry.node != 0 || entry.parent != no_semantic_parent))
             check.error("invalid_role", at + "/role", "Only the authored root may have the root role.");

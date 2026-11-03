@@ -26,6 +26,7 @@ The implemented semantic property vocabulary is deliberately small:
 | `labelled_by` | Box/Text | `NodeReference` to an existing author ID | Existence validation; names the prototype semantic entry |
 | `pointer_events` | Box/Text | Boolean, absent means true | False excludes the subtree from pointer hits, without disabling semantics or focus |
 | `popup_anchor` | Box only | Nonempty author-ID string | Root-child anchored placement; missing anchors suppress layout rather than failing document loading |
+| `modal` | Box only | Boolean, absent means false | Single last root-child layer, bounded placement and modal input/semantic eligibility |
 | `popup_gap` | Box only | Finite nonnegative number within float range, absent means 4 | Logical gap used by anchored placement |
 | `popup_side` | Box only | `bottom`, `top`, `left` or `right`, absent means `bottom` | Preferred placement side |
 | `separator` | Box only | Boolean, absent means false | Projects a separator role; an eligible `activate` binding requests host adjustment |
@@ -87,6 +88,10 @@ The [implemented component description](#implemented-component-description-and-l
 `Popup(anchor, children, props)` lowers to a column Box with the three popup placement properties. `PopupProps` supplies ordinary node props, controlled `open` (default false), `PopupSide` (default bottom) and logical `gap` (default 4). Closed composition forces `display: none`; open composition preserves caller display. Overflow defaults to clip; callers may select scroll for oversized content. Invalid anchor identifiers, side values, gaps and root composition fail ordinary source-aware document validation. Children retain their own ordinary origins, actions and identities.
 
 `Tooltip(anchor, text, props)` adds one Text child, inheriting the caller source, to that same popup composition and sets `pointer_events: false`. Text accepts the ordinary weak/literal `Value<std::string>` binding. Neither composition owns hover, focus, selection or application state, introduces a widget/tooltip semantic role or changes component ownership. [Placement](layout.md#implemented-anchored-popups), [input policy](input.md#implemented-popup-and-tooltip-interaction) and the [usage guide](../guides/popup-tooltip.md) define the remaining boundaries.
+
+`Modal(children, ModalProps)` lowers to a Box with `modal: true`, controlled `open` (default false), forced Stack/none display and clip overflow, and a default translucent black backdrop. Its required stable ID and single last-root-child placement validate through ordinary source-aware document checks. No widget node kind, callbacks or reparenting are added. [Layout](layout.md#implemented-modal-placement) owns boundary filling and bounded automatic children; [input](input.md#implemented-modal-interaction) owns shared background exclusion and host dismissal/recovery. The layer itself has no activate action; use ordinary child controls.
+
+`Dialog(title, children, DialogProps)` composes that Modal with a Column panel containing a `Value<std::string>` Text title before the supplied children. IDs default to `<id>-panel` and `<id>-title`; the layer's ordinary `labelled_by` points at the title. Panel defaults are centered alignment, maximum width 360, scroll overflow and white background; explicit panel props override defaults, and generated sources inherit the caller source. A semantic `dialog` role belongs to the Modal layer, with ordinary child button actions. Neither API owns application settings, scroll offsets or callbacks. The [guide](../guides/modal-dialog.md) and [settings-reset consumer](../../examples/modal-dialog/main.cpp) demonstrate safe-first confirmation and explicit host wiring.
 
 `Dropdown(label, selected, options, toggle_action, props)` composes a controlled inline choice list. Label and selected key are owned strings; each `DropdownOption` owns a nonempty unique key, label, ordinary action name and disabled flag. `DropdownProps` supplies node props, an expanded flag and a disabled flag. These are composition-time values: the host recomposes after changing selection or expansion. Lowering rejects empty/duplicate keys (`dropdown_options`) and a selected key absent from the list (`dropdown_selection`) before graph evaluation, with the caller's expression source when supplied.
 
@@ -436,6 +441,7 @@ A subtree can receive shared services through an explicit context: theme, locale
 | `disabled` | boolean | Box/Text / none | `false` | input, semantics | interaction |
 | `focusable` | boolean | Box/Text / none | `false` | input, semantics | interaction |
 | `labelled_by` | reference | Box/Text / none | none | semantics | accessibility |
+| `modal` | boolean | Box / none | `false` | layout, paint, input, semantics | interaction |
 | `separator` | boolean | Box / none | `false` | semantics | accessibility |
 | `text` | string | Text / Text | none | layout, paint, semantics | content |
 
