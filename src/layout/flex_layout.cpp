@@ -103,6 +103,17 @@ private:
             const Size size{limits(style, true).clamp(width),
                 limits(style, false).clamp(std::min(boundary.size.height,
                     basis(child.index, limits(style, true).clamp(width)).height))};
+            if (const auto* x = effective_property(node, property_names::popup_x)) {
+                const double left = boundary.origin.x;
+                const double top = boundary.origin.y;
+                const Point origin{
+                    static_cast<float>(std::clamp(std::get<double>(*x), left,
+                        std::max(left, left + boundary.size.width - size.width))),
+                    static_cast<float>(std::clamp(std::get<double>(*effective_property(node, property_names::popup_y)),
+                        top, std::max(top, top + boundary.size.height - size.height)))};
+                place(child.index, 0, {origin, size});
+                continue;
+            }
             const auto& side = std::get<std::string>(*effective_property(node, property_names::popup_side));
             const bool horizontal = side == "left" || side == "right";
             bool after = side == "bottom" || side == "right";

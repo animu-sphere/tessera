@@ -21,6 +21,7 @@ enum class SemanticRole : std::uint8_t {
     separator, // A Box with separator=true; its activate binding requests host adjustment.
     dialog, // The root-sibling Modal; labelled_by supplies its title.
     list, tree, list_item, tree_item,
+    menu, menu_item,
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 

@@ -26,4 +26,8 @@ The dedicated [settings-reset confirmation](../guides/modal-dialog.md) delivers 
 
 The [folder/asset browser](../guides/tree-list.md) delivers controlled single selection, branch expansion/collapse and dependent detail text through ordinary commands. Pointer and keyboard/gamepad input share item actions; collapsed descendant selection survives, focus recovers to its logical ancestor, and scrolling/resize retain state. [Support](../reference/support-matrix.md) owns validation scope and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No single-selection TreeView/ListView work items remain.
 
-Choose another application operation from the [backlog](backlog.md) before promoting further scope. Multiple selection, virtualization, absolute positioning, advanced Grid placement, generalized Portal and nested/stacked modal lifetimes remain inactive.
+## Menu and ContextMenu
+
+The [asset-actions operation](../guides/menu-context.md) delivers controlled single-level Menu and ContextMenu: button/keyboard/gamepad opening, right-click/Shift+F10 context triggers, bounded point placement, ordered/wrapped item focus, disabled-command skipping, ordinary command execution, outside/Cancel/Escape/Tab dismissal and eligible anchor recovery. [Support](../reference/support-matrix.md) owns validation scope and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No single-level Menu/ContextMenu work items remain.
+
+Choose another application operation from the [backlog](backlog.md) before promoting further scope. Submenus, menu bars, richer menu item kinds, multiple selection, virtualization, absolute positioning, advanced Grid placement, generalized Portal and nested/stacked modal lifetimes remain inactive.

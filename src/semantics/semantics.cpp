@@ -67,11 +67,14 @@ public:
             else if (collection == "tree") role = SemanticRole::tree;
             else if (collection == "list_item") role = SemanticRole::list_item;
             else if (collection == "tree_item") role = SemanticRole::tree_item;
+            else if (collection == "menu") role = SemanticRole::menu;
+            else if (collection == "menu_item") role = SemanticRole::menu_item;
             else if (separator && std::get<bool>(*separator)) role = SemanticRole::separator;
             else if (activate) role = SemanticRole::button;
             else if (text && !(inherited != no_semantic_parent &&
                 (tree_.nodes[inherited].role == SemanticRole::button || tree_.nodes[inherited].role == SemanticRole::separator ||
-                 tree_.nodes[inherited].role == SemanticRole::list_item || tree_.nodes[inherited].role == SemanticRole::tree_item)))
+                 tree_.nodes[inherited].role == SemanticRole::list_item || tree_.nodes[inherited].role == SemanticRole::tree_item ||
+                 tree_.nodes[inherited].role == SemanticRole::menu_item)))
                 role = SemanticRole::text;
             else if (box.parent == no_layout_parent && node.kind == NodeKind::box) role = SemanticRole::root;
             if (!role) {
@@ -150,7 +153,8 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
         if ((entry.role == SemanticRole::button || entry.role == SemanticRole::separator ||
              entry.role == SemanticRole::dialog || entry.role == SemanticRole::list ||
              entry.role == SemanticRole::tree || entry.role == SemanticRole::list_item ||
-             entry.role == SemanticRole::tree_item) && entry.name.empty())
+             entry.role == SemanticRole::tree_item || entry.role == SemanticRole::menu ||
+             entry.role == SemanticRole::menu_item) && entry.name.empty())
             warnings.push_back({"missing_name", Severity::warning, "/nodes/" + std::to_string(entry.node.index),
                                 "Give the control visible Text content or a labelled_by reference to named text.", {}});
     }

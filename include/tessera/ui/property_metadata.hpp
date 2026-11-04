@@ -23,6 +23,8 @@ inline constexpr std::string_view pointer_events = "pointer_events";
 inline constexpr std::string_view popup_anchor = "popup_anchor";
 inline constexpr std::string_view popup_gap = "popup_gap";
 inline constexpr std::string_view popup_side = "popup_side";
+inline constexpr std::string_view popup_x = "popup_x";
+inline constexpr std::string_view popup_y = "popup_y";
 inline constexpr std::string_view separator = "separator";
 } // namespace property_names
 

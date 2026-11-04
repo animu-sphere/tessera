@@ -28,7 +28,7 @@ Build on [SplitPane](../guides/split-pane.md), the delivered in-parent [Stack/vi
 - **Grid follow-ups:** explicit child cell selection, spanning, implicit tracks or advanced allocation only when an application operation is blocked by the delivered explicit row-major Inspector contract.
 - **Intrinsic sizing:** extend text measurement and min/max sizing for Popup or Inspector examples that expose missing content-size behavior.
 - **Flex wrapping, align-self and baseline:** add the placement behavior used by toolbars, tags or aligned form controls, checking existing single-line Flex results alongside the new cases.
-- **Anchor positioning follow-ups:** build on the delivered [Popup/Tooltip operation](../guides/popup-tooltip.md) when a Dropdown or Context Menu needs additional trigger, placement or nesting behavior.
+- **Anchor positioning follow-ups:** build on the delivered [Popup/Tooltip](../guides/popup-tooltip.md) and single-level [Menu/ContextMenu](../guides/menu-context.md) when a Dropdown or nested menu needs additional placement or nesting behavior.
 - **Percentage sizing, aspect ratio and responsive rules:** add sizing and viewport/container behavior with application layout examples.
 - **Docking and virtualization:** build larger tool workspaces and data views on the pane components, then measure and optimize their layout workloads.
 
@@ -43,7 +43,7 @@ Depends on the high-level C++ authoring surface, reusable components and the ref
 Candidates:
 
 - Clipboard, undo/redo, multiline and broader IME under declared platform boundaries. For clipboard promotion, begin with selected UTF-8 copy/paste in the Settings starter; distinguish injected-service evidence from a concrete platform adapter and preserve draft/save observations on rejection.
-- Widgets and interactions beyond the active flow: context menus, further dialogs beyond the delivered [reset confirmation](../guides/modal-dialog.md), richer Inspector controls/themes, multiple selection/virtualization beyond the delivered [TreeView/ListView browser](../guides/tree-list.md) and extra focus scopes.
+- Widgets and interactions beyond the active flow: submenus, menu bars and richer item kinds beyond the delivered single-level [Menu/ContextMenu](../guides/menu-context.md), further dialogs beyond the delivered [reset confirmation](../guides/modal-dialog.md), richer Inspector controls/themes, multiple selection/virtualization beyond the delivered [TreeView/ListView browser](../guides/tree-list.md) and extra focus scopes.
 - Shared overlay/Portal behavior beyond the delivered root-sibling [Popup selection and Tooltip](../guides/popup-tooltip.md) and single [Modal/Dialog](../guides/modal-dialog.md), only when an [overlay operation](../proposals/overlays-and-portals.md) needs actual presentation relocation or nested/stacked modal lifetimes.
 - A first practical DevTools/inspection UI using ordinary semantics, commands and observations.
 

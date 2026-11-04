@@ -111,7 +111,7 @@ The preferred `popup_side` starts at the anchor's leading cross edge, separated 
 
 An unmounted, display-none, locally hidden, zero-area or fully ancestor-clipped anchor suppresses the entire popup subtree. Missing anchors are intentional lifecycle state, not an unresolved strict document reference. Recalculation on scroll, resize or tree replacement never reuses obsolete anchor coordinates. The popup inherits clips from its actual root ancestry, not the anchor's scrolling ancestors. Root clipping is not bypassed. [Owner checks](../../tests/input/popup_tests.cpp) cover placement, flip/shift, viewport bounds, scroll suppression, CPU pixel/hit agreement and validation.
 
-Proposed: explicit logical-coordinate placement and presentation reparenting follow the [portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals). The delivered root-sibling operation does not implement either.
+Paired `popup_x`/`popup_y` select explicit root-logical point placement for [ContextMenu](../guides/menu-context.md), overriding side/gap. The popup's leading corner shifts into the same boundary using the same measurement and minimum-size rules. Its anchor must still be visible; scrolling a visible anchor retains the requested point, while resize reclamps it. [Menu owner checks](../../tests/input/menu_tests.cpp) cover this shared pixel/hit geometry. Presentation reparenting remains proposed under the [portal model](../proposals/overlays-and-portals.md#proposed-overlays-and-portals).
 
 ## Proposed rules to settle
 

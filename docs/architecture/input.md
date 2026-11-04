@@ -32,6 +32,16 @@ Dispatch runs before pointer/focus routing. Any pointer press outside the popup,
 
 The [owner checks](../../tests/input/popup_tests.cpp) and [dedicated example](../../examples/popup-tooltip/main.cpp) verify lifetime, dismissal, hover/focus suppression, transparent hit routing and pointer/keyboard/gamepad command parity. The [guide](../guides/popup-tooltip.md) owns the host procedure.
 
+## Implemented Menu and ContextMenu interaction
+
+`MenuDispatcher(id)` in [popup.hpp](../../include/tessera/input/popup.hpp) layers single-level command policy over `PopupDispatcher`, preserving its snapshot, event-order, dismissal and focus-recovery contract. The [menu guide](../guides/menu-context.md) owns the complete host procedure and limits; [owner tests](../../tests/input/menu_tests.cpp) cover the boundary.
+
+ContextMenu's paired point properties enable secondary-press opening on the eligible topmost target/descendant hit, and nonrepeating Shift+F10 when eligible focus is inside that target. `open_at` is a consumed request for host-controlled publication, not an action on the underlying target. Keyboard opening uses the target's visible lower-left point. Disabled, modal-blocked, missing or fully clipped targets cannot open. Reopening requests the first eligible item again.
+
+Inside hover requests eligible item focus. Ordinary `FocusDispatcher` handles menu Up/Down in item order, skipping disabled items and wrapping; Home/End reach endpoints and Left/Right stay put. Activation remains the ordinary pointer/focus/semantic action followed by host command execution and accepted-choice closure. Menus expose no selected/expanded state.
+
+Outside presses, Cancel and unmodified Escape consume dismissal; reset ordinary presses to prevent click-through. Sequential traversal instead requests unconsumed dismissal: close/publish/refresh, then route the one logical FocusNext/FocusPrevious in the closed view. Hosts translate raw Tab once, route wheel/reveal through ordinary scroll helpers, and arbitrate external focus/window loss/other overlays. There is no menu-modal scope, general focus trap, submenu or implicit native input capture.
+
 ## Implemented SplitPane adjustment
 
 [split_pane.hpp](../../include/tessera/input/split_pane.hpp) connects the public [SplitPane composition](ui-model.md#implemented-c-form-authoring) to normalized input without callbacks or platform types. `split_pane_geometry(input, id)` resolves the generated three-child structure against a coherent hit-test snapshot, joining the actual first-pane/handle boxes, parent content size, orientation and wrapper minima. It returns separator eligibility through shared semantics. Absent or hidden generated parts return an absent geometry; malformed structure and invalid snapshots return actionable diagnostics.

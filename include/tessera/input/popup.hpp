@@ -27,6 +27,27 @@ private:
     std::optional<std::chrono::microseconds> timestamp_;
 };
 
+struct MenuDispatchResult {
+    bool dismiss = false;
+    bool consumed = false;
+    std::optional<NodeHandle> focus;
+    std::optional<Point> open_at; // Host publishes an open ContextMenu at this root-logical position.
+    bool operator==(const MenuDispatchResult&) const = default;
+};
+
+// Single-level Menu/ContextMenu routing before ordinary pointer/focus dispatch.
+// Item activation stays on the ordinary command path; close after accepted execution.
+class MenuDispatcher final {
+public:
+    explicit MenuDispatcher(std::string id) : id_(std::move(id)), popup_(id_) {}
+    Result<MenuDispatchResult> refresh(const HitTestInput&);
+    Result<MenuDispatchResult> dispatch(const HitTestInput&, const InputEvent&,
+        std::optional<NodeHandle> focused = {});
+private:
+    std::string id_;
+    PopupDispatcher popup_;
+};
+
 struct TooltipDispatchResult {
     bool visible = false; // Host passes this to Tooltip's controlled open prop.
     bool operator==(const TooltipDispatchResult&) const = default;

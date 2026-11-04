@@ -91,6 +91,8 @@ void capture_joins_one_generation() {
         {"popup_anchor", std::nullopt, false},
         {"popup_gap", tessera::Property{4.0}, false},
         {"popup_side", tessera::Property{std::string("bottom")}, false},
+        {"popup_x", std::nullopt, false},
+        {"popup_y", std::nullopt, false},
         {"selected", std::nullopt, false},
         {"separator", tessera::Property{false}, false},
         {"tree_parent", std::nullopt, false}};

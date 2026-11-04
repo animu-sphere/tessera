@@ -65,7 +65,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 14, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 16, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");
@@ -106,6 +106,10 @@ void validation_and_encoding_agreement() {
         for (const auto kind : kinds) {
             for (const auto type : types) {
                 auto candidate = document(kind, descriptor.name);
+                if (kind == tessera::NodeKind::box && (descriptor.name == "popup_x" || descriptor.name == "popup_y")) {
+                    candidate.root.children[child_index].properties["popup_anchor"] = std::string("target");
+                    candidate.root.children[child_index].properties[descriptor.name == "popup_x" ? "popup_y" : "popup_x"] = 2.5;
+                }
                 auto value = sample(type);
                 auto encoding = encoded(type);
                 if (descriptor.name == "collection_role" && type == tessera::PropertyType::string) {
