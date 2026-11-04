@@ -2,7 +2,11 @@
 
 Dated delivery history and release records. Each release is a `## vX.Y.Z — YYYY-MM-DD` section matching [VERSION](VERSION); unreleased entries collect under `## Unreleased`. Live capability status is in the [support matrix](docs/reference/support-matrix.md), and active scope is in [current work](docs/roadmap/current.md).
 
-## Unreleased
+## v0.6.0 — 2026-11-05
+
+- Expanded public C++ application composition with SplitPane, Stack, Grid, Popup/Tooltip, Modal/Dialog, TreeView/ListView and Menu/ContextMenu. This source-only 0.x release carries no API/ABI compatibility guarantee; capability scope and validation limits remain in the [support matrix](docs/reference/support-matrix.md).
+
+- Build/testing: pinned clang-format 23.1.1, added tracked-file formatting checks and lightweight PR CI, and applied the policy to first-party C++ without changing non-whitespace content. Include and using-declaration order are preserved; the baseline is recorded for git blame. [Contributing](CONTRIBUTING.md) owns installation and commands.
 
 - Testing: added a [latest-UI Vulkan regression](docs/guides/development.md#latest-ui-gpu-regression) reusing the seven existing application operations for Stack, Grid, Popup/Tooltip, Modal/Dialog, TreeView/ListView, Menu/ContextMenu and Settings Dropdown/Slider/SplitPane. It captures 31 states at four scales, compares GPU reference/batch/repeat and scalar CPU under explicit subpixel conditions, and retains per-case images/masks/metrics. A local Windows driver builds and runs it with the original GPU and native-font/menu smokes in Debug/Release, preserving separate success/failure evidence without retries. Hosted GPU CI and native latest-widget input remain outside this slice.
 
