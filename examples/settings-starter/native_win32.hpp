@@ -85,6 +85,7 @@ public:
     std::function<bool(tessera::Point)> resize_cursor;
     HWND handle = nullptr;
     unsigned presentations = 0;
+    const wchar_t* title = L"Tessera Settings - drag boundary: resize, Tab: focus, wheel: scroll";
 
     ~Window() {
         if (handle) DestroyWindow(handle);
@@ -101,10 +102,9 @@ public:
         const UINT dpi = GetDpiForSystem();
         RECT bounds{0, 0, MulDiv(960, dpi, 96), MulDiv(360, dpi, 96)};
         AdjustWindowRectExForDpi(&bounds, style, FALSE, 0, dpi);
-        handle = CreateWindowExW(0, type.lpszClassName,
-                                 L"Tessera Settings - drag boundary: resize, Tab: focus, wheel: scroll", style,
-                                 CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left, bounds.bottom - bounds.top,
-                                 nullptr, nullptr, type.hInstance, this);
+        handle = CreateWindowExW(0, type.lpszClassName, title, style, CW_USEDEFAULT, CW_USEDEFAULT,
+                                 bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr,
+                                 type.hInstance, this);
         check(handle != nullptr, "Cannot create Settings window");
         ShowWindow(handle, smoke ? SW_SHOWNOACTIVATE : SW_SHOW);
         UpdateWindow(handle);
@@ -245,6 +245,9 @@ private:
             case VK_ESCAPE:
                 mapped = tessera::Key::escape;
                 break;
+            case VK_F10:
+                mapped = tessera::Key::f10;
+                break;
         }
         if (!mapped) return false;
         send(tessera::KeyDown{*mapped, mods, repeat});
@@ -322,20 +325,26 @@ private:
                      tessera::CommandSource::pointer);
                 return 0;
             case WM_LBUTTONDOWN:
+            case WM_RBUTTONDOWN:
                 high_surrogate = 0;
                 SetFocus(handle);
                 SetCapture(handle);
-                send(
-                    tessera::PointerDown{
-                        {1}, logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}), tessera::PointerButton::primary, modifiers()},
-                    tessera::CommandSource::pointer);
+                send(tessera::PointerDown{{1},
+                                          logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}),
+                                          type == WM_LBUTTONDOWN ? tessera::PointerButton::primary
+                                                                 : tessera::PointerButton::secondary,
+                                          modifiers()},
+                     tessera::CommandSource::pointer);
                 return 0;
             case WM_LBUTTONUP:
-                send(
-                    tessera::PointerUp{
-                        {1}, logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}), tessera::PointerButton::primary, modifiers()},
-                    tessera::CommandSource::pointer);
-                if (GetCapture() == handle) ReleaseCapture();
+            case WM_RBUTTONUP:
+                send(tessera::PointerUp{{1},
+                                        logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}),
+                                        type == WM_LBUTTONUP ? tessera::PointerButton::primary
+                                                             : tessera::PointerButton::secondary,
+                                        modifiers()},
+                     tessera::CommandSource::pointer);
+                if ((w & (MK_LBUTTON | MK_RBUTTON)) == 0 && GetCapture() == handle) ReleaseCapture();
                 return 0;
             case WM_MOUSEWHEEL:
             case WM_MOUSEHWHEEL: {
@@ -350,6 +359,9 @@ private:
             }
             case WM_KEYDOWN:
                 if (keyboard(w, l)) return 0;
+                break;
+            case WM_SYSKEYDOWN:
+                if (w == VK_F10 && keyboard(w, l)) return 0;
                 break;
             case WM_CHAR:
                 character(static_cast<wchar_t>(w));

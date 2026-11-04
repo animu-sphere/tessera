@@ -62,6 +62,10 @@ Use `Release` for the other configuration. The executable prints its command/fra
 
 The [copyable Settings starter](settings-starter.md#run-in-a-windows-window) also has a Windows desktop mode, using the Windows SDK with the ordinary CPU renderer. Build `tessera_settings_starter` and run it with `--native` for interaction or `--native-smoke` for an automated window/input/presentation check. The no-argument smoke remains window-free. Configure with `-DTESSERA_TEST_NATIVE_HOST=ON` to register `settings_starter_native` under the `native` label; run it in a desktop session. The starter guide owns the complete copy/build/run commands and host limitations; [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#settings-native-host-evidence--2026-11-03) records executed checks.
 
+## Hierarchy / Inspector reference application
+
+The [Inspector guide](inspector-hierarchy.md) owns the build/run commands and interaction scope for `tessera_inspector_hierarchy`. Its window-free `inspector_hierarchy` smoke checks the select/edit/return operation and shared inspection/semantic/replay outcomes. Windows `--native` reuses the Settings CPU host; the opt-in `inspector_hierarchy_native` CTest checks injected window messages in a desktop session. No engine or OpenUSD dependency is required.
+
 ## Focused checks and timing
 
 Use the [verification ownership and selection policy](testing.md#verification-ownership) to choose checks. After configuring the core build above, an authoring/Diagnostics change can build and run just the affected executables:

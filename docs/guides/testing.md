@@ -47,6 +47,8 @@ Repeated integration failure takes repair priority before the next release. Unav
 
 The opt-in Settings `native` smoke requires a desktop and verifies injected message routing, not physical-device/IME behavior. See the [starter procedure](settings-starter.md#run-in-a-windows-window).
 
+The [Hierarchy / Inspector](inspector-hierarchy.md) operation has one window-free consumer smoke, `inspector_hierarchy`, plus the opt-in `inspector_hierarchy_native` injected-message check. The two application native checks run serially because they share desktop focus and OS pointer capture. Existing widget owners retain the runtime proofs; the consumer checks retained per-item edits, actual scrolling/resizing, command wiring and shared observations rather than duplicating those contracts.
+
 ### Measurement and safe reduction
 
 Measure configure, compile/link and CTest separately; distinguish fresh/reused builds, local/hosted execution, configurations and nested consumer builds. Keep logs, JUnit and command/exit-code evidence in PR/CI. A timeout is not an elapsed measurement.

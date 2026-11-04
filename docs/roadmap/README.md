@@ -11,6 +11,6 @@ Version labels are candidate scopes without committed dates or release promises.
 - Establish full-tree correctness before incremental invalidation or aggressive batching.
 - Prioritize keyboard/gamepad operation, mixed Latin/Japanese text, and consumer-driven editor primitives.
 - Measure representative applications before performance work.
-- Move completed work out of current and record it in the changelog; move candidates between backlog and current when scheduling changes.
+- Keep only unfinished selected work in current. Remove implemented or completed items, including their fulfilled exit criteria, rather than rewriting them as progress entries. Record delivery in the changelog and capability/validation scope in the support matrix; move candidates between backlog and current when scheduling changes.
 
 Design pages own technical contracts. Milestones reference those pages and name acceptance outcomes without reproducing the contracts.

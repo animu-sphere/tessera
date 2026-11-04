@@ -11,5 +11,5 @@ option(TESSERA_BUILD_EXAMPLES "Build the core-only examples" ${tessera_developme
 option(TESSERA_BUILD_VULKAN "Build the optional Vulkan renderer and GPU fixtures" OFF)
 option(TESSERA_BUILD_FONTS "Build the optional HarfBuzz/FreeType text services and font fixtures" OFF)
 if(WIN32 AND TESSERA_BUILD_EXAMPLES)
-    option(TESSERA_TEST_NATIVE_HOST "Run Settings native smoke (requires a desktop session)" OFF)
+    option(TESSERA_TEST_NATIVE_HOST "Run application native smokes (requires a desktop session)" OFF)
 endif()
