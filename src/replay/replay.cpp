@@ -61,8 +61,11 @@ public:
         if (!load(recording_.document, recording_.styles, "")) return false;
         for (std::size_t i = 0; i < host_.size(); ++i) {
             if (!current_.tree->find(host_[i].owner)) {
-                errors_.push_back({"target_not_found", Severity::error,
-                    "/environment/host/" + std::to_string(i) + "/owner", "Declare an owner in the initial document.", {}});
+                errors_.push_back({"target_not_found",
+                                   Severity::error,
+                                   "/environment/host/" + std::to_string(i) + "/owner",
+                                   "Declare an owner in the initial document.",
+                                   {}});
                 return false;
             }
         }
@@ -80,8 +83,11 @@ public:
         const auto at = "/steps/" + std::to_string(i);
         if (!open(at)) return false;
         if (i >= max_replay_steps) {
-            errors_.push_back({"out_of_range", Severity::error, "/steps",
-                               "Use at most " + std::to_string(max_replay_steps) + " replay steps.", {}});
+            errors_.push_back({"out_of_range",
+                               Severity::error,
+                               "/steps",
+                               "Use at most " + std::to_string(max_replay_steps) + " replay steps.",
+                               {}});
             return false;
         }
         recording_.steps.push_back(std::move(next));
@@ -95,9 +101,12 @@ public:
         committed_ = false;
         bool ok = true;
         if (const auto* event = std::get_if<InputEvent>(&step)) {
-            if (std::holds_alternative<Scroll>(event->data)) ok = scroll(*event, i, at);
-            else if (is_command(*event)) ok = command(*event, i, at);
-            else ok = dispatch(*event, i, at);
+            if (std::holds_alternative<Scroll>(event->data))
+                ok = scroll(*event, i, at);
+            else if (is_command(*event))
+                ok = command(*event, i, at);
+            else
+                ok = dispatch(*event, i, at);
         } else if (const auto* resize = std::get_if<ReplayResize>(&step)) {
             ok = resize_to(resize->viewport, i, at);
         } else if (const auto* reload = std::get_if<ReplayReload>(&step)) {
@@ -111,13 +120,22 @@ public:
             detail::Checker check(errors_);
             check.positive(scale_step->scale, at + "/scale");
             ok = errors_.empty();
-            if (ok) { scale_ = scale_step->scale; ok = settle(i, at); }
+            if (ok) {
+                scale_ = scale_step->scale;
+                ok = settle(i, at);
+            }
         } else if (const auto* tick = std::get_if<ReplayTick>(&step)) {
             if (tick->time < animation_time_) {
-                errors_.push_back({"event_order", Severity::error, at + "/time",
-                                   "Use nonnegative, non-decreasing animation-clock microseconds.", {}});
+                errors_.push_back({"event_order",
+                                   Severity::error,
+                                   at + "/time",
+                                   "Use nonnegative, non-decreasing animation-clock microseconds.",
+                                   {}});
                 ok = false;
-            } else { animation_time_ = tick->time; ok = settle(i, at); }
+            } else {
+                animation_time_ = tick->time;
+                ok = settle(i, at);
+            }
         } else {
             ok = invoke(std::get<ReplaySemanticAction>(step), i, at);
         }
@@ -143,9 +161,12 @@ public:
         if (!open(at)) return std::nullopt;
         const auto* node = current_.tree->get(handle);
         if (!node) {
-            errors_.push_back({"stale_target", Severity::error, at + "/target",
+            errors_.push_back({"stale_target",
+                               Severity::error,
+                               at + "/target",
                                "Capture the current generation and resolve the target again; this handle belongs to "
-                               "another tree.", {}});
+                               "another tree.",
+                               {}});
             return std::nullopt;
         }
         if (node->id) return AuthorIdTarget{*node->id};
@@ -174,13 +195,17 @@ private:
 
     bool host_update(const ReplayHostUpdate& update, std::size_t step, const std::string& at) {
         if (recording_.version != replay_host_version) {
-            errors_.push_back({"unsupported_event", Severity::error, at,
-                              "Host updates require an explicit Replay version 2 recording.", {}});
+            errors_.push_back({"unsupported_event",
+                               Severity::error,
+                               at,
+                               "Host updates require an explicit Replay version 2 recording.",
+                               {}});
             return false;
         }
         relocate(errors_, check_host_slot(update.slot, "/slot"), at);
         if (!errors_.empty()) return false;
-        auto found = std::find_if(host_.begin(), host_.end(), [&](const auto& slot) { return slot.id == update.slot.id; });
+        auto found =
+            std::find_if(host_.begin(), host_.end(), [&](const auto& slot) { return slot.id == update.slot.id; });
         const auto reject = [&](const char* code, const char* field, const char* message) {
             errors_.push_back({code, Severity::error, at + "/slot" + field, message, {}});
             return false;
@@ -190,7 +215,8 @@ private:
             return reject("stale_owner", "/owner", "A slot cannot change its declared owner.");
         if (update.slot.readiness == ReplayReadiness::loading) {
             if (update.slot.request <= found->request)
-                return reject("stale_request", "/request", "Start with a strictly newer request number; never reuse it.");
+                return reject("stale_request", "/request",
+                              "Start with a strictly newer request number; never reuse it.");
         } else if (update.slot.readiness == ReplayReadiness::idle) {
             return reject("invalid_transition", "/readiness", "Idle is an initial declaration, not an update.");
         } else if (found->readiness != ReplayReadiness::loading || update.slot.request != found->request) {
@@ -225,7 +251,9 @@ private:
 
     bool open(const std::string& at) {
         if (!closed_) return true;
-        errors_.push_back({"closed_session", Severity::error, at,
+        errors_.push_back({"closed_session",
+                           Severity::error,
+                           at,
                            "An earlier step failed after changing the session; open a new session from recording().",
                            {}});
         return false;
@@ -314,8 +342,8 @@ private:
         generation.host = host_;
         generation.boxes.reserve(current_.layout.boxes.size());
         for (const auto& box : current_.layout.boxes)
-            generation.boxes.push_back(
-                {box.node.index, box.parent, box.border_box, box.border, box.padding, box.visible, box.clip, box.scroll});
+            generation.boxes.push_back({box.node.index, box.parent, box.border_box, box.border, box.padding,
+                                        box.visible, box.clip, box.scroll});
         output_.generations.push_back(std::move(generation));
         return observe(step, at);
     }
@@ -338,8 +366,11 @@ private:
     // Rejects time running backwards across pointer, scroll, and command steps, which share one stream.
     bool in_order(const InputEvent& event, const std::string& at) {
         if (!clock_ || event.timestamp >= *clock_) return true;
-        errors_.push_back({"event_order", Severity::error, at + "/timestamp",
-                           "Send non-decreasing timestamps across pointer, scroll, and command steps.", {}});
+        errors_.push_back({"event_order",
+                           Severity::error,
+                           at + "/timestamp",
+                           "Send non-decreasing timestamps across pointer, scroll, and command steps.",
+                           {}});
         return false;
     }
 
@@ -502,8 +533,8 @@ std::string format(float value) {
     return out.str();
 }
 std::string format(const Rect& rect) {
-    return "(x " + format(rect.origin.x) + ", y " + format(rect.origin.y) + ", w " + format(rect.size.width) +
-           ", h " + format(rect.size.height) + ")";
+    return "(x " + format(rect.origin.x) + ", y " + format(rect.origin.y) + ", w " + format(rect.size.width) + ", h " +
+           format(rect.size.height) + ")";
 }
 std::string format(const Edges& edges) {
     return "(top " + format(edges.top) + ", right " + format(edges.right) + ", bottom " + format(edges.bottom) +
@@ -514,8 +545,8 @@ std::string format(const ScrollGeometry& scroll) {
            format(scroll.offset.x) + ", " + format(scroll.offset.y) + ")";
 }
 std::string format(const ReplayAction& action) {
-    return action.binding + " '" + action.action + "' from " + (action.id ? "'" + *action.id + "'" : "node") +
-           " #" + std::to_string(action.node) + " at step " + std::to_string(action.step) + " (generation " +
+    return action.binding + " '" + action.action + "' from " + (action.id ? "'" + *action.id + "'" : "node") + " #" +
+           std::to_string(action.node) + " at step " + std::to_string(action.step) + " (generation " +
            std::to_string(action.generation) + ")";
 }
 
@@ -542,7 +573,7 @@ public:
     bool count(std::size_t expected, std::size_t actual, const std::string& path, std::string_view noun) {
         if (expected == actual) return true;
         mismatch(path, "Expected " + std::to_string(expected) + " " + std::string(noun) + ", got " +
-                       std::to_string(actual) + ".");
+                           std::to_string(actual) + ".");
         return false;
     }
     bool near(float expected, float actual) const {
@@ -563,17 +594,17 @@ public:
 
     void box(const ReplayBox& expected, const ReplayBox& actual, const std::string& path) {
         if (expected.node != actual.node)
-            mismatch(path + "/node", "Expected node #" + std::to_string(expected.node) + ", got #" +
-                                     std::to_string(actual.node) + ".");
+            mismatch(path + "/node",
+                     "Expected node #" + std::to_string(expected.node) + ", got #" + std::to_string(actual.node) + ".");
         if (expected.parent != actual.parent) mismatch(path + "/parent", "Box parent index differs.");
         if (!near(expected.border_box, actual.border_box))
-            mismatch(path + "/border_box", "Expected " + format(expected.border_box) + ", got " +
-                                           format(actual.border_box) + ".");
+            mismatch(path + "/border_box",
+                     "Expected " + format(expected.border_box) + ", got " + format(actual.border_box) + ".");
         if (!near(expected.border, actual.border))
             mismatch(path + "/border", "Expected " + format(expected.border) + ", got " + format(actual.border) + ".");
         if (!near(expected.padding, actual.padding))
-            mismatch(path + "/padding", "Expected " + format(expected.padding) + ", got " +
-                                        format(actual.padding) + ".");
+            mismatch(path + "/padding",
+                     "Expected " + format(expected.padding) + ", got " + format(actual.padding) + ".");
         if (expected.visible != actual.visible)
             mismatch(path + "/visible", expected.visible ? "Expected a visible box." : "Expected a hidden box.");
         if (expected.clip.has_value() != actual.clip.has_value())
@@ -581,9 +612,11 @@ public:
         else if (expected.clip && !near(*expected.clip, *actual.clip))
             mismatch(path + "/clip", "Expected " + format(*expected.clip) + ", got " + format(*actual.clip) + ".");
         if (expected.scroll.has_value() != actual.scroll.has_value())
-            mismatch(path + "/scroll", expected.scroll ? "Expected a scroll box." : "Expected a box without scrolling.");
+            mismatch(path + "/scroll",
+                     expected.scroll ? "Expected a scroll box." : "Expected a box without scrolling.");
         else if (expected.scroll && !near(*expected.scroll, *actual.scroll))
-            mismatch(path + "/scroll", "Expected " + format(*expected.scroll) + ", got " + format(*actual.scroll) + ".");
+            mismatch(path + "/scroll",
+                     "Expected " + format(*expected.scroll) + ", got " + format(*actual.scroll) + ".");
     }
 
     void generation(const ReplayGeneration& expected, const ReplayGeneration& actual, const std::string& path) {
@@ -612,13 +645,14 @@ public:
         if (expected.generation != actual.generation)
             mismatch(path + "/generation", "Semantics were observed in a different generation.");
         if (expected.focused != actual.focused)
-            mismatch(path + "/focused", "Expected " + format(expected.focused) + ", got " + format(actual.focused) + ".");
+            mismatch(path + "/focused",
+                     "Expected " + format(expected.focused) + ", got " + format(actual.focused) + ".");
         const auto nodes = path + "/nodes";
         count(expected.nodes.size(), actual.nodes.size(), nodes, "semantic entries");
         for (std::size_t i = 0; i < std::min(expected.nodes.size(), actual.nodes.size()); ++i) {
             if (expected.nodes[i] != actual.nodes[i])
-                mismatch(nodes + "/" + std::to_string(i), "Expected " + format(expected.nodes[i]) + ", got " +
-                                                              format(actual.nodes[i]) + ".");
+                mismatch(nodes + "/" + std::to_string(i),
+                         "Expected " + format(expected.nodes[i]) + ", got " + format(actual.nodes[i]) + ".");
         }
     }
 
@@ -661,7 +695,8 @@ void check_text(const ReplayText& text, detail::Checker& check) {
         return;
     }
     if (text.kind != ReplayText::Kind::font_profile) return;
-    if (!detail::valid_utf8(text.id)) check.error("invalid_utf8", "/environment/text/id", "Use valid UTF-8.");
+    if (!detail::valid_utf8(text.id))
+        check.error("invalid_utf8", "/environment/text/id", "Use valid UTF-8.");
     else if (text.id.empty() || text.id.size() > 256 ||
              std::any_of(text.id.begin(), text.id.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
         check.error("invalid_identifier", "/environment/text/id",
@@ -712,7 +747,8 @@ std::vector<Diagnostic> check_host_slot(const ReplayHostSlot& slot, const std::s
     std::vector<Diagnostic> errors;
     Checker check(errors);
     const auto identifier = [&](const std::string& value, const char* field) {
-        if (!valid_utf8(value)) check.error("invalid_utf8", path + field, "Use valid UTF-8.");
+        if (!valid_utf8(value))
+            check.error("invalid_utf8", path + field, "Use valid UTF-8.");
         else if (value.empty() || value.size() > 256 ||
                  std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
             check.error("invalid_identifier", path + field, "Use 1-256 UTF-8 bytes without ASCII controls.");
@@ -792,8 +828,8 @@ std::vector<Diagnostic> compare_replay(const ReplayOutput& expected, const Repla
     compare.count(expected.actions.size(), actual.actions.size(), "/actions", "action requests");
     for (std::size_t i = 0; i < std::min(expected.actions.size(), actual.actions.size()); ++i) {
         if (expected.actions[i] != actual.actions[i])
-            compare.mismatch("/actions/" + std::to_string(i), "Expected " + format(expected.actions[i]) + ", got " +
-                                                                  format(actual.actions[i]) + ".");
+            compare.mismatch("/actions/" + std::to_string(i),
+                             "Expected " + format(expected.actions[i]) + ", got " + format(actual.actions[i]) + ".");
     }
     return errors;
 }

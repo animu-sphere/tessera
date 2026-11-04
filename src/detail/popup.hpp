@@ -16,7 +16,7 @@ inline const LayoutBox* popup_anchor_box(const UiTree& tree, const LayoutResult&
     const auto anchor = id ? tree.find(*id) : std::nullopt;
     if (!anchor) return nullptr;
     const auto found = std::find_if(layout.boxes.begin(), layout.boxes.end(),
-        [&](const LayoutBox& box) { return box.node == *anchor; });
+                                    [&](const LayoutBox& box) { return box.node == *anchor; });
     if (found == layout.boxes.end() || !found->visible) return nullptr;
     const auto visible = found->clip ? intersect(found->border_box, *found->clip) : found->border_box;
     return visible.size.width > 0 && visible.size.height > 0 ? &*found : nullptr;

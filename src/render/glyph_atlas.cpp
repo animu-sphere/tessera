@@ -20,8 +20,8 @@ bool representable(double value) {
 }
 }
 
-Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList& list, GlyphCache& cache,
-    float scale, ImageHandle first, GlyphAtlasLimits limits) {
+Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList& list, GlyphCache& cache, float scale, ImageHandle first,
+                                            GlyphAtlasLimits limits) {
     Result<GlyphAtlasFrame> result;
     result.diagnostics = validate(list);
     auto fail = [&](std::string code, std::string path, std::string message) {
@@ -38,15 +38,18 @@ Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList& list, GlyphCache& 
         const auto path = "/commands/" + std::to_string(i);
         if (const auto* image = std::get_if<DrawImage>(&list.commands[i])) {
             if (image->image.value >= first.value && image->image.value - first.value < limits.pages)
-                fail("image_collision", path + "/image", "Reserve atlas handles outside the source list's image handles.");
+                fail("image_collision", path + "/image",
+                     "Reserve atlas handles outside the source list's image handles.");
         }
         if (const auto* run = std::get_if<DrawGlyphRun>(&list.commands[i])) {
             if (run->run.glyphs.size() > limits.glyphs - std::min(occurrences, limits.glyphs))
                 fail("glyph_limit", path + "/run/glyphs", "Reduce glyph occurrences or increase the declared limit.");
-            else occurrences += run->run.glyphs.size();
+            else
+                occurrences += run->run.glyphs.size();
             const double size = double(run->run.size) * scale * 64;
             if (!std::isfinite(size) || size < 64 || size > 32768)
-                fail("out_of_range", path + "/run/size", "Logical font size times scale must be 1..512 physical pixels per em.");
+                fail("out_of_range", path + "/run/size",
+                     "Logical font size times scale must be 1..512 physical pixels per em.");
         }
     }
     if (!result.diagnostics.empty()) return result;
@@ -57,7 +60,10 @@ Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList& list, GlyphCache& 
     std::uint32_t x = 0, y = 0, row_height = 0;
     for (std::size_t i = 0; i < list.commands.size(); ++i) {
         const auto* run = std::get_if<DrawGlyphRun>(&list.commands[i]);
-        if (!run) { output.draw_list.commands.push_back(list.commands[i]); continue; }
+        if (!run) {
+            output.draw_list.commands.push_back(list.commands[i]);
+            continue;
+        }
         const auto pixel_size = std::uint32_t(std::round(double(run->run.size) * scale * 64));
         for (std::size_t g = 0; g < run->run.glyphs.size(); ++g) {
             const auto& glyph = run->run.glyphs[g];
@@ -71,30 +77,42 @@ Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList& list, GlyphCache& 
                     result.diagnostics.push_back(std::move(diagnostic));
                 }
                 if (!raster) return result;
-                Placement placement; placement.bitmap = *raster.value;
+                Placement placement;
+                placement.bitmap = *raster.value;
                 const auto& bitmap = *placement.bitmap;
                 if (bitmap.width) {
                     if (bitmap.width > limits.page_size - 2 || bitmap.height > limits.page_size - 2) {
-                        fail("glyph_atlas_size", path, "Glyph plus transparent gutter exceeds page_size; increase the page size.");
+                        fail("glyph_atlas_size", path,
+                             "Glyph plus transparent gutter exceeds page_size; increase the page size.");
                         return result;
                     }
                     const auto width = bitmap.width + 2, height = bitmap.height + 2;
-                    if (x + width > limits.page_size) { x = 0; y += row_height; row_height = 0; }
+                    if (x + width > limits.page_size) {
+                        x = 0;
+                        y += row_height;
+                        row_height = 0;
+                    }
                     if (output.pages.empty() || y + height > limits.page_size) {
                         if (output.pages.size() == limits.pages) {
-                            fail("glyph_atlas_full", path, "Increase atlas page count/size or reduce the prepared frame.");
+                            fail("glyph_atlas_full", path,
+                                 "Increase atlas page count/size or reduce the prepared frame.");
                             return result;
                         }
-                        output.pages.push_back({{first.value + output.pages.size()}, limits.page_size,
-                            std::vector<std::uint8_t>(std::size_t(limits.page_size) * limits.page_size, 0)});
+                        output.pages.push_back(
+                            {{first.value + output.pages.size()},
+                             limits.page_size,
+                             std::vector<std::uint8_t>(std::size_t(limits.page_size) * limits.page_size, 0)});
                         x = y = row_height = 0;
                     }
-                    placement.page = output.pages.size() - 1; placement.x = x + 1; placement.y = y + 1;
+                    placement.page = output.pages.size() - 1;
+                    placement.x = x + 1;
+                    placement.y = y + 1;
                     auto& page = output.pages.back();
                     for (std::uint32_t row = 0; row < bitmap.height; ++row)
                         std::copy_n(bitmap.coverage.begin() + std::size_t(row) * bitmap.width, bitmap.width,
-                            page.coverage.begin() + std::size_t(placement.y + row) * page.size + placement.x);
-                    x += width; row_height = std::max(row_height, height);
+                                    page.coverage.begin() + std::size_t(placement.y + row) * page.size + placement.x);
+                    x += width;
+                    row_height = std::max(row_height, height);
                 }
                 found = placements.emplace(key, std::move(placement)).first;
             }
@@ -105,15 +123,18 @@ Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList& list, GlyphCache& 
             const double width = double(bitmap.width) / scale, height = double(bitmap.height) / scale;
             if (!representable(left) || !representable(top) || !representable(width) || !representable(height) ||
                 !representable(left + width) || !representable(top + height)) {
-                fail("geometry_overflow", path + "/position", "Baseline plus raster bearings/extent exceeds representable coordinates.");
+                fail("geometry_overflow", path + "/position",
+                     "Baseline plus raster bearings/extent exceeds representable coordinates.");
                 return result;
             }
             if (!bitmap.width) continue;
             const auto& page = output.pages[placement.page];
             const float edge = float(page.size);
-            output.draw_list.commands.push_back(DrawImage{
-                {{float(left), float(top)}, {float(width), float(height)}}, page.image,
-                {{placement.x / edge, placement.y / edge}, {bitmap.width / edge, bitmap.height / edge}}, run->color});
+            output.draw_list.commands.push_back(
+                DrawImage{{{float(left), float(top)}, {float(width), float(height)}},
+                          page.image,
+                          {{placement.x / edge, placement.y / edge}, {bitmap.width / edge, bitmap.height / edge}},
+                          run->color});
         }
     }
     auto diagnostics = validate(output.draw_list);

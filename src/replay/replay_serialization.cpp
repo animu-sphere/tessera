@@ -14,7 +14,9 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-struct Failure { std::vector<Diagnostic> diagnostics; };
+struct Failure {
+    std::vector<Diagnostic> diagnostics;
+};
 
 // Largest integer whose binary64 value is exact; timestamps beyond it are not serializable.
 constexpr double max_exact_integer = 9007199254740991.0;
@@ -22,8 +24,7 @@ constexpr double max_exact_integer = 9007199254740991.0;
 [[noreturn]] void fail(std::string code, std::string path, std::string message) {
     throw Failure{{{std::move(code), Severity::error, std::move(path), std::move(message), {}}}};
 }
-template<class T>
-const T& as(const JsonValue& value, const std::string& path, std::string_view expected) {
+template<class T> const T& as(const JsonValue& value, const std::string& path, std::string_view expected) {
     if (const auto* result = std::get_if<T>(&value.value)) return *result;
     fail("schema_type", path, "Expected " + std::string(expected) + ".");
 }
@@ -37,7 +38,8 @@ const Object& object(const JsonValue& value, const std::string& path, std::initi
             fail("unknown_field", path + "/" + detail::pointer_token(key), "Remove this unknown replay field.");
     }
     for (auto field : fields)
-        if (!result.contains(field)) fail("missing_field", path + "/" + std::string(field), "Supply this required field.");
+        if (!result.contains(field))
+            fail("missing_field", path + "/" + std::string(field), "Supply this required field.");
     return result;
 }
 const Array& array(const JsonValue& value, const std::string& path) { return as<Array>(value, path, "an array"); }
@@ -52,7 +54,8 @@ const std::string& tag(const JsonValue& value, const std::string& path, const st
     return string(found->second, path + "/" + field);
 }
 bool boolean(const JsonValue& value, const std::string& path) { return as<bool>(value, path, "a boolean"); }
-double integer(const JsonValue& value, const std::string& path, double minimum, double maximum, std::string_view expected) {
+double integer(const JsonValue& value, const std::string& path, double minimum, double maximum,
+               std::string_view expected) {
     const auto result = as<double>(value, path, expected);
     if (std::floor(result) != result || result < minimum || result > maximum)
         fail("schema_type", path, "Expected " + std::string(expected) + ".");
@@ -95,8 +98,8 @@ constexpr std::array<std::string_view, 3> overflow_names{"visible", "clip", "scr
 constexpr std::array<std::string_view, 2> visibility_names{"visible", "hidden"};
 constexpr std::array<std::string_view, 3> button_names{"primary", "secondary", "middle"};
 constexpr std::array<std::string_view, 4> direction_key_names{"up", "down", "left", "right"};
-constexpr std::array<std::string_view, 11> role_names{
-    "root", "button", "text", "separator", "dialog", "list", "tree", "list_item", "tree_item", "menu", "menu_item"};
+constexpr std::array<std::string_view, 11> role_names{"root", "button",    "text",      "separator", "dialog",   "list",
+                                                      "tree", "list_item", "tree_item", "menu",      "menu_item"};
 constexpr std::array<std::string_view, 5> readiness_names{"idle", "loading", "ready", "failed", "cancelled"};
 
 ReplayHostSlot host_slot(const JsonValue& value, const std::string& path) {
@@ -136,15 +139,14 @@ float maximum(const JsonValue& value, const std::string& path) {
 }
 std::vector<GridTrack> tracks(const JsonValue& value, const std::string& path) {
     const auto& values = array(value, path);
-    if (values.size() > max_grid_tracks)
-        fail("grid_track_bound", path, "Use at most 256 explicit tracks per axis.");
+    if (values.size() > max_grid_tracks) fail("grid_track_bound", path, "Use at most 256 explicit tracks per axis.");
     std::vector<GridTrack> result;
     for (std::size_t i = 0; i < values.size(); ++i) {
         const auto at = path + "/" + std::to_string(i);
         const auto& o = object(values[i], at, {"kind", "value", "minimum", "maximum"});
         result.push_back({choice<GridTrack::Kind>(o.at("kind"), at + "/kind", track_names),
-            real(o.at("value"), at + "/value"), real(o.at("minimum"), at + "/minimum"),
-            maximum(o.at("maximum"), at + "/maximum")});
+                          real(o.at("value"), at + "/value"), real(o.at("minimum"), at + "/minimum"),
+                          maximum(o.at("maximum"), at + "/maximum")});
     }
     return result;
 }
@@ -155,11 +157,13 @@ Modifiers modifiers(const JsonValue& value, const std::string& path) {
 }
 
 ResolvedStyle style(const JsonValue& value, const std::string& path) {
-    const auto& o = object(value, path, {"display", "direction", "justify", "align", "overflow", "width", "height",
-        "min_width", "min_height", "max_width", "max_height", "margin", "border", "padding", "gap", "grow", "shrink",
-        "visibility", "opacity", "background", "border_color", "corner_radius", "text", "color"},
-        {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows",
-         "column_gap", "row_gap", "grid_horizontal", "grid_vertical"});
+    const auto& o =
+        object(value, path, {"display", "direction",  "justify",      "align",         "overflow",   "width",
+                             "height",  "min_width",  "min_height",   "max_width",     "max_height", "margin",
+                             "border",  "padding",    "gap",          "grow",          "shrink",     "visibility",
+                             "opacity", "background", "border_color", "corner_radius", "text",       "color"},
+               {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap",
+                "grid_horizontal", "grid_vertical"});
     ResolvedStyle s;
     s.display = choice<Display>(o.at("display"), path + "/display", display_names);
     s.direction = choice<FlexDirection>(o.at("direction"), path + "/direction", direction_names);
@@ -175,8 +179,7 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
         s.grid_rows = tracks(field->second, path + "/grid_rows");
     if (const auto field = o.find("column_gap"); field != o.end())
         s.column_gap = real(field->second, path + "/column_gap");
-    if (const auto field = o.find("row_gap"); field != o.end())
-        s.row_gap = real(field->second, path + "/row_gap");
+    if (const auto field = o.find("row_gap"); field != o.end()) s.row_gap = real(field->second, path + "/row_gap");
     if (const auto field = o.find("grid_horizontal"); field != o.end())
         s.grid_horizontal = choice<Align>(field->second, path + "/grid_horizontal", align_names);
     if (const auto field = o.find("grid_vertical"); field != o.end())
@@ -205,15 +208,16 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
     s.text.size = real(text.at("size"), text_path + "/size");
     if (!keyword(text.at("line_height"), text_path + "/line_height", "normal"))
         s.text.line_height = real(text.at("line_height"), text_path + "/line_height");
-    s.text.weight = static_cast<std::uint16_t>(integer(text.at("weight"), text_path + "/weight", 0,
-                                                       std::numeric_limits<std::uint16_t>::max(),
-                                                       "an unsigned 16-bit integer"));
+    s.text.weight =
+        static_cast<std::uint16_t>(integer(text.at("weight"), text_path + "/weight", 0,
+                                           std::numeric_limits<std::uint16_t>::max(), "an unsigned 16-bit integer"));
     s.color = color(o.at("color"), path + "/color");
     return s;
 }
 std::vector<ResolvedStyle> styles(const JsonValue& value, const std::string& path) {
     const auto& values = array(value, path);
-    if (values.size() > max_document_nodes) fail("out_of_range", path, "Use at most one style per document node (10000).");
+    if (values.size() > max_document_nodes)
+        fail("out_of_range", path, "Use at most one style per document node (10000).");
     std::vector<ResolvedStyle> result;
     for (std::size_t i = 0; i < values.size(); ++i) result.push_back(style(values[i], path + "/" + std::to_string(i)));
     return result;
@@ -251,9 +255,9 @@ InspectionTarget target(const JsonValue& value, const std::string& path) {
 }
 
 std::chrono::microseconds timestamp(const Object& o, const std::string& path) {
-    return std::chrono::microseconds{static_cast<std::int64_t>(
-        integer(o.at("timestamp"), path + "/timestamp", -max_exact_integer, max_exact_integer,
-                "an integer microsecond count within +/-(2^53 - 1)"))};
+    return std::chrono::microseconds{
+        static_cast<std::int64_t>(integer(o.at("timestamp"), path + "/timestamp", -max_exact_integer, max_exact_integer,
+                                          "an integer microsecond count within +/-(2^53 - 1)"))};
 }
 
 ReplayStep step(const JsonValue& value, const std::string& path, const ValidationContext& context) {
@@ -264,7 +268,8 @@ ReplayStep step(const JsonValue& value, const std::string& path, const Validatio
     if (type == "pointer_move") {
         const auto& o = fields({"type", "timestamp", "pointer", "position", "modifiers"});
         return InputEvent{timestamp(o, path), PointerMove{{unsigned32(o.at("pointer"), path + "/pointer")},
-            point(o.at("position"), path + "/position"), modifiers(o.at("modifiers"), path + "/modifiers")}};
+                                                          point(o.at("position"), path + "/position"),
+                                                          modifiers(o.at("modifiers"), path + "/modifiers")}};
     }
     if (type == "pointer_down" || type == "pointer_up") {
         const auto& o = fields({"type", "timestamp", "pointer", "position", "button", "modifiers"});
@@ -281,13 +286,15 @@ ReplayStep step(const JsonValue& value, const std::string& path, const Validatio
     }
     if (type == "scroll") {
         const auto& o = fields({"type", "timestamp", "position", "delta", "modifiers"});
-        return InputEvent{timestamp(o, path), Scroll{point(o.at("position"), path + "/position"),
-            point(o.at("delta"), path + "/delta"), modifiers(o.at("modifiers"), path + "/modifiers")}};
+        return InputEvent{timestamp(o, path),
+                          Scroll{point(o.at("position"), path + "/position"), point(o.at("delta"), path + "/delta"),
+                                 modifiers(o.at("modifiers"), path + "/modifiers")}};
     }
     if (type == "navigate") {
         const auto& o = fields({"type", "timestamp", "direction", "repeat"});
-        return InputEvent{timestamp(o, path), Navigate{choice<Direction>(o.at("direction"), path + "/direction",
-            direction_key_names), boolean(o.at("repeat"), path + "/repeat")}};
+        return InputEvent{timestamp(o, path),
+                          Navigate{choice<Direction>(o.at("direction"), path + "/direction", direction_key_names),
+                                   boolean(o.at("repeat"), path + "/repeat")}};
     }
     if (type == "focus_next") return InputEvent{timestamp(fields({"type", "timestamp"}), path), FocusNext{}};
     if (type == "focus_previous") return InputEvent{timestamp(fields({"type", "timestamp"}), path), FocusPrevious{}};
@@ -297,9 +304,9 @@ ReplayStep step(const JsonValue& value, const std::string& path, const Validatio
     if (type == "scale") return ReplayScale{real(fields({"type", "scale"}).at("scale"), path + "/scale")};
     if (type == "tick") {
         const auto& o = fields({"type", "time"});
-        return ReplayTick{std::chrono::microseconds{static_cast<std::int64_t>(
-            integer(o.at("time"), path + "/time", 0, max_exact_integer,
-                    "a nonnegative integer microsecond count within 2^53 - 1"))}};
+        return ReplayTick{std::chrono::microseconds{
+            static_cast<std::int64_t>(integer(o.at("time"), path + "/time", 0, max_exact_integer,
+                                              "a nonnegative integer microsecond count within 2^53 - 1"))}};
     }
     if (type == "reload") {
         const auto& o = fields({"type", "document", "styles"});
@@ -310,16 +317,18 @@ ReplayStep step(const JsonValue& value, const std::string& path, const Validatio
         const auto& o = fields({"type", "slot", "view"});
         const auto& view = object(o.at("view"), path + "/view", {"document", "styles"});
         return ReplayHostUpdate{host_slot(o.at("slot"), path + "/slot"),
-            {document(view.at("document"), path + "/view/document", context),
-             styles(view.at("styles"), path + "/view/styles")}};
+                                {document(view.at("document"), path + "/view/document", context),
+                                 styles(view.at("styles"), path + "/view/styles")}};
     }
     if (type == "focus") return ReplayFocus{target(fields({"type", "target"}).at("target"), path + "/target")};
     if (type == "semantic_action") {
         const auto& o = fields({"type", "target", "binding"});
-        return ReplaySemanticAction{target(o.at("target"), path + "/target"), string(o.at("binding"), path + "/binding")};
+        return ReplaySemanticAction{target(o.at("target"), path + "/target"),
+                                    string(o.at("binding"), path + "/binding")};
     }
     if (type == "key_down" || type == "key_up" || type == "text_input")
-        fail("unsupported_event", path + "/type", "Replay accepts host-translated commands; record navigate, "
+        fail("unsupported_event", path + "/type",
+             "Replay accepts host-translated commands; record navigate, "
              "focus_next, focus_previous, activate, or cancel instead of keys or text.");
     fail("unknown_value", path + "/type",
          "Expected a pointer, scroll, command, resize, scale, tick, reload, focus, or semantic_action step type.");
@@ -331,8 +340,8 @@ bool identifier(std::string_view value) {
 }
 
 ReplayRecording read(const JsonValue& value) {
-    const auto& root = object(value, "", {"version", "actions", "policy", "environment", "viewport", "document",
-                                          "styles", "steps"});
+    const auto& root =
+        object(value, "", {"version", "actions", "policy", "environment", "viewport", "document", "styles", "steps"});
     ReplayRecording result;
     result.version = unsigned32(root.at("version"), "/version");
     if (result.version != replay_version && result.version != replay_host_version)
@@ -350,11 +359,12 @@ ReplayRecording read(const JsonValue& value) {
     result.policy = {boolean(policy.at("press_focus"), "/policy/press_focus"),
                      boolean(policy.at("reveal_focus"), "/policy/reveal_focus")};
     const auto& environment = result.version == replay_host_version
-        ? object(root.at("environment"), "/environment", {"scale", "locale", "text", "host"})
-        : object(root.at("environment"), "/environment", {"scale", "locale", "text"});
+                                  ? object(root.at("environment"), "/environment", {"scale", "locale", "text", "host"})
+                                  : object(root.at("environment"), "/environment", {"scale", "locale", "text"});
     if (result.version == replay_host_version) {
         const auto& slots = array(environment.at("host"), "/environment/host");
-        if (slots.size() > max_replay_host_slots) fail("out_of_range", "/environment/host", "Declare at most 64 slots.");
+        if (slots.size() > max_replay_host_slots)
+            fail("out_of_range", "/environment/host", "Declare at most 64 slots.");
         for (std::size_t i = 0; i < slots.size(); ++i)
             result.environment.host.push_back(host_slot(slots[i], "/environment/host/" + std::to_string(i)));
     }
@@ -422,41 +432,45 @@ std::vector<Diagnostic> check_values(const ReplayRecording& recording, bool docu
     styles(recording.styles, "/styles");
     for (std::size_t i = 0; i < recording.steps.size(); ++i) {
         const auto at = "/steps/" + std::to_string(i);
-        std::visit([&](const auto& step) {
-            using T = std::decay_t<decltype(step)>;
-            if constexpr (std::is_same_v<T, InputEvent>) {
-                relocate(errors, validate(step), at);
-                if (std::holds_alternative<KeyDown>(step.data) || std::holds_alternative<KeyUp>(step.data) ||
-                    std::holds_alternative<TextInput>(step.data))
-                    check.error("unsupported_event", at + "/event",
-                                "Replay accepts host-translated commands, not keys or text.");
-                if (std::abs(static_cast<double>(step.timestamp.count())) > max_exact_integer)
-                    check.error("out_of_range", at + "/timestamp",
-                                "Timestamps must stay within +/-(2^53 - 1) microseconds to be exact in JSON.");
-            } else if constexpr (std::is_same_v<T, ReplayResize>) {
-                check.size(step.viewport, at + "/viewport");
-            } else if constexpr (std::is_same_v<T, ReplayScale>) {
-                check.positive(step.scale, at + "/scale");
-            } else if constexpr (std::is_same_v<T, ReplayTick>) {
-                if (step.time.count() < 0 || step.time.count() > 9007199254740991LL)
-                    check.error("out_of_range", at + "/time",
-                                "Animation time must be within [0, 2^53 - 1] microseconds to be exact in JSON.");
-            } else if constexpr (std::is_same_v<T, ReplayReload>) {
-                if (documents) relocate(errors, validate(step.document, recording.context), at + "/document");
-                styles(step.styles, at + "/styles");
-            } else if constexpr (std::is_same_v<T, ReplayHostUpdate>) {
-                if (recording.version != replay_host_version)
-                    check.error("unsupported_event", at, "Host updates require Replay version 2.");
-                relocate(errors, detail::check_host_slot(step.slot, at + "/slot"), "");
-                if (documents) relocate(errors, validate(step.view.document, recording.context), at + "/view/document");
-                styles(step.view.styles, at + "/view/styles");
-            } else if constexpr (std::is_same_v<T, ReplayFocus>) {
-                check_target(step.target, at + "/target", check);
-            } else {
-                check_target(step.target, at + "/target", check);
-                if (!detail::valid_utf8(step.binding)) check.error("invalid_utf8", at + "/binding", "Use valid UTF-8.");
-            }
-        }, recording.steps[i]);
+        std::visit(
+            [&](const auto& step) {
+                using T = std::decay_t<decltype(step)>;
+                if constexpr (std::is_same_v<T, InputEvent>) {
+                    relocate(errors, validate(step), at);
+                    if (std::holds_alternative<KeyDown>(step.data) || std::holds_alternative<KeyUp>(step.data) ||
+                        std::holds_alternative<TextInput>(step.data))
+                        check.error("unsupported_event", at + "/event",
+                                    "Replay accepts host-translated commands, not keys or text.");
+                    if (std::abs(static_cast<double>(step.timestamp.count())) > max_exact_integer)
+                        check.error("out_of_range", at + "/timestamp",
+                                    "Timestamps must stay within +/-(2^53 - 1) microseconds to be exact in JSON.");
+                } else if constexpr (std::is_same_v<T, ReplayResize>) {
+                    check.size(step.viewport, at + "/viewport");
+                } else if constexpr (std::is_same_v<T, ReplayScale>) {
+                    check.positive(step.scale, at + "/scale");
+                } else if constexpr (std::is_same_v<T, ReplayTick>) {
+                    if (step.time.count() < 0 || step.time.count() > 9007199254740991LL)
+                        check.error("out_of_range", at + "/time",
+                                    "Animation time must be within [0, 2^53 - 1] microseconds to be exact in JSON.");
+                } else if constexpr (std::is_same_v<T, ReplayReload>) {
+                    if (documents) relocate(errors, validate(step.document, recording.context), at + "/document");
+                    styles(step.styles, at + "/styles");
+                } else if constexpr (std::is_same_v<T, ReplayHostUpdate>) {
+                    if (recording.version != replay_host_version)
+                        check.error("unsupported_event", at, "Host updates require Replay version 2.");
+                    relocate(errors, detail::check_host_slot(step.slot, at + "/slot"), "");
+                    if (documents)
+                        relocate(errors, validate(step.view.document, recording.context), at + "/view/document");
+                    styles(step.view.styles, at + "/view/styles");
+                } else if constexpr (std::is_same_v<T, ReplayFocus>) {
+                    check_target(step.target, at + "/target", check);
+                } else {
+                    check_target(step.target, at + "/target", check);
+                    if (!detail::valid_utf8(step.binding))
+                        check.error("invalid_utf8", at + "/binding", "Use valid UTF-8.");
+                }
+            },
+            recording.steps[i]);
     }
     return errors;
 }
@@ -477,18 +491,22 @@ JsonValue size_json(const Size& s) {
     return JsonValue{Object{{"width", real_json(s.width)}, {"height", real_json(s.height)}}};
 }
 JsonValue edges_json(const Edges& e) {
-    return JsonValue{Object{{"top", real_json(e.top)}, {"right", real_json(e.right)},
-                            {"bottom", real_json(e.bottom)}, {"left", real_json(e.left)}}};
+    return JsonValue{Object{{"top", real_json(e.top)},
+                            {"right", real_json(e.right)},
+                            {"bottom", real_json(e.bottom)},
+                            {"left", real_json(e.left)}}};
 }
 JsonValue color_json(const Color& c) {
-    return JsonValue{Object{{"r", real_json(c.r)}, {"g", real_json(c.g)}, {"b", real_json(c.b)}, {"a", real_json(c.a)}}};
+    return JsonValue{
+        Object{{"r", real_json(c.r)}, {"g", real_json(c.g)}, {"b", real_json(c.b)}, {"a", real_json(c.a)}}};
 }
 JsonValue modifiers_json(const Modifiers& m) {
-    return JsonValue{Object{{"shift", JsonValue{m.shift}}, {"control", JsonValue{m.control}},
-                            {"alt", JsonValue{m.alt}}, {"super", JsonValue{m.super}}}};
+    return JsonValue{Object{{"shift", JsonValue{m.shift}},
+                            {"control", JsonValue{m.control}},
+                            {"alt", JsonValue{m.alt}},
+                            {"super", JsonValue{m.super}}}};
 }
-template<class E, std::size_t N>
-JsonValue name(E value, const std::array<std::string_view, N>& names) {
+template<class E, std::size_t N> JsonValue name(E value, const std::array<std::string_view, N>& names) {
     return text(names[static_cast<std::size_t>(value)]);
 }
 JsonValue dimension_json(const Dimension& d) {
@@ -499,32 +517,44 @@ JsonValue maximum_json(float value) { return std::isinf(value) ? text("none") : 
 JsonValue tracks_json(const std::vector<GridTrack>& tracks) {
     Array result;
     for (const auto& track : tracks)
-        result.push_back(JsonValue{Object{{"kind", name(track.kind, track_names)}, {"value", real_json(track.value)},
-            {"minimum", real_json(track.minimum)}, {"maximum", maximum_json(track.maximum)}}});
+        result.push_back(JsonValue{Object{{"kind", name(track.kind, track_names)},
+                                          {"value", real_json(track.value)},
+                                          {"minimum", real_json(track.minimum)},
+                                          {"maximum", maximum_json(track.maximum)}}});
     return JsonValue{std::move(result)};
 }
 
 JsonValue style_json(const ResolvedStyle& s) {
     Object result{
-        {"display", name(s.display, display_names)}, {"direction", name(s.direction, direction_names)},
-        {"justify", name(s.justify, justify_names)}, {"align", name(s.align, align_names)},
-        {"overflow", name(s.overflow, overflow_names)}, {"width", dimension_json(s.width)},
-        {"height", dimension_json(s.height)}, {"min_width", real_json(s.min_width)},
-        {"min_height", real_json(s.min_height)}, {"max_width", maximum_json(s.max_width)},
-        {"max_height", maximum_json(s.max_height)}, {"margin", edges_json(s.margin)},
-        {"border", edges_json(s.border)}, {"padding", edges_json(s.padding)}, {"gap", real_json(s.gap)},
-        {"grow", real_json(s.grow)}, {"shrink", real_json(s.shrink)},
-        {"visibility", name(s.visibility, visibility_names)}, {"opacity", real_json(s.opacity)},
-        {"background", color_json(s.background)}, {"border_color", color_json(s.border_color)},
+        {"display", name(s.display, display_names)},
+        {"direction", name(s.direction, direction_names)},
+        {"justify", name(s.justify, justify_names)},
+        {"align", name(s.align, align_names)},
+        {"overflow", name(s.overflow, overflow_names)},
+        {"width", dimension_json(s.width)},
+        {"height", dimension_json(s.height)},
+        {"min_width", real_json(s.min_width)},
+        {"min_height", real_json(s.min_height)},
+        {"max_width", maximum_json(s.max_width)},
+        {"max_height", maximum_json(s.max_height)},
+        {"margin", edges_json(s.margin)},
+        {"border", edges_json(s.border)},
+        {"padding", edges_json(s.padding)},
+        {"gap", real_json(s.gap)},
+        {"grow", real_json(s.grow)},
+        {"shrink", real_json(s.shrink)},
+        {"visibility", name(s.visibility, visibility_names)},
+        {"opacity", real_json(s.opacity)},
+        {"background", color_json(s.background)},
+        {"border_color", color_json(s.border_color)},
         {"corner_radius", real_json(s.corner_radius)},
-        {"text", JsonValue{Object{{"font", number(s.text.font.value)}, {"size", real_json(s.text.size)},
+        {"text", JsonValue{Object{{"font", number(s.text.font.value)},
+                                  {"size", real_json(s.text.size)},
                                   {"line_height", s.text.line_height ? real_json(*s.text.line_height) : text("normal")},
                                   {"weight", number(s.text.weight)}}}},
         {"color", color_json(s.color)}};
-    if (s.stack_horizontal != Align::stretch)
-        result["stack_horizontal"] = name(s.stack_horizontal, align_names);
-    if (s.stack_vertical != Align::stretch)
-        result["stack_vertical"] = name(s.stack_vertical, align_names);
+    if (s.stack_horizontal != Align::stretch) result["stack_horizontal"] = name(s.stack_horizontal, align_names);
+    if (s.stack_vertical != Align::stretch) result["stack_vertical"] = name(s.stack_vertical, align_names);
     if (!s.grid_columns.empty()) result["grid_columns"] = tracks_json(s.grid_columns);
     if (!s.grid_rows.empty()) result["grid_rows"] = tracks_json(s.grid_rows);
     if (s.column_gap != 0) result["column_gap"] = real_json(s.column_gap);
@@ -539,79 +569,101 @@ JsonValue styles_json(const std::vector<ResolvedStyle>& values) {
     return JsonValue{std::move(result)};
 }
 JsonValue target_json(const InspectionTarget& value) {
-    return std::visit([](const auto& t) -> JsonValue {
-        using T = std::decay_t<decltype(t)>;
-        if constexpr (std::is_same_v<T, AuthorIdTarget>) return JsonValue{Object{{"kind", text("id")}, {"id", text(t.id)}}};
-        else if constexpr (std::is_same_v<T, SemanticTarget>)
-            return JsonValue{Object{{"kind", text("semantic")}, {"role", name(t.role, role_names)}, {"name", text(t.name)}}};
-        else if constexpr (std::is_same_v<T, PathTarget>) {
-            Array children;
-            for (const auto child : t.children) children.push_back(number(child));
-            return JsonValue{Object{{"kind", text("path")}, {"children", JsonValue{std::move(children)}}}};
-        } else return JsonValue{Object{{"kind", text("point")}, {"position", point_json(t.position)}}};
-    }, value);
+    return std::visit(
+        [](const auto& t) -> JsonValue {
+            using T = std::decay_t<decltype(t)>;
+            if constexpr (std::is_same_v<T, AuthorIdTarget>)
+                return JsonValue{Object{{"kind", text("id")}, {"id", text(t.id)}}};
+            else if constexpr (std::is_same_v<T, SemanticTarget>)
+                return JsonValue{
+                    Object{{"kind", text("semantic")}, {"role", name(t.role, role_names)}, {"name", text(t.name)}}};
+            else if constexpr (std::is_same_v<T, PathTarget>) {
+                Array children;
+                for (const auto child : t.children) children.push_back(number(child));
+                return JsonValue{Object{{"kind", text("path")}, {"children", JsonValue{std::move(children)}}}};
+            } else
+                return JsonValue{Object{{"kind", text("point")}, {"position", point_json(t.position)}}};
+        },
+        value);
 }
 JsonValue event_json(const InputEvent& event) {
     Object result{{"timestamp", number(static_cast<double>(event.timestamp.count()))}};
-    std::visit([&](const auto& data) {
-        using T = std::decay_t<decltype(data)>;
-        if constexpr (std::is_same_v<T, PointerMove>) {
-            result["type"] = text("pointer_move");
-            result["pointer"] = number(data.pointer.value);
-            result["position"] = point_json(data.position);
-            result["modifiers"] = modifiers_json(data.modifiers);
-        } else if constexpr (std::is_same_v<T, PointerDown> || std::is_same_v<T, PointerUp>) {
-            result["type"] = text(std::is_same_v<T, PointerDown> ? "pointer_down" : "pointer_up");
-            result["pointer"] = number(data.pointer.value);
-            result["position"] = point_json(data.position);
-            result["button"] = name(data.button, button_names);
-            result["modifiers"] = modifiers_json(data.modifiers);
-        } else if constexpr (std::is_same_v<T, PointerCancel>) {
-            result["type"] = text("pointer_cancel");
-            result["pointer"] = number(data.pointer.value);
-        } else if constexpr (std::is_same_v<T, Scroll>) {
-            result["type"] = text("scroll");
-            result["position"] = point_json(data.position);
-            result["delta"] = point_json(data.delta);
-            result["modifiers"] = modifiers_json(data.modifiers);
-        } else if constexpr (std::is_same_v<T, Navigate>) {
-            result["type"] = text("navigate");
-            result["direction"] = name(data.direction, direction_key_names);
-            result["repeat"] = JsonValue{data.repeat};
-        } else if constexpr (std::is_same_v<T, FocusNext>) result["type"] = text("focus_next");
-        else if constexpr (std::is_same_v<T, FocusPrevious>) result["type"] = text("focus_previous");
-        else if constexpr (std::is_same_v<T, Activate>) result["type"] = text("activate");
-        else if constexpr (std::is_same_v<T, Cancel>) result["type"] = text("cancel");
-        // check_values rejects keys and text before writing.
-    }, event.data);
+    std::visit(
+        [&](const auto& data) {
+            using T = std::decay_t<decltype(data)>;
+            if constexpr (std::is_same_v<T, PointerMove>) {
+                result["type"] = text("pointer_move");
+                result["pointer"] = number(data.pointer.value);
+                result["position"] = point_json(data.position);
+                result["modifiers"] = modifiers_json(data.modifiers);
+            } else if constexpr (std::is_same_v<T, PointerDown> || std::is_same_v<T, PointerUp>) {
+                result["type"] = text(std::is_same_v<T, PointerDown> ? "pointer_down" : "pointer_up");
+                result["pointer"] = number(data.pointer.value);
+                result["position"] = point_json(data.position);
+                result["button"] = name(data.button, button_names);
+                result["modifiers"] = modifiers_json(data.modifiers);
+            } else if constexpr (std::is_same_v<T, PointerCancel>) {
+                result["type"] = text("pointer_cancel");
+                result["pointer"] = number(data.pointer.value);
+            } else if constexpr (std::is_same_v<T, Scroll>) {
+                result["type"] = text("scroll");
+                result["position"] = point_json(data.position);
+                result["delta"] = point_json(data.delta);
+                result["modifiers"] = modifiers_json(data.modifiers);
+            } else if constexpr (std::is_same_v<T, Navigate>) {
+                result["type"] = text("navigate");
+                result["direction"] = name(data.direction, direction_key_names);
+                result["repeat"] = JsonValue{data.repeat};
+            } else if constexpr (std::is_same_v<T, FocusNext>)
+                result["type"] = text("focus_next");
+            else if constexpr (std::is_same_v<T, FocusPrevious>)
+                result["type"] = text("focus_previous");
+            else if constexpr (std::is_same_v<T, Activate>)
+                result["type"] = text("activate");
+            else if constexpr (std::is_same_v<T, Cancel>)
+                result["type"] = text("cancel");
+            // check_values rejects keys and text before writing.
+        },
+        event.data);
     return JsonValue{std::move(result)};
 }
 JsonValue host_json(const ReplayHostSlot& slot) {
-    return JsonValue{Object{{"id", text(slot.id)}, {"owner", text(slot.owner)}, {"request", number(slot.request)},
-                            {"readiness", name(slot.readiness, readiness_names)}, {"value", JsonValue{slot.value}}}};
+    return JsonValue{Object{{"id", text(slot.id)},
+                            {"owner", text(slot.owner)},
+                            {"request", number(slot.request)},
+                            {"readiness", name(slot.readiness, readiness_names)},
+                            {"value", JsonValue{slot.value}}}};
 }
 JsonValue step_json(const ReplayStep& step) {
-    return std::visit([](const auto& s) -> JsonValue {
-        using T = std::decay_t<decltype(s)>;
-        if constexpr (std::is_same_v<T, InputEvent>) return event_json(s);
-        else if constexpr (std::is_same_v<T, ReplayResize>)
-            return JsonValue{Object{{"type", text("resize")}, {"viewport", size_json(s.viewport)}}};
-        else if constexpr (std::is_same_v<T, ReplayScale>)
-            return JsonValue{Object{{"type", text("scale")}, {"scale", real_json(s.scale)}}};
-        else if constexpr (std::is_same_v<T, ReplayTick>)
-            return JsonValue{Object{{"type", text("tick")}, {"time", number(static_cast<double>(s.time.count()))}}};
-        else if constexpr (std::is_same_v<T, ReplayReload>)
-            return JsonValue{Object{{"type", text("reload")}, {"document", detail::write_document_json(s.document)},
-                                    {"styles", styles_json(s.styles)}}};
-        else if constexpr (std::is_same_v<T, ReplayHostUpdate>)
-            return JsonValue{Object{{"type", text("host_update")}, {"slot", host_json(s.slot)},
-                {"view", JsonValue{Object{{"document", detail::write_document_json(s.view.document)},
-                                         {"styles", styles_json(s.view.styles)}}}}}};
-        else if constexpr (std::is_same_v<T, ReplayFocus>)
-            return JsonValue{Object{{"type", text("focus")}, {"target", target_json(s.target)}}};
-        else return JsonValue{Object{{"type", text("semantic_action")}, {"target", target_json(s.target)},
-                                     {"binding", text(s.binding)}}};
-    }, step);
+    return std::visit(
+        [](const auto& s) -> JsonValue {
+            using T = std::decay_t<decltype(s)>;
+            if constexpr (std::is_same_v<T, InputEvent>)
+                return event_json(s);
+            else if constexpr (std::is_same_v<T, ReplayResize>)
+                return JsonValue{Object{{"type", text("resize")}, {"viewport", size_json(s.viewport)}}};
+            else if constexpr (std::is_same_v<T, ReplayScale>)
+                return JsonValue{Object{{"type", text("scale")}, {"scale", real_json(s.scale)}}};
+            else if constexpr (std::is_same_v<T, ReplayTick>)
+                return JsonValue{Object{{"type", text("tick")}, {"time", number(static_cast<double>(s.time.count()))}}};
+            else if constexpr (std::is_same_v<T, ReplayReload>)
+                return JsonValue{Object{{"type", text("reload")},
+                                        {"document", detail::write_document_json(s.document)},
+                                        {"styles", styles_json(s.styles)}}};
+            else if constexpr (std::is_same_v<T, ReplayHostUpdate>)
+                return JsonValue{
+                    Object{{"type", text("host_update")},
+                           {"slot", host_json(s.slot)},
+                           {"view", JsonValue{Object{{"document", detail::write_document_json(s.view.document)},
+                                                     {"styles", styles_json(s.view.styles)}}}}}};
+            else if constexpr (std::is_same_v<T, ReplayFocus>)
+                return JsonValue{Object{{"type", text("focus")}, {"target", target_json(s.target)}}};
+            else
+                return JsonValue{Object{{"type", text("semantic_action")},
+                                        {"target", target_json(s.target)},
+                                        {"binding", text(s.binding)}}};
+        },
+        step);
 }
 
 JsonValue write(const ReplayRecording& recording) {
@@ -625,22 +677,22 @@ JsonValue write(const ReplayRecording& recording) {
         text_service["sha256"] = text(service.sha256);
     }
     Object environment{{"scale", real_json(recording.environment.scale)},
-                       {"locale", text(recording.environment.locale)}, {"text", JsonValue{std::move(text_service)}}};
+                       {"locale", text(recording.environment.locale)},
+                       {"text", JsonValue{std::move(text_service)}}};
     if (recording.version == replay_host_version) {
         Array slots;
         for (const auto& slot : recording.environment.host) slots.push_back(host_json(slot));
         environment["host"] = JsonValue{std::move(slots)};
     }
-    return JsonValue{Object{
-        {"version", number(recording.version)},
-        {"actions", JsonValue{std::move(actions)}},
-        {"policy", JsonValue{Object{{"press_focus", JsonValue{recording.policy.press_focus}},
-                                    {"reveal_focus", JsonValue{recording.policy.reveal_focus}}}}},
-        {"environment", JsonValue{std::move(environment)}},
-        {"viewport", size_json(recording.viewport)},
-        {"document", detail::write_document_json(recording.document)},
-        {"styles", styles_json(recording.styles)},
-        {"steps", JsonValue{std::move(steps)}}}};
+    return JsonValue{Object{{"version", number(recording.version)},
+                            {"actions", JsonValue{std::move(actions)}},
+                            {"policy", JsonValue{Object{{"press_focus", JsonValue{recording.policy.press_focus}},
+                                                        {"reveal_focus", JsonValue{recording.policy.reveal_focus}}}}},
+                            {"environment", JsonValue{std::move(environment)}},
+                            {"viewport", size_json(recording.viewport)},
+                            {"document", detail::write_document_json(recording.document)},
+                            {"styles", styles_json(recording.styles)},
+                            {"steps", JsonValue{std::move(steps)}}}};
 }
 
 } // namespace
@@ -668,7 +720,8 @@ Result<std::string> save_replay(const ReplayRecording& recording) {
     auto output = detail::write_json_value(write(recording));
     output += '\n';
     if (output.size() > max_serialized_replay_bytes)
-        return {std::nullopt, {{"size_limit", Severity::error, "", "Canonical replay exceeds the byte limit (64 MiB).", {}}}};
+        return {std::nullopt,
+                {{"size_limit", Severity::error, "", "Canonical replay exceeds the byte limit (64 MiB).", {}}}};
     return {std::move(output), {}};
 }
 

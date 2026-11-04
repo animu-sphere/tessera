@@ -83,8 +83,8 @@ struct ReplaySemanticAction {
 // Cancel); they share one non-decreasing timestamp stream. A scroll step is routed by route_scroll and
 // applied at an update point; a command goes through FocusDispatcher. Keys are host-translated, not replayed.
 // Focus and semantic action steps are untimed.
-using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload, ReplayFocus, ReplaySemanticAction,
-                                ReplayScale, ReplayTick, ReplayHostUpdate>;
+using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload, ReplayFocus, ReplaySemanticAction, ReplayScale,
+                                ReplayTick, ReplayHostUpdate>;
 
 // Host focus policies that playback applies on the host's behalf; both are off by default.
 struct ReplayFocusPolicy {
@@ -97,7 +97,7 @@ struct ReplayFocusPolicy {
 struct ReplayText {
     enum class Kind : std::uint8_t { placeholder, font_profile };
     Kind kind = Kind::placeholder; // placeholder: PlaceholderTextShaper; id and sha256 stay empty.
-    std::string id;     // font_profile: host fixture identity of the profile, not a path or provider lookup.
+    std::string id;                // font_profile: host fixture identity of the profile, not a path or provider lookup.
     std::string sha256; // font_profile: lowercase hex SHA-256 of the profile's canonical font profile JSON v1.
     bool operator==(const ReplayText&) const = default;
 };

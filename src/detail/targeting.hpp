@@ -26,25 +26,27 @@ public:
         for (std::size_t i = 0; i < boxes.size(); ++i) {
             const auto& box = boxes[i];
             by_node_[box.node.index] = static_cast<std::uint32_t>(i);
-            disabled_.push_back(std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::disabled)) ||
-                                tree_ancestor_disabled(*input.tree, *input.tree->get(box.node)) ||
-                                (box.parent != no_layout_parent && disabled_[box.parent]));
-            pointer_events_.push_back(std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::pointer_events)) &&
-                                      (box.parent == no_layout_parent || pointer_events_[box.parent]));
+            disabled_.push_back(
+                std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::disabled)) ||
+                tree_ancestor_disabled(*input.tree, *input.tree->get(box.node)) ||
+                (box.parent != no_layout_parent && disabled_[box.parent]));
+            pointer_events_.push_back(
+                std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::pointer_events)) &&
+                (box.parent == no_layout_parent || pointer_events_[box.parent]));
             if (modal(*input.tree->get(box.node)) && box.visible && !disabled_.back())
                 modal_ = static_cast<std::uint32_t>(i);
         }
         for (std::size_t i = 0; i < boxes.size(); ++i)
             scope_.push_back(modal_ == no_layout_parent || i == modal_ ||
-                (boxes[i].parent != no_layout_parent && scope_[boxes[i].parent]));
+                             (boxes[i].parent != no_layout_parent && scope_[boxes[i].parent]));
     }
 
     std::optional<NodeHandle> hit(Point point) const {
         const auto& boxes = input_.layout->boxes;
         for (std::size_t i = boxes.size(); i > 0; --i) {
             const auto& box = boxes[i - 1];
-            if (eligible(i - 1) && pointer_events_[i - 1] &&
-                inside(box.border_box, point) && (!box.clip || inside(*box.clip, point)))
+            if (eligible(i - 1) && pointer_events_[i - 1] && inside(box.border_box, point) &&
+                (!box.clip || inside(*box.clip, point)))
                 return box.node;
         }
         return {};
@@ -59,14 +61,15 @@ public:
     // Disabled by the node or an ancestor, regardless of visibility.
     bool disabled(std::size_t box) const { return disabled_[box]; }
     bool focusable(std::size_t box) const {
-        return eligible(box) &&
-               std::get<bool>(*effective_property(*input_.tree->get(input_.layout->boxes[box].node), property_names::focusable));
+        return eligible(box) && std::get<bool>(*effective_property(*input_.tree->get(input_.layout->boxes[box].node),
+                                                                   property_names::focusable));
     }
     // Index into LayoutResult::boxes, or no_layout_parent for a display-none node.
     std::uint32_t box(NodeHandle node) const { return by_node_[node.index]; }
 
     // First eligible node with the binding on the target's ancestry; hidden ancestors are skipped.
-    std::optional<NodeHandle> binding_owner(std::optional<NodeHandle> target, std::string_view binding = "activate") const {
+    std::optional<NodeHandle> binding_owner(std::optional<NodeHandle> target,
+                                            std::string_view binding = "activate") const {
         if (!target) return {};
         auto index = by_node_[target->index];
         while (index != no_layout_parent) {
@@ -80,8 +83,8 @@ public:
     void refresh(PointerState& pointer) const {
         pointer.hovered = hit(pointer.position);
         if (pointer.pressed && !eligible(*pointer.pressed)) pointer.pressed.reset();
-        pointer.active = pointer.pressed && pointer.pressed == binding_owner(pointer.hovered) ? pointer.pressed :
-                                                                                              std::nullopt;
+        pointer.active =
+            pointer.pressed && pointer.pressed == binding_owner(pointer.hovered) ? pointer.pressed : std::nullopt;
     }
 
 private:

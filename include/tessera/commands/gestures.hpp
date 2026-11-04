@@ -5,7 +5,7 @@
 namespace tessera {
 
 struct EditGesture {
-    std::uint64_t id = 0; // Host-issued, increasing and never reused in this adapter.
+    std::uint64_t id = 0;             // Host-issued, increasing and never reused in this adapter.
     std::optional<PointerId> pointer; // Absent for keyboard/gamepad/semantic edits.
     PointerButton button = PointerButton::primary;
     TransactionMetadata metadata;
@@ -30,19 +30,20 @@ public:
     CommandGestures& operator=(CommandGestures&&) = delete;
 
     // First accepted update begins and executes; later updates join the same edit.
-    Result<CommandExecution> edit(const EditGesture&, const CommandSnapshot&,
-        const CommandInvocation&, TransactionHost&, const SemanticInput* current_ui = nullptr);
-    Result<CommandOutcome> complete(std::uint64_t id, const CommandSnapshot&,
-        TransactionHost&, const SemanticInput* current_ui = nullptr);
+    Result<CommandExecution> edit(const EditGesture&, const CommandSnapshot&, const CommandInvocation&,
+                                  TransactionHost&, const SemanticInput* current_ui = nullptr);
+    Result<CommandOutcome> complete(std::uint64_t id, const CommandSnapshot&, TransactionHost&,
+                                    const SemanticInput* current_ui = nullptr);
     Result<CommandOutcome> cancel(std::uint64_t id, TransactionCancel, TransactionHost&);
     // Recheck at every update point, including updates without input or edits.
     Result<bool> refresh(const CommandSnapshot&, TransactionHost&, const SemanticInput* current_ui = nullptr);
     // Matching pointer release commits; matching PointerCancel rolls back for
     // capture loss; Escape/Cancel rolls back for the user. Other input is ignored.
     // consumed=true suppresses shortcut/navigation/activation for that event.
-    Result<GestureInputResult> handle_input(const CommandSnapshot&, const InputEvent&,
-        TransactionHost&, const SemanticInput* current_ui = nullptr);
+    Result<GestureInputResult> handle_input(const CommandSnapshot&, const InputEvent&, TransactionHost&,
+                                            const SemanticInput* current_ui = nullptr);
     std::optional<std::uint64_t> active() const noexcept;
+
 private:
     std::vector<Diagnostic> entry() const;
     std::vector<Diagnostic> identity(std::uint64_t) const;

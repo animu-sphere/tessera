@@ -6,22 +6,31 @@
 #include <tessera/ui/serialization.hpp>
 
 namespace tessera::authoring {
-namespace detail { struct ElementData; struct Lowerer; }
+namespace detail {
+struct ElementData;
+struct Lowerer;
+}
 
 // Owned literals or weak references to the ordinary reactive graph.
-template<class T>
-class Value final {
+template<class T> class Value final {
 public:
     Value(T value) : value_(std::move(value)) {}
     Value(Signal<T> value) : value_(std::move(value)) {}
     Value(Computed<T> value) : value_(std::move(value)) {}
-    Value(const char* value) requires std::is_same_v<T, std::string> : value_(std::string(value)) {}
+    Value(const char* value)
+        requires std::is_same_v<T, std::string>
+        : value_(std::string(value)) {}
+
 private:
     T snapshot(const ReactiveRuntime& runtime) const {
-        return std::visit([&](const auto& value) -> T {
-            if constexpr (std::is_same_v<std::decay_t<decltype(value)>, T>) return value;
-            else return runtime.snapshot(value);
-        }, value_);
+        return std::visit(
+            [&](const auto& value) -> T {
+                if constexpr (std::is_same_v<std::decay_t<decltype(value)>, T>)
+                    return value;
+                else
+                    return runtime.snapshot(value);
+            },
+            value_);
     }
     std::variant<T, Signal<T>, Computed<T>> value_;
     friend struct detail::Lowerer;
@@ -128,6 +137,7 @@ public:
     Element(Element&&) noexcept = default;
     Element& operator=(const Element&) = default;
     Element& operator=(Element&&) noexcept = default;
+
 private:
     explicit Element(std::shared_ptr<const detail::ElementData> data) : data_(std::move(data)) {}
     std::shared_ptr<const detail::ElementData> data_;
@@ -199,7 +209,7 @@ Element TreeView(std::string label, std::optional<std::string> selected, std::ve
 // With a node ID, generated controls use <id>-trigger / <id>-option-<key>.
 // Options are ordinary buttons in layout, reached through normal focus/scroll.
 Element Dropdown(std::string label, std::string selected, std::vector<DropdownOption> options,
-    std::string toggle_action, DropdownProps = {});
+                 std::string toggle_action, DropdownProps = {});
 // Controlled button semantics with a value caption and a 200-unit track.
 // Generated IDs: <id>-track, <id>-fill, <id>-thumb. The host owns input,
 // commands and values; map thumb centers over track width minus 8 units.
@@ -222,23 +232,21 @@ struct Presentation {
 // All returned state/derived references expire with this session.
 class Session final {
 public:
-    template<class T>
-    Signal<T> state(std::string name, T initial) {
+    template<class T> Signal<T> state(std::string name, T initial) {
         return runtime_.signal(runtime_.root(), std::move(name), std::move(initial));
     }
-    template<class Calculate>
-    auto computed(std::string name, Calculate calculate) {
+    template<class Calculate> auto computed(std::string name, Calculate calculate) {
         using T = std::decay_t<std::invoke_result_t<Calculate&>>;
         return runtime_.computed<T>(runtime_.root(), std::move(name), std::move(calculate));
     }
-    template<class Update>
-    void update(Update update) { runtime_.batch(std::move(update)); }
+    template<class Update> void update(Update update) { runtime_.batch(std::move(update)); }
 
     // Preflights the whole description, settles the graph, then copies accepted
     // values into a validated candidate. Does not replace/publish host snapshots.
     Result<Presentation> lower(const Element&, const ValidationContext& = {});
     // Call only after the host accepts style/layout/semantic/paint stages.
     void publish() { (void)runtime_.publish(); }
+
 private:
     ReactiveRuntime runtime_;
 };

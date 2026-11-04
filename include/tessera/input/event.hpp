@@ -28,11 +28,69 @@ struct Modifiers {
 
 // Logical (layout-mapped) keys for control and shortcuts. Characters arrive as TextInput.
 enum class Key : std::uint8_t {
-    tab, enter, escape, space, backspace, delete_key, insert, home, end, page_up, page_down,
-    left, right, up, down,
-    a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z,
-    digit0, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9,
-    f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12,
+    tab,
+    enter,
+    escape,
+    space,
+    backspace,
+    delete_key,
+    insert,
+    home,
+    end,
+    page_up,
+    page_down,
+    left,
+    right,
+    up,
+    down,
+    a,
+    b,
+    c,
+    d,
+    e,
+    f,
+    g,
+    h,
+    i,
+    j,
+    k,
+    l,
+    m,
+    n,
+    o,
+    p,
+    q,
+    r,
+    s,
+    t,
+    u,
+    v,
+    w,
+    x,
+    y,
+    z,
+    digit0,
+    digit1,
+    digit2,
+    digit3,
+    digit4,
+    digit5,
+    digit6,
+    digit7,
+    digit8,
+    digit9,
+    f1,
+    f2,
+    f3,
+    f4,
+    f5,
+    f6,
+    f7,
+    f8,
+    f9,
+    f10,
+    f11,
+    f12,
 };
 
 enum class Direction : std::uint8_t { up, down, left, right };
@@ -106,8 +164,9 @@ struct Cancel {
 
 struct InputEvent {
     std::chrono::microseconds timestamp{0}; // Host monotonic clock; non-decreasing per stream.
-    std::variant<PointerMove, PointerDown, PointerUp, PointerCancel, Scroll, KeyDown, KeyUp,
-                 TextInput, Navigate, FocusNext, FocusPrevious, Activate, Cancel> data;
+    std::variant<PointerMove, PointerDown, PointerUp, PointerCancel, Scroll, KeyDown, KeyUp, TextInput, Navigate,
+                 FocusNext, FocusPrevious, Activate, Cancel>
+        data;
     bool operator==(const InputEvent&) const = default;
 };
 

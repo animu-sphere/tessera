@@ -62,7 +62,8 @@ void fixed_dimensions() {
     Fixture f(box());
     auto& root = f.styles[0];
     root.margin = {10, 20, 30, 40};
-    check(at(f.layout({200, 100}), 0) == Rect{{40, 10}, {140, 60}}, "Automatic root must fill the viewport less margins");
+    check(at(f.layout({200, 100}), 0) == Rect{{40, 10}, {140, 60}},
+          "Automatic root must fill the viewport less margins");
 
     root.width = Dimension::points(50);
     root.min_width = 80;
@@ -151,8 +152,8 @@ void grow_shrink_and_limits() {
     f.styles[2].grow = 3;
     f.styles[3].width = Dimension::points(20);
     auto result = f.layout({200, 10});
-    check(at(result, 1).size.width == 45 && at(result, 2) == Rect{{45, 0}, {135, 10}} &&
-          at(result, 3).origin.x == 180, "Grow must split free space by factor");
+    check(at(result, 1).size.width == 45 && at(result, 2) == Rect{{45, 0}, {135, 10}} && at(result, 3).origin.x == 180,
+          "Grow must split free space by factor");
 
     f.styles[2].max_width = 100;
     result = f.layout({200, 10});
@@ -168,8 +169,8 @@ void grow_shrink_and_limits() {
     s.styles[2].min_width = 35;
     s.styles[3].width = Dimension::points(20);
     result = s.layout({100, 10});
-    check(at(result, 1).size.width == 45 && at(result, 2) == Rect{{45, 0}, {35, 10}} &&
-          at(result, 3).origin.x == 80, "Shrink must respect minimums and redistribute");
+    check(at(result, 1).size.width == 45 && at(result, 2) == Rect{{45, 0}, {35, 10}} && at(result, 3).origin.x == 80,
+          "Shrink must respect minimums and redistribute");
 
     Fixture c(box({box(), box()}));
     c.styles[1].max_width = 50;
@@ -214,8 +215,8 @@ void overflow_clip() {
     const Rect padding{{2, 2}, {56, 36}};
     check(!result.boxes[0].clip && !result.boxes[1].clip && !result.boxes[5].clip,
           "A box's own overflow must not clip itself or its siblings");
-    check(at(result, 2) == Rect{{5, 5}, {80, 10}} && result.boxes[2].clip == padding &&
-              result.boxes[3].clip == padding, "Children must record the clipper's padding box without moving");
+    check(at(result, 2) == Rect{{5, 5}, {80, 10}} && result.boxes[2].clip == padding && result.boxes[3].clip == padding,
+          "Children must record the clipper's padding box without moving");
     check(result.boxes[4].clip == Rect{{5, 15}, {20, 23}}, "Nested clips must intersect");
     check(tessera::intersect({{0, 0}, {10, 10}}, {{20, 5}, {5, 5}}) == Rect{{20, 5}, {0, 5}},
           "Disjoint intersection must keep the larger origin with zero size");
@@ -263,7 +264,8 @@ void scroll_geometry() {
           "Offsets must not move the scroll box itself or apply to other boxes");
     check(moved.boxes[1].scroll == tessera::ScrollGeometry{{86, 75}, {10, 12.5f}}, "In-range offset must apply");
     check(at(moved, 2) == Rect{{-5, -7.5f}, {80, 10}} && at(moved, 3) == Rect{{-5, 6.5f}, {20, 20}} &&
-              at(moved, 5) == Rect{{-5, 30.5f}, {10, 30}}, "Children must move back by the offset");
+              at(moved, 5) == Rect{{-5, 30.5f}, {10, 30}},
+          "Children must move back by the offset");
     check(moved.boxes[2].clip == viewport && moved.boxes[5].clip == viewport, "The scroll viewport clip must not move");
     check(moved.boxes[3].scroll == tessera::ScrollGeometry{{20, 50}, {0, 30}}, "Requested offsets must clamp per axis");
     check(at(moved, 4) == Rect{{-5, -23.5f}, {10, 50}} && moved.boxes[4].clip == Rect{{2, 6.5f}, {13, 20}},
@@ -292,7 +294,8 @@ void fractional_sizes() {
     for (std::size_t i = 1; i < 4; ++i) {
         const auto box = at(result, i);
         check(std::abs(box.size.width - third) <= 1e-4f, "Fractional grow share differs");
-        check(std::abs(box.origin.x - (0.25f + third * static_cast<float>(i - 1))) <= 1e-4f, "Fractional offset differs");
+        check(std::abs(box.origin.x - (0.25f + third * static_cast<float>(i - 1))) <= 1e-4f,
+              "Fractional offset differs");
         check(box.size.height == 10.5f, "Fractional cross size differs");
     }
 }
@@ -322,7 +325,9 @@ public:
         return {std::nullopt, {{"font_missing", tessera::Severity::error, "/style/font", "Missing font.", {}}}};
     }
     tessera::Result<tessera::GlyphRun> shape(std::string_view, const tessera::TextStyle&,
-                                            const tessera::TextConstraints&) override { return {}; }
+                                             const tessera::TextConstraints&) override {
+        return {};
+    }
 };
 
 void failures() {
@@ -363,7 +368,8 @@ void text_wrapping() {
     column.styles[0].gap = 4;
     const auto narrow = column.layout({30, 200});
     check(at(narrow, 1).size == tessera::Size{30, 80} && at(narrow, 2).size == tessera::Size{20, 75} &&
-          at(narrow, 3).origin.y == 84, "Nested column must include wrapped descendant height and padding");
+              at(narrow, 3).origin.y == 84,
+          "Nested column must include wrapped descendant height and padding");
     const auto wide = column.layout({70, 200});
     check(at(wide, 1).size.height == 30 && at(wide, 3).origin.y == 34,
           "A new viewport must reflow text and sibling placement");

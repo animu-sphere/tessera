@@ -50,24 +50,25 @@ public:
         for (bool horizontal : {true, false}) {
             const auto& fixed = dimension(style, horizontal);
             const float available = along(viewport, horizontal) - total(style.margin, horizontal);
-            along(box.size, horizontal) = limits(style, horizontal).clamp(
-                fixed.kind == Dimension::Kind::points ? fixed.value : available);
+            along(box.size, horizontal) =
+                limits(style, horizontal).clamp(fixed.kind == Dimension::Kind::points ? fixed.value : available);
         }
         place(0, no_layout_parent, box);
         place_popups(viewport);
         if (!errors_.empty()) return {std::nullopt, std::move(errors_)};
         const auto finite = [](const Rect& r) {
-            return std::isfinite(r.origin.x) && std::isfinite(r.origin.y) &&
-                   std::isfinite(r.size.width) && std::isfinite(r.size.height);
+            return std::isfinite(r.origin.x) && std::isfinite(r.origin.y) && std::isfinite(r.size.width) &&
+                   std::isfinite(r.size.height);
         };
-        const auto finite_scroll = [&](const ScrollGeometry& scroll) {
-            return finite({scroll.offset, scroll.extent});
-        };
+        const auto finite_scroll = [&](const ScrollGeometry& scroll) { return finite({scroll.offset, scroll.extent}); };
         for (const auto& placed : result_.boxes) {
             if (!finite(placed.border_box) || (placed.clip && !finite(*placed.clip)) ||
                 (placed.scroll && !finite_scroll(*placed.scroll))) {
-                errors_.push_back({"non_finite_geometry", Severity::error, node_path(placed.node.index),
-                                   "Layout overflowed float range; reduce sizes, margins, or gaps.", {}});
+                errors_.push_back({"non_finite_geometry",
+                                   Severity::error,
+                                   node_path(placed.node.index),
+                                   "Layout overflowed float range; reduce sizes, margins, or gaps.",
+                                   {}});
             }
         }
         if (!errors_.empty()) return {std::nullopt, std::move(errors_)};
@@ -101,16 +102,17 @@ private:
             const auto& style = styles_[child.index];
             const float width = std::min(preferred(child.index, true), boundary.size.width);
             const Size size{limits(style, true).clamp(width),
-                limits(style, false).clamp(std::min(boundary.size.height,
-                    basis(child.index, limits(style, true).clamp(width)).height))};
+                            limits(style, false)
+                                .clamp(std::min(boundary.size.height,
+                                                basis(child.index, limits(style, true).clamp(width)).height))};
             if (const auto* x = effective_property(node, property_names::popup_x)) {
                 const double left = boundary.origin.x;
                 const double top = boundary.origin.y;
                 const Point origin{
                     static_cast<float>(std::clamp(std::get<double>(*x), left,
-                        std::max(left, left + boundary.size.width - size.width))),
+                                                  std::max(left, left + boundary.size.width - size.width))),
                     static_cast<float>(std::clamp(std::get<double>(*effective_property(node, property_names::popup_y)),
-                        top, std::max(top, top + boundary.size.height - size.height)))};
+                                                  top, std::max(top, top + boundary.size.height - size.height)))};
                 place(child.index, 0, {origin, size});
                 continue;
             }
@@ -126,11 +128,11 @@ private:
             const double after_room = end - anchor_end - gap;
             const double needed = along(size, horizontal);
             if ((after ? after_room : before_room) < needed &&
-                (after ? before_room > after_room : after_room > before_room)) after = !after;
+                (after ? before_room > after_room : after_room > before_room))
+                after = !after;
             Point origin = anchor.origin;
             const double main = after ? anchor_end + gap : anchor_start - gap - needed;
-            along(origin, horizontal) = static_cast<float>(std::clamp(main, start,
-                std::max(start, end - needed)));
+            along(origin, horizontal) = static_cast<float>(std::clamp(main, start, std::max(start, end - needed)));
             const double cross_start = along(boundary.origin, !horizontal);
             along(origin, !horizontal) = static_cast<float>(std::clamp(
                 static_cast<double>(along(origin, !horizontal)), cross_start,
@@ -159,10 +161,10 @@ private:
             for (const auto child : children) {
                 const auto& child_style = styles_[child];
                 const float extent = preferred(child, row) + total(child_style.margin, row);
-                along(content, row) = style.display == Display::stack
-                    ? std::max(along(content, row), extent) : along(content, row) + extent;
-                along(content, !row) = std::max(along(content, !row),
-                                                preferred(child, !row) + total(child_style.margin, !row));
+                along(content, row) = style.display == Display::stack ? std::max(along(content, row), extent)
+                                                                      : along(content, row) + extent;
+                along(content, !row) =
+                    std::max(along(content, !row), preferred(child, !row) + total(child_style.margin, !row));
             }
             if (style.display != Display::stack && !children.empty())
                 along(content, row) += style.gap * static_cast<float>(children.size() - 1);
@@ -170,9 +172,10 @@ private:
         Size size;
         for (bool horizontal : {true, false}) {
             const auto& fixed = dimension(style, horizontal);
-            along(size, horizontal) = fixed.kind == Dimension::Kind::points
-                ? fixed.value
-                : along(content, horizontal) + total(style.border, horizontal) + total(style.padding, horizontal);
+            along(size, horizontal) =
+                fixed.kind == Dimension::Kind::points
+                    ? fixed.value
+                    : along(content, horizontal) + total(style.border, horizontal) + total(style.padding, horizontal);
         }
         const float width = limits(style, true).clamp(border_width.value_or(size.width));
         const float content_width = inset(inset({{}, {width, 0}}, style.border), style.padding).size.width;
@@ -188,13 +191,14 @@ private:
                 const auto children = displayed_children(index);
                 const bool stack = style.display == Display::stack;
                 const bool row = style.direction == FlexDirection::row;
-                const auto widths = row && !stack
-                    ? flex(style, children, content_width, content_width) : std::vector<float>{};
+                const auto widths =
+                    row && !stack ? flex(style, children, content_width, content_width) : std::vector<float>{};
                 for (std::size_t i = 0; i < children.size(); ++i) {
                     const auto child = children[i];
                     const float child_width = stack
-                        ? aligned_width(styles_[child].stack_horizontal, child, content_width)
-                        : row ? widths[i] : aligned_width(style.align, child, content_width);
+                                                  ? aligned_width(styles_[child].stack_horizontal, child, content_width)
+                                              : row ? widths[i]
+                                                    : aligned_width(style.align, child, content_width);
                     const float extent = limits(styles_[child], false).clamp(basis(child, child_width).height) +
                                          total(styles_[child].margin, false);
                     height = row || stack ? std::max(height, extent) : height + extent;
@@ -214,7 +218,8 @@ private:
     float aligned_width(Align align, std::uint32_t child, float available) {
         const auto& style = styles_[child];
         return align == Align::stretch && style.width.kind == Dimension::Kind::automatic
-            ? limits(style, true).clamp(available - total(style.margin, true)) : preferred(child, true);
+                   ? limits(style, true).clamp(available - total(style.margin, true))
+                   : preferred(child, true);
     }
 
     static float track_extent(std::span<const float> sizes, float gap) {
@@ -224,24 +229,25 @@ private:
     }
 
     std::vector<float> grid_axis(const ResolvedStyle& style, const std::vector<std::uint32_t>& children,
-                                 bool horizontal, std::optional<float> available,
-                                 std::span<const float> columns = {}) {
+                                 bool horizontal, std::optional<float> available, std::span<const float> columns = {}) {
         const auto& tracks = horizontal ? style.grid_columns : style.grid_rows;
         std::vector<float> sizes(tracks.size(), 0);
         for (std::size_t i = 0; i < children.size(); ++i) {
             const auto child = children[i];
             const auto slot = horizontal ? i % style.grid_columns.size() : i / style.grid_columns.size();
             if (tracks[slot].kind == GridTrack::Kind::points ||
-                (available && tracks[slot].kind == GridTrack::Kind::fraction)) continue;
+                (available && tracks[slot].kind == GridTrack::Kind::fraction))
+                continue;
             const float size = horizontal ? preferred(child, true)
-                : limits(styles_[child], false).clamp(basis(child,
-                    aligned_width(styles_[child].grid_horizontal, child,
-                                  columns[i % columns.size()])).height);
+                                          : limits(styles_[child], false)
+                                                .clamp(basis(child, aligned_width(styles_[child].grid_horizontal, child,
+                                                                                  columns[i % columns.size()]))
+                                                           .height);
             sizes[slot] = std::max(sizes[slot], size + total(styles_[child].margin, horizontal));
         }
         std::vector<bool> flexible(tracks.size(), false);
         double free = available.value_or(0) -
-            static_cast<double>(horizontal ? style.column_gap : style.row_gap) * (tracks.size() - 1);
+                      static_cast<double>(horizontal ? style.column_gap : style.row_gap) * (tracks.size() - 1);
         for (std::size_t i = 0; i < tracks.size(); ++i) {
             const auto& track = tracks[i];
             const float basis = track.kind == GridTrack::Kind::points ? track.value : sizes[i];
@@ -291,8 +297,10 @@ private:
     void place(std::uint32_t index, std::uint32_t parent, const Rect& border_box) {
         const auto& style = styles_[index];
         const auto at = static_cast<std::uint32_t>(result_.boxes.size());
-        auto clip = parent == no_layout_parent ? std::nullopt :
-            detail::descendant_clip(result_.boxes[parent], styles_[result_.boxes[parent].node.index].overflow);
+        auto clip =
+            parent == no_layout_parent
+                ? std::nullopt
+                : detail::descendant_clip(result_.boxes[parent], styles_[result_.boxes[parent].node.index].overflow);
         result_.boxes.push_back({handle(index), parent, border_box, style.border, style.padding,
                                  style.visibility == Visibility::visible, std::move(clip), std::nullopt});
         if (style.overflow == Overflow::scroll) result_.boxes[at].scroll = ScrollGeometry{};
@@ -323,16 +331,18 @@ private:
                 }
                 const Size cell{columns[column], rows[row]};
                 Rect box{{x, y}, {aligned_width(child_style.grid_horizontal, child, cell.width), 0}};
-                box.size.height = child_style.grid_vertical == Align::stretch &&
-                    child_style.height.kind == Dimension::Kind::automatic
-                    ? limits(child_style, false).clamp(cell.height - total(child_style.margin, false))
-                    : limits(child_style, false).clamp(basis(child, box.size.width).height);
+                box.size.height =
+                    child_style.grid_vertical == Align::stretch && child_style.height.kind == Dimension::Kind::automatic
+                        ? limits(child_style, false).clamp(cell.height - total(child_style.margin, false))
+                        : limits(child_style, false).clamp(basis(child, box.size.width).height);
                 for (bool horizontal : {true, false}) {
                     const auto align = horizontal ? child_style.grid_horizontal : child_style.grid_vertical;
-                    const float free = std::max(0.f, along(cell, horizontal) -
-                        total(child_style.margin, horizontal) - along(box.size, horizontal));
-                    along(box.origin, horizontal) += leading(child_style.margin, horizontal) +
-                        (align == Align::center ? free / 2 : align == Align::end ? free : 0);
+                    const float free = std::max(0.f, along(cell, horizontal) - total(child_style.margin, horizontal) -
+                                                         along(box.size, horizontal));
+                    along(box.origin, horizontal) +=
+                        leading(child_style.margin, horizontal) + (align == Align::center ? free / 2
+                                                                   : align == Align::end  ? free
+                                                                                          : 0);
                 }
                 boxes.push_back(box);
                 x += columns[column] + style.column_gap;
@@ -350,22 +360,25 @@ private:
                 Rect box{{}, {aligned_width(child_style.stack_horizontal, child, content.size.width), 0}};
                 const bool bounded = detail::modal(*tree_.get(handle(index)));
                 if (bounded && child_style.width.kind == Dimension::Kind::automatic)
-                    box.size.width = limits(child_style, true).clamp(std::min(box.size.width,
-                        std::max(0.f, content.size.width - total(child_style.margin, true))));
+                    box.size.width =
+                        limits(child_style, true)
+                            .clamp(std::min(box.size.width,
+                                            std::max(0.f, content.size.width - total(child_style.margin, true))));
                 const float room = content.size.height - total(child_style.margin, false);
                 box.size.height = child_style.stack_vertical == Align::stretch &&
-                    child_style.height.kind == Dimension::Kind::automatic
-                    ? limits(child_style, false).clamp(room)
-                    : limits(child_style, false).clamp(basis(child, box.size.width).height);
+                                          child_style.height.kind == Dimension::Kind::automatic
+                                      ? limits(child_style, false).clamp(room)
+                                      : limits(child_style, false).clamp(basis(child, box.size.width).height);
                 if (bounded && child_style.height.kind == Dimension::Kind::automatic)
                     box.size.height = limits(child_style, false).clamp(std::min(box.size.height, std::max(0.f, room)));
                 for (bool horizontal : {true, false}) {
                     const auto align = horizontal ? child_style.stack_horizontal : child_style.stack_vertical;
-                    const float free = std::max(0.0f, along(content.size, horizontal) -
-                        total(child_style.margin, horizontal) - along(box.size, horizontal));
+                    const float free =
+                        std::max(0.0f, along(content.size, horizontal) - total(child_style.margin, horizontal) -
+                                           along(box.size, horizontal));
                     const float offset = align == Align::center ? free / 2 : align == Align::end ? free : 0;
-                    along(box.origin, horizontal) = along(content.origin, horizontal) +
-                        leading(child_style.margin, horizontal) + offset;
+                    along(box.origin, horizontal) =
+                        along(content.origin, horizontal) + leading(child_style.margin, horizontal) + offset;
                 }
                 boxes.push_back(box);
             }
@@ -383,8 +396,10 @@ private:
         leftover = std::max(0.0f, leftover);
         float cursor = along(content.origin, row);
         float spacing = style.gap;
-        if (style.justify == Justify::center) cursor += leftover / 2;
-        else if (style.justify == Justify::end) cursor += leftover;
+        if (style.justify == Justify::center)
+            cursor += leftover / 2;
+        else if (style.justify == Justify::end)
+            cursor += leftover;
         else if (style.justify == Justify::space_between && children.size() > 1)
             spacing += leftover / static_cast<float>(children.size() - 1);
 
@@ -398,16 +413,18 @@ private:
             cursor += sizes[i] + total(child.margin, row) - leading(child.margin, row) + spacing;
 
             const float room = cross_space - total(child.margin, !row);
-            const bool stretch = style.align == Align::stretch && dimension(child, !row).kind == Dimension::Kind::automatic;
-            const float natural_cross = row
-                ? limits(child, false).clamp(basis(children[i], sizes[i]).height) : preferred(children[i], true);
+            const bool stretch =
+                style.align == Align::stretch && dimension(child, !row).kind == Dimension::Kind::automatic;
+            const float natural_cross =
+                row ? limits(child, false).clamp(basis(children[i], sizes[i]).height) : preferred(children[i], true);
             const float cross = stretch ? limits(child, !row).clamp(room) : natural_cross;
             const float free = std::max(0.0f, room - cross);
             float offset = 0;
-            if (style.align == Align::center) offset = free / 2;
-            else if (style.align == Align::end) offset = free;
-            along(boxes[i].origin, !row) = along(content.origin, !row) +
-                                            leading(child.margin, !row) + offset;
+            if (style.align == Align::center)
+                offset = free / 2;
+            else if (style.align == Align::end)
+                offset = free;
+            along(boxes[i].origin, !row) = along(content.origin, !row) + leading(child.margin, !row) + offset;
             along(boxes[i].size, !row) = cross;
         }
         if (style.overflow == Overflow::scroll) scroll(at, children, boxes);
@@ -444,8 +461,8 @@ private:
     // Resolves main-axis border-box sizes for one single-line container: grow distributes positive free
     // space by grow factor, shrink removes overflow by shrink factor times basis, and limit violations
     // freeze items and redistribute until every item satisfies its limits.
-    std::vector<float> flex(const ResolvedStyle& style, const std::vector<std::uint32_t>& children,
-                            float available, float content_width) {
+    std::vector<float> flex(const ResolvedStyle& style, const std::vector<std::uint32_t>& children, float available,
+                            float content_width) {
         const bool row = style.direction == FlexDirection::row;
         struct Item {
             float basis, target, unclamped, factor;
@@ -458,8 +475,10 @@ private:
         for (const auto child : children) {
             const auto& child_style = styles_[child];
             const auto bounds = limits(child_style, row);
-            const float base = along(basis(child, row ? std::nullopt :
-                std::optional<float>{aligned_width(style.align, child, content_width)}), row);
+            const float base =
+                along(basis(child, row ? std::nullopt
+                                       : std::optional<float>{aligned_width(style.align, child, content_width)}),
+                      row);
             items.push_back({base, bounds.clamp(base), base, 0, bounds, false});
             space -= total(child_style.margin, row);
             hypothetical += items.back().target;
@@ -488,7 +507,8 @@ private:
             }
             for (auto& item : items) {
                 if (!item.frozen && (violation == 0 || (violation > 0 && item.target > item.unclamped) ||
-                                     (violation < 0 && item.target < item.unclamped))) item.frozen = true;
+                                     (violation < 0 && item.target < item.unclamped)))
+                    item.frozen = true;
             }
         }
         std::vector<float> sizes;

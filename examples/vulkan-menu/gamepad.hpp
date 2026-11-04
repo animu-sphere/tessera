@@ -79,17 +79,27 @@ public:
     // until released, so connecting or refocusing never activates or navigates.
     std::vector<tessera::InputEvent> update(const std::optional<Sample>& sample, std::chrono::microseconds now) {
         std::vector<tessera::InputEvent> events;
-        if (!sample) { *this = {}; return events; }
+        if (!sample) {
+            *this = {};
+            return events;
+        }
         const auto stick_direction = stick(*sample);
         const auto pad_direction = dpad(sample->buttons);
         const auto held = pad_direction ? pad_direction : stick_direction;
         if (!connected_) {
-            connected_ = true; buttons_ = sample->buttons; direction_ = held; suppressed_ = held.has_value();
+            connected_ = true;
+            buttons_ = sample->buttons;
+            direction_ = held;
+            suppressed_ = held.has_value();
             return events;
         }
         if (held != direction_) {
-            direction_ = held; suppressed_ = false;
-            if (held) { events.push_back({now, tessera::Navigate{*held, false}}); next_repeat_ = now + repeat_delay; }
+            direction_ = held;
+            suppressed_ = false;
+            if (held) {
+                events.push_back({now, tessera::Navigate{*held, false}});
+                next_repeat_ = now + repeat_delay;
+            }
         } else if (held && !suppressed_ && now >= next_repeat_) {
             events.push_back({now, tessera::Navigate{*held, true}});
             next_repeat_ = now + repeat_interval;

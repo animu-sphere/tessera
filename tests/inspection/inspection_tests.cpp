@@ -103,7 +103,8 @@ void capture_joins_one_generation() {
 
     const auto& box = fixture.layout.boxes[2];
     check(start.geometry && start.geometry->border_box == box.border_box &&
-              start.geometry->content_box == box.content_box() && start.geometry->visible && start.style == fixture.styles[2],
+              start.geometry->content_box == box.content_box() && start.geometry->visible &&
+              start.style == fixture.styles[2],
           "Geometry and style come from the captured snapshot");
     check(!start.geometry->scroll && !elements[0].geometry->scroll, "Only scroll boxes observe scroll geometry");
     check(!elements[10].geometry && !elements[11].geometry && elements[11].parent == 10 &&
@@ -120,8 +121,7 @@ void capture_joins_one_generation() {
           "Source availability is explicit");
     check(start.source && start.source->pointer == "/root/children/1" &&
               spanned(start.source->span).starts_with(R"({"type":"Box","id":"start")") &&
-              spanned(start.source->span).ends_with("}") &&
-              spanned(start.source->properties.at("focusable")) == "true",
+              spanned(start.source->span).ends_with("}") && spanned(start.source->properties.at("focusable")) == "true",
           "Node and property spans map through the loaded source");
     check(spanned(elements[1].source->properties.at("text")) == R"("Main Menu")" &&
               elements[0].source->pointer == "/root" &&
@@ -153,7 +153,8 @@ void capture_rejects_incoherent_inputs() {
     const Fixture fixture;
     auto input = fixture.input();
     input.styles = std::span(fixture.styles).first(3);
-    check(has(tessera::capture_inspection(input).diagnostics, "style_count", "/styles"), "Style count must match the tree");
+    check(has(tessera::capture_inspection(input).diagnostics, "style_count", "/styles"),
+          "Style count must match the tree");
 
     const Fixture other;
     input = fixture.input();
@@ -236,7 +237,8 @@ void targets_resolve_exactly_one_element() {
     const auto clipped_snapshot = clipped.capture();
     const auto& quit = *clipped_snapshot.elements[7].geometry;
     check(!clipped_snapshot.elements[0].geometry->clip && quit.clip == tessera::Rect{{0, 0}, {200, 50}} &&
-              quit.border_box.origin.y >= 50, "Geometry must record ancestor clips");
+              quit.border_box.origin.y >= 50,
+          "Geometry must record ancestor clips");
     const tessera::Point hidden{quit.border_box.origin.x + 1, quit.border_box.origin.y + 1};
     const auto beneath = tessera::resolve_target(clipped_snapshot, tessera::PointTarget{hidden});
     check(beneath && *beneath.value == clipped.node(0), "Points must not select clipped-out elements");
@@ -244,7 +246,8 @@ void targets_resolve_exactly_one_element() {
     clipped.styles[0].overflow = tessera::Overflow::scroll;
     clipped.compute();
     const auto scrolled = clipped.capture();
-    check(scrolled.elements[0].geometry->scroll && scrolled.elements[0].geometry->scroll == clipped.layout.boxes[0].scroll &&
+    check(scrolled.elements[0].geometry->scroll &&
+              scrolled.elements[0].geometry->scroll == clipped.layout.boxes[0].scroll &&
               scrolled.elements[7].geometry->clip == quit.clip,
           "Scroll boxes must expose their scroll geometry and clip like overflow clip");
 }
@@ -260,7 +263,8 @@ void scoped_targets() {
     const auto path = tessera::resolve_target(snapshot, tessera::PathTarget{{0}}, fixture.node(2));
     check(path && *path.value == fixture.node(3), "Scoped path did not start at scope");
     check(has(tessera::resolve_target(snapshot, tessera::AuthorIdTarget{"spare"}, fixture.node(2)).diagnostics,
-              "target_not_found", "/target"), "ID lookup escaped scope");
+              "target_not_found", "/target"),
+          "ID lookup escaped scope");
     const auto& rect = snapshot.elements[3].geometry->border_box;
     const tessera::PointTarget point{{rect.origin.x + 1, rect.origin.y + 1}};
     check(bool(tessera::resolve_target(snapshot, point, fixture.node(2))) &&
@@ -317,10 +321,12 @@ void sourced_loading_matches_plain_loading() {
         auto sourced = tessera::load_document_with_sources(json, "x.json");
         check(!plain && !sourced && !plain.diagnostics.empty(), "Both loaders reject invalid input");
         for (auto& diagnostic : sourced.diagnostics) {
-            check(diagnostic.source && diagnostic.source->location.file == "x.json", "Sourced failures own their file identity");
+            check(diagnostic.source && diagnostic.source->location.file == "x.json",
+                  "Sourced failures own their file identity");
             diagnostic.source.reset();
         }
-        check(plain.diagnostics == sourced.diagnostics, "Sourced loading preserves codes, messages, paths, severities and offsets");
+        check(plain.diagnostics == sourced.diagnostics,
+              "Sourced loading preserves codes, messages, paths, severities and offsets");
     }
     const auto sourced = load();
     check(sourced.document == *tessera::load_document(menu_json, actions).value && sourced.sources.nodes.size() == 13,

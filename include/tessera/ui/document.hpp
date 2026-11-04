@@ -48,8 +48,7 @@ struct Diagnostic {
     bool operator==(const Diagnostic&) const = default;
 };
 
-template<class T>
-struct Result {
+template<class T> struct Result {
     std::optional<T> value;
     std::vector<Diagnostic> diagnostics;
     explicit operator bool() const noexcept { return value.has_value(); }

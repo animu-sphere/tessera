@@ -6,12 +6,8 @@
 
 namespace tessera {
 namespace {
-float axis(Point point, FlexDirection direction) {
-    return direction == FlexDirection::row ? point.x : point.y;
-}
-float extent(Size size, FlexDirection direction) {
-    return direction == FlexDirection::row ? size.width : size.height;
-}
+float axis(Point point, FlexDirection direction) { return direction == FlexDirection::row ? point.x : point.y; }
+float extent(Size size, FlexDirection direction) { return direction == FlexDirection::row ? size.width : size.height; }
 }
 
 Result<std::optional<SplitPaneGeometry>> split_pane_geometry(const HitTestInput& input, std::string_view id) {
@@ -26,11 +22,12 @@ Result<std::optional<SplitPaneGeometry>> split_pane_geometry(const HitTestInput&
     const auto second = input.tree->find(std::string(id) + "-second");
     if (!first || !handle || !second) return {std::optional<SplitPaneGeometry>{}, {}};
     if (input.tree->children(*root) != std::vector<NodeHandle>{*first, *handle, *second})
-        return {std::nullopt, {{"split_pane_structure", Severity::error, "/id",
-            "Use the generated first/handle/second children of a public SplitPane."}}};
+        return {std::nullopt,
+                {{"split_pane_structure", Severity::error, "/id",
+                  "Use the generated first/handle/second children of a public SplitPane."}}};
     auto box = [&](NodeHandle node) -> const LayoutBox* {
         const auto found = std::find_if(input.layout->boxes.begin(), input.layout->boxes.end(),
-            [&](const auto& value) { return value.node == node; });
+                                        [&](const auto& value) { return value.node == node; });
         return found == input.layout->boxes.end() ? nullptr : &*found;
     };
     const auto* parent_box = box(*root);
@@ -42,42 +39,48 @@ Result<std::optional<SplitPaneGeometry>> split_pane_geometry(const HitTestInput&
     auto semantics = build_semantic_tree({input.tree, input.styles, input.layout});
     if (!semantics) return {std::nullopt, std::move(semantics.diagnostics)};
     const auto entry = std::find_if(semantics.value->nodes.begin(), semantics.value->nodes.end(),
-        [&](const auto& value) { return value.node == *handle; });
+                                    [&](const auto& value) { return value.node == *handle; });
     if (entry == semantics.value->nodes.end() || entry->role != SemanticRole::separator)
-        return {std::nullopt, {{"split_pane_structure", Severity::error, "/id",
-            "Keep the generated handle's separator semantics."}}};
+        return {std::nullopt,
+                {{"split_pane_structure", Severity::error, "/id", "Keep the generated handle's separator semantics."}}};
     const auto direction = input.styles[root->index].direction;
     const auto& a = input.styles[first->index];
     const auto& b = input.styles[second->index];
-    const authoring::SplitPaneLimits limits{
-        direction == FlexDirection::row ? a.min_width : a.min_height,
-        direction == FlexDirection::row ? b.min_width : b.min_height, extent(handle_box->border_box.size, direction)};
+    const authoring::SplitPaneLimits limits{direction == FlexDirection::row ? a.min_width : a.min_height,
+                                            direction == FlexDirection::row ? b.min_width : b.min_height,
+                                            extent(handle_box->border_box.size, direction)};
     const float available = extent(parent_box->content_box().size, direction);
     auto maximum = authoring::split_pane_size_at(limits, available, available);
     if (!maximum) return {std::nullopt, std::move(maximum.diagnostics)};
     return {SplitPaneGeometry{*handle, handle_box->border_box, first_box->border_box.origin, direction,
-        extent(first_box->border_box.size, direction), limits.minimum_first, *maximum.value,
-        entry->enabled && entry->focusable && !entry->actions.empty()}, {}};
+                              extent(first_box->border_box.size, direction), limits.minimum_first, *maximum.value,
+                              entry->enabled && entry->focusable && !entry->actions.empty()},
+            {}};
 }
 
 Result<SplitPaneDispatchResult> SplitPaneDispatcher::refresh(const HitTestInput& input) {
     if (!std::isfinite(step_) || step_ <= 0)
-        return {std::nullopt, {{"split_pane_step", Severity::error, "/step", "Supply a finite positive keyboard step."}}};
+        return {std::nullopt,
+                {{"split_pane_step", Severity::error, "/step", "Supply a finite positive keyboard step."}}};
     auto geometry = split_pane_geometry(input, id_);
     if (!geometry) return {std::nullopt, std::move(geometry.diagnostics)};
     SplitPaneDispatchResult result;
-    if (!*geometry.value) { reset(); return {result, {}}; }
+    if (!*geometry.value) {
+        reset();
+        return {result, {}};
+    }
     const auto& view = **geometry.value;
     result.size = view.size;
     const auto* node = input.tree->get(view.handle);
     if (drag_ && (!view.enabled || drag_->direction != view.direction ||
-        drag_->handle_size != extent(view.bounds.size, view.direction) ||
-        node->events.at("activate") != drag_->action)) reset();
+                  drag_->handle_size != extent(view.bounds.size, view.direction) ||
+                  node->events.at("activate") != drag_->action))
+        reset();
     return {result, {}};
 }
 
 Result<SplitPaneDispatchResult> SplitPaneDispatcher::dispatch(const HitTestInput& input, const InputEvent& event,
-    std::optional<NodeHandle> focused) {
+                                                              std::optional<NodeHandle> focused) {
     auto errors = validate(event);
     auto semantic_errors = validate(SemanticInput{input.tree, input.styles, input.layout, focused});
     errors.insert(errors.end(), semantic_errors.begin(), semantic_errors.end());
@@ -107,21 +110,26 @@ Result<SplitPaneDispatchResult> SplitPaneDispatcher::dispatch(const HitTestInput
     };
     if (const auto* cancel = std::get_if<PointerCancel>(&event.data)) {
         if (candidate.drag_ && candidate.drag_->pointer == cancel->pointer) {
-            candidate.reset(); result.handled = true;
+            candidate.reset();
+            result.handled = true;
         }
     } else if (const auto* down = std::get_if<PointerDown>(&event.data)) {
         if (!candidate.drag_ && down->button == PointerButton::primary) {
             auto hit = hit_test(input, down->position);
             if (!hit) return {std::nullopt, std::move(hit.diagnostics)};
             if (hit.value->target == view.handle) {
-                candidate.drag_ = Drag{down->pointer, axis(down->position, view.direction) - axis(view.bounds.origin, view.direction),
-                    view.direction, extent(view.bounds.size, view.direction), input.tree->get(view.handle)->events.at("activate")};
-                result.handled = true; result.focus = view.handle;
+                candidate.drag_ =
+                    Drag{down->pointer, axis(down->position, view.direction) - axis(view.bounds.origin, view.direction),
+                         view.direction, extent(view.bounds.size, view.direction),
+                         input.tree->get(view.handle)->events.at("activate")};
+                result.handled = true;
+                result.focus = view.handle;
             }
         }
     } else if (const auto* move = std::get_if<PointerMove>(&event.data)) {
         if (candidate.drag_ && candidate.drag_->pointer == move->pointer)
-            return adjustment(axis(move->position, view.direction) - axis(view.first_origin, view.direction) - candidate.drag_->grab);
+            return adjustment(axis(move->position, view.direction) - axis(view.first_origin, view.direction) -
+                              candidate.drag_->grab);
     } else if (const auto* up = std::get_if<PointerUp>(&event.data)) {
         if (candidate.drag_ && candidate.drag_->pointer == up->pointer && up->button == PointerButton::primary) {
             const auto grab = candidate.drag_->grab;
@@ -129,8 +137,8 @@ Result<SplitPaneDispatchResult> SplitPaneDispatcher::dispatch(const HitTestInput
             return adjustment(axis(up->position, view.direction) - axis(view.first_origin, view.direction) - grab);
         }
     } else if (std::holds_alternative<Cancel>(event.data) ||
-        (std::get_if<KeyDown>(&event.data) && std::get<KeyDown>(event.data).key == Key::escape &&
-            std::get<KeyDown>(event.data).modifiers == Modifiers{})) {
+               (std::get_if<KeyDown>(&event.data) && std::get<KeyDown>(event.data).key == Key::escape &&
+                std::get<KeyDown>(event.data).modifiers == Modifiers{})) {
         result.handled = candidate.drag_.has_value();
         candidate.reset();
     } else {
@@ -139,22 +147,34 @@ Result<SplitPaneDispatchResult> SplitPaneDispatcher::dispatch(const HitTestInput
             float requested = view.size;
             bool adjusts = false;
             if (const auto* key = std::get_if<KeyDown>(&event.data); key && key->modifiers == Modifiers{}) {
-                if (key->key == Key::home) { requested = view.minimum; adjusts = true; }
-                else if (key->key == Key::end) { requested = view.maximum; adjusts = true; }
-                else if (key->key == (view.direction == FlexDirection::row ? Key::left : Key::up)) {
-                    requested -= step_; adjusts = true;
+                if (key->key == Key::home) {
+                    requested = view.minimum;
+                    adjusts = true;
+                } else if (key->key == Key::end) {
+                    requested = view.maximum;
+                    adjusts = true;
+                } else if (key->key == (view.direction == FlexDirection::row ? Key::left : Key::up)) {
+                    requested -= step_;
+                    adjusts = true;
                 } else if (key->key == (view.direction == FlexDirection::row ? Key::right : Key::down)) {
-                    requested += step_; adjusts = true;
+                    requested += step_;
+                    adjusts = true;
                 }
             }
             if (const auto* navigate = std::get_if<Navigate>(&event.data)) {
                 if (navigate->direction == (view.direction == FlexDirection::row ? Direction::left : Direction::up)) {
-                    requested -= step_; adjusts = true;
-                } else if (navigate->direction == (view.direction == FlexDirection::row ? Direction::right : Direction::down)) {
-                    requested += step_; adjusts = true;
+                    requested -= step_;
+                    adjusts = true;
+                } else if (navigate->direction ==
+                           (view.direction == FlexDirection::row ? Direction::right : Direction::down)) {
+                    requested += step_;
+                    adjusts = true;
                 }
             }
-            if (std::holds_alternative<Activate>(event.data)) { requested += step_; adjusts = true; }
+            if (std::holds_alternative<Activate>(event.data)) {
+                requested += step_;
+                adjusts = true;
+            }
             if (adjusts) return adjustment(requested);
         }
     }

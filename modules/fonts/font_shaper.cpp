@@ -19,8 +19,7 @@
 namespace tessera {
 namespace {
 
-template<class T, void (*destroy)(T*)>
-struct HbRelease {
+template<class T, void (*destroy)(T*)> struct HbRelease {
     void operator()(T* object) const { destroy(object); }
 };
 using HbBlob = std::unique_ptr<hb_blob_t, HbRelease<hb_blob_t, hb_blob_destroy>>;
@@ -28,8 +27,12 @@ using HbFace = std::unique_ptr<hb_face_t, HbRelease<hb_face_t, hb_face_destroy>>
 using HbFont = std::unique_ptr<hb_font_t, HbRelease<hb_font_t, hb_font_destroy>>;
 using HbBuffer = std::unique_ptr<hb_buffer_t, HbRelease<hb_buffer_t, hb_buffer_destroy>>;
 
-struct FtLibraryRelease { void operator()(FT_Library object) const { FT_Done_FreeType(object); } };
-struct FtFaceRelease { void operator()(FT_Face object) const { FT_Done_Face(object); } };
+struct FtLibraryRelease {
+    void operator()(FT_Library object) const { FT_Done_FreeType(object); }
+};
+struct FtFaceRelease {
+    void operator()(FT_Face object) const { FT_Done_Face(object); }
+};
 using FtLibrary = std::unique_ptr<FT_LibraryRec_, FtLibraryRelease>;
 using FtFace = std::unique_ptr<FT_FaceRec_, FtFaceRelease>;
 
@@ -63,11 +66,13 @@ std::vector<Diagnostic> invalid_font(std::string message) {
 
 std::vector<Diagnostic> validate_font_name(std::string_view name, std::string path) {
     if (name.empty() || name.size() > 256)
-        return {{"invalid_font_name", Severity::error, std::move(path), "Expected a font name of 1..256 UTF-8 bytes.", {}}};
+        return {
+            {"invalid_font_name", Severity::error, std::move(path), "Expected a font name of 1..256 UTF-8 bytes.", {}}};
     auto errors = validate_text_input(name, {});
     for (auto& error : errors) error.path = path;
     if (std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
-        errors.push_back({"invalid_font_name", Severity::error, std::move(path), "Font names cannot contain ASCII controls.", {}});
+        errors.push_back(
+            {"invalid_font_name", Severity::error, std::move(path), "Font names cannot contain ASCII controls.", {}});
     return errors;
 }
 
@@ -125,8 +130,7 @@ std::vector<Scalar> scalars(std::string_view text) {
         const auto lead = static_cast<unsigned char>(text[i++]);
         const unsigned count = lead < 0x80 ? 0 : lead < 0xe0 ? 1 : lead < 0xf0 ? 2 : 3;
         char32_t value = count == 0 ? lead : lead & (0x3f >> count);
-        for (unsigned j = 0; j < count; ++j)
-            value = (value << 6) | (static_cast<unsigned char>(text[i++]) & 0x3f);
+        for (unsigned j = 0; j < count; ++j) value = (value << 6) | (static_cast<unsigned char>(text[i++]) & 0x3f);
         result.push_back({static_cast<std::uint32_t>(start), value});
     }
     return result;
@@ -138,7 +142,8 @@ bool glue(char32_t value) { return contains(U"\u00a0\u202f\u2060\ufeff", value);
 bool opening(char32_t value) { return contains(U"([{‘“〈《「『【〔〖〘〚（［｛｟｢", value); }
 bool nonstarter(char32_t value) {
     return contains(U")]}’”〉》」』】〕〗〙〛）］｝｠｣、。，．！？：；・…‥々〻ゝゞヽヾー"
-                    U"ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶｧｨｩｪｫｯｬｭｮｰ!?.,:;", value) ||
+                    U"ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶｧｨｩｪｫｯｬｭｮｰ!?.,:;",
+                    value) ||
            (value >= 0x31f0 && value <= 0x31ff);
 }
 bool japanese_character(char32_t value) {
@@ -162,7 +167,8 @@ Break line_break(const std::vector<Scalar>& text, std::uint32_t offset) {
     while (break_space(before_spaces->value) && before_spaces != text.begin()) --before_spaces;
     if (opening(before_spaces->value)) return Break::prohibited;
     if (break_space(left->value) || left->value == U'-' || left->value == U'\u2010' ||
-        japanese_character(left->value) || japanese_character(right->value)) return Break::preferred;
+        japanese_character(left->value) || japanese_character(right->value))
+        return Break::preferred;
     return Break::emergency;
 }
 
@@ -173,7 +179,10 @@ struct FontShaper::Impl {
     std::unordered_map<std::uint32_t, Face> faces;
     std::unordered_map<std::uint32_t, std::vector<FontId>> fallbacks;
     std::unordered_map<std::string, std::vector<FontFamilyFace>> families;
-    struct Alias { std::string name; std::vector<std::string> families; };
+    struct Alias {
+        std::string name;
+        std::vector<std::string> families;
+    };
     std::unordered_map<std::uint32_t, Alias> aliases;
     HbBuffer buffer{hb_buffer_create()};
     // A fixed language keeps shaping independent of the process locale.
@@ -247,7 +256,11 @@ FontShaper& FontShaper::operator=(FontShaper&&) noexcept = default;
 
 std::vector<Diagnostic> FontShaper::set_face(FontId id, std::vector<std::byte> data, std::uint32_t face_index) {
     if (impl_->aliases.contains(id.value))
-        return {{"font_id_conflict", Severity::error, "/font", "This FontId names a logical alias; use a distinct concrete face FontId.", {}}};
+        return {{"font_id_conflict",
+                 Severity::error,
+                 "/font",
+                 "This FontId names a logical alias; use a distinct concrete face FontId.",
+                 {}}};
     if (data.empty()) return invalid_font("Font data is empty.");
     if (data.size() > UINT_MAX) return invalid_font("Font data exceeds 4 GiB.");
     if (data.size() > LONG_MAX) return invalid_font("Font data exceeds FreeType's memory-face size limit.");
@@ -273,13 +286,15 @@ std::vector<Diagnostic> FontShaper::set_face(FontId id, std::vector<std::byte> d
     if (face.extents.ascender - face.extents.descender <= 0)
         return invalid_font("The face has no positive ascender-to-descender extent.");
     FT_Face raster_face = nullptr;
-    const auto error = FT_New_Memory_Face(impl_->library.get(), reinterpret_cast<const FT_Byte*>(bytes->data()),
-                                        static_cast<FT_Long>(bytes->size()), static_cast<FT_Long>(face_index), &raster_face);
+    const auto error =
+        FT_New_Memory_Face(impl_->library.get(), reinterpret_cast<const FT_Byte*>(bytes->data()),
+                           static_cast<FT_Long>(bytes->size()), static_cast<FT_Long>(face_index), &raster_face);
     if (error) return invalid_font("FreeType rejected this face (error " + std::to_string(error) + ").");
     face.raster_face.reset(raster_face);
     if (!FT_IS_SCALABLE(raster_face) || raster_face->units_per_EM != face.upem ||
         raster_face->num_glyphs != static_cast<FT_Long>(hb_face_get_glyph_count(face.face.get())))
-        return invalid_font("A scalable outline face with matching shaping/raster glyph indices and units per em is required.");
+        return invalid_font(
+            "A scalable outline face with matching shaping/raster glyph indices and units per em is required.");
     // Per-face policy overrides FREETYPE_PROPERTIES without changing process state.
     // CFF stem darkening can otherwise change grayscale pixels even with hinting off.
     FT_Bool stem_darkening = false;
@@ -309,11 +324,13 @@ Result<GlyphBitmap> FontShaper::rasterize(const GlyphRasterRequest& request) {
     auto errors = validate(request);
     const auto at = impl_->faces.find(request.font.value);
     if (at == impl_->faces.end())
-        errors.push_back({"unknown_font", Severity::error, "/font", "Register this FontId with set_face before rasterizing.", {}});
+        errors.push_back(
+            {"unknown_font", Severity::error, "/font", "Register this FontId with set_face before rasterizing.", {}});
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     const auto face = at->second.raster_face.get();
     if (request.glyph >= static_cast<std::uint32_t>(face->num_glyphs))
-        return {std::nullopt, {{"invalid_glyph", Severity::error, "/glyph", "Glyph index is outside the registered face.", {}}}};
+        return {std::nullopt,
+                {{"invalid_glyph", Severity::error, "/glyph", "Glyph index is outside the registered face.", {}}}};
     const auto failed = [](std::string message, std::string path = "/glyph") -> Result<GlyphBitmap> {
         return {std::nullopt, {{"glyph_raster_failed", Severity::error, std::move(path), std::move(message), {}}}};
     };
@@ -356,8 +373,11 @@ Result<GlyphBitmap> FontShaper::rasterize(const GlyphRasterRequest& request) {
 
 std::vector<Diagnostic> FontShaper::set_fallback(FontId font, std::vector<FontId> fallbacks) {
     const auto unknown = [](FontId id, std::string path) {
-        return Diagnostic{"unknown_font", Severity::error, std::move(path),
-                          "No face is registered for FontId " + std::to_string(id.value) + "; call set_face first.", {}};
+        return Diagnostic{"unknown_font",
+                          Severity::error,
+                          std::move(path),
+                          "No face is registered for FontId " + std::to_string(id.value) + "; call set_face first.",
+                          {}};
     };
     std::vector<Diagnostic> errors;
     if (!has_face(font)) errors.push_back(unknown(font, "/font"));
@@ -365,8 +385,11 @@ std::vector<Diagnostic> FontShaper::set_fallback(FontId font, std::vector<FontId
         auto path = "/fallback/" + std::to_string(i);
         const auto earlier = fallbacks.begin() + static_cast<std::ptrdiff_t>(i);
         if (fallbacks[i] == font || std::find(fallbacks.begin(), earlier, fallbacks[i]) != earlier)
-            errors.push_back({"duplicate_font", Severity::error, std::move(path),
-                              "FontId " + std::to_string(fallbacks[i].value) + " already appears in this stack.", {}});
+            errors.push_back({"duplicate_font",
+                              Severity::error,
+                              std::move(path),
+                              "FontId " + std::to_string(fallbacks[i].value) + " already appears in this stack.",
+                              {}});
         else if (!has_face(fallbacks[i]))
             errors.push_back(unknown(fallbacks[i], std::move(path)));
     }
@@ -387,12 +410,21 @@ std::vector<Diagnostic> FontShaper::set_family(std::string name, std::vector<Fon
     for (std::size_t i = 0; i < faces.size(); ++i) {
         const auto path = "/faces/" + std::to_string(i);
         if (!has_face(faces[i].font))
-            errors.push_back({"unknown_font", Severity::error, path + "/font", "Register this concrete face with set_face first.", {}});
+            errors.push_back({"unknown_font",
+                              Severity::error,
+                              path + "/font",
+                              "Register this concrete face with set_face first.",
+                              {}});
         if (faces[i].weight < 1 || faces[i].weight > 1000)
-            errors.push_back({"out_of_range", Severity::error, path + "/weight", "Expected a declared weight in [1, 1000].", {}});
+            errors.push_back(
+                {"out_of_range", Severity::error, path + "/weight", "Expected a declared weight in [1, 1000].", {}});
         const auto earlier = faces.begin() + static_cast<std::ptrdiff_t>(i);
         if (std::any_of(faces.begin(), earlier, [&](const auto& entry) { return entry.weight == faces[i].weight; }))
-            errors.push_back({"duplicate_font_weight", Severity::error, path + "/weight", "Each family weight must appear once.", {}});
+            errors.push_back({"duplicate_font_weight",
+                              Severity::error,
+                              path + "/weight",
+                              "Each family weight must appear once.",
+                              {}});
     }
     if (!errors.empty()) return errors;
     impl_->families.insert_or_assign(std::move(name), std::move(faces));
@@ -402,15 +434,25 @@ std::vector<Diagnostic> FontShaper::set_family(std::string name, std::vector<Fon
 std::vector<Diagnostic> FontShaper::set_alias(FontId font, std::string name, std::vector<std::string> families) {
     auto errors = validate_font_name(name, "/name");
     if (has_face(font))
-        errors.push_back({"font_id_conflict", Severity::error, "/font", "This FontId names a concrete face; use a distinct alias FontId.", {}});
+        errors.push_back({"font_id_conflict",
+                          Severity::error,
+                          "/font",
+                          "This FontId names a concrete face; use a distinct alias FontId.",
+                          {}});
     const auto previous = impl_->aliases.find(font.value);
     if (previous != impl_->aliases.end() && previous->second.name != name)
-        errors.push_back({"font_alias_conflict", Severity::error, "/name", "A logical FontId keeps its original alias name.", {}});
+        errors.push_back(
+            {"font_alias_conflict", Severity::error, "/name", "A logical FontId keeps its original alias name.", {}});
     const auto named = find_alias(name);
     if (named && *named != font)
-        errors.push_back({"font_alias_conflict", Severity::error, "/name", "This alias name already belongs to another FontId.", {}});
+        errors.push_back({"font_alias_conflict",
+                          Severity::error,
+                          "/name",
+                          "This alias name already belongs to another FontId.",
+                          {}});
     if (families.empty() || families.size() > 64) {
-        errors.push_back({"out_of_range", Severity::error, "/families", "Expected 1..64 distinct registered families.", {}});
+        errors.push_back(
+            {"out_of_range", Severity::error, "/families", "Expected 1..64 distinct registered families.", {}});
         return errors;
     }
     for (std::size_t i = 0; i < families.size(); ++i) {
@@ -419,9 +461,17 @@ std::vector<Diagnostic> FontShaper::set_alias(FontId font, std::string name, std
         errors.insert(errors.end(), std::make_move_iterator(invalid.begin()), std::make_move_iterator(invalid.end()));
         const auto earlier = families.begin() + static_cast<std::ptrdiff_t>(i);
         if (std::find(families.begin(), earlier, families[i]) != earlier)
-            errors.push_back({"duplicate_font_family", Severity::error, std::move(path), "Each family must appear once in an alias stack.", {}});
+            errors.push_back({"duplicate_font_family",
+                              Severity::error,
+                              std::move(path),
+                              "Each family must appear once in an alias stack.",
+                              {}});
         else if (!impl_->families.contains(families[i]))
-            errors.push_back({"unknown_font_family", Severity::error, std::move(path), "Register this family with set_family first.", {}});
+            errors.push_back({"unknown_font_family",
+                              Severity::error,
+                              std::move(path),
+                              "Register this family with set_family first.",
+                              {}});
     }
     if (!errors.empty()) return errors;
     impl_->aliases.insert_or_assign(font.value, Impl::Alias{std::move(name), std::move(families)});
@@ -448,7 +498,8 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
                 const auto db = std::abs(static_cast<int>(b.weight) - style.weight);
                 return da < db || (da == db && a.weight < b.weight);
             });
-            if (std::find(selected.begin(), selected.end(), best->font) == selected.end()) selected.push_back(best->font);
+            if (std::find(selected.begin(), selected.end(), best->font) == selected.end())
+                selected.push_back(best->font);
         }
         primary = selected.front();
         fallbacks.assign(std::next(selected.begin()), selected.end());
@@ -458,8 +509,12 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
     }
     const auto found = impl_->faces.find(primary.value);
     if (found == impl_->faces.end())
-        errors.push_back({"unknown_font", Severity::error, "/style/font",
-                          "No face or alias is registered for FontId " + std::to_string(style.font.value) + "; call set_face or set_alias.", {}});
+        errors.push_back({"unknown_font",
+                          Severity::error,
+                          "/style/font",
+                          "No face or alias is registered for FontId " + std::to_string(style.font.value) +
+                              "; call set_face or set_alias.",
+                          {}});
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
 
     // Faces/families cannot be removed. Alias selection changes neither face revisions
@@ -472,15 +527,16 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
     const float line = style.line_height.value_or(
         static_cast<float>((extents.ascender - extents.descender + extents.line_gap) * scale));
     // Half-leading: the ascender-to-descender extent is centered in each line.
-    const auto baseline = static_cast<float>(
-        (line - (extents.ascender - extents.descender) * scale) / 2 + extents.ascender * scale);
+    const auto baseline =
+        static_cast<float>((line - (extents.ascender - extents.descender) * scale) / 2 + extents.ascender * scale);
 
     GlyphRun run{style.font, style.size, {}, {}};
     run.metrics.line_height = line;
     run.metrics.baseline = baseline;
     const auto too_long = [] {
-        return Result<GlyphRun>{std::nullopt, {{"text_too_long", Severity::error, "/text",
-                                                "A line is too long for the shaping buffer.", {}}}};
+        return Result<GlyphRun>{
+            std::nullopt,
+            {{"text_too_long", Severity::error, "/text", "A line is too long for the shaping buffer.", {}}}};
     };
     std::vector<Shaped> glyphs;
     std::vector<std::pair<const Face*, std::int64_t>> pens;
@@ -499,8 +555,12 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
             hb_direction_t direction;
             if (!impl_->shape_line(face, primary, fallbacks, remaining, glyphs, direction)) return too_long();
             if (constraints.max_width && direction != HB_DIRECTION_LTR)
-                return {std::nullopt, {{"unsupported_wrapping_direction", Severity::error, "/text",
-                                        "Width-constrained wrapping currently requires left-to-right text.", {}}}};
+                return {std::nullopt,
+                        {{"unsupported_wrapping_direction",
+                          Severity::error,
+                          "/text",
+                          "Width-constrained wrapping currently requires left-to-right text.",
+                          {}}}};
             auto taken = static_cast<std::uint32_t>(remaining.size());
             if (constraints.max_width && static_cast<float>(advance_width(glyphs, size)) > *constraints.max_width) {
                 // Only shaped cluster boundaries can split a line. Shape each candidate as its
@@ -518,8 +578,9 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
                     const auto opportunity = line_break(characters, boundary);
                     if (opportunity == Break::prohibited) continue;
                     std::vector<Shaped> candidate;
-                    if (!impl_->shape_line(face, primary, fallbacks, remaining.substr(0, boundary),
-                                           candidate, direction)) return too_long();
+                    if (!impl_->shape_line(face, primary, fallbacks, remaining.substr(0, boundary), candidate,
+                                           direction))
+                        return too_long();
                     const bool overflow = static_cast<float>(advance_width(candidate, size)) > *constraints.max_width;
                     if (overflow && !accepted.empty()) break;
                     taken = boundary;
@@ -548,11 +609,13 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
                 return x;
             };
             for (const auto& glyph : glyphs) {
-                auto pen = std::find_if(pens.begin(), pens.end(), [&](const auto& entry) { return entry.first == glyph.face; });
+                auto pen = std::find_if(pens.begin(), pens.end(),
+                                        [&](const auto& entry) { return entry.first == glyph.face; });
                 if (pen == pens.end()) pen = pens.insert(pens.end(), {glyph.face, 0});
                 const auto cluster = static_cast<std::uint32_t>(start + consumed + glyph.cluster);
                 if (glyph.id == 0 && missing++ == 0) first_missing = cluster;
-                run.glyphs.push_back({glyph.id, cluster,
+                run.glyphs.push_back({glyph.id,
+                                      cluster,
                                       {static_cast<float>(pen_x(glyph.face, glyph.x_offset)),
                                        pen_y - static_cast<float>(glyph.y_offset * (size / glyph.face->upem))},
                                       FontId{glyph.font}});
@@ -569,16 +632,19 @@ Result<GlyphRun> FontShaper::shape(std::string_view utf8, const TextStyle& style
     run.metrics.lines = lines;
     std::vector<Diagnostic> warnings;
     if (missing > 0)
-        warnings.push_back({"missing_glyph", Severity::warning, "/text",
+        warnings.push_back({"missing_glyph",
+                            Severity::warning,
+                            "/text",
                             std::to_string(missing) + " glyph(s) missing from FontId " +
-                                std::to_string(style.font.value) + (fallbacks.empty() ? "" : " and its fallback stack") +
-                                ", first at UTF-8 byte " + std::to_string(first_missing) +
-                                "; they use glyph 0 (.notdef).",
+                                std::to_string(style.font.value) +
+                                (fallbacks.empty() ? "" : " and its fallback stack") + ", first at UTF-8 byte " +
+                                std::to_string(first_missing) + "; they use glyph 0 (.notdef).",
                             {}});
     return {std::move(run), std::move(warnings)};
 }
 
-Result<TextMetrics> FontShaper::measure(std::string_view utf8, const TextStyle& style, const TextConstraints& constraints) {
+Result<TextMetrics> FontShaper::measure(std::string_view utf8, const TextStyle& style,
+                                        const TextConstraints& constraints) {
     // Measurement is derived from shaping so the two can never disagree.
     auto shaped = shape(utf8, style, constraints);
     if (!shaped) return {std::nullopt, std::move(shaped.diagnostics)};

@@ -9,8 +9,6 @@ inline bool modal(const UiNode& node) {
     return value && std::get_if<bool>(value) && std::get<bool>(*value);
 }
 
-inline bool root_layer(const UiNode& node) {
-    return popup_anchor(node) || modal(node);
-}
+inline bool root_layer(const UiNode& node) { return popup_anchor(node) || modal(node); }
 
 } // namespace tessera::detail

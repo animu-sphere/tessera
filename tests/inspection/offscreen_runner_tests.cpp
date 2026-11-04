@@ -43,8 +43,7 @@ tessera::ReplayRecording recording() {
         result.styles[i].background = {0.2f, 0.3f, 0.5f, 1};
     }
     result.steps = {tessera::InputEvent{0us, tessera::Scroll{{20, 20}, {0, 30}}},
-                    tessera::ReplayFocus{tessera::AuthorIdTarget{"quit"}},
-                    tessera::ReplayResize{{150.3f, 90}},
+                    tessera::ReplayFocus{tessera::AuthorIdTarget{"quit"}}, tessera::ReplayResize{{150.3f, 90}},
                     tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"quit"}}};
     return result;
 }
@@ -99,8 +98,9 @@ void extents() {
     check(rounded && *rounded.value == tessera::CaptureExtent{188, 113}, "Extent must round up per axis");
     check(has(tessera::capture_extent({32, 0}, 1).diagnostics, "out_of_range", "/logical_size/height"),
           "Zero logical size accepted");
-    check(has(tessera::capture_extent({32, 32}, std::numeric_limits<float>::quiet_NaN()).diagnostics,
-              "invalid_number", "/device_scale"), "Non-finite scale accepted");
+    check(has(tessera::capture_extent({32, 32}, std::numeric_limits<float>::quiet_NaN()).diagnostics, "invalid_number",
+              "/device_scale"),
+          "Non-finite scale accepted");
     check(has(tessera::capture_extent({3e38f, 1}, 2).diagnostics, "out_of_range", "/logical_size"),
           "Extent beyond 32 bits accepted");
     check(tessera::validate(declared).empty(), "Valid backend declaration rejected");
@@ -129,7 +129,8 @@ void core_only() {
     for (std::size_t g = 0; g < 3; ++g) {
         const auto& frame = value.frames[g];
         check(frame.generation == g && frame.logical_size == sizes[g] && frame.device_scale == 1.25f &&
-                  frame.extent == pixels[g], "Frame conditions differ from the generation's viewport and scale");
+                  frame.extent == pixels[g],
+              "Frame conditions differ from the generation's viewport and scale");
         check(frame.status == tessera::FrameStatus::not_declared && !frame.image,
               "A core-only frame must state that capture was not declared");
     }
@@ -155,13 +156,11 @@ void captured() {
     for (std::size_t g = 0; g < 3; ++g) {
         const auto& request = frames.requests[g];
         const auto& frame = result.value->frames[g];
-        check(request.generation == g && request.logical_size == frame.logical_size &&
-                  request.device_scale == 1.25f && request.extent == frame.extent &&
-                  request.paint == result.value->output.generations[g].paint,
+        check(request.generation == g && request.logical_size == frame.logical_size && request.device_scale == 1.25f &&
+                  request.extent == frame.extent && request.paint == result.value->output.generations[g].paint,
               "Request must carry the generation's own paint, viewport, scale, and extent");
-        check(frame.status == tessera::FrameStatus::captured && frame.image &&
-                  frame.image->extent == frame.extent && frame.image->pixels[0] == g &&
-                  frame.image->pixels[1] == request.paint.commands.size(),
+        check(frame.status == tessera::FrameStatus::captured && frame.image && frame.image->extent == frame.extent &&
+                  frame.image->pixels[0] == g && frame.image->pixels[1] == request.paint.commands.size(),
               "Captured image is not associated with its generation");
     }
     check(result.value->output.generations[1].paint != result.value->output.generations[0].paint,
@@ -188,13 +187,14 @@ void rejected() {
     // Declarations and adapters must agree; nothing is substituted.
     check(has(tessera::run_offscreen({&replay, &text, declared, nullptr}).diagnostics, "missing_input", "/frames"),
           "Declared backend without adapter accepted");
-    check(has(tessera::run_offscreen({&replay, &text, std::nullopt, &frames}).diagnostics, "missing_input",
-              "/capture"), "Undeclared adapter accepted");
+    check(has(tessera::run_offscreen({&replay, &text, std::nullopt, &frames}).diagnostics, "missing_input", "/capture"),
+          "Undeclared adapter accepted");
     frames.declaration.device = "other-device";
-    check(has(tessera::run_offscreen({&replay, &text, declared, &frames}).diagnostics, "capture_mismatch",
-              "/capture"), "Mismatched backend declaration accepted");
+    check(has(tessera::run_offscreen({&replay, &text, declared, &frames}).diagnostics, "capture_mismatch", "/capture"),
+          "Mismatched backend declaration accepted");
     check(has(tessera::run_offscreen({&replay, &text, tessera::CaptureBackend{"", "d"}, &frames}).diagnostics,
-              "invalid_identifier", "/capture/backend"), "Invalid declaration accepted");
+              "invalid_identifier", "/capture/backend"),
+          "Invalid declaration accepted");
     check(frames.requests.empty(), "Rejected inputs must not capture");
     frames.declaration = declared;
 
@@ -220,7 +220,8 @@ void rejected() {
     frames.fail_at = 1;
     frames.failure = {{"device_lost", tessera::Severity::error, "/device", "Fixture failure.", {}}};
     check(has(run(replay, &frames).diagnostics, "device_lost", "/generations/1/capture/device") &&
-              frames.requests.size() == 2, "Adapter failure must stop at its generation");
+              frames.requests.size() == 2,
+          "Adapter failure must stop at its generation");
     frames.failure.clear();
     check(has(run(replay, &frames).diagnostics, "capture_failed", "/generations/1/capture"),
           "Silent adapter failure accepted");
@@ -244,12 +245,12 @@ void rejected() {
 
 void captures_generation_scale_and_time() {
     auto replay = recording();
-    replay.steps = {tessera::ReplayScale{1.5f}, tessera::ReplayTick{16ms},
-                    tessera::ReplayResize{{100, 80}}, tessera::ReplayScale{2}};
+    replay.steps = {tessera::ReplayScale{1.5f}, tessera::ReplayTick{16ms}, tessera::ReplayResize{{100, 80}},
+                    tessera::ReplayScale{2}};
     FixtureCapture frames;
     const auto result = run(replay, &frames);
     check(result && result.value->frames.size() == 5 && frames.requests.size() == 5, "Scale/time capture failed");
-    const tessera::CaptureExtent expected[]{{250,150}, {300,180}, {300,180}, {150,120}, {200,160}};
+    const tessera::CaptureExtent expected[]{{250, 150}, {300, 180}, {300, 180}, {150, 120}, {200, 160}};
     const float scales[]{1.25f, 1.5f, 1.5f, 1.5f, 2};
     for (std::size_t g = 0; g < 5; ++g) {
         const auto& frame = result.value->frames[g];

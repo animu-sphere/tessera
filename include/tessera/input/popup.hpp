@@ -19,6 +19,7 @@ public:
     explicit PopupDispatcher(std::string id) : id_(std::move(id)) {}
     Result<PopupDispatchResult> refresh(const HitTestInput&);
     Result<PopupDispatchResult> dispatch(const HitTestInput&, const InputEvent&);
+
 private:
     PopupDispatchResult update(const HitTestInput&);
     std::string id_;
@@ -41,8 +42,8 @@ class MenuDispatcher final {
 public:
     explicit MenuDispatcher(std::string id) : id_(std::move(id)), popup_(id_) {}
     Result<MenuDispatchResult> refresh(const HitTestInput&);
-    Result<MenuDispatchResult> dispatch(const HitTestInput&, const InputEvent&,
-        std::optional<NodeHandle> focused = {});
+    Result<MenuDispatchResult> dispatch(const HitTestInput&, const InputEvent&, std::optional<NodeHandle> focused = {});
+
 private:
     std::string id_;
     PopupDispatcher popup_;
@@ -60,7 +61,8 @@ public:
     explicit TooltipDispatcher(std::string anchor) : anchor_(std::move(anchor)) {}
     Result<TooltipDispatchResult> refresh(const HitTestInput&, std::optional<NodeHandle> focused = {});
     Result<TooltipDispatchResult> dispatch(const HitTestInput&, const InputEvent&,
-        std::optional<NodeHandle> focused = {});
+                                           std::optional<NodeHandle> focused = {});
+
 private:
     TooltipDispatchResult update(const HitTestInput&, std::optional<NodeHandle>);
     std::string anchor_;

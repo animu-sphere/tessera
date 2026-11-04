@@ -12,17 +12,29 @@ struct TextEditState {
     std::size_t anchor = 0, caret = 0;
     bool operator==(const TextEditState&) const = default;
 };
-struct TextEditSelection { std::size_t anchor = 0, caret = 0; };
-struct TextEditInsert { std::string text; }; // Replace selected committed bytes.
+struct TextEditSelection {
+    std::size_t anchor = 0, caret = 0;
+};
+struct TextEditInsert {
+    std::string text;
+}; // Replace selected committed bytes.
 enum class TextErase : std::uint8_t { backward, forward };
-struct TextEditErase { TextErase direction = TextErase::backward; };
+struct TextEditErase {
+    TextErase direction = TextErase::backward;
+};
 enum class TextMove : std::uint8_t { left, right, home, end };
-struct TextEditMove { TextMove direction = TextMove::left; bool extend = false; };
+struct TextEditMove {
+    TextMove direction = TextMove::left;
+    bool extend = false;
+};
 struct TextEditRequest {
     std::uint64_t owner = 0, revision = 0;
     std::variant<TextEditSelection, TextEditInsert, TextEditErase, TextEditMove> operation;
 };
-struct TextEditPolicy { bool enabled = true; bool read_only = false; };
+struct TextEditPolicy {
+    bool enabled = true;
+    bool read_only = false;
+};
 // Pure bounded single-line transforms; failures return no candidate. No UI
 // traversal, callbacks, history, normalization, platform input or publication.
 // No composition, clipboard, grapheme navigation or automatic Text editability.

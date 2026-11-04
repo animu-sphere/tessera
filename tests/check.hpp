@@ -15,7 +15,8 @@ inline void check(bool condition, std::string_view message) {
 inline bool has(const std::vector<Diagnostic>& diagnostics, std::string_view code, std::string_view path) {
     for (const auto& diagnostic : diagnostics) {
         if (diagnostic.code == code && diagnostic.path == path && !diagnostic.message.empty() &&
-            diagnostic.severity == Severity::error) return true;
+            diagnostic.severity == Severity::error)
+            return true;
     }
     return false;
 }

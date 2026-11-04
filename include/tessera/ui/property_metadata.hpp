@@ -61,7 +61,7 @@ enum class PropertyCategory : std::uint8_t { content, interaction, accessibility
 
 // Describes one authored property. Derived values (resolved style, layout, semantics) are not listed.
 struct PropertyDescriptor {
-    std::string_view name;             // Stable identifier and encoded name; not a display label.
+    std::string_view name; // Stable identifier and encoded name; not a display label.
     PropertyType type = PropertyType::boolean;
     NodeKinds accepted = NodeKinds::none; // Kinds that accept the property; others reject it.
     NodeKinds required = NodeKinds::none; // Subset of `accepted` where absence fails validation.

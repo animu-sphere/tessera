@@ -10,11 +10,14 @@
 namespace tessera {
 namespace {
 
-std::string index_path(std::string_view base, std::size_t index) { return std::string(base) + "/" + std::to_string(index); }
+std::string index_path(std::string_view base, std::size_t index) {
+    return std::string(base) + "/" + std::to_string(index);
+}
 
 void check_handle(const UiTree& tree, NodeHandle node, const std::string& path, detail::Checker& check) {
     if (node.tree != tree.root().tree || !tree.get(node))
-        check.error("stale_target", path, "Resolve the node again in the current tree; this handle belongs to another tree.");
+        check.error("stale_target", path,
+                    "Resolve the node again in the current tree; this handle belongs to another tree.");
 }
 
 struct NodeStates {
@@ -23,11 +26,15 @@ struct NodeStates {
 
 bool matches(const StyleSelector& selector, const UiNode& node, const NodeStates& states) {
     switch (selector.kind) {
-    case StyleSelector::Kind::type: if (node.kind != selector.type) return false; break;
-    case StyleSelector::Kind::class_name:
-        if (std::find(node.classes.begin(), node.classes.end(), selector.name) == node.classes.end()) return false;
-        break;
-    case StyleSelector::Kind::id: if (node.id != selector.name) return false; break;
+        case StyleSelector::Kind::type:
+            if (node.kind != selector.type) return false;
+            break;
+        case StyleSelector::Kind::class_name:
+            if (std::find(node.classes.begin(), node.classes.end(), selector.name) == node.classes.end()) return false;
+            break;
+        case StyleSelector::Kind::id:
+            if (node.id != selector.name) return false;
+            break;
     }
     const auto& required = selector.states;
     return (!required.hover || states.hover) && (!required.active || states.active) &&
@@ -37,7 +44,9 @@ bool matches(const StyleSelector& selector, const UiNode& node, const NodeStates
 } // namespace
 
 void apply(const StyleDeclarations& d, ResolvedStyle& s) {
-    const auto set = [](const auto& declared, auto& value) { if (declared) value = *declared; };
+    const auto set = [](const auto& declared, auto& value) {
+        if (declared) value = *declared;
+    };
     set(d.display, s.display);
     set(d.direction, s.direction);
     set(d.justify, s.justify);
@@ -94,8 +103,10 @@ std::vector<Diagnostic> validate(const StyleSheet& sheet) {
             check.enumeration(selector.type, NodeKind::text, path + "/selector/type");
         else if (selector.kind == StyleSelector::Kind::class_name || selector.kind == StyleSelector::Kind::id) {
             const auto& name = selector.name;
-            if (!detail::valid_utf8(name)) check.error("invalid_utf8", path + "/selector/name", "Use valid UTF-8 text.");
-            else if (name.empty() || std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
+            if (!detail::valid_utf8(name))
+                check.error("invalid_utf8", path + "/selector/name", "Use valid UTF-8 text.");
+            else if (name.empty() ||
+                     std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
                 check.error("invalid_identifier", path + "/selector/name",
                             "Class names and IDs must be nonempty and contain no control characters.");
         }
@@ -110,7 +121,8 @@ std::vector<Diagnostic> validate_input_shape(const StyleInput& input) {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     if (!input.tree) check.error("missing_input", "/tree", "Provide the UiTree to style.");
-    if (!input.sheet) check.error("missing_input", "/sheet", "Provide a StyleSheet; it may have no rules.");
+    if (!input.sheet)
+        check.error("missing_input", "/sheet", "Provide a StyleSheet; it may have no rules.");
     else {
         auto sheet = validate(*input.sheet);
         for (auto& diagnostic : sheet) diagnostic.path = "/sheet" + diagnostic.path;
@@ -125,7 +137,8 @@ std::vector<Diagnostic> validate_input_shape(const StyleInput& input) {
         if (input.state.focused) check_handle(tree, *input.state.focused, "/state/focused", check);
         if (!input.overrides.empty() && input.overrides.size() != tree.size())
             check.error("override_count", "/overrides",
-                        "Provide no overrides or one per tree node (" + std::to_string(tree.size()) + "), indexed by NodeHandle::index.");
+                        "Provide no overrides or one per tree node (" + std::to_string(tree.size()) +
+                            "), indexed by NodeHandle::index.");
     }
     for (std::size_t i = 0; i < input.overrides.size(); ++i) {
         auto declared = validate(input.overrides[i], index_path("/overrides", i));
@@ -155,7 +168,7 @@ Result<std::vector<ResolvedStyle>> resolve_styles(const StyleInput& input) {
         for (const auto child : tree.children({tree.root().tree, i})) parents[child.index] = i;
 
     std::vector<NodeStates> states(tree.size());
-    const auto mark = [&](const std::vector<NodeHandle>& nodes, bool NodeStates::*state) {
+    const auto mark = [&](const std::vector<NodeHandle>& nodes, bool NodeStates::* state) {
         for (const auto node : nodes) {
             for (auto index = node.index;; index = parents[index]) {
                 if (states[index].*state) break; // Ancestors are already marked.
@@ -169,9 +182,10 @@ Result<std::vector<ResolvedStyle>> resolve_styles(const StyleInput& input) {
     if (input.state.focused) states[input.state.focused->index].focus = true;
     for (std::uint32_t i = 0; i < tree.size(); ++i) {
         auto& node = states[i];
-        node.disabled = std::get<bool>(*effective_property(*tree.get({tree.root().tree, i}), property_names::disabled)) ||
-                        detail::tree_ancestor_disabled(tree, *tree.get({tree.root().tree, i})) ||
-                        (i != 0 && states[parents[i]].disabled);
+        node.disabled =
+            std::get<bool>(*effective_property(*tree.get({tree.root().tree, i}), property_names::disabled)) ||
+            detail::tree_ancestor_disabled(tree, *tree.get({tree.root().tree, i})) ||
+            (i != 0 && states[parents[i]].disabled);
         if (node.disabled) node.hover = node.active = node.focus = false;
     }
 

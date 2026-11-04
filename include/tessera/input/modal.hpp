@@ -9,7 +9,7 @@ struct ModalDispatchResult {
     bool active = false;
     bool dismiss = false; // Host closes the controlled value, then refreshes.
     bool consumed = false;
-    bool reset_pointer = false; // Cancel ordinary presses on open/close/dismiss.
+    bool reset_pointer = false;      // Cancel ordinary presses on open/close/dismiss.
     std::optional<NodeHandle> focus; // Apply in the supplied snapshot.
     bool operator==(const ModalDispatchResult&) const = default;
 };
@@ -21,7 +21,8 @@ public:
     explicit ModalDispatcher(std::string id) : id_(std::move(id)) {}
     Result<ModalDispatchResult> refresh(const HitTestInput&, std::optional<NodeHandle> focused = {});
     Result<ModalDispatchResult> dispatch(const HitTestInput&, const InputEvent&,
-        std::optional<NodeHandle> focused = {});
+                                         std::optional<NodeHandle> focused = {});
+
 private:
     ModalDispatchResult update(const HitTestInput&, std::optional<NodeHandle>);
     std::string id_;

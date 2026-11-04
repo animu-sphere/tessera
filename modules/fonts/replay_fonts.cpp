@@ -14,15 +14,21 @@ Result<std::string> font_profile_sha256(const FontProfile& profile) {
 std::vector<Diagnostic> verify_replay_fonts(const ReplayRecording& recording, const FontProfile& profile) {
     const auto& text = recording.environment.text;
     if (text.kind != ReplayText::Kind::font_profile)
-        return {{"font_profile_mismatch", Severity::error, "/environment/text/kind",
+        return {{"font_profile_mismatch",
+                 Severity::error,
+                 "/environment/text/kind",
                  "The recording declares no font profile; record it with this profile's identity or replay with "
-                 "the placeholder shaper.", {}}};
+                 "the placeholder shaper.",
+                 {}}};
     auto digest = font_profile_sha256(profile);
     if (!digest) return std::move(digest.diagnostics);
     if (*digest.value != text.sha256)
-        return {{"font_profile_mismatch", Severity::error, "/environment/text/sha256",
+        return {{"font_profile_mismatch",
+                 Severity::error,
+                 "/environment/text/sha256",
                  "The supplied profile's SHA-256 is " + *digest.value + "; supply the recorded profile '" + text.id +
-                     "' or re-record.", {}}};
+                     "' or re-record.",
+                 {}}};
     return {};
 }
 

@@ -23,26 +23,26 @@ std::span<const PropertyDescriptor> property_descriptors() noexcept {
          input | semantics, PropertyCategory::accessibility},
         {property_names::focusable, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{false},
          input | semantics, PropertyCategory::interaction},
-        {property_names::labelled_by, PropertyType::reference, NodeKinds::all, NodeKinds::none, std::nullopt,
-         semantics, PropertyCategory::accessibility},
+        {property_names::labelled_by, PropertyType::reference, NodeKinds::all, NodeKinds::none, std::nullopt, semantics,
+         PropertyCategory::accessibility},
         {property_names::modal, PropertyType::boolean, NodeKinds::box, NodeKinds::none, Property{false},
          layout | paint | input | semantics, PropertyCategory::interaction},
-        {property_names::pointer_events, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{true},
-         input, PropertyCategory::interaction},
+        {property_names::pointer_events, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{true}, input,
+         PropertyCategory::interaction},
         {property_names::popup_anchor, PropertyType::string, NodeKinds::box, NodeKinds::none, std::nullopt,
          layout | paint | input | semantics, PropertyCategory::interaction},
         {property_names::popup_gap, PropertyType::number, NodeKinds::box, NodeKinds::none, Property{4.0},
          layout | paint | input | semantics, PropertyCategory::interaction},
-        {property_names::popup_side, PropertyType::string, NodeKinds::box, NodeKinds::none, Property{std::string("bottom")},
-         layout | paint | input | semantics, PropertyCategory::interaction},
+        {property_names::popup_side, PropertyType::string, NodeKinds::box, NodeKinds::none,
+         Property{std::string("bottom")}, layout | paint | input | semantics, PropertyCategory::interaction},
         {property_names::popup_x, PropertyType::number, NodeKinds::box, NodeKinds::none, std::nullopt,
          layout | paint | input | semantics, PropertyCategory::interaction},
         {property_names::popup_y, PropertyType::number, NodeKinds::box, NodeKinds::none, std::nullopt,
          layout | paint | input | semantics, PropertyCategory::interaction},
-        {property_names::selected, PropertyType::boolean, NodeKinds::box, NodeKinds::none, std::nullopt,
-         semantics, PropertyCategory::accessibility},
-        {property_names::separator, PropertyType::boolean, NodeKinds::box, NodeKinds::none, Property{false},
-         semantics, PropertyCategory::accessibility},
+        {property_names::selected, PropertyType::boolean, NodeKinds::box, NodeKinds::none, std::nullopt, semantics,
+         PropertyCategory::accessibility},
+        {property_names::separator, PropertyType::boolean, NodeKinds::box, NodeKinds::none, Property{false}, semantics,
+         PropertyCategory::accessibility},
         {property_names::text, PropertyType::string, NodeKinds::text, NodeKinds::text, std::nullopt,
          layout | paint | semantics, PropertyCategory::content},
         {property_names::tree_parent, PropertyType::reference, NodeKinds::box, NodeKinds::none, std::nullopt,
@@ -58,9 +58,7 @@ const PropertyDescriptor* find_property_descriptor(std::string_view name) noexce
     return found == descriptors.end() ? nullptr : &*found;
 }
 
-PropertyType property_type(const Property& value) noexcept {
-    return static_cast<PropertyType>(value.index());
-}
+PropertyType property_type(const Property& value) noexcept { return static_cast<PropertyType>(value.index()); }
 
 const Property* effective_property(const UiNode& node, std::string_view name) noexcept {
     if (const auto found = node.properties.find(name); found != node.properties.end()) return &found->second;

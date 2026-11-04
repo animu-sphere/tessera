@@ -5,8 +5,8 @@
 namespace tessera {
 namespace {
 
-void check_modal(std::vector<Diagnostic>& errors, const HitTestInput& input,
-    const std::string& id, std::optional<NodeHandle> focused) {
+void check_modal(std::vector<Diagnostic>& errors, const HitTestInput& input, const std::string& id,
+                 std::optional<NodeHandle> focused) {
     if (id.empty())
         errors.push_back({"invalid_identifier", Severity::error, "/id", "Supply the Modal's stable author ID."});
     if (!input.tree) return;
@@ -17,8 +17,7 @@ void check_modal(std::vector<Diagnostic>& errors, const HitTestInput& input,
         errors.push_back({"stale_target", Severity::error, "/focused", "Pass focus from the current snapshot."});
 }
 
-bool descendant(const HitTestInput& input, const detail::Targeting& targeting,
-    NodeHandle node, NodeHandle ancestor) {
+bool descendant(const HitTestInput& input, const detail::Targeting& targeting, NodeHandle node, NodeHandle ancestor) {
     for (auto at = targeting.box(node); at != no_layout_parent; at = input.layout->boxes[at].parent)
         if (input.layout->boxes[at].node == ancestor) return true;
     return false;
@@ -55,8 +54,10 @@ ModalDispatchResult ModalDispatcher::update(const HitTestInput& input, std::opti
             const auto at = targeting.box(*focused);
             if (at != no_layout_parent && targeting.focusable(at))
                 restore_ = input.tree->get(*focused)->id;
-            else restore_.reset();
-        } else restore_.reset();
+            else
+                restore_.reset();
+        } else
+            restore_.reset();
     }
     open_ = result.active;
     return result;
@@ -70,7 +71,7 @@ Result<ModalDispatchResult> ModalDispatcher::refresh(const HitTestInput& input, 
 }
 
 Result<ModalDispatchResult> ModalDispatcher::dispatch(const HitTestInput& input, const InputEvent& event,
-    std::optional<NodeHandle> focused) {
+                                                      std::optional<NodeHandle> focused) {
     auto errors = validate(input);
     auto next = validate(event);
     errors.insert(errors.end(), next.begin(), next.end());

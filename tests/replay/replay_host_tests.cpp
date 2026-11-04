@@ -68,7 +68,8 @@ void accepted_menu() {
     check(out.actions.size() == 3, "Keyboard, semantics and pointer must activate the ready menu");
     for (const auto& action : out.actions) check(action.action == "continue-game", "Action routes must agree");
     check(out.generations.size() == 3 && out.generations[1].host[0].readiness == ReplayReadiness::loading &&
-          out.generations[2].host[0].value, "Generations must own their readiness and state");
+              out.generations[2].host[0].value,
+          "Generations must own their readiness and state");
     check(!out.semantics[1].nodes[1].enabled && out.semantics[4].nodes[1].enabled,
           "Semantic eligibility must change with the published view");
     const auto saved = save_replay(session.value->recording());
@@ -77,14 +78,16 @@ void accepted_menu() {
     check(loaded && *loaded.value == session.value->recording(), "Host JSON must preserve declarations and updates");
     check(*save_replay(*loaded.value).value == *saved.value, "Host JSON must be canonical");
     const auto replayed = play_replay(*loaded.value, text);
-    check(replayed && compare_replay(out, *replayed.value).empty(), "Loaded host transitions must reproduce observations");
+    check(replayed && compare_replay(out, *replayed.value).empty(),
+          "Loaded host transitions must reproduce observations");
     const auto first = run_offscreen({&*loaded.value, &text});
     const auto second = run_offscreen({&*loaded.value, &text});
     check(first && second && *first.value == *second.value && first.value->output == out,
           "Offscreen runner must reproduce host generations");
     auto different = out;
     different.generations[2].host[0].value = false;
-    check(has(compare_replay(out, different), "replay_mismatch", "/generations/2/host"), "Compare must locate host differences");
+    check(has(compare_replay(out, different), "replay_mismatch", "/generations/2/host"),
+          "Compare must locate host differences");
 }
 void rejection_and_lifetime() {
     PlaceholderTextShaper text;
@@ -102,7 +105,8 @@ void rejection_and_lifetime() {
     auto invalid = update(1, ReplayReadiness::loading);
     invalid.slot.id = "private-state";
     reject(invalid, "undeclared_state", "/slot/id");
-    invalid.slot.id = "save-ready"; invalid.slot.owner = "continue";
+    invalid.slot.id = "save-ready";
+    invalid.slot.owner = "continue";
     reject(invalid, "stale_owner", "/slot/owner");
     check(bool(session.value->apply(update(1, ReplayReadiness::loading))), "First request must start");
     check(bool(session.value->apply(update(2, ReplayReadiness::loading))), "New request must supersede");
@@ -128,24 +132,34 @@ void declarations_and_schema() {
     PlaceholderTextShaper text;
     auto r = recording();
     r.environment.host.push_back(r.environment.host.front());
-    check(has(ReplaySession::open(r, text).diagnostics, "duplicate_state", "/environment/host/1/id"), "Duplicate declarations fail");
-    r = recording(); r.environment.host.resize(65, r.environment.host.front());
+    check(has(ReplaySession::open(r, text).diagnostics, "duplicate_state", "/environment/host/1/id"),
+          "Duplicate declarations fail");
+    r = recording();
+    r.environment.host.resize(65, r.environment.host.front());
     check(has(save_replay(r).diagnostics, "out_of_range", "/environment/host"), "Declaration bounds must apply");
-    r = recording(); r.environment.host[0].owner = "missing";
-    check(has(ReplaySession::open(r, text).diagnostics, "target_not_found", "/environment/host/0/owner"), "Initial owner must exist");
-    r = recording(); r.version = replay_version;
-    check(has(save_replay(r).diagnostics, "unsupported_event", "/environment/host"), "v1 cannot encode host declarations");
-    r.environment.host.clear(); r.steps.push_back(update(1, ReplayReadiness::loading));
+    r = recording();
+    r.environment.host[0].owner = "missing";
+    check(has(ReplaySession::open(r, text).diagnostics, "target_not_found", "/environment/host/0/owner"),
+          "Initial owner must exist");
+    r = recording();
+    r.version = replay_version;
+    check(has(save_replay(r).diagnostics, "unsupported_event", "/environment/host"),
+          "v1 cannot encode host declarations");
+    r.environment.host.clear();
+    r.steps.push_back(update(1, ReplayReadiness::loading));
     check(has(save_replay(r).diagnostics, "unsupported_event", "/steps/0"), "v1 cannot encode host updates");
-    r = recording(); r.steps.push_back(update(1, ReplayReadiness::loading));
+    r = recording();
+    r.steps.push_back(update(1, ReplayReadiness::loading));
     const auto base = *save_replay(r).value;
     const auto malformed = [&](std::string from, std::string to, const char* code, const char* path) {
-        auto json = base; const auto index = json.find(from);
+        auto json = base;
+        const auto index = json.find(from);
         check(index != std::string::npos, "Malformed fixture fragment must exist");
         json.replace(index, from.size(), to);
         const auto result = load_replay(json);
         check(!result && has(result.diagnostics, code, path), "Malformed host JSON must fail at its field");
-        for (const auto& diagnostic : result.diagnostics) check(diagnostic.byte_offset.has_value(), "JSON errors must be located");
+        for (const auto& diagnostic : result.diagnostics)
+            check(diagnostic.byte_offset.has_value(), "JSON errors must be located");
     };
     malformed("\"readiness\":\"idle\"", "\"readiness\":\"unknown\"", "unknown_value", "/environment/host/0/readiness");
     malformed("\"request\":0", "\"request\":-1", "schema_type", "/environment/host/0/request");
@@ -159,7 +173,8 @@ void replacement_cancels_other_owners() {
     auto session = ReplaySession::open(r, text);
     check(bool(session.value->apply(update(1, ReplayReadiness::loading))), "First owner must start");
     auto other = update(1, ReplayReadiness::loading);
-    other.slot.id = "other"; other.slot.owner = "continue";
+    other.slot.id = "other";
+    other.slot.owner = "continue";
     check(bool(session.value->apply(other)), "Second owner must start");
     auto first = update(1, ReplayReadiness::ready, true);
     const auto rejected = session.value->apply(first);
@@ -167,19 +182,29 @@ void replacement_cancels_other_owners() {
           "A host view replacement must invalidate other owner incarnations");
     auto invalid = other;
     invalid.slot.request = 2;
-    invalid.view.document.root.children.clear(); invalid.view.styles.resize(1);
+    invalid.view.document.root.children.clear();
+    invalid.view.styles.resize(1);
     const auto missing = session.value->apply(invalid);
     check(!missing && has(missing.diagnostics, "stale_owner", "/steps/2/slot/owner"),
           "A loading request cannot publish a view that removes its owner");
     check(bool(session.value->apply(update(2, ReplayReadiness::loading))), "Explicit newer request must restart");
     check(bool(session.value->apply(update(2, ReplayReadiness::ready, true))), "New request must complete");
-    check(bool(session.value->apply(update(3, ReplayReadiness::loading, true))), "Replacement loading must retain accepted value");
+    check(bool(session.value->apply(update(3, ReplayReadiness::loading, true))),
+          "Replacement loading must retain accepted value");
     check(bool(session.value->apply(update(3, ReplayReadiness::failed, true))), "Failure must retain accepted value");
     check(session.value->output().generations.back().host[0].value, "Failure cannot silently erase the accepted value");
 }
 } // namespace
 int main() {
-    try { accepted_menu(); rejection_and_lifetime(); declarations_and_schema(); replacement_cancels_other_owners();
-        std::cout << "Host readiness, declared state, menu eligibility, stale completion, rollback, JSON and offscreen checks passed.\n";
-    } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
+    try {
+        accepted_menu();
+        rejection_and_lifetime();
+        declarations_and_schema();
+        replacement_cancels_other_owners();
+        std::cout
+            << "Host readiness, declared state, menu eligibility, stale completion, rollback, JSON and offscreen checks passed.\n";
+    } catch (const std::exception& error) {
+        std::cerr << error.what() << '\n';
+        return 1;
+    }
 }

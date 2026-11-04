@@ -27,15 +27,15 @@ struct SplitPaneDispatchResult {
 // and binding values across tree replacements, never borrowed tree handles.
 class SplitPaneDispatcher final {
 public:
-    explicit SplitPaneDispatcher(std::string id, float keyboard_step = 8)
-        : id_(std::move(id)), step_(keyboard_step) {}
+    explicit SplitPaneDispatcher(std::string id, float keyboard_step = 8) : id_(std::move(id)), step_(keyboard_step) {}
     Result<SplitPaneDispatchResult> dispatch(const HitTestInput&, const InputEvent&,
-        std::optional<NodeHandle> focused = {});
+                                             std::optional<NodeHandle> focused = {});
     // Call at every accepted replacement, including removal. Returns the
     // resolved first-pane size for the host's canonical state.
     Result<SplitPaneDispatchResult> refresh(const HitTestInput&);
     bool dragging() const noexcept { return drag_.has_value(); }
     void reset() noexcept { drag_.reset(); }
+
 private:
     struct Drag {
         PointerId pointer;

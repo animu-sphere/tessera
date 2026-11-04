@@ -57,8 +57,7 @@ struct Fixture {
         check(result && result.diagnostics.empty(), "Valid hit query rejected");
         return *result.value;
     }
-    template<class Event>
-    tessera::PointerDispatchResult send(Event event) {
+    template<class Event> tessera::PointerDispatchResult send(Event event) {
         time += 1us;
         const auto result = dispatcher.dispatch(input(), {time, std::move(event)});
         check(result && result.diagnostics.empty(), "Valid pointer dispatch rejected");
@@ -86,7 +85,8 @@ void hit_order_edges_overflow_and_eligibility() {
     f.layout.boxes[1].visible = false;
     check(f.hit({16, 16}).target == f.node(2), "Locally visible descendant of hidden parent must hit");
     f.layout.boxes[2].border_box = {{110, 90}, {20, 10}};
-    check(f.hit({115, 95}).target == f.node(2), "Overflow must hit outside parent and viewport without implicit clipping");
+    check(f.hit({115, 95}).target == f.node(2),
+          "Overflow must hit outside parent and viewport without implicit clipping");
     f.layout.boxes[2].border_box.size.width = 0;
     check(!f.hit({110, 95}).target, "Zero-area box must not hit");
 
@@ -103,11 +103,13 @@ void hit_order_edges_overflow_and_eligibility() {
     const auto implicit_target = Fixture(box({std::move(implicit)})).hit({1, 1}).target;
     const auto explicit_target = Fixture(box({button("start", false)})).hit({1, 1}).target;
     check(absent_value == tessera::Property{false} && implicit_target && explicit_target &&
-          implicit_target->index == explicit_target->index, "Absent disabled must target like the descriptor default");
+              implicit_target->index == explicit_target->index,
+          "Absent disabled must target like the descriptor default");
     Fixture absent;
     absent.styles[1].display = tessera::Display::none;
     absent.compute();
-    check(absent.hit({1, 1}).target == absent.node(4), "Display-none subtree must not affect remaining preorder handles");
+    check(absent.hit({1, 1}).target == absent.node(4),
+          "Display-none subtree must not affect remaining preorder handles");
     absent.styles[0].display = tessera::Display::none;
     absent.compute();
     check(!absent.hit({1, 1}).target, "Display-none root must yield no hit");
@@ -120,7 +122,8 @@ void clipped_targets_and_activation() {
     f.styles[1].overflow = tessera::Overflow::clip;
     f.compute();
     check(f.layout.boxes[4].border_box == tessera::Rect{{0, 20}, {40, 20}} &&
-              f.layout.boxes[5].clip == tessera::Rect{{0, 0}, {40, 30}}, "Clip fixture geometry differs");
+              f.layout.boxes[5].clip == tessera::Rect{{0, 0}, {40, 30}},
+          "Clip fixture geometry differs");
     check(f.hit({10, 29.5f}).target == f.node(5), "Visible part of a straddling box must hit");
     check(f.hit({10, 30}).target == f.node(0) && f.hit({10, 35}).target == f.node(0),
           "Clipped part must fall through to the box below, with a half-open clip edge");
@@ -183,16 +186,19 @@ void cancellation_buttons_and_multiple_pointers() {
     check(down.pointers.size() == 2 && down.pointers[0].pointer.value == 2 && down.pointers[1].pointer.value == 9,
           "Independent pointer snapshots must use stable ID order");
     auto cancel = f.send(tessera::PointerCancel{{9}});
-    check(cancel.actions.empty() && !cancel.target && cancel.pointers.size() == 1, "Cancel must erase only its pointer");
+    check(cancel.actions.empty() && !cancel.target && cancel.pointers.size() == 1,
+          "Cancel must erase only its pointer");
     check(f.send(tessera::PointerUp{{9}, {1, 1}}).actions.empty(), "Cancelled press must not activate");
     auto quit = f.send(tessera::PointerUp{{2}, {1, 21}});
-    check(quit.actions.size() == 1 && quit.actions[0].action == "quit", "Other pointer's press must survive cancellation");
+    check(quit.actions.size() == 1 && quit.actions[0].action == "quit",
+          "Other pointer's press must survive cancellation");
     f.send(tessera::PointerDown{{0}, {1, 1}, tessera::PointerButton::secondary});
     check(f.send(tessera::PointerUp{{0}, {1, 1}, tessera::PointerButton::secondary}).actions.empty(),
           "Secondary click must not activate");
     f.send(tessera::PointerDown{{0}, {1, 1}});
     auto middle = f.send(tessera::PointerUp{{0}, {1, 1}, tessera::PointerButton::middle});
-    check(middle.actions.empty() && middle.pointers[0].primary_down, "Other-button release must not clear primary press");
+    check(middle.actions.empty() && middle.pointers[0].primary_down,
+          "Other-button release must not clear primary press");
     check(f.send(tessera::PointerUp{{0}, {1, 1}}).actions.size() == 1, "Primary release must still activate");
     check(f.send(tessera::PointerCancel{{123}}).actions.empty(), "Unknown pointer cancel must be harmless");
 }
@@ -207,13 +213,16 @@ void refresh_replacement_and_invalid_input() {
           "Stationary hidden target must cancel its press");
     f.styles[1].visibility = tessera::Visibility::visible;
     f.compute();
-    check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.empty(), "Reappearing target must not resurrect a cancelled press");
+    check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.empty(),
+          "Reappearing target must not resurrect a cancelled press");
 
     f.send(tessera::PointerDown{{1}, {1, 1}});
     f.styles[1].display = tessera::Display::none;
     f.compute();
-    check(f.dispatcher.refresh(f.input()).value->pointers[0].hovered == f.node(4), "Refresh must retarget stationary pointer");
-    check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.empty(), "Disappeared target must not activate shifted sibling");
+    check(f.dispatcher.refresh(f.input()).value->pointers[0].hovered == f.node(4),
+          "Refresh must retarget stationary pointer");
+    check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.empty(),
+          "Disappeared target must not activate shifted sibling");
 
     Fixture other;
     auto replaced = f.dispatcher.dispatch(other.input(), {f.time + 1us, tessera::PointerUp{{1}, {1, 1}}});
@@ -227,12 +236,14 @@ void refresh_replacement_and_invalid_input() {
     f.send(tessera::PointerDown{{1}, {1, 1}});
     const auto before = f.dispatcher.refresh(f.input());
     check(!f.dispatcher.dispatch(f.input(), {0us, tessera::PointerCancel{{1}}}), "Backwards timestamp accepted");
-    check(has(f.dispatcher.dispatch(f.input(), {0us, tessera::PointerCancel{{1}}}).diagnostics,
-              "event_order", "/timestamp"), "Backwards timestamp needs located diagnostic");
-    check(has(f.dispatcher.dispatch(f.input(), {2us, tessera::Activate{}}).diagnostics,
-              "unsupported_event", "/event"), "Non-pointer event accepted");
-    check(!f.dispatcher.dispatch(f.input(), {2us, tessera::PointerUp{{1}, {std::numeric_limits<float>::quiet_NaN(), 1}}}),
-          "Invalid pointer geometry accepted");
+    check(has(f.dispatcher.dispatch(f.input(), {0us, tessera::PointerCancel{{1}}}).diagnostics, "event_order",
+              "/timestamp"),
+          "Backwards timestamp needs located diagnostic");
+    check(has(f.dispatcher.dispatch(f.input(), {2us, tessera::Activate{}}).diagnostics, "unsupported_event", "/event"),
+          "Non-pointer event accepted");
+    check(
+        !f.dispatcher.dispatch(f.input(), {2us, tessera::PointerUp{{1}, {std::numeric_limits<float>::quiet_NaN(), 1}}}),
+        "Invalid pointer geometry accepted");
     auto invalid = f.input();
     invalid.styles = invalid.styles.first(1);
     check(!f.dispatcher.refresh(invalid) && !f.dispatcher.dispatch(invalid, {2us, tessera::PointerCancel{{1}}}),
@@ -246,8 +257,9 @@ void refresh_replacement_and_invalid_input() {
           "Reset must discard presses and restart the clock");
 
     check(has(tessera::hit_test({}, {}).diagnostics, "missing_input", "/tree"), "Missing hit dependencies accepted");
-    check(has(tessera::hit_test(f.input(), {0, std::numeric_limits<float>::infinity()}).diagnostics,
-              "invalid_number", "/position/y"), "Non-finite hit position accepted");
+    check(has(tessera::hit_test(f.input(), {0, std::numeric_limits<float>::infinity()}).diagnostics, "invalid_number",
+              "/position/y"),
+          "Non-finite hit position accepted");
     f.layout.boxes[1].node = other.tree->root();
     check(has(tessera::hit_test(f.input(), {}).diagnostics, "layout_node", "/layout/boxes/1/node"),
           "Foreign layout handle accepted by hit test");

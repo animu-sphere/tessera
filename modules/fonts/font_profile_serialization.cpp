@@ -9,27 +9,30 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-struct Failure { Diagnostic diagnostic; };
+struct Failure {
+    Diagnostic diagnostic;
+};
 
 [[noreturn]] void fail(std::string code, std::string path, std::string message) {
     throw Failure{{std::move(code), Severity::error, std::move(path), std::move(message), {}}};
 }
-template<class T>
-const T& as(const JsonValue& value, const std::string& path, std::string_view expected) {
+template<class T> const T& as(const JsonValue& value, const std::string& path, std::string_view expected) {
     if (const auto* result = std::get_if<T>(&value.value)) return *result;
     fail("schema_type", path, "Expected " + std::string(expected) + ".");
 }
-const Object& object(const JsonValue& value, const std::string& path,
-                     std::initializer_list<std::string_view> fields) {
+const Object& object(const JsonValue& value, const std::string& path, std::initializer_list<std::string_view> fields) {
     const auto& result = as<Object>(value, path, "an object");
     for (const auto& [key, child] : result) {
         (void)child;
         bool found = false;
-        for (auto field : fields) if (key == field) found = true;
-        if (!found) fail("unknown_field", path + "/" + detail::pointer_token(key), "Remove this unknown font-profile field.");
+        for (auto field : fields)
+            if (key == field) found = true;
+        if (!found)
+            fail("unknown_field", path + "/" + detail::pointer_token(key), "Remove this unknown font-profile field.");
     }
     for (auto field : fields)
-        if (!result.contains(field)) fail("missing_field", path + "/" + std::string(field), "Supply this required field.");
+        if (!result.contains(field))
+            fail("missing_field", path + "/" + std::string(field), "Supply this required field.");
     return result;
 }
 const Array& array(const JsonValue& value, const std::string& path) {
@@ -54,7 +57,8 @@ int nibble(char c) {
 }
 std::vector<std::byte> decode(const JsonValue& value, const std::string& path, std::size_t& total) {
     const auto& hex = string(value, path);
-    if (hex.size() % 2 != 0) fail("invalid_font_bytes", path, "Expected pairs of hexadecimal digits without separators.");
+    if (hex.size() % 2 != 0)
+        fail("invalid_font_bytes", path, "Expected pairs of hexadecimal digits without separators.");
     const auto size = hex.size() / 2;
     if (size > max_font_profile_bytes - total) fail("out_of_range", path, "Total font asset bytes exceed 256 MiB.");
     // Reject malformed text before allocating decoded storage.
@@ -82,7 +86,8 @@ FontProfile read(const JsonValue& value) {
     const auto& root = object(value, "", {"version", "assets", "faces", "fallbacks", "families", "aliases"});
     FontProfile result;
     result.version = integer(root.at("version"), "/version");
-    if (result.version != font_profile_version) fail("unsupported_version", "/version", "Expected font profile version 1.");
+    if (result.version != font_profile_version)
+        fail("unsupported_version", "/version", "Expected font profile version 1.");
     std::size_t total = 0;
     const auto& assets = array(root.at("assets"), "/assets");
     for (std::size_t i = 0; i < assets.size(); ++i) {
@@ -95,7 +100,8 @@ FontProfile read(const JsonValue& value) {
     for (std::size_t i = 0; i < faces.size(); ++i) {
         const auto path = "/faces/" + std::to_string(i);
         const auto& face = object(faces[i], path, {"font", "asset", "face_index"});
-        result.faces.push_back({{integer(face.at("font"), path + "/font")}, string(face.at("asset"), path + "/asset"),
+        result.faces.push_back({{integer(face.at("font"), path + "/font")},
+                                string(face.at("asset"), path + "/asset"),
                                 integer(face.at("face_index"), path + "/face_index")});
     }
     const auto& fallbacks = array(root.at("fallbacks"), "/fallbacks");
@@ -118,7 +124,8 @@ FontProfile read(const JsonValue& value) {
             const auto location = path + "/faces/" + std::to_string(j);
             const auto& face = object(weighted[j], location, {"font", "weight"});
             const auto weight = integer(face.at("weight"), location + "/weight");
-            if (weight < 1 || weight > 1000) fail("out_of_range", location + "/weight", "Expected a declared weight in [1, 1000].");
+            if (weight < 1 || weight > 1000)
+                fail("out_of_range", location + "/weight", "Expected a declared weight in [1, 1000].");
             entry.faces.push_back({{integer(face.at("font"), location + "/font")}, static_cast<std::uint16_t>(weight)});
         }
         result.families.push_back(std::move(entry));
@@ -127,7 +134,8 @@ FontProfile read(const JsonValue& value) {
     for (std::size_t i = 0; i < aliases.size(); ++i) {
         const auto path = "/aliases/" + std::to_string(i);
         const auto& alias = object(aliases[i], path, {"font", "name", "families"});
-        FontProfileAlias entry{{integer(alias.at("font"), path + "/font")}, string(alias.at("name"), path + "/name"), {}};
+        FontProfileAlias entry{
+            {integer(alias.at("font"), path + "/font")}, string(alias.at("name"), path + "/name"), {}};
         const auto& names = array(alias.at("families"), path + "/families");
         for (std::size_t j = 0; j < names.size(); ++j)
             entry.families.push_back(string(names[j], path + "/families/" + std::to_string(j)));
@@ -139,9 +147,11 @@ FontProfile read(const JsonValue& value) {
 JsonValue write(const FontProfile& profile) {
     Array assets, faces, fallbacks, families, aliases;
     for (const auto& a : profile.assets)
-        assets.push_back(JsonValue{Object{{"id", JsonValue{a.id}}, {"version", JsonValue{a.version}}, {"bytes", JsonValue{encode(a.bytes)}}}});
+        assets.push_back(JsonValue{
+            Object{{"id", JsonValue{a.id}}, {"version", JsonValue{a.version}}, {"bytes", JsonValue{encode(a.bytes)}}}});
     for (const auto& f : profile.faces)
-        faces.push_back(JsonValue{Object{{"font", number(f.font.value)}, {"asset", JsonValue{f.asset}}, {"face_index", number(f.face_index)}}});
+        faces.push_back(JsonValue{Object{
+            {"font", number(f.font.value)}, {"asset", JsonValue{f.asset}}, {"face_index", number(f.face_index)}}});
     for (const auto& s : profile.fallbacks) {
         Array ids;
         for (const auto font : s.faces) ids.push_back(number(font.value));
@@ -156,11 +166,15 @@ JsonValue write(const FontProfile& profile) {
     for (const auto& a : profile.aliases) {
         Array names;
         for (const auto& name : a.families) names.push_back(JsonValue{name});
-        aliases.push_back(JsonValue{Object{{"font", number(a.font.value)}, {"name", JsonValue{a.name}}, {"families", JsonValue{std::move(names)}}}});
+        aliases.push_back(JsonValue{Object{
+            {"font", number(a.font.value)}, {"name", JsonValue{a.name}}, {"families", JsonValue{std::move(names)}}}});
     }
-    return JsonValue{Object{{"version", number(profile.version)}, {"assets", JsonValue{std::move(assets)}},
-        {"faces", JsonValue{std::move(faces)}}, {"fallbacks", JsonValue{std::move(fallbacks)}},
-        {"families", JsonValue{std::move(families)}}, {"aliases", JsonValue{std::move(aliases)}}}};
+    return JsonValue{Object{{"version", number(profile.version)},
+                            {"assets", JsonValue{std::move(assets)}},
+                            {"faces", JsonValue{std::move(faces)}},
+                            {"fallbacks", JsonValue{std::move(fallbacks)}},
+                            {"families", JsonValue{std::move(families)}},
+                            {"aliases", JsonValue{std::move(aliases)}}}};
 }
 } // namespace
 
@@ -188,7 +202,8 @@ Result<std::string> save_font_profile(const FontProfile& profile) {
     auto output = detail::write_json_value(write(profile));
     output += '\n';
     if (output.size() > max_serialized_font_profile_bytes)
-        return {{}, {{"size_limit", Severity::error, "", "Canonical font profile exceeds the serialized byte limit.", {}}}};
+        return {{},
+                {{"size_limit", Severity::error, "", "Canonical font profile exceeds the serialized byte limit.", {}}}};
     return {std::move(output), {}};
 }
 } // namespace tessera

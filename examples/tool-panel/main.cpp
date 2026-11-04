@@ -32,13 +32,22 @@ struct PanelHost final : TransactionHost {
         inspected_item = std::get<CommandObjectId>(invocation.arguments.at("item")).value;
         return {CommandOutcomeStatus::success, {{"item", CommandObjectId{*inspected_item}}}, {}};
     }
-    CommandOutcome begin(const TransactionRecord&) override { previous_amount = amount; return {}; }
-    CommandOutcome execute_edit(const CommandInvocationRecord& invocation, const TransactionRecord&) override {
-        amount = std::get<double>(invocation.arguments.at("amount")); return {};
+    CommandOutcome begin(const TransactionRecord&) override {
+        previous_amount = amount;
+        return {};
     }
-    CommandOutcome commit(const TransactionRecord&) override { ++history_entries; return {}; }
+    CommandOutcome execute_edit(const CommandInvocationRecord& invocation, const TransactionRecord&) override {
+        amount = std::get<double>(invocation.arguments.at("amount"));
+        return {};
+    }
+    CommandOutcome commit(const TransactionRecord&) override {
+        ++history_entries;
+        return {};
+    }
     CommandOutcome rollback(const TransactionRecord&, TransactionCancel) override {
-        amount = previous_amount; ++rollbacks; return {};
+        amount = previous_amount;
+        ++rollbacks;
+        return {};
     }
 };
 
@@ -48,12 +57,18 @@ int main() {
     inspect.label = "Inspect selected item";
     inspect.category = "Inventory";
     CommandParameter item;
-    item.name = "item"; item.type = CommandParameterType::object_id;
+    item.name = "item";
+    item.type = CommandParameterType::object_id;
     inspect.parameters = {item};
     inspect.results = {item};
-    CommandDescriptor edit; edit.id = "inventory.set_amount"; edit.label = "Set amount";
-    CommandParameter amount_parameter; amount_parameter.name = "amount"; amount_parameter.type = CommandParameterType::number;
-    amount_parameter.minimum = 0; amount_parameter.maximum = 100;
+    CommandDescriptor edit;
+    edit.id = "inventory.set_amount";
+    edit.label = "Set amount";
+    CommandParameter amount_parameter;
+    amount_parameter.name = "amount";
+    amount_parameter.type = CommandParameterType::number;
+    amount_parameter.minimum = 0;
+    amount_parameter.maximum = 100;
     edit.parameters = {item, amount_parameter};
     const auto registry = CommandRegistry::create({inspect, edit}, {{"inspect-item", inspect.id}});
     if (!registry) return 1;
@@ -62,10 +77,13 @@ int main() {
     panel_component.kind = "tool-panel";
     panel_component.document.root.id = "tool-panel";
     UiNode button;
-    button.id = "inspect"; button.properties["focusable"] = true;
+    button.id = "inspect";
+    button.properties["focusable"] = true;
     UiNode label;
-    label.kind = NodeKind::text; label.properties["text"] = inspect.label;
-    button.children.push_back(label); panel_component.document.root.children.push_back(button);
+    label.kind = NodeKind::text;
+    label.properties["text"] = inspect.label;
+    button.children.push_back(label);
+    panel_component.document.root.children.push_back(button);
     panel_component.actions = {{"inspect", {}}};
     panel_component.events = {{"inspect", "inspect", "activate"}};
     panel_component.styles = {{"button", {}}};
@@ -73,7 +91,7 @@ int main() {
     const ValidationContext context{{"inspect-item"}};
     PlaceholderTextShaper text;
     std::uint64_t sequence = 0;
-    PanelHost command_host; // Application state/history stay in the host.
+    PanelHost command_host;       // Application state/history stay in the host.
     CommandTransactions executor; // Non-editing and editing commands share sequences.
 
     std::optional<std::string> host_selection;
@@ -97,7 +115,8 @@ int main() {
         ++evaluations;
         const auto selection = selected_item.read();
         return PanelObservation{{selection.has_value(), false, selection ? "" : "Select an item."},
-            selection ? CommandObjectIds{*selection} : CommandObjectIds{}, selection};
+                                selection ? CommandObjectIds{*selection} : CommandObjectIds{},
+                                selection};
     });
     // Item details fail locally: a missing host record faults only this boundary,
     // and the host presents a fallback while the rest of the panel publishes.
@@ -113,8 +132,9 @@ int main() {
     // Synthetic host status line; it only observes published generations.
     std::string status_line;
     int status_detached = 0;
-    runtime.effect<std::optional<std::string>>(panel_owner, "status", EffectPhase::notify,
-        [&] { return selected_item.read(); }, [&](const std::optional<std::string>& selection) {
+    runtime.effect<std::optional<std::string>>(
+        panel_owner, "status", EffectPhase::notify, [&] { return selected_item.read(); },
+        [&](const std::optional<std::string>& selection) {
             status_line = selection ? "Selected " + *selection : "No selection";
             return [&status_detached] { ++status_detached; };
         });
@@ -132,7 +152,7 @@ int main() {
         const auto observation = panel.read();
         ++generation; // Host-owned UI generation, distinct from reactive revisions.
         const auto commands = CommandSnapshot::publish(*registry.value, generation, CommandMode::production,
-            {{inspect.id, observation.command}}, observation.objects);
+                                                       {{inspect.id, observation.command}}, observation.objects);
         if (!commands) return 2;
         const auto composed = lower_component(runtime, panel_component, panel_arguments, context);
         if (!composed) return 27;
@@ -157,8 +177,7 @@ int main() {
             {"inspection-enabled", EnabledInvariant{inspect_target, selected}},
             {"inspection-focusable", FocusableInvariant{inspect_target, selected}},
             {"inspection-name", SemanticNameInvariant{inspect_target, inspect.label}},
-            {"inspection-inside", InsideViewportInvariant{inspect_target}}
-        };
+            {"inspection-inside", InsideViewportInvariant{inspect_target}}};
         const auto verified = evaluate_invariants({&*inspection.value, invariants, Size{240, 80}});
         if (!verified || !verified.value->passed()) return 28;
         // The full candidate is valid: publish it, then deliver post-publication effects.
@@ -171,42 +190,58 @@ int main() {
         if (!activated || activated.value->actions.size() != (selected ? 1u : 0u)) return 8;
         for (const auto& action : activated.value->actions) {
             const auto invocation = commands.value->resolve_action(ui, action, generation,
-                {{"item", CommandObjectId{*observation.selection}}}, CommandSource::keyboard, ++sequence);
+                                                                   {{"item", CommandObjectId{*observation.selection}}},
+                                                                   CommandSource::keyboard, ++sequence);
             if (!invocation) return 9;
             // Dispatch has returned. The adapter rechecks, consumes the request once,
             // and validates the declared result from this non-editing host command.
             const auto executed = executor.execute(*commands.value, *invocation.value, command_host, &ui);
             if (!executed || executed.value->outcome.status != CommandOutcomeStatus::success ||
-                executed.value->outcome.values.at("item") != invocation.value->record().arguments.at("item")) return 9;
+                executed.value->outcome.values.at("item") != invocation.value->record().arguments.at("item"))
+                return 9;
         }
-        const std::vector<ShortcutScope> shortcut_scopes{{(*tree.value)->root(), {
-            {{Key::i, {false, true}}, inspect.id, ActionRequest{"activate", "inspect-item", *(*tree.value)->find("inspect")}}
-        }, {
-            {{GamepadButton::west, gamepad_button_bit(GamepadButton::left_shoulder)}, inspect.id,
-                ActionRequest{"activate", "inspect-item", *(*tree.value)->find("inspect")}}
-        }}};
+        const std::vector<ShortcutScope> shortcut_scopes{
+            {(*tree.value)->root(),
+             {{{Key::i, {false, true}},
+               inspect.id,
+               ActionRequest{"activate", "inspect-item", *(*tree.value)->find("inspect")}}},
+             {{{GamepadButton::west, gamepad_button_bit(GamepadButton::left_shoulder)},
+               inspect.id,
+               ActionRequest{"activate", "inspect-item", *(*tree.value)->find("inspect")}}}}};
         const auto shortcuts = CommandShortcuts::create(*commands.value, **tree.value, shortcut_scopes);
         if (!shortcuts) return 25;
         const SemanticInput shortcut_ui{tree.value->get(), styles, &*layout.value, activated.value->focused};
-        const auto shortcut = shortcuts.value->dispatch(*commands.value, shortcut_ui,
-            {{3us, KeyDown{Key::i, {false, true}}}, generation, ++sequence,
-                observation.selection ? CommandArguments{{"item", CommandObjectId{*observation.selection}}} : CommandArguments{}});
+        const auto shortcut = shortcuts.value->dispatch(
+            *commands.value, shortcut_ui,
+            {{3us, KeyDown{Key::i, {false, true}}},
+             generation,
+             ++sequence,
+             observation.selection ? CommandArguments{{"item", CommandObjectId{*observation.selection}}}
+                                   : CommandArguments{}});
         if (!shortcut || shortcut.value->invocation.has_value() != selected) return 25;
         if (shortcut.value->invocation) {
-            const auto executed = executor.execute(*commands.value, *shortcut.value->invocation, command_host, &shortcut_ui);
+            const auto executed =
+                executor.execute(*commands.value, *shortcut.value->invocation, command_host, &shortcut_ui);
             if (!executed || executed.value->outcome.status != CommandOutcomeStatus::success) return 25;
         }
-        const auto gamepad_shortcut = shortcuts.value->dispatch(*commands.value, shortcut_ui,
+        const auto gamepad_shortcut = shortcuts.value->dispatch(
+            *commands.value, shortcut_ui,
             GamepadShortcutRequest{{GamepadButton::west, gamepad_button_bit(GamepadButton::left_shoulder)},
-                generation, ++sequence,
-                observation.selection ? CommandArguments{{"item", CommandObjectId{*observation.selection}}} : CommandArguments{}});
+                                   generation,
+                                   ++sequence,
+                                   observation.selection
+                                       ? CommandArguments{{"item", CommandObjectId{*observation.selection}}}
+                                       : CommandArguments{}});
         if (!gamepad_shortcut || gamepad_shortcut.value->invocation.has_value() != selected) return 26;
         if (gamepad_shortcut.value->invocation) {
             const auto& record = gamepad_shortcut.value->invocation->record();
-            if (record.source != CommandSource::gamepad || record.command != shortcut.value->invocation->record().command ||
+            if (record.source != CommandSource::gamepad ||
+                record.command != shortcut.value->invocation->record().command ||
                 record.arguments != shortcut.value->invocation->record().arguments ||
-                record.owner != shortcut.value->invocation->record().owner) return 26;
-            const auto executed = executor.execute(*commands.value, *gamepad_shortcut.value->invocation, command_host, &shortcut_ui);
+                record.owner != shortcut.value->invocation->record().owner)
+                return 26;
+            const auto executed =
+                executor.execute(*commands.value, *gamepad_shortcut.value->invocation, command_host, &shortcut_ui);
             if (!executed || executed.value->outcome.status != CommandOutcomeStatus::success) return 26;
         }
         const auto info = commands.value->lookup(inspect.id);
@@ -221,7 +256,11 @@ int main() {
     }
     // Inventory rows: keys keep each row's owner, local state, bindings, and focus
     // across host reorders; removal closes the row and reinsertion starts fresh.
-    struct Row { AsyncValue name; Signal<bool> pinned; Computed<std::string> label; };
+    struct Row {
+        AsyncValue name;
+        Signal<bool> pinned;
+        Computed<std::string> label;
+    };
     ComponentTreeCollection rows(runtime.owner(panel_owner, "rows"));
     std::map<std::string, std::uint64_t, std::less<>> row_lifetimes;
     ComponentDescription row_definition;
@@ -238,13 +277,15 @@ int main() {
     std::uint64_t lantern = 0;
     using Items = std::vector<std::pair<std::string, std::string>>;
     const std::vector<Items> inventory{{{"item-3", "Rope"}, {"item-7", "Lantern"}, {"item-9", "Map"}},
-        {{"item-9", "Map"}, {"item-7", "Lantern"}, {"item-3", "Rope"}}, {{"item-9", "Map"}, {"item-3", "Rope"}},
-        {{"item-7", "Lantern"}, {"item-9", "Map"}, {"item-3", "Coiled rope"}}};
+                                       {{"item-9", "Map"}, {"item-7", "Lantern"}, {"item-3", "Rope"}},
+                                       {{"item-9", "Map"}, {"item-3", "Rope"}},
+                                       {{"item-7", "Lantern"}, {"item-9", "Map"}, {"item-3", "Coiled rope"}}};
     Theme row_theme;
-    row_theme.variables = {{"ink", ThemeValue{Color{0.1f, 0.1f, 0.1f, 1}}}, {"size", ThemeValue{16.0f}},
-        {"row-ink", ThemeReference{"ink", {}}}};
-    row_theme.defaults.rules = {{StyleSelector::of_id("inventory"), {},
-        {{"color", {"row-ink", {}}}, {"text/size", {"size", {}}}}}};
+    row_theme.variables = {{"ink", ThemeValue{Color{0.1f, 0.1f, 0.1f, 1}}},
+                           {"size", ThemeValue{16.0f}},
+                           {"row-ink", ThemeReference{"ink", {}}}};
+    row_theme.defaults.rules = {
+        {StyleSelector::of_id("inventory"), {}, {{"color", {"row-ink", {}}}, {"text/size", {"size", {}}}}}};
     std::size_t inventory_generation = 0;
     for (const auto& items : inventory) {
         if (++inventory_generation == 2) {
@@ -253,8 +294,8 @@ int main() {
         }
         ComponentDescription list_component;
         list_component.kind = "inventory";
-        auto list_template = load_document_with_sources(
-            R"({"version":1,"root":{"type":"Box","id":"inventory"}})", "fixture:inventory");
+        auto list_template =
+            load_document_with_sources(R"({"version":1,"root":{"type":"Box","id":"inventory"}})", "fixture:inventory");
         if (!list_template) return 30;
         list_component.document = std::move(list_template.value->document);
         list_component.sources = std::move(list_template.value->sources);
@@ -277,9 +318,10 @@ int main() {
             auto& node = item_component.document.root;
             node.id = key;
             item_component.props = {{"caption", PropertyType::string, {}},
-                {"focusable", PropertyType::boolean, Property{true}}};
+                                    {"focusable", PropertyType::boolean, Property{true}}};
             item_component.properties = {{"caption", key, "text"}, {"focusable", key, "focusable"}};
-            StyleDeclarations row_style; row_style.height = Dimension::points(24);
+            StyleDeclarations row_style;
+            row_style.height = Dimension::points(24);
             item_component.styles = {{"row", row_style}};
             item_component.style_bindings = {{"row", key}};
             ComponentArguments item_arguments;
@@ -291,7 +333,8 @@ int main() {
             const std::string call_file = "fixture:inventory-invocation";
             item_arguments.sources = ComponentArgumentSources{
                 SourceLocation{call_file, {0, call.size()}},
-                {{"caption", {call_file, {call.find("item.label"), call.find("item.label") + 10}}}}, {},
+                {{"caption", {call_file, {call.find("item.label"), call.find("item.label") + 10}}}},
+                {},
                 {{"row", {call_file, {call.find("height(24)"), call.find("height(24)") + 10}}}}};
             invocations[0].invocation_slots["rows"].push_back(invocations.size());
             invocations.push_back({std::move(item_component), std::move(item_arguments), {}});
@@ -299,33 +342,39 @@ int main() {
         std::vector<ComponentInvocationMount> children{{"inventory"}};
         for (const auto& item : items) {
             const auto lifetime = std::make_shared<std::uint64_t>(0);
-            children.push_back({item.first,
-            [&, caption = item.second, lifetime](ReactiveRuntime& row_runtime, const ComponentSetup& setup) {
-                const auto& row = setup.instance();
-                *lifetime = row.lifetime;
-                const auto name = *setup.async("name").value;
-                // Synthetic host cache; no file/network work runs in the runtime.
-                if (!name.ready_cached("item-data", caption)) throw std::runtime_error("Invalid cached row name");
-                const auto local = setup.state<bool>("pinned");
-                if (!local) throw std::runtime_error("Missing pinned row state");
-                const auto pinned = *local.value; // Registered automatically on mount.
-                const auto label = row_runtime.computed<std::string>(row.owner, "label", [&label_evaluations, name, pinned] {
-                    ++label_evaluations;
-                    return std::get<std::string>(name.read().value->value) + (pinned.read() ? " (pinned)" : "");
-                });
-                row_state.insert_or_assign(row.lifetime, Row{name, pinned, label});
-            }, {{"thumbnail", [&unsubscribed, key = item.first] { unsubscribed.push_back(key); }}},
-            {{"pin-notify", [&](const ComponentSetup& setup) {
-                const auto pinned = *setup.state<bool>("pinned").value;
-                const auto lifetime = setup.instance().lifetime;
-                return component_effect<bool>([pinned] { return pinned.read(); }, [&, lifetime](bool value) {
-                    observed_pins[lifetime] = value;
-                    ++pin_notifications;
-                    return [&pin_detached] { ++pin_detached; };
-                });
-            }}}, {{"name", [&, lifetime](const AsyncAttempt& attempt) {
-                detached_names.emplace_back(*lifetime, attempt);
-            }}}});
+            children.push_back(
+                {item.first,
+                 [&, caption = item.second, lifetime](ReactiveRuntime& row_runtime, const ComponentSetup& setup) {
+                     const auto& row = setup.instance();
+                     *lifetime = row.lifetime;
+                     const auto name = *setup.async("name").value;
+                     // Synthetic host cache; no file/network work runs in the runtime.
+                     if (!name.ready_cached("item-data", caption)) throw std::runtime_error("Invalid cached row name");
+                     const auto local = setup.state<bool>("pinned");
+                     if (!local) throw std::runtime_error("Missing pinned row state");
+                     const auto pinned = *local.value; // Registered automatically on mount.
+                     const auto label =
+                         row_runtime.computed<std::string>(row.owner, "label", [&label_evaluations, name, pinned] {
+                             ++label_evaluations;
+                             return std::get<std::string>(name.read().value->value) +
+                                    (pinned.read() ? " (pinned)" : "");
+                         });
+                     row_state.insert_or_assign(row.lifetime, Row{name, pinned, label});
+                 },
+                 {{"thumbnail", [&unsubscribed, key = item.first] { unsubscribed.push_back(key); }}},
+                 {{"pin-notify",
+                   [&](const ComponentSetup& setup) {
+                       const auto pinned = *setup.state<bool>("pinned").value;
+                       const auto lifetime = setup.instance().lifetime;
+                       return component_effect<bool>([pinned] { return pinned.read(); },
+                                                     [&, lifetime](bool value) {
+                                                         observed_pins[lifetime] = value;
+                                                         ++pin_notifications;
+                                                         return [&pin_detached] { ++pin_detached; };
+                                                     });
+                   }}},
+                 {{"name",
+                   [&, lifetime](const AsyncAttempt& attempt) { detached_names.emplace_back(*lifetime, attempt); }}}});
         }
         const auto update = rows.reconcile(runtime, invocations, children);
         if (!update) return 14;
@@ -344,10 +393,16 @@ int main() {
                 const auto replacement = name.begin("item-data");
                 if (!replacement || !name.progress(replacement.value->attempt, 0.5) ||
                     !name.fail(replacement.value->attempt, {"unavailable", "Synthetic retry", true}) ||
-                    !name.read().stale() || name.read().value != previous.value) { resource_valid = false; return; }
+                    !name.read().stale() || name.read().value != previous.value) {
+                    resource_valid = false;
+                    return;
+                }
                 const auto retry = name.begin("item-data");
                 if (!retry || name.complete(replacement.value->attempt, std::string("late item data")) ||
-                    !name.complete(retry.value->attempt, items[i].second)) { resource_valid = false; return; }
+                    !name.complete(retry.value->attempt, items[i].second)) {
+                    resource_valid = false;
+                    return;
+                }
             }
         });
         if (!resource_valid) return 28;
@@ -363,30 +418,36 @@ int main() {
         const auto& styles = *row_styles.value;
         const auto layout = compute_layout({tree.value->get(), styles, {240, 120}, &text});
         if (!layout) return 17;
-        const auto row_inspection = capture_inspection({tree.value->get(), styles, &*layout.value, &*bound.value->sources});
+        const auto row_inspection =
+            capture_inspection({tree.value->get(), styles, &*layout.value, &*bound.value->sources});
         if (!row_inspection || row_inspection.value->elements[0].source->file != "fixture:inventory") return 30;
         for (std::size_t i = 1; i < row_inspection.value->elements.size(); ++i) {
             const auto& origin = row_inspection.value->elements[i].source;
             if (!origin || origin->file != "fixture:inventory-row" || !origin->unmapped_properties.contains("text") ||
                 !origin->invocation || origin->invocation->file != "fixture:inventory-invocation" ||
-                origin->property_arguments.at("text").file != origin->invocation->file ||
-                !origin->style_argument || origin->style_argument->file != origin->invocation->file) return 30;
+                origin->property_arguments.at("text").file != origin->invocation->file || !origin->style_argument ||
+                origin->style_argument->file != origin->invocation->file)
+                return 30;
         }
         if (!build_paint_list({tree.value->get(), styles, &*layout.value, &text}) ||
-            !build_semantic_tree({tree.value->get(), styles, &*layout.value})) return 29;
+            !build_semantic_tree({tree.value->get(), styles, &*layout.value}))
+            return 29;
         if (inventory_generation == 2) {
             auto invalid_theme = row_theme;
             invalid_theme.variables[1].value = ThemeValue{0.0f};
             if (resolve_styles({tree.value->get(), &row_sheet, {}, bound.value->overrides, &invalid_theme}) ||
-                row_lifetimes.at("item-7") != lantern) return 29;
+                row_lifetimes.at("item-7") != lantern)
+                return 29;
         }
         const HitTestInput hit{tree.value->get(), styles, &*layout.value};
-        const auto focused = lantern == 0 ? row_focus.focus(hit, *(*tree.value)->find("item-7")) : row_focus.refresh(hit);
+        const auto focused =
+            lantern == 0 ? row_focus.focus(hit, *(*tree.value)->find("item-7")) : row_focus.refresh(hit);
         std::size_t changed_pins = 0;
         for (const auto& [key, lifetime] : row_lifetimes) {
             (void)key;
             const auto previous = observed_pins.find(lifetime);
-            if (previous == observed_pins.end() || previous->second != row_state.at(lifetime).pinned.read()) ++changed_pins;
+            if (previous == observed_pins.end() || previous->second != row_state.at(lifetime).pinned.read())
+                ++changed_pins;
         }
         if (!focused || !focused.value->focused || runtime.publish() != changed_pins) return 18;
         if (!runtime.deliver_effects(EffectPhase::notify).empty() || !runtime.deliver_cleanups().empty()) return 19;
@@ -402,43 +463,56 @@ int main() {
             lantern_attempt = pending.value->attempt; // Loading work survives reorder, then closes on removal.
         }
         std::cout << "Rows:";
-        for (const auto& node : list.root.children) std::cout << ' ' << *node.id << "=\"" << std::get<std::string>(node.properties.at("text")) << '"';
+        for (const auto& node : list.root.children)
+            std::cout << ' ' << *node.id << "=\"" << std::get<std::string>(node.properties.at("text")) << '"';
         std::cout << " focus=" << *(*tree.value)->get(*focused.value->focused)->id
                   << " theme-size=" << styles[0].text.size << " pin-notifications=" << pin_notifications << '\n';
     }
     // Reorder kept the pinned Lantern row and its focus; removal unsubscribed it,
     // and reinsertion created a new lifetime, so a late result for the old row is stale.
     const auto lantern_row = row_lifetimes.find("item-7");
-    if (lantern_row == row_lifetimes.end() || lantern_row->second == lantern || row_state.at(lantern_row->second).pinned.read() ||
-        unsubscribed != std::vector<std::string>{"item-7"} || label_evaluations != 6 || pin_notifications != 5 || pin_detached != 2 ||
-        detached_names.size() != 1 || detached_names[0].first != lantern || !lantern_attempt ||
+    if (lantern_row == row_lifetimes.end() || lantern_row->second == lantern ||
+        row_state.at(lantern_row->second).pinned.read() || unsubscribed != std::vector<std::string>{"item-7"} ||
+        label_evaluations != 6 || pin_notifications != 5 || pin_detached != 2 || detached_names.size() != 1 ||
+        detached_names[0].first != lantern || !lantern_attempt ||
         detached_names[0].second.request() != lantern_attempt->request() ||
         detached_names[0].second.sequence() != lantern_attempt->sequence() ||
         row_state.at(lantern).name.complete(*lantern_attempt, std::string("Late name")) ||
-        row_state.at(lantern_row->second).name.complete(*lantern_attempt, std::string("Late name"))) return 20;
+        row_state.at(lantern_row->second).name.complete(*lantern_attempt, std::string("Late name")))
+        return 20;
 
     // One application gesture spans three reactive batches. Each edit lowers a
     // complete document and evaluates the ordinary presentation pipeline; only
     // explicit completion adds an application history entry.
     const auto amount_view = runtime.signal(panel_owner, "amount", command_host.amount);
-    const auto amount_label = runtime.computed<std::string>(panel_owner, "amount-label", [&] {
-        return "Amount: " + std::to_string(static_cast<int>(amount_view.read()));
-    });
+    const auto amount_label = runtime.computed<std::string>(
+        panel_owner, "amount-label", [&] { return "Amount: " + std::to_string(static_cast<int>(amount_view.read())); });
     const auto edit_snapshot = [&] {
-        return *CommandSnapshot::publish(*registry.value, ++generation, CommandMode::production,
-            {{edit.id, {true}}}, {"item-7"}).value;
+        return *CommandSnapshot::publish(*registry.value, ++generation, CommandMode::production, {{edit.id, {true}}},
+                                         {"item-7"})
+                    .value;
     };
     const auto edit_request = [&](const CommandSnapshot& commands, double value) {
-        return *commands.resolve({commands.generation(), edit.id,
-            {{"item", CommandObjectId{"item-7"}}, {"amount", value}}, CommandSource::pointer, ++sequence}).value;
+        return *commands
+                    .resolve({commands.generation(),
+                              edit.id,
+                              {{"item", CommandObjectId{"item-7"}}, {"amount", value}},
+                              CommandSource::pointer,
+                              ++sequence})
+                    .value;
     };
     const auto present_amount = [&] {
         runtime.batch([&] { amount_view.write(command_host.amount); });
         if (!runtime.flush().empty()) return false;
-        ComponentDescription caption; caption.kind = "amount"; caption.document.root.kind = NodeKind::text;
-        caption.document.root.id = "amount"; caption.document.root.properties["text"] = std::string{};
-        caption.props = {{"caption", PropertyType::string, {}}}; caption.properties = {{"caption", "amount", "text"}};
-        ComponentArguments args; args.props["caption"] = amount_label;
+        ComponentDescription caption;
+        caption.kind = "amount";
+        caption.document.root.kind = NodeKind::text;
+        caption.document.root.id = "amount";
+        caption.document.root.properties["text"] = std::string{};
+        caption.props = {{"caption", PropertyType::string, {}}};
+        caption.properties = {{"caption", "amount", "text"}};
+        ComponentArguments args;
+        args.props["caption"] = amount_label;
         const auto lowered = lower_component(runtime, caption, args);
         if (!lowered) return false;
         const auto tree = UiTree::create(lowered.value->document);
@@ -447,37 +521,49 @@ int main() {
         const auto layout = compute_layout({tree.value->get(), styles, {240, 80}, &text});
         if (!layout) return false;
         const SemanticInput ui{tree.value->get(), styles, &*layout.value};
-        if (!build_semantic_tree(ui) || !build_paint_list({tree.value->get(), styles, &*layout.value, &text})) return false;
+        if (!build_semantic_tree(ui) || !build_paint_list({tree.value->get(), styles, &*layout.value, &text}))
+            return false;
         if (runtime.publish() != 0 || !runtime.deliver_effects(EffectPhase::notify).empty()) return false;
         std::cout << "Edit generation " << generation << ": " << amount_label.read() << '\n';
         return true;
     };
-    auto commands = edit_snapshot(); auto command = edit_request(commands, 2);
+    auto commands = edit_snapshot();
+    auto command = edit_request(commands, 2);
     CommandGestures gestures(executor);
     EditGesture gesture{1, PointerId{7}, PointerButton::primary, {"Change item amount", "amount", {"item-7"}, {}}};
     for (const double value : {2.0, 3.0, 4.0}) {
-        if (value != 2) { commands = edit_snapshot(); command = edit_request(commands, value); }
+        if (value != 2) {
+            commands = edit_snapshot();
+            command = edit_request(commands, value);
+        }
         const auto result = gestures.edit(gesture, commands, command, command_host);
         if (!result || result.value->outcome.status != CommandOutcomeStatus::success || !present_amount()) return 24;
     }
-    const auto committed = gestures.handle_input(commands, {std::chrono::microseconds{1}, PointerUp{{7}, {10, 10}}}, command_host);
+    const auto committed =
+        gestures.handle_input(commands, {std::chrono::microseconds{1}, PointerUp{{7}, {10, 10}}}, command_host);
     if (!committed || !committed.value->consumed || !committed.value->closure ||
-        committed.value->closure->status != CommandOutcomeStatus::success || command_host.history_entries != 1) return 25;
-    commands = edit_snapshot(); command = edit_request(commands, 99);
+        committed.value->closure->status != CommandOutcomeStatus::success || command_host.history_entries != 1)
+        return 25;
+    commands = edit_snapshot();
+    command = edit_request(commands, 99);
     gesture.id = 2;
     const auto changed = gestures.edit(gesture, commands, command, command_host);
     if (!changed || changed.value->outcome.status != CommandOutcomeStatus::success || !present_amount()) return 26;
-    const auto cancelled = gestures.handle_input(commands, {std::chrono::microseconds{2}, KeyDown{Key::escape}}, command_host);
+    const auto cancelled =
+        gestures.handle_input(commands, {std::chrono::microseconds{2}, KeyDown{Key::escape}}, command_host);
     ++generation; // Rollback settles before the restoration's later presentation.
     if (!cancelled || !cancelled.value->consumed || !cancelled.value->closure ||
         cancelled.value->closure->status != CommandOutcomeStatus::success || command_host.amount != 4 ||
-        command_host.history_entries != 1 || command_host.rollbacks != 1 || !present_amount()) return 27;
+        command_host.history_entries != 1 || command_host.rollbacks != 1 || !present_amount())
+        return 27;
     std::cout << "One committed edit gesture; cancelled edit restored amount without another history entry.\n";
 
     if (command_host.inspected_item != "item-7" || evaluations != 3 || status_detached != 2) return 10;
     panel_owner.dispose();
     runtime.flush();
     if (!selection_observer_connected || !runtime.deliver_cleanups().empty() || selection_observer_connected ||
-        status_detached != 3 || unsubscribed.size() != 4 || pin_detached != 5) return 11;
-    std::cout << "Host inspected " << *command_host.inspected_item << ". Synthetic core-only panel; placeholder text, no native window.\n";
+        status_detached != 3 || unsubscribed.size() != 4 || pin_detached != 5)
+        return 11;
+    std::cout << "Host inspected " << *command_host.inspected_item
+              << ". Synthetic core-only panel; placeholder text, no native window.\n";
 }

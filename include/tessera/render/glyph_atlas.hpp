@@ -32,7 +32,7 @@ struct GlyphAtlasFrame {
 // during preparation; reshape old runs after face replacement. No baseline snapping.
 // Output owns all bytes and can outlive cache/font services; GPU copies and bindings
 // must remain alive through their last referencing frame's completion and retirement.
-Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList&, GlyphCache&,
-    float device_scale, ImageHandle first_image, GlyphAtlasLimits = {});
+Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList&, GlyphCache&, float device_scale, ImageHandle first_image,
+                                            GlyphAtlasLimits = {});
 
 } // namespace tessera

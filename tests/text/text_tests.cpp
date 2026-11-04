@@ -40,8 +40,9 @@ void failures() {
     style.line_height = -1.0f;
     const auto errors = shaper.measure("x", style);
     check(!errors && has(errors.diagnostics, "out_of_range", "/style/size") &&
-          has(errors.diagnostics, "out_of_range", "/style/weight") &&
-          has(errors.diagnostics, "out_of_range", "/style/line_height"), "Invalid text style accepted");
+              has(errors.diagnostics, "out_of_range", "/style/weight") &&
+              has(errors.diagnostics, "out_of_range", "/style/line_height"),
+          "Invalid text style accepted");
 }
 
 void wrapping() {
@@ -61,10 +62,12 @@ void wrapping() {
     check(shaper.measure("", style, {0.0f}).value->lines == 1, "Empty constrained text must keep one line");
     check(has(shaper.shape("x", style, {-1.0f}).diagnostics, "out_of_range", "/constraints/max_width"),
           "Negative width accepted");
-    check(has(shaper.shape("x", style, {std::numeric_limits<float>::infinity()}).diagnostics,
-              "invalid_number", "/constraints/max_width"), "Infinite width accepted");
-    check(has(shaper.measure("x", style, {std::numeric_limits<float>::quiet_NaN()}).diagnostics,
-              "invalid_number", "/constraints/max_width"), "NaN width accepted");
+    check(has(shaper.shape("x", style, {std::numeric_limits<float>::infinity()}).diagnostics, "invalid_number",
+              "/constraints/max_width"),
+          "Infinite width accepted");
+    check(has(shaper.measure("x", style, {std::numeric_limits<float>::quiet_NaN()}).diagnostics, "invalid_number",
+              "/constraints/max_width"),
+          "NaN width accepted");
     style.size = 13.1f;
     const auto natural = shaper.shape("ABCDE", style);
     check(natural && shaper.shape("ABCDE", style, {natural.value->metrics.size.width}).value == natural.value,

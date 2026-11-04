@@ -28,7 +28,7 @@ struct CommandParameter {
     std::optional<double> minimum; // Inclusive number bounds; absent means unbounded.
     std::optional<double> maximum;
     std::size_t max_bytes = max_command_string_bytes; // String/object ID bound.
-    std::vector<std::string> choices; // Nonempty, unique UTF-8 values for enumeration only.
+    std::vector<std::string> choices;                 // Nonempty, unique UTF-8 values for enumeration only.
     bool operator==(const CommandParameter&) const = default;
 };
 enum class CommandAvailability : std::uint8_t { both, development, production };
@@ -60,13 +60,17 @@ struct CommandInfo {
     bool operator==(const CommandInfo&) const = default;
 };
 
-namespace detail { struct CommandRegistryData; struct CommandSnapshotData; }
+namespace detail {
+struct CommandRegistryData;
+struct CommandSnapshotData;
+}
 
 // Immutable owned descriptors/mappings. Copies share a revision, with no callbacks or global registry.
 class CommandRegistry final {
 public:
     static Result<CommandRegistry> create(std::vector<CommandDescriptor>, CommandBindings = {});
     std::uint64_t revision() const noexcept;
+
 private:
     explicit CommandRegistry(std::shared_ptr<const detail::CommandRegistryData>);
     std::shared_ptr<const detail::CommandRegistryData> data_;
@@ -94,6 +98,7 @@ struct CommandInvocationRecord {
 class CommandInvocation final {
 public:
     const CommandInvocationRecord& record() const noexcept { return record_; }
+
 private:
     CommandInvocation(CommandInvocationRecord, std::shared_ptr<const detail::CommandSnapshotData>);
     CommandInvocationRecord record_;
@@ -104,12 +109,12 @@ private:
 // Host publishes queries/object IDs at an update point, before building the UI generation.
 class CommandSnapshot final {
 public:
-    static Result<CommandSnapshot> publish(const CommandRegistry&, std::uint64_t generation,
-        CommandMode, CommandStates, CommandObjectIds = {});
+    static Result<CommandSnapshot> publish(const CommandRegistry&, std::uint64_t generation, CommandMode, CommandStates,
+                                           CommandObjectIds = {});
     std::uint64_t generation() const noexcept;
     std::uint64_t registry_revision() const noexcept;
     bool permits_object(std::string_view id) const; // Settled host-ID permission, no callback.
-    std::vector<CommandInfo> discover() const; // Available descriptors, sorted by ID.
+    std::vector<CommandInfo> discover() const;      // Available descriptors, sorted by ID.
     Result<CommandInfo> lookup(std::string_view id) const;
     Result<CommandInfo> lookup_action(std::string_view action) const; // Exact explicit action mapping.
     // Copy the authored document and compose activation/applicable expansion command eligibility
@@ -118,11 +123,12 @@ public:
     Result<UiDocument> apply_eligibility(const UiDocument&, const ValidationContext&) const;
     Result<CommandInvocation> resolve(const CommandRequest&) const; // Node-free request.
     // Borrow a coherent UI snapshot for this generation; verify the returned action's live owner/eligibility.
-    Result<CommandInvocation> resolve_action(const SemanticInput&, const ActionRequest&,
-        std::uint64_t generation, CommandArguments, CommandSource, std::uint64_t sequence) const;
+    Result<CommandInvocation> resolve_action(const SemanticInput&, const ActionRequest&, std::uint64_t generation,
+                                             CommandArguments, CommandSource, std::uint64_t sequence) const;
     // Host MUST call immediately before executing after dispatch. No callback, mutation, or transaction here.
     // Node-owned invocations require the current UI snapshot, including on an unchanged command generation.
     std::vector<Diagnostic> recheck(const CommandInvocation&, const SemanticInput* current_ui = nullptr) const;
+
 private:
     explicit CommandSnapshot(std::shared_ptr<const detail::CommandSnapshotData>);
     std::shared_ptr<const detail::CommandSnapshotData> data_;

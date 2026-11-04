@@ -20,73 +20,85 @@ int main() {
     const auto field = form.state("field", std::string("Ready"));
     const auto label = form.computed("label", [field] { return field.read() + "!"; });
     const auto authored = form.lower(tessera::authoring::Column({tessera::authoring::Text(label)}));
-    if (!authored || authored.value->document.root.children[0].properties.at("text") !=
-        tessera::Property{std::string("Ready!")}) return 42;
+    if (!authored ||
+        authored.value->document.root.children[0].properties.at("text") != tessera::Property{std::string("Ready!")})
+        return 42;
     const auto checked = form.state("checked", true);
     const auto checkbox = form.lower(tessera::authoring::Checkbox("Feature", checked, "toggle"), {{"toggle"}});
-    if (!checkbox || checkbox.value->document.root.children[0].properties.at("text") !=
-        tessera::Property{std::string("[x]")}) return 43;
+    if (!checkbox ||
+        checkbox.value->document.root.children[0].properties.at("text") != tessera::Property{std::string("[x]")})
+        return 43;
     const auto editing = tessera::make_text_edit_state(1, "日本😀");
     if (!editing) return 40;
     const auto input = form.lower(tessera::authoring::TextInput("Username", *editing.value, "edit"), {{"edit"}});
-    if (!input || input.value->document.root.children[1].properties.at("text") !=
-        tessera::Property{editing.value->text} || input.value->document.root.children[2].properties.at("text") !=
-        tessera::Property{std::string("Selection 10:10")}) return 44;
-    const auto erased = tessera::edit_text(*editing.value,
-        {1, editing.value->revision, tessera::TextEditErase{}});
+    if (!input ||
+        input.value->document.root.children[1].properties.at("text") != tessera::Property{editing.value->text} ||
+        input.value->document.root.children[2].properties.at("text") !=
+            tessera::Property{std::string("Selection 10:10")})
+        return 44;
+    const auto erased = tessera::edit_text(*editing.value, {1, editing.value->revision, tessera::TextEditErase{}});
     if (!erased || erased.value->text != "日本" ||
-        tessera::edit_text(*erased.value, {1, editing.value->revision, tessera::TextEditInsert{"stale"}})) return 41;
+        tessera::edit_text(*erased.value, {1, editing.value->revision, tessera::TextEditInsert{"stale"}}))
+        return 41;
     namespace ui = tessera::authoring;
     const tessera::ValidationContext popup_actions{{"open", "choose"}};
-    const auto popup_form = form.lower(ui::Column({
-        ui::Button("Open", "open", {.node = {.id = "anchor"}}),
-        ui::Popup("anchor", {ui::Button("Choose", "choose", {.node = {.id = "choice"}})},
-            {.node = {.id = "popup"}, .open = true}),
-        ui::Tooltip("anchor", "Help", {.node = {.id = "help"}})}), popup_actions);
+    const auto popup_form =
+        form.lower(ui::Column({ui::Button("Open", "open", {.node = {.id = "anchor"}}),
+                               ui::Popup("anchor", {ui::Button("Choose", "choose", {.node = {.id = "choice"}})},
+                                         {.node = {.id = "popup"}, .open = true}),
+                               ui::Tooltip("anchor", "Help", {.node = {.id = "help"}})}),
+                   popup_actions);
     if (!popup_form) return 45;
     const auto popup_tree = tessera::UiTree::create(popup_form.value->document, popup_actions);
     if (!popup_tree) return 46;
     const tessera::StyleSheet popup_sheet;
-    const auto popup_styles = tessera::resolve_styles({popup_tree.value->get(), &popup_sheet, {}, popup_form.value->styles});
+    const auto popup_styles =
+        tessera::resolve_styles({popup_tree.value->get(), &popup_sheet, {}, popup_form.value->styles});
     if (!popup_styles) return 47;
     tessera::PlaceholderTextShaper popup_text;
-    const auto popup_layout = tessera::compute_layout({popup_tree.value->get(), *popup_styles.value, {200, 120}, &popup_text});
+    const auto popup_layout =
+        tessera::compute_layout({popup_tree.value->get(), *popup_styles.value, {200, 120}, &popup_text});
     if (!popup_layout) return 48;
     const tessera::HitTestInput popup_hit{popup_tree.value->get(), *popup_styles.value, &*popup_layout.value};
     tessera::PopupDispatcher popup("popup");
     tessera::TooltipDispatcher tooltip("anchor");
     const auto opened = popup.refresh(popup_hit);
     const auto help = tooltip.refresh(popup_hit, (*popup_tree.value)->find("anchor"));
-    if (!opened || opened.value->focus != (*popup_tree.value)->find("choice") || !help || !help.value->visible) return 49;
-    const auto collections = form.lower(ui::Column({
-        ui::TreeView("Folders", "child",
-            {{"folder", "Folder", "choose", "open", true, false, {{"child", "Child", "choose"}}}},
-            {.node = {.id = "folders"}}),
-        ui::ListView("Items", "item", {{"item", "Item", "choose"}}, {.node = {.id = "items"}})}), popup_actions);
+    if (!opened || opened.value->focus != (*popup_tree.value)->find("choice") || !help || !help.value->visible)
+        return 49;
+    const auto collections = form.lower(
+        ui::Column({ui::TreeView("Folders", "child",
+                                 {{"folder", "Folder", "choose", "open", true, false, {{"child", "Child", "choose"}}}},
+                                 {.node = {.id = "folders"}}),
+                    ui::ListView("Items", "item", {{"item", "Item", "choose"}}, {.node = {.id = "items"}})}),
+        popup_actions);
     if (!collections ||
         collections.value->document.root.children[0].children[2].properties.at("selected") != tessera::Property{true} ||
         collections.value->document.root.children[1].children[1].properties.at("selected") != tessera::Property{true})
         return 50;
-    const auto menus = form.lower(ui::Column({
-        ui::Button("Actions", "open", {.node = {.id = "menu-anchor"}}),
-        ui::Menu("Actions", "menu-anchor", {{"choose", "Choose", "choose"}}, {.node = {.id = "menu"}}),
-        ui::ContextMenu("Actions", "menu-anchor", {40, 50}, {{"choose", "Choose", "choose"}},
-            {.node = {.id = "context"}})}), popup_actions);
-    if (!menus || menus.value->document.root.children[1].properties.at("collection_role") !=
-        tessera::Property{std::string("menu")} ||
+    const auto menus = form.lower(
+        ui::Column({ui::Button("Actions", "open", {.node = {.id = "menu-anchor"}}),
+                    ui::Menu("Actions", "menu-anchor", {{"choose", "Choose", "choose"}}, {.node = {.id = "menu"}}),
+                    ui::ContextMenu("Actions", "menu-anchor", {40, 50}, {{"choose", "Choose", "choose"}},
+                                    {.node = {.id = "context"}})}),
+        popup_actions);
+    if (!menus ||
+        menus.value->document.root.children[1].properties.at("collection_role") !=
+            tessera::Property{std::string("menu")} ||
         menus.value->document.root.children[2].properties.at("popup_x") != tessera::Property{40.0})
         return 51;
     const auto menus_tree = tessera::UiTree::create(menus.value->document, popup_actions);
     if (!menus_tree) return 52;
     const auto menus_styles = tessera::resolve_styles({menus_tree.value->get(), &popup_sheet, {}, menus.value->styles});
     if (!menus_styles) return 53;
-    const auto menus_layout = tessera::compute_layout({menus_tree.value->get(), *menus_styles.value, {200, 120}, &popup_text});
+    const auto menus_layout =
+        tessera::compute_layout({menus_tree.value->get(), *menus_styles.value, {200, 120}, &popup_text});
     if (!menus_layout) return 54;
     tessera::MenuDispatcher context_menu("context");
-    const auto context_open = context_menu.dispatch(
-        {menus_tree.value->get(), *menus_styles.value, &*menus_layout.value},
-        {std::chrono::microseconds{1}, tessera::KeyDown{tessera::Key::f10, {true}}},
-        (*menus_tree.value)->find("menu-anchor"));
+    const auto context_open =
+        context_menu.dispatch({menus_tree.value->get(), *menus_styles.value, &*menus_layout.value},
+                              {std::chrono::microseconds{1}, tessera::KeyDown{tessera::Key::f10, {true}}},
+                              (*menus_tree.value)->find("menu-anchor"));
     if (!context_open || !context_open.value->open_at || !context_open.value->consumed) return 55;
     tessera::UiDocument document;
     document.root.id = "panel";
@@ -105,16 +117,17 @@ int main() {
     const auto target = (*tree.value)->find("title");
     if (!target || (*tree.value)->get(*target)->properties.at("text") != title.properties.at("text")) return 4;
     tessera::CpuFrameCapture frames;
-    const tessera::UiDrawList paint{{tessera::DrawRect{{{0,0},{1,1}},{1,0,0,1}}}};
-    const auto capture = frames.capture({0,{1,1},1,{1,1},&paint});
-    if (!capture || capture.value->pixels != std::vector<std::uint8_t>{255,0,0,255}) return 5;
+    const tessera::UiDrawList paint{{tessera::DrawRect{{{0, 0}, {1, 1}}, {1, 0, 0, 1}}}};
+    const auto capture = frames.capture({0, {1, 1}, 1, {1, 1}, &paint});
+    if (!capture || capture.value->pixels != std::vector<std::uint8_t>{255, 0, 0, 255}) return 5;
     tessera::ReactiveRuntime runtime;
     tessera::AsyncValue asset(runtime, runtime.root(), "asset", tessera::PropertyType::string);
     const auto attempt = asset.begin("host-request");
     if (!attempt || !asset.complete(attempt.value->attempt, std::string("Ready"))) return 6;
     runtime.flush();
     const auto observed = asset.snapshot(runtime);
-    if (observed.status != tessera::AsyncStatus::ready || std::get<std::string>(observed.value->value) != "Ready") return 7;
+    if (observed.status != tessera::AsyncStatus::ready || std::get<std::string>(observed.value->value) != "Ready")
+        return 7;
     tessera::Theme theme;
     const tessera::Color ink{0.2f, 0.4f, 0.8f, 1};
     theme.variables = {{"ink", tessera::ThemeValue{ink}}};
@@ -123,7 +136,8 @@ int main() {
     const auto styles = tessera::resolve_styles({tree.value->get(), &sheet, {}, {}, &theme});
     if (!tessera::validate(theme).empty() || !styles || styles.value->at(target->index).color != ink) return 8;
     tessera::ComponentDescription component;
-    component.kind = "panel"; component.document = document;
+    component.kind = "panel";
+    component.document = document;
     component.props = {{"caption", tessera::PropertyType::string, {}}};
     component.properties = {{"caption", "title", "text"}};
     tessera::ComponentArguments arguments;
@@ -133,31 +147,39 @@ int main() {
     const auto bound = tessera::lower_component(runtime, component, arguments);
     if (!tessera::validate_source_location(origin, "/origin").empty() || !bound || bound.value->document != document ||
         !bound.value->sources || !tessera::validate_sources(bound.value->document, *bound.value->sources).empty() ||
-        bound.value->sources->nodes[1].property_arguments.at("text") != origin) return 9;
+        bound.value->sources->nodes[1].property_arguments.at("text") != origin)
+        return 9;
     arguments.props["caption"] = tessera::Property{true};
     const auto rejected = tessera::lower_component(runtime, component, arguments);
     if (rejected || rejected.diagnostics.empty() || !rejected.diagnostics[0].source ||
         rejected.diagnostics[0].source->location != origin ||
-        rejected.diagnostics[0].source->origin != tessera::DiagnosticOrigin::argument) return 10;
-    std::vector<tessera::Diagnostic> diagnostics{{"fixture", tessera::Severity::warning, "/root/children/0/properties/text", "Caption", {}}};
+        rejected.diagnostics[0].source->origin != tessera::DiagnosticOrigin::argument)
+        return 10;
+    std::vector<tessera::Diagnostic> diagnostics{
+        {"fixture", tessera::Severity::warning, "/root/children/0/properties/text", "Caption", {}}};
     if (!tessera::locate_diagnostics(bound.value->document, *bound.value->sources, diagnostics).empty() ||
-        !diagnostics[0].source || diagnostics[0].source->location != origin) return 11;
+        !diagnostics[0].source || diagnostics[0].source->location != origin)
+        return 11;
     component.local_state = {{"pinned", tessera::PropertyType::boolean, tessera::Property{false}}};
     component.cleanups = {"detach"};
     tessera::ComponentCollection components(runtime.owner(runtime.root(), "components"));
     int setups = 0;
-    const std::vector<tessera::ComponentMount> mounts{{"panel", &component,
-        [&](tessera::ReactiveRuntime& setup_runtime, const tessera::ComponentSetup& setup) {
-            ++setups;
-            const auto pinned = setup.state<bool>("pinned");
-            if (!pinned || setup.instance().key != "panel") throw std::runtime_error("Invalid setup state");
-            pinned.value->write(true);
-            (void)setup_runtime;
-        }, {{"detach", [] {}}}}};
+    const std::vector<tessera::ComponentMount> mounts{
+        {"panel",
+         &component,
+         [&](tessera::ReactiveRuntime& setup_runtime, const tessera::ComponentSetup& setup) {
+             ++setups;
+             const auto pinned = setup.state<bool>("pinned");
+             if (!pinned || setup.instance().key != "panel") throw std::runtime_error("Invalid setup state");
+             pinned.value->write(true);
+             (void)setup_runtime;
+         },
+         {{"detach", [] {}}}}};
     if (!components.reconcile(runtime, mounts)) return 12;
     const auto local = components.state<bool>("panel", "pinned");
     if (!local || !local.value->read() || !components.reconcile(runtime, mounts) || setups != 1 ||
-        !components.state<bool>("panel", "pinned").value->read()) return 13;
+        !components.state<bool>("panel", "pinned").value->read())
+        return 13;
     tessera::ComponentTreeCollection invocation_tree(runtime.owner(runtime.root(), "invocations"));
     tessera::ComponentInvocation invocation{component, {}, {}};
     invocation.component.async = {{"work", tessera::PropertyType::boolean}};
@@ -166,34 +188,45 @@ int main() {
     int detached = 0;
     int declared_cleanups = 0;
     int effect_factories = 0, notifications = 0, effect_closed = 0;
-    const std::vector<tessera::ComponentInvocationMount> invocation_mounts{{"panel",
-        [&](tessera::ReactiveRuntime& setup_runtime, const tessera::ComponentSetup& setup) {
-            setup.state<bool>("pinned").value->write(true);
-            const auto work = *setup.async("work").value;
-            (void)setup_runtime;
-            if (!work.begin("host-request")) throw std::runtime_error("Invalid host request");
-        }, {{"detach", [&] { ++declared_cleanups; }}},
-        {{"observe-pin", [&](const tessera::ComponentSetup& setup) {
-            ++effect_factories;
-            const auto pinned = *setup.state<bool>("pinned").value;
-            return tessera::component_effect<bool>([pinned] { return pinned.read(); }, [&](bool value) {
-                if (!value) throw std::runtime_error("Wrong published pin value");
-                ++notifications;
-                return [&] { ++effect_closed; };
-            });
-        }}}, {{"work", [&](const tessera::AsyncAttempt& address) {
-            if (address.request() != "host-request" || address.sequence() != 1) throw std::runtime_error("Wrong work address");
-            ++detached;
-        }}}}};
+    const std::vector<tessera::ComponentInvocationMount> invocation_mounts{
+        {"panel",
+         [&](tessera::ReactiveRuntime& setup_runtime, const tessera::ComponentSetup& setup) {
+             setup.state<bool>("pinned").value->write(true);
+             const auto work = *setup.async("work").value;
+             (void)setup_runtime;
+             if (!work.begin("host-request")) throw std::runtime_error("Invalid host request");
+         },
+         {{"detach", [&] { ++declared_cleanups; }}},
+         {{"observe-pin",
+           [&](const tessera::ComponentSetup& setup) {
+               ++effect_factories;
+               const auto pinned = *setup.state<bool>("pinned").value;
+               return tessera::component_effect<bool>([pinned] { return pinned.read(); },
+                                                      [&](bool value) {
+                                                          if (!value)
+                                                              throw std::runtime_error("Wrong published pin value");
+                                                          ++notifications;
+                                                          return [&] { ++effect_closed; };
+                                                      });
+           }}},
+         {{"work", [&](const tessera::AsyncAttempt& address) {
+               if (address.request() != "host-request" || address.sequence() != 1)
+                   throw std::runtime_error("Wrong work address");
+               ++detached;
+           }}}}};
     const auto mounted = invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts);
     if (!mounted || !mounted.value->instances[0].state<bool>("pinned").value->read() ||
-        !invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts).value->created.empty()) return 14;
+        !invocation_tree.reconcile(runtime, {&invocation, 1}, invocation_mounts).value->created.empty())
+        return 14;
     runtime.flush();
     if (!tessera::lower_component_tree(runtime, {&invocation, 1})) return 15;
     if (effect_factories != 1 || notifications != 0 || runtime.publish() != 1 ||
-        !runtime.deliver_effects(tessera::EffectPhase::notify).empty() || notifications != 1) return 17;
+        !runtime.deliver_effects(tessera::EffectPhase::notify).empty() || notifications != 1)
+        return 17;
     if (!invocation_tree.reconcile(runtime, {}, {}) || detached != 0 || declared_cleanups != 0 ||
         !runtime.deliver_cleanups().empty() || detached != 1 || declared_cleanups != 1 ||
-        !runtime.deliver_cleanups().empty() || detached != 1 || declared_cleanups != 1 || effect_closed != 1) return 16;
-    std::cout << "Source consumer: JSON, tree, CPU capture, async detachment, declared cleanup/effects/async, theme, component origins, diagnostics and invocation setup agree.\n";
+        !runtime.deliver_cleanups().empty() || detached != 1 || declared_cleanups != 1 || effect_closed != 1)
+        return 16;
+    std::cout
+        << "Source consumer: JSON, tree, CPU capture, async detachment, declared cleanup/effects/async, theme, component origins, diagnostics and invocation setup agree.\n";
 }

@@ -10,14 +10,12 @@ std::uint64_t allocate_identity() {
     auto current = next_identity.load(std::memory_order_relaxed);
     for (;;) {
         if (current == 0) throw std::overflow_error("UiTree identity space exhausted");
-        if (next_identity.compare_exchange_weak(current, current + 1,
-                                               std::memory_order_relaxed)) return current;
+        if (next_identity.compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) return current;
     }
 }
 }
 
-UiTree::UiTree(UiDocument document)
-    : document_(std::move(document)), identity_(allocate_identity()) {
+UiTree::UiTree(UiDocument document) : document_(std::move(document)), identity_(allocate_identity()) {
     index_node(document_.root);
 }
 

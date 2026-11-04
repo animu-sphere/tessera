@@ -26,18 +26,21 @@ const ValidationContext actions{{"inspector.name", "inspector.category"}};
 
 ui::Element Inspector(ui::Value<TextEditState> name, ui::Value<TextEditState> category) {
     const auto input_props = [](const char* id) {
-        return ui::TextInputProps{.node = {.id = id,
-            .style = {.padding = Edges{4, 4, 4, 4}, .background = Color{0.8f, 0.9f, 1, 1}}}};
+        return ui::TextInputProps{
+            .node = {.id = id, .style = {.padding = Edges{4, 4, 4, 4}, .background = Color{0.8f, 0.9f, 1, 1}}}};
     };
-    return ui::Grid({
-        ui::Text("Display name", {.id = "name-label"}),
-        ui::TextInput("Name", name, "inspector.name", input_props("name")),
-        ui::Text("Kind", {.id = "category-label"}),
-        ui::TextInput("Group", category, "inspector.category", input_props("category"))},
-        {.id = "inspector", .style = {.overflow = Overflow::clip, .padding = Edges{8, 8, 8, 8},
-            .text = {.size = 20.f},
-            .grid_columns = std::vector<GridTrack>{GridTrack{.maximum = 80}, GridTrack::fraction(1, 32)},
-            .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}}, .column_gap = 8.f, .row_gap = 8.f}});
+    return ui::Grid(
+        {ui::Text("Display name", {.id = "name-label"}),
+         ui::TextInput("Name", name, "inspector.name", input_props("name")), ui::Text("Kind", {.id = "category-label"}),
+         ui::TextInput("Group", category, "inspector.category", input_props("category"))},
+        {.id = "inspector",
+         .style = {.overflow = Overflow::clip,
+                   .padding = Edges{8, 8, 8, 8},
+                   .text = {.size = 20.f},
+                   .grid_columns = std::vector<GridTrack>{GridTrack{.maximum = 80}, GridTrack::fraction(1, 32)},
+                   .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}},
+                   .column_gap = 8.f,
+                   .row_gap = 8.f}});
 }
 struct View {
     std::unique_ptr<UiTree> tree;
@@ -46,7 +49,8 @@ struct View {
     HitTestInput hit() const { return {tree.get(), styles, &layout}; }
     SemanticInput semantic() const { return {tree.get(), styles, &layout}; }
     Rect bounds(NodeHandle node) const {
-        for (const auto& box : layout.boxes) if (box.node == node) return box.border_box;
+        for (const auto& box : layout.boxes)
+            if (box.node == node) return box.border_box;
         throw std::runtime_error("Inspector node has no layout");
     }
     Rect bounds(const char* id) const {
@@ -68,18 +72,21 @@ Result<View> prepare(ui::Session& session, const ui::Element& form, Size viewpor
     return {View{std::move(*tree.value), std::move(*styles.value), std::move(*layout.value)}, {}};
 }
 CommandSnapshot commands() {
-    const auto registry = take(CommandRegistry::create({
-        {"inspector.name", "Edit display name"}, {"inspector.category", "Edit category"}},
-        {{"inspector.name", "inspector.name"}, {"inspector.category", "inspector.category"}}));
+    const auto registry = take(
+        CommandRegistry::create({{"inspector.name", "Edit display name"}, {"inspector.category", "Edit category"}},
+                                {{"inspector.name", "inspector.name"}, {"inspector.category", "inspector.category"}}));
     return take(CommandSnapshot::publish(registry, 1, CommandMode::production,
-        {{"inspector.name", {true}}, {"inspector.category", {true}}}));
+                                         {{"inspector.name", {true}}, {"inspector.category", {true}}}));
 }
 struct TextService final : TextShaper {
     PlaceholderTextShaper delegate;
     bool reject = false;
-    Result<TextMetrics> measure(std::string_view text, const TextStyle& style, const TextConstraints& constraints) override {
-        if (reject) return {std::nullopt, {{"inspector_measurement", Severity::error, "/text",
-            "Injected text-service rejection; retain the accepted Inspector and retry."}}};
+    Result<TextMetrics> measure(std::string_view text, const TextStyle& style,
+                                const TextConstraints& constraints) override {
+        if (reject)
+            return {std::nullopt,
+                    {{"inspector_measurement", Severity::error, "/text",
+                      "Injected text-service rejection; retain the accepted Inspector and retry."}}};
         return delegate.measure(text, style, constraints);
     }
     Result<GlyphRun> shape(std::string_view text, const TextStyle& style, const TextConstraints& constraints) override {
@@ -126,8 +133,8 @@ public:
     CommandOutcome run(const ActionRequest& action, CommandSource source) {
         CommandExecution executed = [&] {
             const auto semantic = view.semantic();
-            const auto invocation = take(commands_.resolve_action(semantic, action,
-                commands_.generation(), {}, source, ++sequence_));
+            const auto invocation =
+                take(commands_.resolve_action(semantic, action, commands_.generation(), {}, source, ++sequence_));
             return take(executor_.execute(commands_, invocation, *this, &semantic));
         }();
         if (staged_view_) {
@@ -152,7 +159,7 @@ public:
         const auto& state = editing_name ? name : category;
         edit_ = TextEditRequest{state.owner, state.revision, TextEditInsert{committed->text}};
         auto outcome = run({"activate", editing_name ? "inspector.name" : "inspector.category", *focused},
-            CommandSource::keyboard);
+                           CommandSource::keyboard);
         edit_.reset();
         return outcome;
     }
@@ -166,12 +173,12 @@ public:
     void click(Point point) {
         const auto down = take(pointer.dispatch(view.hit(), {1us, PointerDown{{1}, point}}));
         require(down.actions.empty() && down.pointers.size() == 1 && down.pointers[0].pressed,
-            "Pointer press must find an input without activating it");
+                "Pointer press must find an input without activating it");
         (void)take(focus.focus(view.hit(), *down.pointers[0].pressed));
         const auto up = take(pointer.dispatch(view.hit(), {2us, PointerUp{{1}, point}}));
         require(up.actions.size() == 1, "Pointer release must route one Inspector action");
         require(run(up.actions[0], CommandSource::pointer).status == CommandOutcomeStatus::success,
-            "Inspector pointer activation failed");
+                "Inspector pointer activation failed");
     }
 
 private:
@@ -195,23 +202,23 @@ void verify_columns(Host& host) {
     const auto first = host.view.bounds("name");
     const auto second = host.view.bounds("category");
     const auto label = host.view.bounds("name-label");
-    require(label.origin.x == 8 && host.view.bounds("category-label").origin.x == 8 &&
-        first.origin.x == 96 && second.origin.x == first.origin.x && second.size.width == first.size.width &&
-        first.origin.x + first.size.width == host.viewport.width - 8 &&
-        second.origin.y == first.origin.y + first.size.height + 8,
-        "Inspector rows must share label/value columns, row heights and gaps");
+    require(label.origin.x == 8 && host.view.bounds("category-label").origin.x == 8 && first.origin.x == 96 &&
+                second.origin.x == first.origin.x && second.size.width == first.size.width &&
+                first.origin.x + first.size.width == host.viewport.width - 8 &&
+                second.origin.y == first.origin.y + first.size.height + 8,
+            "Inspector rows must share label/value columns, row heights and gaps");
     const auto metrics = take(host.text.delegate.measure("Display name", host.view.styles[1].text, {80.f}));
     require(metrics.lines == 2 && label.size.height >= metrics.size.height,
-        "Wrapped labels must fit their allocated row");
+            "Wrapped labels must fit their allocated row");
     for (const auto* id : {"name", "category"}) {
         const auto node = *host.view.tree->find(id);
         const auto field = host.view.bounds(node);
         for (const auto child : host.view.tree->children(node)) {
             const auto bounds = host.view.bounds(child);
             require(bounds.origin.x >= field.origin.x && bounds.origin.y >= field.origin.y &&
-                bounds.origin.x + bounds.size.width <= field.origin.x + field.size.width &&
-                bounds.origin.y + bounds.size.height <= field.origin.y + field.size.height,
-                "Wrapped input content must remain within its Grid field bounds");
+                        bounds.origin.x + bounds.size.width <= field.origin.x + field.size.width &&
+                        bounds.origin.y + bounds.size.height <= field.origin.y + field.size.height,
+                    "Wrapped input content must remain within its Grid field bounds");
         }
     }
 }
@@ -221,8 +228,10 @@ int tessera::examples::run_grid_inspector(const FrameObserver& observer) {
     try {
         Host host;
         auto capture = [&](std::string_view name) {
-            if (observer) observer(name, host.viewport,
-                take(build_paint_list({host.view.tree.get(), host.view.styles, &host.view.layout, &host.text})));
+            if (observer)
+                observer(
+                    name, host.viewport,
+                    take(build_paint_list({host.view.tree.get(), host.view.styles, &host.view.layout, &host.text})));
         };
         verify_columns(host);
         capture("grid-initial");
@@ -230,15 +239,15 @@ int tessera::examples::run_grid_inspector(const FrameObserver& observer) {
         auto focused = take(host.focus.dispatch(host.view.hit(), {1us, FocusNext{}}));
         require(focused.focused == host.view.tree->find("name"), "Keyboard must reach the first property");
         require(host.insert({2us, tessera::TextInput{"!"}}).status == CommandOutcomeStatus::success &&
-            host.name.text == "Ada!" && host.name.revision == 2 && host.category.text == "Tools",
-            "Editing a property must retain its peer field");
+                    host.name.text == "Ada!" && host.name.revision == 2 && host.category.text == "Tools",
+                "Editing a property must retain its peer field");
         capture("grid-edited");
         host.resize({168, 400});
         verify_columns(host);
         require(host.view.bounds("name").size.height > wide_height &&
-            take(host.focus.refresh(host.view.hit())).focused == host.view.tree->find("name") &&
-            host.name.text == "Ada!" && host.category.text == "Tools",
-            "Narrow resize must remeasure rows while retaining edits and focus");
+                    take(host.focus.refresh(host.view.hit())).focused == host.view.tree->find("name") &&
+                    host.name.text == "Ada!" && host.category.text == "Tools",
+                "Narrow resize must remeasure rows while retaining edits and focus");
         capture("grid-narrow");
         const auto field = host.view.bounds("name");
         host.click({field.origin.x + 5, field.origin.y + 5});
@@ -246,8 +255,8 @@ int tessera::examples::run_grid_inspector(const FrameObserver& observer) {
         require(focused.focused == host.view.tree->find("category"), "Gamepad must reach the next property");
         const auto activated = take(host.focus.dispatch(host.view.hit(), {4us, Activate{}}));
         require(activated.actions.size() == 1 &&
-            host.run(activated.actions[0], CommandSource::gamepad).status == CommandOutcomeStatus::success,
-            "Gamepad activation must use the ordinary Inspector command");
+                    host.run(activated.actions[0], CommandSource::gamepad).status == CommandOutcomeStatus::success,
+                "Gamepad activation must use the ordinary Inspector command");
 
         const auto accepted_tree = host.view.tree->root().tree;
         const auto accepted_name = host.name;
@@ -255,27 +264,27 @@ int tessera::examples::run_grid_inspector(const FrameObserver& observer) {
         host.text.reject = true;
         const auto rejected = host.insert({5us, tessera::TextInput{"X"}});
         require(rejected.status == CommandOutcomeStatus::error && !rejected.diagnostics.empty() &&
-            rejected.diagnostics[0].code == "inspector_measurement" &&
-            host.view.tree->root().tree == accepted_tree &&
-            host.name == accepted_name && host.category == accepted_category,
-            "Rejected measurement must retain the accepted fields and presentation with diagnostics");
+                    rejected.diagnostics[0].code == "inspector_measurement" &&
+                    host.view.tree->root().tree == accepted_tree && host.name == accepted_name &&
+                    host.category == accepted_category,
+                "Rejected measurement must retain the accepted fields and presentation with diagnostics");
         host.text.reject = false;
         require(host.insert({6us, tessera::TextInput{"?"}}).status == CommandOutcomeStatus::success &&
-            host.category.text == "Tools?" && host.category.revision == accepted_category.revision + 1 &&
-            host.name == accepted_name,
-            "A fresh edit must retry without retaining the rejected text");
+                    host.category.text == "Tools?" && host.category.revision == accepted_category.revision + 1 &&
+                    host.name == accepted_name,
+                "A fresh edit must retry without retaining the rejected text");
         host.resize({320, 400});
         verify_columns(host);
         require(take(host.focus.refresh(host.view.hit())).focused == host.view.tree->find("category"),
-            "Resize must preserve the edited property's focus by author ID");
+                "Resize must preserve the edited property's focus by author ID");
         capture("grid-restored");
-        std::cout << "Grid Inspector: shared columns, narrow wrapping, keyboard edit, pointer/gamepad and rejection passed.\n";
+        std::cout
+            << "Grid Inspector: shared columns, narrow wrapping, keyboard edit, pointer/gamepad and rejection passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
-
 }
 
 #ifndef TESSERA_EXAMPLE_LIBRARY

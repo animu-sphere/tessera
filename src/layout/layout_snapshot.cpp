@@ -13,14 +13,18 @@ std::vector<Diagnostic> validate_layout_snapshot(const UiTree* tree, std::span<c
     if (!tree) check.error("missing_input", "/tree", "Provide the UiTree used for layout.");
     if (!layout) check.error("missing_input", "/layout", "Provide the LayoutResult for this tree and styles.");
     if (tree && styles.size() != tree->size())
-        check.error("style_count", "/styles", "Provide one resolved style per tree node, indexed by NodeHandle::index.");
+        check.error("style_count", "/styles",
+                    "Provide one resolved style per tree node, indexed by NodeHandle::index.");
     for (std::size_t i = 0; i < styles.size(); ++i) {
         auto style = validate(styles[i], "/styles/" + std::to_string(i));
         errors.insert(errors.end(), style.begin(), style.end());
     }
     if (!errors.empty()) return errors;
 
-    struct Expected { NodeHandle node; std::uint32_t parent; };
+    struct Expected {
+        NodeHandle node;
+        std::uint32_t parent;
+    };
     std::vector<Expected> expected;
     const auto visit = [&](const auto& self, NodeHandle node, std::uint32_t parent) -> void {
         if (styles[node.index].display == Display::none) return;
@@ -32,7 +36,8 @@ std::vector<Diagnostic> validate_layout_snapshot(const UiTree* tree, std::span<c
     visit(visit, tree->root(), no_layout_parent);
     const auto& boxes = layout->boxes;
     if (boxes.size() != expected.size())
-        check.error("layout_count", "/layout/boxes", "Recompute layout: exactly one box per displayed node is required.");
+        check.error("layout_count", "/layout/boxes",
+                    "Recompute layout: exactly one box per displayed node is required.");
     for (std::size_t i = 0; i < boxes.size(); ++i) {
         const auto& box = boxes[i];
         const auto path = "/layout/boxes/" + std::to_string(i);
@@ -51,10 +56,12 @@ std::vector<Diagnostic> validate_layout_snapshot(const UiTree* tree, std::span<c
             box.visible != (style.visibility == Visibility::visible))
             check.error("layout_style", path, "Recompute layout after changing border, padding, or visibility.");
         const auto parent = expected[i].parent;
-        const auto clip = parent == no_layout_parent ? std::nullopt :
-            descendant_clip(boxes[parent], styles[expected[parent].node.index].overflow);
+        const auto clip = parent == no_layout_parent
+                              ? std::nullopt
+                              : descendant_clip(boxes[parent], styles[expected[parent].node.index].overflow);
         if (box.clip != clip)
-            check.error("layout_clip", path + "/clip", "Recompute layout after changing overflow or ancestor geometry.");
+            check.error("layout_clip", path + "/clip",
+                        "Recompute layout after changing overflow or ancestor geometry.");
         if (box.scroll.has_value() != (style.overflow == Overflow::scroll)) {
             check.error("layout_scroll", path + "/scroll", "Recompute layout after changing overflow.");
         } else if (box.scroll) {

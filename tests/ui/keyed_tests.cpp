@@ -8,10 +8,10 @@ using tessera::test::check;
 using tessera::test::has;
 
 namespace {
-template<class F>
-void rejects(F f, std::string_view code) {
-    try { f(); }
-    catch (const ReactiveError& e) {
+template<class F> void rejects(F f, std::string_view code) {
+    try {
+        f();
+    } catch (const ReactiveError& e) {
         check(e.diagnostic().code == code, "Runtime failure must keep its reactive diagnostic");
         return;
     }
@@ -40,10 +40,11 @@ struct Rows {
             const auto& row = update.value->instances[i];
             const auto local = runtime.signal(row.owner, "expanded", false);
             expanded[row.lifetime] = local;
-            label[row.lifetime] = runtime.computed<std::string>(row.owner, "label", [this, local, count, key = row.key] {
-                ++evaluations;
-                return key + (local.read() ? " (open)" : "") + " x" + std::to_string(count.read());
-            });
+            label[row.lifetime] =
+                runtime.computed<std::string>(row.owner, "label", [this, local, count, key = row.key] {
+                    ++evaluations;
+                    return key + (local.read() ? " (open)" : "") + " x" + std::to_string(count.read());
+                });
             runtime.on_cleanup(row.owner, "subscription", [this, key = row.key] { closed.push_back(key); });
         }
         return update;
@@ -69,15 +70,16 @@ void reorder_preserves_instances() {
     const auto moved = rows.apply({{"c", "item"}, {"b", "item"}, {"a", "item"}}, count);
     check(moved && moved.value->created.empty() && moved.value->disposed.empty(),
           "A compatible reorder neither creates nor disposes instances");
-    check(keys(rows.rows.instances()) == std::vector<std::string>{"c", "b", "a"} &&
-          rows.rows.find("b")->lifetime == b, "Reorder keeps the logical instance and candidate order");
+    check(keys(rows.rows.instances()) == std::vector<std::string>{"c", "b", "a"} && rows.rows.find("b")->lifetime == b,
+          "Reorder keeps the logical instance and candidate order");
     r.flush();
     check(rows.evaluations == 4 && rows.expanded[b].read() && rows.expanded[b].revision() == 2,
           "Reorder preserves local state and recalculates no binding");
     check(r.deliver_cleanups().empty() && rows.closed.empty(), "Reorder queues no cleanup");
     count.write(2);
     r.flush();
-    check(rows.evaluations == 7 && rows.label[b].read() == "b (open) x2", "Surviving bindings keep their subscriptions");
+    check(rows.evaluations == 7 && rows.label[b].read() == "b (open) x2",
+          "Surviving bindings keep their subscriptions");
 }
 
 void removal_and_reuse_create_new_lifetimes() {
@@ -94,10 +96,12 @@ void removal_and_reuse_create_new_lifetimes() {
     const auto update = rows.apply({{"c", "folder"}, {"b", "item"}}, count);
     check(update && update.value->created == std::vector<std::size_t>{0}, "Incompatible kind creates a new instance");
     check(keys(update.value->disposed) == std::vector<std::string>{"a", "c", "d"} &&
-          update.value->disposed[1].lifetime == c, "Removed and replaced instances are reported in previous order");
+              update.value->disposed[1].lifetime == c,
+          "Removed and replaced instances are reported in previous order");
     const auto replaced = rows.rows.find("c")->lifetime;
     check(replaced == d + 1 && !rows.rows.current("c", c) && rows.rows.current("c", replaced) &&
-          !rows.rows.current("a", a) && rows.rows.current("b", b), "Old lifetimes stop being current");
+              !rows.rows.current("a", a) && rows.rows.current("b", b),
+          "Old lifetimes stop being current");
     rejects([&] { (void)rows.expanded[c].read(); }, "disposed_reactive_value");
     rejects([&] { (void)rows.label[a].read(); }, "disposed_reactive_value");
     check(rows.closed.empty() && r.deliver_cleanups().empty() && rows.closed == std::vector<std::string>{"a", "c", "d"},
@@ -114,7 +118,8 @@ void removal_and_reuse_create_new_lifetimes() {
     check(r.deliver_cleanups().empty() && rows.closed.size() == 3, "Each cleanup runs once");
 
     const auto empty = rows.apply({}, count);
-    check(empty && rows.rows.instances().empty() && keys(empty.value->disposed) == std::vector<std::string>{"a", "b", "c"},
+    check(empty && rows.rows.instances().empty() &&
+              keys(empty.value->disposed) == std::vector<std::string>{"a", "b", "c"},
           "An empty candidate disposes every instance (conditional children)");
     check(r.deliver_cleanups().empty() && rows.closed.size() == 6, "Clearing queues every remaining cleanup");
 }
@@ -125,17 +130,26 @@ void invalid_candidates_change_nothing() {
     Rows rows{r, KeyedCollection(r.owner(r.root(), "rows"))};
     check(static_cast<bool>(rows.apply({{"a", "item"}, {"b", "item"}}, count)), "Initial rows are valid");
     const auto before = rows.rows.instances();
-    const auto invalid = rows.apply({{"b", "item"}, {"", "item"}, {"c", ""}, {"b", "item"},
-        {"bad\x01", "item"}, {std::string("\xff", 1), "item"}, {std::string(257, 'k'), "item"}, {"a", "folder"}}, count);
+    const auto invalid = rows.apply({{"b", "item"},
+                                     {"", "item"},
+                                     {"c", ""},
+                                     {"b", "item"},
+                                     {"bad\x01", "item"},
+                                     {std::string("\xff", 1), "item"},
+                                     {std::string(257, 'k'), "item"},
+                                     {"a", "folder"}},
+                                    count);
     check(!invalid && invalid.diagnostics.size() == 6, "Every invalid child is reported");
     check(has(invalid.diagnostics, "invalid_key", "/children/1/key") &&
-          has(invalid.diagnostics, "invalid_kind", "/children/2/kind") &&
-          has(invalid.diagnostics, "duplicate_key", "/children/3/key") &&
-          has(invalid.diagnostics, "invalid_key", "/children/4/key") &&
-          has(invalid.diagnostics, "invalid_key", "/children/5/key") &&
-          has(invalid.diagnostics, "invalid_key", "/children/6/key"), "Diagnostics locate each candidate child");
+              has(invalid.diagnostics, "invalid_kind", "/children/2/kind") &&
+              has(invalid.diagnostics, "duplicate_key", "/children/3/key") &&
+              has(invalid.diagnostics, "invalid_key", "/children/4/key") &&
+              has(invalid.diagnostics, "invalid_key", "/children/5/key") &&
+              has(invalid.diagnostics, "invalid_key", "/children/6/key"),
+          "Diagnostics locate each candidate child");
     check(rows.rows.instances().size() == 2 && rows.rows.current("a", before[0].lifetime) &&
-          rows.rows.current("b", before[1].lifetime), "A rejected candidate keeps every instance");
+              rows.rows.current("b", before[1].lifetime),
+          "A rejected candidate keeps every instance");
     check(r.deliver_cleanups().empty() && rows.closed.empty(), "A rejected candidate disposes nothing");
     std::vector<KeyedChild> many(max_keyed_children + 1, {"k", "item"});
     const auto limit = rows.rows.reconcile(r, many);
@@ -158,7 +172,10 @@ void runtime_failures_keep_the_collection_truthful() {
     (void)r.signal(a, "still-live", 0);
 
     // Reconciliation inside a calculation is a graph mutation.
-    const auto inside = r.computed<int>(r.root(), "inside", [&] { (void)rows.reconcile(r, {{"c", "item"}}); return 0; });
+    const auto inside = r.computed<int>(r.root(), "inside", [&] {
+        (void)rows.reconcile(r, {{"c", "item"}});
+        return 0;
+    });
     rejects([&] { (void)inside.read(); }, "reactive_mutation");
     check(rows.instances().size() == 2 && keys(rows.instances()) == std::vector<std::string>{"a", "b"},
           "A rejected calculation-time reconciliation changes nothing");

@@ -39,8 +39,8 @@ struct NoOverlapInvariant {
     float tolerance = 0; // Pass if penetration on either axis is <= tolerance.
     bool operator==(const NoOverlapInvariant&) const = default;
 };
-using InvariantPredicate = std::variant<VisibleInvariant, EnabledInvariant, FocusableInvariant,
-    SemanticNameInvariant, InsideViewportInvariant, NoOverlapInvariant>;
+using InvariantPredicate = std::variant<VisibleInvariant, EnabledInvariant, FocusableInvariant, SemanticNameInvariant,
+                                        InsideViewportInvariant, NoOverlapInvariant>;
 struct UiInvariant {
     std::string name; // Unique report identity, 1..256 UTF-8 bytes, no controls.
     InvariantPredicate predicate;

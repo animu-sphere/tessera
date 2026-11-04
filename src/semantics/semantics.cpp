@@ -62,21 +62,33 @@ public:
             std::optional<SemanticRole> role;
             const auto* separator = effective_property(node, property_names::separator);
             const auto collection = detail::collection_role(node);
-            if (detail::modal(node)) role = SemanticRole::dialog;
-            else if (collection == "list") role = SemanticRole::list;
-            else if (collection == "tree") role = SemanticRole::tree;
-            else if (collection == "list_item") role = SemanticRole::list_item;
-            else if (collection == "tree_item") role = SemanticRole::tree_item;
-            else if (collection == "menu") role = SemanticRole::menu;
-            else if (collection == "menu_item") role = SemanticRole::menu_item;
-            else if (separator && std::get<bool>(*separator)) role = SemanticRole::separator;
-            else if (activate) role = SemanticRole::button;
-            else if (text && !(inherited != no_semantic_parent &&
-                (tree_.nodes[inherited].role == SemanticRole::button || tree_.nodes[inherited].role == SemanticRole::separator ||
-                 tree_.nodes[inherited].role == SemanticRole::list_item || tree_.nodes[inherited].role == SemanticRole::tree_item ||
-                 tree_.nodes[inherited].role == SemanticRole::menu_item)))
+            if (detail::modal(node))
+                role = SemanticRole::dialog;
+            else if (collection == "list")
+                role = SemanticRole::list;
+            else if (collection == "tree")
+                role = SemanticRole::tree;
+            else if (collection == "list_item")
+                role = SemanticRole::list_item;
+            else if (collection == "tree_item")
+                role = SemanticRole::tree_item;
+            else if (collection == "menu")
+                role = SemanticRole::menu;
+            else if (collection == "menu_item")
+                role = SemanticRole::menu_item;
+            else if (separator && std::get<bool>(*separator))
+                role = SemanticRole::separator;
+            else if (activate)
+                role = SemanticRole::button;
+            else if (text &&
+                     !(inherited != no_semantic_parent && (tree_.nodes[inherited].role == SemanticRole::button ||
+                                                           tree_.nodes[inherited].role == SemanticRole::separator ||
+                                                           tree_.nodes[inherited].role == SemanticRole::list_item ||
+                                                           tree_.nodes[inherited].role == SemanticRole::tree_item ||
+                                                           tree_.nodes[inherited].role == SemanticRole::menu_item)))
                 role = SemanticRole::text;
-            else if (box.parent == no_layout_parent && node.kind == NodeKind::box) role = SemanticRole::root;
+            else if (box.parent == no_layout_parent && node.kind == NodeKind::box)
+                role = SemanticRole::root;
             if (!role) {
                 // Presentational text names its button; other Boxes are flattened.
                 if (text) append(content[inherited], *text);
@@ -122,7 +134,8 @@ public:
         if (!input_.focused) return {};
         const auto box = targeting_.box(*input_.focused);
         if (box == no_layout_parent || !targeting_.focusable(box)) return {};
-        const auto exposed = std::any_of(tree.nodes.begin(), tree.nodes.end(), [](const SemanticNode& entry) { return entry.focused; });
+        const auto exposed =
+            std::any_of(tree.nodes.begin(), tree.nodes.end(), [](const SemanticNode& entry) { return entry.focused; });
         return exposed ? std::nullopt : input_.focused;
     }
 
@@ -138,8 +151,9 @@ private:
 std::vector<Diagnostic> validate(const SemanticInput& input) {
     auto errors = detail::validate_layout_snapshot(input.tree, input.styles, input.layout);
     if (errors.empty() && input.focused && !input.tree->get(*input.focused))
-        detail::Checker(errors).error("stale_target", "/focused",
-                                      "Pass the focus reported for this snapshot; this handle belongs to another tree.");
+        detail::Checker(errors).error(
+            "stale_target", "/focused",
+            "Pass the focus reported for this snapshot; this handle belongs to another tree.");
     return errors;
 }
 
@@ -154,13 +168,21 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
              entry.role == SemanticRole::dialog || entry.role == SemanticRole::list ||
              entry.role == SemanticRole::tree || entry.role == SemanticRole::list_item ||
              entry.role == SemanticRole::tree_item || entry.role == SemanticRole::menu ||
-             entry.role == SemanticRole::menu_item) && entry.name.empty())
-            warnings.push_back({"missing_name", Severity::warning, "/nodes/" + std::to_string(entry.node.index),
-                                "Give the control visible Text content or a labelled_by reference to named text.", {}});
+             entry.role == SemanticRole::menu_item) &&
+            entry.name.empty())
+            warnings.push_back({"missing_name",
+                                Severity::warning,
+                                "/nodes/" + std::to_string(entry.node.index),
+                                "Give the control visible Text content or a labelled_by reference to named text.",
+                                {}});
     }
     if (const auto focused = projection.unexposed_focus(tree))
-        warnings.push_back({"focus_not_exposed", Severity::warning, "/nodes/" + std::to_string(focused->index),
-                            "Expose the focusable control as a button or separator, or move focusable to its control owner.", {}});
+        warnings.push_back(
+            {"focus_not_exposed",
+             Severity::warning,
+             "/nodes/" + std::to_string(focused->index),
+             "Expose the focusable control as a button or separator, or move focusable to its control owner.",
+             {}});
     return {std::move(tree), std::move(warnings)};
 }
 
@@ -169,20 +191,24 @@ Result<ActionRequest> request_semantic_action(const SemanticInput& input, NodeHa
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     detail::Checker check(errors);
     if (!input.tree->get(target)) {
-        check.error("stale_target", "/target", "Resolve the target again in the current snapshot; this handle belongs to another tree.");
+        check.error("stale_target", "/target",
+                    "Resolve the target again in the current snapshot; this handle belongs to another tree.");
         return {std::nullopt, std::move(errors)};
     }
     const auto& boxes = input.layout->boxes;
-    const auto box = std::find_if(boxes.begin(), boxes.end(), [&](const LayoutBox& item) { return item.node == target; });
+    const auto box =
+        std::find_if(boxes.begin(), boxes.end(), [&](const LayoutBox& item) { return item.node == target; });
     if (box == boxes.end() || !box->visible) {
-        check.error("hidden_target", "/target", "The target is display-none or hidden and exposes no semantic actions.");
+        check.error("hidden_target", "/target",
+                    "The target is display-none or hidden and exposes no semantic actions.");
         return {std::nullopt, std::move(errors)};
     }
     const auto tree = Projection(input).build();
     const auto entry = std::find_if(tree.nodes.begin(), tree.nodes.end(),
                                     [&](const SemanticNode& item) { return item.node == target; });
     if (entry != tree.nodes.end() && !entry->enabled) {
-        check.error("disabled_target", "/target", "The target or an ancestor is disabled, or blocked by an active Modal.");
+        check.error("disabled_target", "/target",
+                    "The target or an ancestor is disabled, or blocked by an active Modal.");
         return {std::nullopt, std::move(errors)};
     }
     if (entry != tree.nodes.end()) {
@@ -190,8 +216,9 @@ Result<ActionRequest> request_semantic_action(const SemanticInput& input, NodeHa
             if (action.binding == binding) return {ActionRequest{action.binding, action.action, target}, {}};
         }
     }
-    check.error("unsupported_action", "/binding",
-                "The target does not expose this action; invoke a control's activate action, not its label or container.");
+    check.error(
+        "unsupported_action", "/binding",
+        "The target does not expose this action; invoke a control's activate action, not its label or container.");
     return {std::nullopt, std::move(errors)};
 }
 

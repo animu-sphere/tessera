@@ -60,8 +60,8 @@ tessera::ReplayRecording recording() {
 tessera::ReplayRecording every_step() {
     auto result = recording();
     result.policy = {true, true};
-    result.environment = {2.5f, "ja-JP", {tessera::ReplayText::Kind::font_profile, "menu fonts/日本語",
-                                          std::string(64, 'a')}};
+    result.environment = {
+        2.5f, "ja-JP", {tessera::ReplayText::Kind::font_profile, "menu fonts/日本語", std::string(64, 'a')}};
     result.document.extensions["path-finder:editor"] = tessera::JsonValue{std::string("kept")};
     auto& style = result.styles[2];
     style.display = tessera::Display::none;
@@ -83,7 +83,8 @@ tessera::ReplayRecording every_step() {
     const tessera::Modifiers keys{true, false, true, false};
     auto& steps = result.steps;
     steps.push_back(tessera::InputEvent{1us, tessera::PointerMove{{4}, {10.5f, -2}, keys}});
-    steps.push_back(tessera::InputEvent{2us, tessera::PointerDown{{4}, {10, 20}, tessera::PointerButton::secondary, keys}});
+    steps.push_back(
+        tessera::InputEvent{2us, tessera::PointerDown{{4}, {10, 20}, tessera::PointerButton::secondary, keys}});
     steps.push_back(tessera::InputEvent{3us, tessera::PointerUp{{4}, {10, 20}, tessera::PointerButton::middle, {}}});
     steps.push_back(tessera::InputEvent{4us, tessera::PointerCancel{{4294967295u}}});
     steps.push_back(tessera::InputEvent{5us, tessera::Scroll{{1, 2}, {0, -30}, keys}});
@@ -134,10 +135,11 @@ void round_trip_preserves_every_field() {
     const auto original = every_step();
     const auto json = save(original);
     check(!json.empty() && json.back() == '\n' && json.find('\n') == json.size() - 1, "Canonical replay is one line");
-    for (const auto* fragment : {"\"version\":1", "\"locale\":\"ja-JP\"", "\"scale\":2.5", "\"max_width\":\"none\"",
-                                 "\"line_height\":\"normal\"", "\"width\":\"auto\"", "\"width\":0.1", "\"opacity\":0.7",
-                                 "\"line_height\":20.5", "\"kind\":\"font_profile\"", "\"type\":\"pointer_cancel\"",
-                                 "\"pointer\":4.294967295e+09", "\"timestamp\":9.007199254740991e+15", "\"children\":[]"})
+    for (const auto* fragment :
+         {"\"version\":1", "\"locale\":\"ja-JP\"", "\"scale\":2.5", "\"max_width\":\"none\"",
+          "\"line_height\":\"normal\"", "\"width\":\"auto\"", "\"width\":0.1", "\"opacity\":0.7",
+          "\"line_height\":20.5", "\"kind\":\"font_profile\"", "\"type\":\"pointer_cancel\"",
+          "\"pointer\":4.294967295e+09", "\"timestamp\":9.007199254740991e+15", "\"children\":[]"})
         check(json.find(fragment) != std::string::npos, std::string("Canonical replay must contain ") + fragment);
     const auto loaded = load(json);
     check(loaded == original, "Load must restore every saved field exactly");
@@ -146,7 +148,8 @@ void round_trip_preserves_every_field() {
     // Spelling is normalized; values are not.
     auto spelled = changed(json, "\"scale\":2.5", "\"scale\" : 25e-1");
     spelled = changed(spelled, "\"locale\":\"ja-JP\"", "\"locale\":\"ja\\u002dJP\"");
-    check(load(spelled) == original && save(load(spelled)) == json, "Whitespace, escapes, and number notation normalize");
+    check(load(spelled) == original && save(load(spelled)) == json,
+          "Whitespace, escapes, and number notation normalize");
 
     auto placeholder = original;
     placeholder.environment.text = {};
@@ -200,16 +203,17 @@ void stack_styles_round_trip() {
     source.steps.push_back(tessera::InputEvent{2us, tessera::Activate{}});
     const auto json = save(source);
     check(load(json) == source && save(load(json)) == json,
-        "Stack display and each child's placement must survive initial/reload round trips");
+          "Stack display and each child's placement must survive initial/reload round trips");
     const auto original = play(source);
     check(tessera::compare_replay(original, play(load(json))).empty(),
-        "Restored Stack playback must reproduce layout, paint, semantics and actions");
+          "Restored Stack playback must reproduce layout, paint, semantics and actions");
     auto invalid = tessera::load_replay(changed(json, "\"stack_horizontal\":\"end\"", "\"stack_horizontal\":\"bad\""));
     check(!invalid && has(invalid.diagnostics, "unknown_value", "/steps/0/styles/1/stack_horizontal"),
-        "Unknown encoded Stack placement must report its field");
+          "Unknown encoded Stack placement must report its field");
     const auto legacy = save(recording());
     check(legacy.find("stack_horizontal") == std::string::npos && legacy.find("stack_vertical") == std::string::npos &&
-        load(legacy) == recording(), "Legacy recordings must retain their default placement and canonical encoding");
+              load(legacy) == recording(),
+          "Legacy recordings must retain their default placement and canonical encoding");
     auto host = source;
     host.version = tessera::replay_host_version;
     check(load(save(host)) == host, "Stack placement must also survive the host-state recording version");
@@ -231,20 +235,21 @@ void grid_styles_round_trip() {
     source.steps.push_back(tessera::InputEvent{2us, tessera::Activate{}});
     const auto json = save(source);
     check(load(json) == source && save(load(json)) == json,
-        "Grid tracks, limits, gaps and alignment must round-trip in initial/reloaded views");
+          "Grid tracks, limits, gaps and alignment must round-trip in initial/reloaded views");
     check(tessera::compare_replay(play(source), play(load(json))).empty(),
-        "Restored Grid must preserve geometry, paint, semantics and actions after resizing");
+          "Restored Grid must preserve geometry, paint, semantics and actions after resizing");
     auto invalid = tessera::load_replay(changed(json, "\"kind\":\"fraction\"", "\"kind\":\"bad\""));
     check(!invalid && has(invalid.diagnostics, "unknown_value", "/steps/0/styles/0/grid_columns/1/kind"),
-        "Unknown Grid track kinds must locate their encoded field");
+          "Unknown Grid track kinds must locate their encoded field");
     invalid = tessera::load_replay(changed(json, "\"column_gap\":6", "\"column_gap\":-1"));
     check(!invalid && has(invalid.diagnostics, "out_of_range", "/steps/0/styles/0/column_gap"),
-        "Malformed Grid gaps must fail before playback");
+          "Malformed Grid gaps must fail before playback");
     source.version = tessera::replay_host_version;
     check(load(save(source)) == source, "Grid must round-trip under host-state replay v2");
     const auto legacy = save(recording());
     check(legacy.find("grid_") == std::string::npos && legacy.find("column_gap") == std::string::npos &&
-        load(legacy) == recording(), "Default Grid fields must not change legacy canonical recordings");
+              load(legacy) == recording(),
+          "Default Grid fields must not change legacy canonical recordings");
 }
 
 void loading_rejects_malformed_input() {
@@ -259,12 +264,13 @@ void loading_rejects_malformed_input() {
         for (const auto& diagnostic : loaded.diagnostics)
             check(diagnostic.byte_offset.has_value(), "Load diagnostics must carry a byte offset");
     };
-    reject(changed(base, "\"version\":1,\"viewport\"", "\"version\":3,\"viewport\""), "unsupported_version", "/version");
+    reject(changed(base, "\"version\":1,\"viewport\"", "\"version\":3,\"viewport\""), "unsupported_version",
+           "/version");
     reject(changed(base, "\"version\":1,\"viewport\"", "\"version\":1.5,\"viewport\""), "schema_type", "/version");
     reject(changed(base, "\"actions\":[", "\"x/~\":0,\"actions\":["), "unknown_field", "/x~1~0");
     reject(changed(base, "\"actions\":[", "\"actions\":[],\"actions\":["), "duplicate_member", "/actions");
-    reject(changed(base, "\"actions\":[\"quit-game\"", "\"actions\":[\"quit-game\",\"quit-game\""),
-           "duplicate_action", "/actions/1");
+    reject(changed(base, "\"actions\":[\"quit-game\"", "\"actions\":[\"quit-game\",\"quit-game\""), "duplicate_action",
+           "/actions/1");
     reject(changed(base, "\"actions\":[\"quit-game\"", "\"actions\":[\"\""), "invalid_identifier", "/actions/0");
     reject(changed(base, "\"policy\":{\"press_focus\":false,", "\"policy\":{"), "missing_field", "/policy/press_focus");
     reject(changed(base, "\"press_focus\":false", "\"press_focus\":0"), "schema_type", "/policy/press_focus");
@@ -272,7 +278,8 @@ void loading_rejects_malformed_input() {
     reject(changed(base, "\"scale\":1", "\"scale\":1e39"), "out_of_range", "/environment/scale");
     reject(changed(base, "\"locale\":\"und\"", "\"locale\":\"ja_JP\""), "invalid_locale", "/environment/locale");
     reject(changed(base, "\"locale\":\"und\"", "\"locale\":\"x-private\""), "invalid_locale", "/environment/locale");
-    reject(changed(base, "{\"kind\":\"placeholder\"}", "{\"kind\":\"system\"}"), "unknown_value", "/environment/text/kind");
+    reject(changed(base, "{\"kind\":\"placeholder\"}", "{\"kind\":\"system\"}"), "unknown_value",
+           "/environment/text/kind");
     reject(changed(base, "{\"kind\":\"placeholder\"}", "{\"id\":\"fonts\",\"kind\":\"placeholder\"}"), "unknown_field",
            "/environment/text/id");
     reject(changed(base, "{\"kind\":\"placeholder\"}", "{\"id\":\"fonts\",\"kind\":\"font_profile\"}"), "missing_field",
@@ -297,7 +304,8 @@ void loading_rejects_malformed_input() {
            "/document/version");
     reject(changed(base, "\"events\":{\"activate\":\"quit-game\"}", "\"events\":{\"activate\":\"exit\"}"),
            "unknown_action", "/document/root/children/1/events/activate");
-    reject(changed(base, "{\"timestamp\":1,\"type\":\"focus_next\"}", "{\"key\":\"tab\",\"timestamp\":1,\"type\":\"key_down\"}"),
+    reject(changed(base, "{\"timestamp\":1,\"type\":\"focus_next\"}",
+                   "{\"key\":\"tab\",\"timestamp\":1,\"type\":\"key_down\"}"),
            "unsupported_event", "/steps/0/type");
     reject(changed(base, "\"type\":\"focus_next\"", "\"type\":\"hover\""), "unknown_value", "/steps/0/type");
     reject(changed(base, "{\"timestamp\":1,\"type\":\"focus_next\"}", "{\"type\":\"focus_next\"}"), "missing_field",
@@ -309,7 +317,8 @@ void loading_rejects_malformed_input() {
            "/steps/1/target/kind");
     reject(changed(base, "{\"id\":\"start\",\"kind\":\"id\"}", "{\"children\":[-1],\"kind\":\"path\"}"), "schema_type",
            "/steps/1/target/children/0");
-    reject(changed(base, "{\"id\":\"start\",\"kind\":\"id\"}", "{\"kind\":\"semantic\",\"name\":\"Start\",\"role\":\"link\"}"),
+    reject(changed(base, "{\"id\":\"start\",\"kind\":\"id\"}",
+                   "{\"kind\":\"semantic\",\"name\":\"Start\",\"role\":\"link\"}"),
            "unknown_value", "/steps/1/target/role");
     reject(changed(base, "\"type\":\"focus\"}", "\"type\":\"focus\",\"binding\":\"activate\"}"), "unknown_field",
            "/steps/1/binding");
@@ -326,10 +335,12 @@ void loading_rejects_malformed_input() {
     values += "0]";
     parse(values, "json_value_limit");
 
-    std::string many = "{\"actions\":[],\"document\":{\"root\":{\"type\":\"Box\"},\"version\":1},\"environment\":"
-                       "{\"locale\":\"und\",\"scale\":1,\"text\":{\"kind\":\"placeholder\"}},\"policy\":{\"press_focus\":"
-                       "false,\"reveal_focus\":false},\"steps\":[";
-    for (std::size_t i = 0; i <= tessera::max_replay_steps; ++i) many += (i ? ",{" : "{") + std::string("\"timestamp\":0,\"type\":\"activate\"}");
+    std::string many =
+        "{\"actions\":[],\"document\":{\"root\":{\"type\":\"Box\"},\"version\":1},\"environment\":"
+        "{\"locale\":\"und\",\"scale\":1,\"text\":{\"kind\":\"placeholder\"}},\"policy\":{\"press_focus\":"
+        "false,\"reveal_focus\":false},\"steps\":[";
+    for (std::size_t i = 0; i <= tessera::max_replay_steps; ++i)
+        many += (i ? ",{" : "{") + std::string("\"timestamp\":0,\"type\":\"activate\"}");
     many += "],\"styles\":[],\"version\":1,\"viewport\":{\"height\":1,\"width\":1}}";
     reject(many, "out_of_range", "/steps");
 }
@@ -339,11 +350,13 @@ void saving_rejects_invalid_recordings() {
         auto value = recording();
         mutate(value);
         const auto saved = tessera::save_replay(value);
-        check(!saved && has(saved.diagnostics, code, path), "Expected " + std::string(code) + " at " + std::string(path));
+        check(!saved && has(saved.diagnostics, code, path),
+              "Expected " + std::string(code) + " at " + std::string(path));
     };
     using R = tessera::ReplayRecording;
     reject([](R& r) { r.version = 0; }, "unsupported_version", "/version");
-    reject([](R& r) { r.environment.scale = std::numeric_limits<float>::quiet_NaN(); }, "invalid_number", "/environment/scale");
+    reject([](R& r) { r.environment.scale = std::numeric_limits<float>::quiet_NaN(); }, "invalid_number",
+           "/environment/scale");
     reject([](R& r) { r.environment.scale = -1; }, "out_of_range", "/environment/scale");
     reject([](R& r) { r.environment.locale = ""; }, "invalid_locale", "/environment/locale");
     reject([](R& r) { r.environment.locale = "en--US"; }, "invalid_locale", "/environment/locale");
@@ -351,8 +364,11 @@ void saving_rejects_invalid_recordings() {
     reject([](R& r) { r.environment.text.id = "fonts"; }, "invalid_text_service", "/environment/text");
     reject([](R& r) { r.environment.text.kind = static_cast<tessera::ReplayText::Kind>(9); }, "unknown_value",
            "/environment/text/kind");
-    reject([](R& r) { r.environment.text = {tessera::ReplayText::Kind::font_profile, std::string(257, 'x'), std::string(64, '0')}; },
-           "invalid_identifier", "/environment/text/id");
+    reject(
+        [](R& r) {
+            r.environment.text = {tessera::ReplayText::Kind::font_profile, std::string(257, 'x'), std::string(64, '0')};
+        },
+        "invalid_identifier", "/environment/text/id");
     reject([](R& r) { r.environment.text = {tessera::ReplayText::Kind::font_profile, "\xff", std::string(64, '0')}; },
            "invalid_utf8", "/environment/text/id");
     reject([](R& r) { r.environment.text = {tessera::ReplayText::Kind::font_profile, "fonts", std::string(63, '0')}; },
@@ -360,7 +376,8 @@ void saving_rejects_invalid_recordings() {
     reject([](R& r) { r.context.actions.insert(""); }, "invalid_identifier", "/actions/0");
     reject([](R& r) { r.context.actions.erase("quit-game"); }, "unknown_action",
            "/document/root/children/1/events/activate");
-    reject([](R& r) { r.viewport.width = std::numeric_limits<float>::infinity(); }, "invalid_number", "/viewport/width");
+    reject([](R& r) { r.viewport.width = std::numeric_limits<float>::infinity(); }, "invalid_number",
+           "/viewport/width");
     reject([](R& r) { r.styles[1].opacity = -1; }, "out_of_range", "/styles/1/opacity");
     reject([](R& r) { r.styles[0].text.size = std::numeric_limits<float>::infinity(); }, "invalid_number",
            "/styles/0/text/size");
@@ -368,22 +385,28 @@ void saving_rejects_invalid_recordings() {
            "unsupported_event", "/steps/0/event");
     reject([](R& r) { r.steps.push_back(tessera::InputEvent{1us, tessera::TextInput{"a"}}); }, "unsupported_event",
            "/steps/0/event");
-    reject([](R& r) { r.steps.push_back(tessera::InputEvent{std::chrono::microseconds{1LL << 60}, tessera::Activate{}}); },
-           "out_of_range", "/steps/0/timestamp");
+    reject(
+        [](R& r) { r.steps.push_back(tessera::InputEvent{std::chrono::microseconds{1LL << 60}, tessera::Activate{}}); },
+        "out_of_range", "/steps/0/timestamp");
     reject([](R& r) { r.steps.push_back(tessera::InputEvent{-1us, tessera::Activate{}}); }, "out_of_range",
            "/steps/0/timestamp");
     reject([](R& r) { r.steps.push_back(tessera::InputEvent{1us, tessera::PointerDown{{1}, {std::nanf(""), 0}}}); },
            "invalid_number", "/steps/0/position/x");
     reject([](R& r) { r.steps.push_back(tessera::ReplayResize{{-1, 1}}); }, "out_of_range", "/steps/0/viewport/width");
-    reject([](R& r) {
-        auto styles = menu_styles(1);
-        styles[1].gap = -1;
-        r.steps.push_back(tessera::ReplayReload{menu({button("x", "X", "missing")}), styles});
-    }, "out_of_range", "/steps/0/styles/1/gap");
+    reject(
+        [](R& r) {
+            auto styles = menu_styles(1);
+            styles[1].gap = -1;
+            r.steps.push_back(tessera::ReplayReload{menu({button("x", "X", "missing")}), styles});
+        },
+        "out_of_range", "/steps/0/styles/1/gap");
     reject([](R& r) { r.steps.push_back(tessera::ReplayReload{menu({button("x", "X", "missing")}), menu_styles(1)}); },
            "unknown_action", "/steps/0/document/root/children/0/events/activate");
-    reject([](R& r) { r.steps.push_back(tessera::ReplayFocus{tessera::PointTarget{{0, std::numeric_limits<float>::infinity()}}}); },
-           "invalid_number", "/steps/0/target/position/y");
+    reject(
+        [](R& r) {
+            r.steps.push_back(tessera::ReplayFocus{tessera::PointTarget{{0, std::numeric_limits<float>::infinity()}}});
+        },
+        "invalid_number", "/steps/0/target/position/y");
     reject([](R& r) { r.steps.push_back(tessera::ReplayFocus{tessera::AuthorIdTarget{"\xc0"}}); }, "invalid_utf8",
            "/steps/0/target/id");
     reject([](R& r) { r.steps.push_back(tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"start"}, "\xff"}); },
@@ -402,7 +425,8 @@ void playback_checks_the_environment() {
               has(played.diagnostics, "invalid_locale", "/environment/locale"),
           "Playback must reject an invalid environment");
     const auto opened = tessera::ReplaySession::open(value, text);
-    check(!opened && has(opened.diagnostics, "out_of_range", "/environment/scale"), "Sessions must check the environment");
+    check(!opened && has(opened.diagnostics, "out_of_range", "/environment/scale"),
+          "Sessions must check the environment");
     value = recording();
     value.environment = {1.25f, "en-US", {tessera::ReplayText::Kind::font_profile, "fonts", std::string(64, 'f')}};
     auto declared = play(value);
@@ -420,12 +444,16 @@ void playback_checks_the_environment() {
 }
 
 void sha256_matches_fips_vectors() {
-    check(tessera::detail::sha256_hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "empty");
-    check(tessera::detail::sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "abc");
+    check(tessera::detail::sha256_hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "empty");
+    check(tessera::detail::sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "abc");
     check(tessera::detail::sha256_hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
-              "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1", "two-block message");
+              "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+          "two-block message");
     check(tessera::detail::sha256_hex(std::string(1000000, 'a')) ==
-              "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0", "million a");
+              "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+          "million a");
 }
 
 } // namespace

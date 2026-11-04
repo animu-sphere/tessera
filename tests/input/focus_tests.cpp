@@ -125,16 +125,17 @@ void directional_navigation() {
     place("b", {{30, 0}, {20, 10}});
     place("c", {{0, 20}, {20, 10}});
     place("d", {{30, 20}, {20, 10}});
-    place("e", {{0, 60}, {20, 10}});  // Far below c, aligned with it.
-    place("f", {{25, 30}, {4, 4}});   // Touches c's bottom edge, unaligned with it.
-    place("g", {{60, 0}, {20, 10}});  // Rightmost.
+    place("e", {{0, 60}, {20, 10}}); // Far below c, aligned with it.
+    place("f", {{25, 30}, {4, 4}});  // Touches c's bottom edge, unaligned with it.
+    place("g", {{60, 0}, {20, 10}}); // Rightmost.
     using tessera::Direction;
     const auto move = [&](std::string_view from, Direction direction) {
         f.set(from);
         return f.send(tessera::Navigate{direction}).focused;
     };
     f.focus.reset();
-    check(f.send(tessera::Navigate{Direction::up}).focused == f.id("a"), "Navigate without focus must focus the first node");
+    check(f.send(tessera::Navigate{Direction::up}).focused == f.id("a"),
+          "Navigate without focus must focus the first node");
     check(move("a", Direction::right) == f.id("b") && move("a", Direction::down) == f.id("c"),
           "Grid moves must reach the adjacent aligned box");
     check(move("d", Direction::left) == f.id("c") && move("d", Direction::up) == f.id("b"),
@@ -153,7 +154,8 @@ void directional_navigation() {
     place("b", {{0, 40}, {20, 10}});
     place("d", {{0, 40}, {20, 10}});
     check(move("a", Direction::down) == f.id("c"), "The nearest aligned edge must win");
-    check(move("c", Direction::down) == f.id("b") && f.send(tessera::Navigate{Direction::down, true}).focused == f.id("b"),
+    check(move("c", Direction::down) == f.id("b") &&
+              f.send(tessera::Navigate{Direction::down, true}).focused == f.id("b"),
           "Equal boxes must tie-break by preorder; repeat must not change selection");
 }
 
@@ -242,7 +244,8 @@ void recovery_and_replacement() {
     Fixture removed(menu(false));
     f.set("b");
     snapshot = removed.input();
-    check(f.refresh(&snapshot) == removed.id("c"), "A missing author ID must recover after its nearest surviving predecessor");
+    check(f.refresh(&snapshot) == removed.id("c"),
+          "A missing author ID must recover after its nearest surviving predecessor");
     check(f.focus.focus(f.input(), last).value->focused == last, "Focus without an author ID rejected");
     snapshot = same.input();
     const auto moved = f.send(tessera::FocusNext{}, &snapshot);
@@ -283,7 +286,8 @@ void replacement_recovers_removed_focus() {
     auto snapshot = unrelated.input();
     const auto lost = f.send(tessera::FocusNext{}, &snapshot);
     check(!lost.focused && lost.actions.empty(), "Losing focus during dispatch must consume the command");
-    check(f.send(tessera::FocusNext{}, &snapshot).focused == unrelated.id("x"), "Traversal must restart after losing focus");
+    check(f.send(tessera::FocusNext{}, &snapshot).focused == unrelated.id("x"),
+          "Traversal must restart after losing focus");
 }
 
 void programmatic_focus_and_validation() {
@@ -309,12 +313,14 @@ void programmatic_focus_and_validation() {
 
     f.set("start");
     const auto before = f.refresh();
-    check(has(f.focus.dispatch(f.input(), {1us, tessera::PointerDown{{1}, {1, 1}}}).diagnostics, "unsupported_event", "/event") &&
+    check(has(f.focus.dispatch(f.input(), {1us, tessera::PointerDown{{1}, {1, 1}}}).diagnostics, "unsupported_event",
+              "/event") &&
               has(f.focus.dispatch(f.input(), {1us, tessera::KeyDown{tessera::Key::tab}}).diagnostics,
                   "unsupported_event", "/event"),
           "Pointer or key event accepted; hosts translate keys into logical commands");
     check(has(f.focus.dispatch(f.input(), {1us, tessera::Navigate{static_cast<tessera::Direction>(9)}}).diagnostics,
-              "unknown_value", "/direction"), "Invalid direction accepted");
+              "unknown_value", "/direction"),
+          "Invalid direction accepted");
     check(f.send(tessera::FocusNext{}).focused == f.id("start"), "A single focusable node must wrap to itself");
     check(has(f.focus.dispatch(f.input(), {0us, tessera::FocusNext{}}).diagnostics, "event_order", "/timestamp"),
           "Backwards timestamp accepted");
@@ -342,7 +348,8 @@ int main() {
         recovery_and_replacement();
         replacement_recovers_removed_focus();
         programmatic_focus_and_validation();
-        std::cout << "Focus traversal, directional navigation, activation/cancel, recovery, and validation checks passed.\n";
+        std::cout
+            << "Focus traversal, directional navigation, activation/cancel, recovery, and validation checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

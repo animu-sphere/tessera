@@ -13,8 +13,8 @@ namespace {
 
 bool is_command(const InputEvent& event) {
     if (const auto* key = std::get_if<KeyDown>(&event.data))
-        return (key->key == Key::home || key->key == Key::end) &&
-            !key->modifiers.shift && !key->modifiers.control && !key->modifiers.alt && !key->modifiers.super;
+        return (key->key == Key::home || key->key == Key::end) && !key->modifiers.shift && !key->modifiers.control &&
+               !key->modifiers.alt && !key->modifiers.super;
     return std::holds_alternative<FocusNext>(event.data) || std::holds_alternative<FocusPrevious>(event.data) ||
            std::holds_alternative<Navigate>(event.data) || std::holds_alternative<Activate>(event.data) ||
            std::holds_alternative<Cancel>(event.data);
@@ -30,8 +30,8 @@ std::uint32_t collection_owner(const HitTestInput& input, std::uint32_t box) {
 }
 
 bool navigate_collection(const HitTestInput& input, const detail::Targeting& targeting,
-    const std::vector<std::uint32_t>& candidates, const InputEvent& event,
-    std::optional<NodeHandle>& focused, std::vector<ActionRequest>& actions) {
+                         const std::vector<std::uint32_t>& candidates, const InputEvent& event,
+                         std::optional<NodeHandle>& focused, std::vector<ActionRequest>& actions) {
     if (!focused) return false;
     const auto& boxes = input.layout->boxes;
     const auto from = targeting.box(*focused);
@@ -43,7 +43,8 @@ bool navigate_collection(const HitTestInput& input, const detail::Targeting& tar
     std::vector<std::uint32_t> items;
     for (const auto candidate : candidates)
         if (detail::collection_item(detail::collection_role(*input.tree->get(boxes[candidate].node))) &&
-            collection_owner(input, candidate) == owner) items.push_back(candidate);
+            collection_owner(input, candidate) == owner)
+            items.push_back(candidate);
     const auto at = std::find(items.begin(), items.end(), from);
     if (at == items.end()) return false;
     if (const auto* key = std::get_if<KeyDown>(&event.data)) {
@@ -73,7 +74,8 @@ bool navigate_collection(const HitTestInput& input, const detail::Targeting& tar
             }
         } else if (open) {
             for (const auto child : items) {
-                const auto* parent = effective_property(*input.tree->get(boxes[child].node), property_names::tree_parent);
+                const auto* parent =
+                    effective_property(*input.tree->get(boxes[child].node), property_names::tree_parent);
                 if (parent && std::get<NodeReference>(*parent).id == node.id) {
                     focused = boxes[child].node;
                     break;
@@ -98,9 +100,15 @@ std::vector<std::uint32_t> candidates(const HitTestInput& input, const detail::T
 // wins, so boxes whose orthogonal projections overlap are preferred. There is no wrapping.
 std::optional<std::uint32_t> neighbor(const LayoutResult& layout, const std::vector<std::uint32_t>& candidates,
                                       std::uint32_t from, Direction direction) {
-    struct Span { double start, end; };
-    const auto horizontal = [](const Rect& r) { return Span{r.origin.x, static_cast<double>(r.origin.x) + r.size.width}; };
-    const auto vertical = [](const Rect& r) { return Span{r.origin.y, static_cast<double>(r.origin.y) + r.size.height}; };
+    struct Span {
+        double start, end;
+    };
+    const auto horizontal = [](const Rect& r) {
+        return Span{r.origin.x, static_cast<double>(r.origin.x) + r.size.width};
+    };
+    const auto vertical = [](const Rect& r) {
+        return Span{r.origin.y, static_cast<double>(r.origin.y) + r.size.height};
+    };
     const auto& current = layout.boxes[from].border_box;
     const bool along_x = direction == Direction::left || direction == Direction::right;
     const auto main = along_x ? horizontal(current) : vertical(current);
@@ -111,8 +119,9 @@ std::optional<std::uint32_t> neighbor(const LayoutResult& layout, const std::vec
         const auto& rect = layout.boxes[index].border_box;
         const auto main_other = along_x ? horizontal(rect) : vertical(rect);
         const auto cross_other = along_x ? vertical(rect) : horizontal(rect);
-        const double distance = direction == Direction::right || direction == Direction::down ?
-                                    main_other.start - main.end : main.start - main_other.end;
+        const double distance = direction == Direction::right || direction == Direction::down
+                                    ? main_other.start - main.end
+                                    : main.start - main_other.end;
         if (distance < 0) continue;
         const bool aligned = cross_other.start < cross.end && cross.start < cross_other.end;
         const double gap = std::max({0.0, cross_other.start - cross.end, cross.start - cross_other.end});
@@ -148,8 +157,10 @@ Reconciled reconcile(const HitTestInput& input, const detail::Targeting& targeti
         return {std::nullopt, true};
     };
     std::optional<NodeHandle> anchor;
-    if (tree == input.tree->root().tree) anchor = focused;
-    else if (id) anchor = input.tree->find(*id);
+    if (tree == input.tree->root().tree)
+        anchor = focused;
+    else if (id)
+        anchor = input.tree->find(*id);
     if (!anchor) {
         for (const auto& neighbor : preceding)
             if (const auto node = input.tree->find(neighbor)) return from(node->index + 1);
@@ -189,7 +200,8 @@ Result<FocusDispatchResult> FocusDispatcher::focus(const HitTestInput& input, No
     detail::Checker check(errors);
     const detail::Targeting targeting(input);
     if (!input.tree->get(target)) {
-        check.error("stale_target", "/target", "Resolve the target again in the current snapshot; this handle belongs to another tree.");
+        check.error("stale_target", "/target",
+                    "Resolve the target again in the current snapshot; this handle belongs to another tree.");
         return {std::nullopt, std::move(errors)};
     }
     const auto box = targeting.box(target);
@@ -212,7 +224,8 @@ Result<FocusDispatchResult> FocusDispatcher::dispatch(const HitTestInput& input,
     errors.insert(errors.end(), event_errors.begin(), event_errors.end());
     detail::Checker check(errors);
     if (!is_command(event))
-        check.error("unsupported_event", "/event", "Use focus next/previous, navigate, activate, cancel, or unmodified Home/End.");
+        check.error("unsupported_event", "/event",
+                    "Use focus next/previous, navigate, activate, cancel, or unmodified Home/End.");
     if (timestamp_ && event.timestamp < *timestamp_)
         check.error("event_order", "/timestamp", "Send non-decreasing timestamps within this dispatcher's stream.");
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
@@ -227,35 +240,43 @@ Result<FocusDispatchResult> FocusDispatcher::dispatch(const HitTestInput& input,
         if (const auto owner = targeting.binding_owner(origin, binding))
             actions.push_back({binding, input.tree->get(*owner)->events.find(binding)->second, *owner});
     };
-    if (!reconciled.moved) std::visit([&](const auto& data) {
-        using T = std::decay_t<decltype(data)>;
-        if constexpr (std::is_same_v<T, FocusNext>) {
-            if (focusable.empty()) return;
-            const auto next = !focused ? focusable.end() :
-                std::find_if(focusable.begin(), focusable.end(),
-                             [&](std::uint32_t index) { return boxes[index].node.index > focused->index; });
-            focused = boxes[next == focusable.end() ? focusable.front() : *next].node;
-        } else if constexpr (std::is_same_v<T, FocusPrevious>) {
-            if (focusable.empty()) return;
-            const auto previous = !focused ? focusable.rend() :
-                std::find_if(focusable.rbegin(), focusable.rend(),
-                             [&](std::uint32_t index) { return boxes[index].node.index < focused->index; });
-            focused = boxes[previous == focusable.rend() ? focusable.back() : *previous].node;
-        } else if constexpr (std::is_same_v<T, Navigate>) {
-            if (navigate_collection(input, targeting, focusable, event, focused, actions)) return;
-            if (!focused) {
-                if (!focusable.empty()) focused = boxes[focusable.front()].node;
-            } else if (const auto next = neighbor(*input.layout, focusable, targeting.box(*focused), data.direction)) {
-                focused = boxes[*next].node;
-            }
-        } else if constexpr (std::is_same_v<T, KeyDown>) {
-            (void)navigate_collection(input, targeting, focusable, event, focused, actions);
-        } else if constexpr (std::is_same_v<T, Activate>) {
-            request(focused, "activate");
-        } else if constexpr (std::is_same_v<T, Cancel>) {
-            request(focused ? focused : input.tree->root(), "cancel");
-        }
-    }, event.data);
+    if (!reconciled.moved)
+        std::visit(
+            [&](const auto& data) {
+                using T = std::decay_t<decltype(data)>;
+                if constexpr (std::is_same_v<T, FocusNext>) {
+                    if (focusable.empty()) return;
+                    const auto next = !focused
+                                          ? focusable.end()
+                                          : std::find_if(focusable.begin(), focusable.end(), [&](std::uint32_t index) {
+                                                return boxes[index].node.index > focused->index;
+                                            });
+                    focused = boxes[next == focusable.end() ? focusable.front() : *next].node;
+                } else if constexpr (std::is_same_v<T, FocusPrevious>) {
+                    if (focusable.empty()) return;
+                    const auto previous =
+                        !focused ? focusable.rend()
+                                 : std::find_if(focusable.rbegin(), focusable.rend(), [&](std::uint32_t index) {
+                                       return boxes[index].node.index < focused->index;
+                                   });
+                    focused = boxes[previous == focusable.rend() ? focusable.back() : *previous].node;
+                } else if constexpr (std::is_same_v<T, Navigate>) {
+                    if (navigate_collection(input, targeting, focusable, event, focused, actions)) return;
+                    if (!focused) {
+                        if (!focusable.empty()) focused = boxes[focusable.front()].node;
+                    } else if (const auto next =
+                                   neighbor(*input.layout, focusable, targeting.box(*focused), data.direction)) {
+                        focused = boxes[*next].node;
+                    }
+                } else if constexpr (std::is_same_v<T, KeyDown>) {
+                    (void)navigate_collection(input, targeting, focusable, event, focused, actions);
+                } else if constexpr (std::is_same_v<T, Activate>) {
+                    request(focused, "activate");
+                } else if constexpr (std::is_same_v<T, Cancel>) {
+                    request(focused ? focused : input.tree->root(), "cancel");
+                }
+            },
+            event.data);
     store(input, focusable, focused);
     timestamp_ = event.timestamp;
     return {FocusDispatchResult{focused, std::move(actions)}, {}};

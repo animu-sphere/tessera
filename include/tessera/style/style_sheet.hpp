@@ -94,9 +94,8 @@ struct StyleSelector {
 };
 
 // Exact style types; numeric conversions and string expressions are excluded.
-using ThemeValue = std::variant<float, Color, Dimension, Edges, FontId,
-    std::optional<float>, std::uint16_t, Display, FlexDirection, Justify,
-    Align, Overflow, Visibility, std::vector<GridTrack>>;
+using ThemeValue = std::variant<float, Color, Dimension, Edges, FontId, std::optional<float>, std::uint16_t, Display,
+                                FlexDirection, Justify, Align, Overflow, Visibility, std::vector<GridTrack>>;
 struct ThemeReference {
     std::string name;
     std::optional<ThemeValue> fallback; // Used only when this name is absent.
@@ -159,7 +158,7 @@ struct StyleInput {
     const StyleSheet* sheet = nullptr;
     InteractionState state;
     std::span<const StyleDeclarations> overrides; // Empty, or one instance override per node by NodeHandle::index.
-    const Theme* theme = nullptr; // Optional borrowed theme; no implicit global theme.
+    const Theme* theme = nullptr;                 // Optional borrowed theme; no implicit global theme.
 };
 
 std::vector<Diagnostic> validate(const StyleInput&);

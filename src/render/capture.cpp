@@ -9,7 +9,8 @@ namespace tessera {
 namespace {
 
 void identity(const std::string& value, const std::string& path, detail::Checker& check) {
-    if (!detail::valid_utf8(value)) check.error("invalid_utf8", path, "Use valid UTF-8.");
+    if (!detail::valid_utf8(value))
+        check.error("invalid_utf8", path, "Use valid UTF-8.");
     else if (value.empty() || value.size() > 256 ||
              std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
         check.error("invalid_identifier", path, "Use 1-256 UTF-8 bytes without ASCII controls.");

@@ -91,19 +91,19 @@ tessera::ReplayRecording interaction() {
     std::chrono::microseconds time{0};
     const auto at = [&](auto data) { return tessera::InputEvent{time += 1us, std::move(data)}; };
     auto& steps = result.steps;
-    steps.push_back(at(tessera::PointerDown{{1}, start}));                  // 0
-    steps.push_back(at(tessera::PointerUp{{1}, start}));                    // 1: start-game
-    steps.push_back(at(tessera::PointerDown{{1}, quit}));                   // 2
-    steps.push_back(at(tessera::PointerMove{{1}, {1, 1}}));                 // 3: drag out
-    steps.push_back(at(tessera::PointerUp{{1}, {1, 1}}));                   // 4: no action
-    steps.push_back(tessera::ReplayResize{{300, 160}});                     // 5: generation 1
-    steps.push_back(at(tessera::PointerDown{{1}, quit}));                   // 6
-    steps.push_back(at(tessera::PointerUp{{1}, quit}));                     // 7: quit-game
-    steps.push_back(at(tessera::PointerDown{{1}, start}));                  // 8: held across reload
+    steps.push_back(at(tessera::PointerDown{{1}, start}));  // 0
+    steps.push_back(at(tessera::PointerUp{{1}, start}));    // 1: start-game
+    steps.push_back(at(tessera::PointerDown{{1}, quit}));   // 2
+    steps.push_back(at(tessera::PointerMove{{1}, {1, 1}})); // 3: drag out
+    steps.push_back(at(tessera::PointerUp{{1}, {1, 1}}));   // 4: no action
+    steps.push_back(tessera::ReplayResize{{300, 160}});     // 5: generation 1
+    steps.push_back(at(tessera::PointerDown{{1}, quit}));   // 6
+    steps.push_back(at(tessera::PointerUp{{1}, quit}));     // 7: quit-game
+    steps.push_back(at(tessera::PointerDown{{1}, start}));  // 8: held across reload
     steps.push_back(tessera::ReplayReload{menu({button("resume", "Resume", "start-game")}), menu_styles(1)}); // 9
-    steps.push_back(at(tessera::PointerUp{{1}, start}));                    // 10: press was cleared
-    steps.push_back(at(tessera::PointerDown{{1}, start}));                  // 11
-    steps.push_back(at(tessera::PointerUp{{1}, start}));                    // 12: start-game from resume
+    steps.push_back(at(tessera::PointerUp{{1}, start}));   // 10: press was cleared
+    steps.push_back(at(tessera::PointerDown{{1}, start})); // 11
+    steps.push_back(at(tessera::PointerUp{{1}, start}));   // 12: start-game from resume
     return result;
 }
 
@@ -193,8 +193,8 @@ void scroll_steps_relayout_before_clicks() {
 // in semantic projections; settled generations recover focus.
 void logical_commands_match_clicks_and_semantics() {
     auto keyboard = recording();
-    keyboard.document = menu({focusable(button("start", "Start", "start-game")),
-                              focusable(button("quit", "Quit", "quit-game"))});
+    keyboard.document =
+        menu({focusable(button("start", "Start", "start-game")), focusable(button("quit", "Quit", "quit-game"))});
     const auto initial = play(keyboard);
     // Preorder: menu 0, start 1, start-label 2, quit 3, quit-label 4.
     const auto start = center(initial.generations[0].boxes.at(1));
@@ -205,23 +205,24 @@ void logical_commands_match_clicks_and_semantics() {
     clicks.steps = {at(tessera::PointerDown{{1}, quit}), at(tessera::PointerUp{{1}, quit}),
                     at(tessera::PointerDown{{1}, start}), at(tessera::PointerUp{{1}, start})};
     auto& steps = keyboard.steps;
-    steps.push_back(at(tessera::FocusNext{}));                                  // 0: start
-    steps.push_back(at(tessera::Navigate{tessera::Direction::down}));           // 1: quit
-    steps.push_back(at(tessera::Activate{}));                                   // 2: quit-game
-    steps.push_back(at(tessera::FocusNext{}));                                  // 3: wraps to start
-    steps.push_back(at(tessera::Activate{}));                                   // 4: start-game
-    steps.push_back(at(tessera::Cancel{}));                                     // 5: no binding
-    steps.push_back(at(tessera::PointerDown{{1}, quit}));                       // 6
-    steps.push_back(at(tessera::PointerUp{{1}, quit}));                         // 7: quit-game, focus stays
-    steps.push_back(at(tessera::Navigate{tessera::Direction::down}));           // 8: quit
-    steps.push_back(tessera::ReplayReload{                                      // 9: restored by ID
+    steps.push_back(at(tessera::FocusNext{}));                        // 0: start
+    steps.push_back(at(tessera::Navigate{tessera::Direction::down})); // 1: quit
+    steps.push_back(at(tessera::Activate{}));                         // 2: quit-game
+    steps.push_back(at(tessera::FocusNext{}));                        // 3: wraps to start
+    steps.push_back(at(tessera::Activate{}));                         // 4: start-game
+    steps.push_back(at(tessera::Cancel{}));                           // 5: no binding
+    steps.push_back(at(tessera::PointerDown{{1}, quit}));             // 6
+    steps.push_back(at(tessera::PointerUp{{1}, quit}));               // 7: quit-game, focus stays
+    steps.push_back(at(tessera::Navigate{tessera::Direction::down})); // 8: quit
+    steps.push_back(tessera::ReplayReload{
+        // 9: restored by ID
         menu({focusable(button("resume", "Resume", "start-game")), focusable(button("quit", "Quit", "quit-game"))}),
         menu_styles(2)});
-    steps.push_back(tessera::ReplayReload{                                      // 10: quit disabled
-        menu({focusable(button("resume", "Resume", "start-game")),
-              focusable(button("quit", "Quit", "quit-game"), true)}),
-        menu_styles(2)});
-    steps.push_back(at(tessera::Activate{}));                                   // 11: start-game from resume
+    steps.push_back(tessera::ReplayReload{// 10: quit disabled
+                                          menu({focusable(button("resume", "Resume", "start-game")),
+                                                focusable(button("quit", "Quit", "quit-game"), true)}),
+                                          menu_styles(2)});
+    steps.push_back(at(tessera::Activate{})); // 11: start-game from resume
     const auto output = play(keyboard);
 
     const auto pointer = play(clicks).actions;
@@ -269,10 +270,12 @@ void logical_commands_match_clicks_and_semantics() {
     check(output == play(keyboard), "Repeated command playback must be identical");
 
     auto bad = keyboard;
-    bad.steps = {tessera::InputEvent{2us, tessera::PointerMove{{1}, {1, 1}}}, tessera::InputEvent{1us, tessera::FocusNext{}}};
+    bad.steps = {tessera::InputEvent{2us, tessera::PointerMove{{1}, {1, 1}}},
+                 tessera::InputEvent{1us, tessera::FocusNext{}}};
     check(has(play_invalid(bad).diagnostics, "event_order", "/steps/1/timestamp"),
           "Command steps must share the pointer timestamp stream");
-    bad.steps = {tessera::InputEvent{2us, tessera::FocusNext{}}, tessera::InputEvent{1us, tessera::Scroll{{1, 1}, {0, 1}}}};
+    bad.steps = {tessera::InputEvent{2us, tessera::FocusNext{}},
+                 tessera::InputEvent{1us, tessera::Scroll{{1, 1}, {0, 1}}}};
     check(has(play_invalid(bad).diagnostics, "event_order", "/steps/1/timestamp"),
           "Scroll steps must not run backwards after a command step");
 
@@ -285,8 +288,8 @@ void logical_commands_match_clicks_and_semantics() {
     tessera::PlaceholderTextShaper text;
     const auto warned = tessera::play_replay(unnamed, text);
     check(warned && warned.diagnostics.size() == 2, "Semantic warnings must accompany the output");
-    for (const auto& [diagnostic, path] : {std::pair{warned.diagnostics[0], "/nodes/1"},
-                                           std::pair{warned.diagnostics[1], "/steps/0/nodes/1"}}) {
+    for (const auto& [diagnostic, path] :
+         {std::pair{warned.diagnostics[0], "/nodes/1"}, std::pair{warned.diagnostics[1], "/steps/0/nodes/1"}}) {
         check(diagnostic.code == "missing_name" && diagnostic.severity == tessera::Severity::warning &&
                   diagnostic.path == path,
               "Semantic warnings must be located under their observation");
@@ -296,9 +299,9 @@ void logical_commands_match_clicks_and_semantics() {
 // Preorder: menu 0, start 1, options 3, quit 5, in a root scroll box that shows only part of the list.
 tessera::ReplayRecording scrolled_menu() {
     auto result = recording();
-    result.document = menu({focusable(button("start", "Start", "start-game")),
-                            focusable(button("options", "Options", "start-game")),
-                            focusable(button("quit", "Quit", "quit-game"))});
+    result.document =
+        menu({focusable(button("start", "Start", "start-game")), focusable(button("options", "Options", "start-game")),
+              focusable(button("quit", "Quit", "quit-game"))});
     result.styles = menu_styles(3);
     result.styles[0].overflow = tessera::Overflow::scroll;
     result.viewport = {200, 60};
@@ -312,9 +315,9 @@ float offset(const tessera::ReplayGeneration& generation) { return generation.bo
 void reveal_policy_scrolls_focus_into_view() {
     auto keyboard = scrolled_menu();
     keyboard.policy.reveal_focus = true;
-    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},          // 0: quit, revealed
-                      tessera::ReplayFocus{tessera::AuthorIdTarget{"start"}},       // 1: start, revealed
-                      tessera::ReplayFocus{tessera::AuthorIdTarget{"start"}},       // 2: unchanged
+    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},                   // 0: quit, revealed
+                      tessera::ReplayFocus{tessera::AuthorIdTarget{"start"}},               // 1: start, revealed
+                      tessera::ReplayFocus{tessera::AuthorIdTarget{"start"}},               // 2: unchanged
                       tessera::InputEvent{2us, tessera::Navigate{tessera::Direction::up}}}; // 3: stays
     const auto output = play(keyboard);
     check(output.generations.size() == 3 && output.generations[1].step == 0u && output.generations[2].step == 1u,
@@ -370,9 +373,9 @@ void reload_reveals_recovered_focus() {
     auto shorter = scrolled_menu();
     shorter.document.root.children.pop_back();
     shorter.styles.resize(5);
-    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},                    // 0: quit, revealed
-                      tessera::ReplayReload{keyboard.document, keyboard.styles},            // 1: quit restored
-                      tessera::ReplayReload{shorter.document, shorter.styles}};             // 2: quit removed
+    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},        // 0: quit, revealed
+                      tessera::ReplayReload{keyboard.document, keyboard.styles}, // 1: quit restored
+                      tessera::ReplayReload{shorter.document, shorter.styles}};  // 2: quit removed
     const auto output = play(keyboard);
     check(output.generations.size() == 4 && output.generations[2].step == 1u && output.generations[3].step == 2u,
           "A revealing reload must settle exactly one generation");
@@ -405,10 +408,10 @@ void reload_reveals_recovered_focus() {
 void resize_keeps_visible_focus_in_view() {
     auto keyboard = scrolled_menu();
     keyboard.policy.reveal_focus = true;
-    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},                 // 0: quit, revealed
-                      tessera::ReplayResize{{200, 40}},                                    // 1: quit kept in view
-                      tessera::InputEvent{2us, tessera::Scroll{{100, 20}, {0, -1000}}},    // 2: scrolled to top
-                      tessera::ReplayResize{{200, 30}}};                                   // 3: quit stays hidden
+    keyboard.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}},               // 0: quit, revealed
+                      tessera::ReplayResize{{200, 40}},                                 // 1: quit kept in view
+                      tessera::InputEvent{2us, tessera::Scroll{{100, 20}, {0, -1000}}}, // 2: scrolled to top
+                      tessera::ReplayResize{{200, 30}}};                                // 3: quit stays hidden
     const auto output = play(keyboard);
     check(output.generations.size() == 5 && output.generations[2].step == 1u && output.generations[4].step == 3u,
           "A revealing resize must settle exactly one generation");
@@ -496,12 +499,12 @@ void press_policy_focuses_without_reveal() {
     const auto start = center(initial.at(1));
     std::chrono::microseconds time{0};
     const auto at = [&](auto data) { return tessera::InputEvent{time += 1us, std::move(data)}; };
-    pointer.steps = {at(tessera::PointerDown{{1}, partly}),                            // 0: focus options
-                     at(tessera::PointerUp{{1}, partly}),                              // 1: start-game
+    pointer.steps = {at(tessera::PointerDown{{1}, partly}),                                    // 0: focus options
+                     at(tessera::PointerUp{{1}, partly}),                                      // 1: start-game
                      at(tessera::PointerDown{{1}, partly, tessera::PointerButton::secondary}), // 2: no focus
-                     at(tessera::PointerDown{{1}, start}),                             // 3: not focusable
-                     at(tessera::PointerUp{{1}, start}),                               // 4: start-game
-                     at(tessera::FocusNext{})};                                        // 5: quit, revealed
+                     at(tessera::PointerDown{{1}, start}),                                     // 3: not focusable
+                     at(tessera::PointerUp{{1}, start}),                                       // 4: start-game
+                     at(tessera::FocusNext{})};                                                // 5: quit, revealed
     const auto output = play(pointer);
     check(output.generations.size() == 2 && output.generations[1].step == 5u,
           "Presses must not reveal; the following command must");
@@ -553,8 +556,8 @@ void session_steps_match_playback() {
 // fixture identities, and has stale and invalid steps rejected without changing the session.
 void session_consumer_rejects_stale_targets() {
     auto keyboard = recording();
-    keyboard.document = menu({focusable(button("start", "Start", "start-game")),
-                              focusable(button("quit", "Quit", "quit-game"))});
+    keyboard.document =
+        menu({focusable(button("start", "Start", "start-game")), focusable(button("quit", "Quit", "quit-game"))});
     auto session = open(keyboard);
     const auto quit = resolve(session, tessera::SemanticTarget{tessera::SemanticRole::button, "Quit"});
     check(session.invoke(quit).value == 0u && session.focus(quit).value == 1u, "Handle steps must be accepted");
@@ -568,9 +571,9 @@ void session_consumer_rejects_stale_targets() {
 
     auto unnamed = focusable(button("anonymous", "Resume", "start-game"));
     unnamed.id.reset();
-    check(session.apply(tessera::ReplayReload{menu({std::move(unnamed), focusable(button("quit", "Quit", "quit-game"))}),
-                                              menu_styles(2)})
-              .value == 2u,
+    check(session.apply(tessera::ReplayReload{
+                            menu({std::move(unnamed), focusable(button("quit", "Quit", "quit-game"))}), menu_styles(2)})
+                  .value == 2u,
           "Reload rejected");
     const auto unchanged = [&](std::size_t count, const tessera::ReplayOutput& before, const char* message) {
         check(!session.closed() && session.recording().steps.size() == count && session.output() == before, message);
@@ -592,7 +595,8 @@ void session_consumer_rejects_stale_targets() {
     auto rejected = session.apply(tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"missing"}});
     check(!rejected && has(rejected.diagnostics, "target_not_found", "/steps/4/target"), "Missing target accepted");
     unchanged(4, before, "A missing target must leave the session unchanged");
-    check(session.apply(tessera::InputEvent{5us, tessera::PointerMove{{1}, {1, 1}}}).value.has_value(), "Pointer step rejected");
+    check(session.apply(tessera::InputEvent{5us, tessera::PointerMove{{1}, {1, 1}}}).value.has_value(),
+          "Pointer step rejected");
     before = session.output();
     rejected = session.apply(tessera::InputEvent{4us, tessera::Activate{}});
     check(!rejected && has(rejected.diagnostics, "event_order", "/steps/5/timestamp"), "Backward time accepted");
@@ -605,7 +609,8 @@ void session_consumer_rejects_stale_targets() {
     unchanged(5, before, "A rejected reload must leave the session unchanged");
 
     // The previous tree, viewport, and clock remain current after the rejections.
-    check(session.invoke(resume).value == 5u && session.apply(tessera::InputEvent{5us, tessera::Scroll{{1, 1}, {0, 1}}}),
+    check(session.invoke(resume).value == 5u &&
+              session.apply(tessera::InputEvent{5us, tessera::Scroll{{1, 1}, {0, 1}}}),
           "The session must stay usable after rejections");
     check(session.output().generations.back().boxes[0].border_box.size.width == 200,
           "A rejected resize must not change the viewport");
@@ -669,9 +674,11 @@ void comparison_locates_differences() {
           "Semantic observation counts must be compared");
 
     diagnostics = tessera::compare_replay(actual, actual, -1);
-    check(diagnostics.size() == 1 && has(diagnostics, "out_of_range", "/geometry_tolerance"), "Negative tolerance accepted");
+    check(diagnostics.size() == 1 && has(diagnostics, "out_of_range", "/geometry_tolerance"),
+          "Negative tolerance accepted");
     diagnostics = tessera::compare_replay(actual, actual, std::numeric_limits<float>::quiet_NaN());
-    check(diagnostics.size() == 1 && has(diagnostics, "invalid_number", "/geometry_tolerance"), "NaN tolerance accepted");
+    check(diagnostics.size() == 1 && has(diagnostics, "invalid_number", "/geometry_tolerance"),
+          "NaN tolerance accepted");
 }
 
 void invalid_recordings_are_located_without_output() {
@@ -702,8 +709,7 @@ void invalid_recordings_are_located_without_output() {
           "Keys must be rejected; hosts translate them into commands");
 
     bad = recording();
-    bad.steps = {tessera::InputEvent{2us, tessera::PointerMove{{1}, {1, 1}}},
-                 tessera::ReplayResize{{100, 100}},
+    bad.steps = {tessera::InputEvent{2us, tessera::PointerMove{{1}, {1, 1}}}, tessera::ReplayResize{{100, 100}},
                  tessera::InputEvent{1us, tessera::PointerMove{{1}, {1, 1}}}};
     check(has(play_invalid(bad).diagnostics, "event_order", "/steps/2/timestamp"),
           "The timestamp stream must survive resize steps");
@@ -742,17 +748,21 @@ void scale_and_time_settle_without_changing_logical_interaction() {
     check(bool(session.value->apply(tessera::ReplayTick{25us})), "Equal animation times rejected");
     const auto output = session.value->output();
     check(output.generations.size() == 4 && output.generations[1].device_scale == 2 &&
-              output.generations[2].animation_time == 25us, "Scale/time generation conditions lost");
+              output.generations[2].animation_time == 25us,
+          "Scale/time generation conditions lost");
     for (const auto& generation : output.generations)
         check(generation.boxes == initial.boxes && generation.paint == initial.paint &&
-                  generation.viewport == replay.viewport, "Scale/tick changed logical geometry/paint");
+                  generation.viewport == replay.viewport,
+              "Scale/tick changed logical geometry/paint");
     check(session.value->capture().value->generation == captured.value->generation &&
-              session.value->output().semantics.back().focused == 1, "Update changed tree identity or focus");
+              session.value->output().semantics.back().focused == 1,
+          "Update changed tree identity or focus");
     const auto accepted = session.value->recording();
     check(has(session.value->apply(tessera::ReplayTick{24us}).diagnostics, "event_order", "/steps/4/time") &&
               has(session.value->apply(tessera::ReplayScale{0}).diagnostics, "out_of_range", "/steps/4/scale") &&
               has(session.value->apply(tessera::ReplayScale{std::numeric_limits<float>::infinity()}).diagnostics,
-                  "invalid_number", "/steps/4/scale"), "Invalid scale/time accepted");
+                  "invalid_number", "/steps/4/scale"),
+          "Invalid scale/time accepted");
     check(!session.value->closed() && session.value->recording() == accepted && session.value->output() == output,
           "Rejected updates changed session state");
     // The animation clock is independent of the input clock.
@@ -784,7 +794,8 @@ int main() {
         session_consumer_rejects_stale_targets();
         comparison_locates_differences();
         invalid_recordings_are_located_without_output();
-        std::cout << "Replay playback, command, focus policy, target, session, semantic, comparison, and rejection checks passed.\n";
+        std::cout
+            << "Replay playback, command, focus policy, target, session, semantic, comparison, and rejection checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

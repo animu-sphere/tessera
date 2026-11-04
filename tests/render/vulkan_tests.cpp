@@ -43,8 +43,8 @@ std::filesystem::path artifact_directory() {
     return value && *value ? std::filesystem::path(value) : std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR);
 #else
     const auto* override_path = std::getenv("TESSERA_GPU_OUTPUT");
-    return override_path && *override_path ? std::filesystem::path(override_path) :
-        std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR);
+    return override_path && *override_path ? std::filesystem::path(override_path)
+                                           : std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR);
 #endif
 }
 void require(VkResult result, const char* operation) {
@@ -55,14 +55,15 @@ std::vector<std::uint32_t> shader(const char* name) {
     check(bool(file), "Cannot open compiled shader");
     const auto bytes = file.tellg();
     check(bytes > 0 && bytes % 4 == 0, "Malformed shader artifact");
-    std::vector<std::uint32_t> code(std::size_t(bytes)/4);
-    file.seekg(0); file.read(reinterpret_cast<char*>(code.data()), bytes);
+    std::vector<std::uint32_t> code(std::size_t(bytes) / 4);
+    file.seekg(0);
+    file.read(reinterpret_cast<char*>(code.data()), bytes);
     check(bool(file), "Cannot read compiled shader");
     return code;
 }
 std::atomic<unsigned> validation_errors = 0;
-VKAPI_ATTR VkBool32 VKAPI_CALL debug(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-    VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
+VKAPI_ATTR VkBool32 VKAPI_CALL debug(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT,
+                                     const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
     if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) ++validation_errors;
     std::cerr << "Vulkan validation: " << data->pMessage << '\n';
     return VK_FALSE;
@@ -78,7 +79,8 @@ struct Buffer {
 };
 // This fixture is the host: all devices, commands, targets, fences and images live here.
 // Linear premultiplied RGBA8 UNORM texels, every channel at most its alpha, with partial coverage.
-constexpr std::array<std::uint8_t, 16> premultiplied_texels{128,0,0,128, 0,96,0,192, 0,0,0,0, 64,160,200,255};
+constexpr std::array<std::uint8_t, 16> premultiplied_texels{128, 0, 0, 128, 0,  96,  0,   192,
+                                                            0,   0, 0, 0,   64, 160, 200, 255};
 struct Host {
     VkInstance instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
@@ -101,14 +103,19 @@ struct Host {
             vkDeviceWaitIdle(device);
             clear_atlas();
             if (sampler) vkDestroySampler(device, sampler, nullptr);
-            destroy(texture); destroy(premultiplied); destroy_target(); destroy(staging); destroy(premultiplied_staging);
+            destroy(texture);
+            destroy(premultiplied);
+            destroy_target();
+            destroy(staging);
+            destroy(premultiplied_staging);
             if (fence) vkDestroyFence(device, fence, nullptr);
             if (pool) vkDestroyCommandPool(device, pool, nullptr);
             if (pass) vkDestroyRenderPass(device, pass, nullptr);
             vkDestroyDevice(device, nullptr);
         }
         if (messenger) {
-            auto destroy_debug = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+            auto destroy_debug = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+                vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
             destroy_debug(instance, messenger, nullptr);
         }
         if (instance) vkDestroyInstance(instance, nullptr);
@@ -127,37 +134,49 @@ struct Host {
     void clear_atlas() {
         for (auto& image : atlas_images) destroy(image);
         for (auto& buffer : atlas_staging) destroy(buffer);
-        atlas_images.clear(); atlas_staging.clear();
+        atlas_images.clear();
+        atlas_staging.clear();
     }
     void upload_atlas(const tessera::GlyphAtlasFrame& frame) {
         check(atlas_images.empty(), "Retire/unbind old atlas before upload");
-        atlas_images.resize(frame.pages.size()); atlas_staging.resize(frame.pages.size());
+        atlas_images.resize(frame.pages.size());
+        atlas_staging.resize(frame.pages.size());
         begin_commands();
         for (std::size_t i = 0; i < frame.pages.size(); ++i) {
             const auto& page = frame.pages[i];
-            auto& image = atlas_images[i]; auto& buffer = atlas_staging[i];
-            make_buffer(buffer, page.coverage.size()*4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+            auto& image = atlas_images[i];
+            auto& buffer = atlas_staging[i];
+            make_buffer(buffer, page.coverage.size() * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
             void* mapped;
             require(vkMapMemory(device, buffer.memory, 0, VK_WHOLE_SIZE, 0, &mapped), "map atlas staging");
             auto* destination = static_cast<std::uint8_t*>(mapped);
             for (std::size_t j = 0; j < page.coverage.size(); ++j) {
-                destination[j*4] = destination[j*4+1] = destination[j*4+2] = 255;
-                destination[j*4+3] = page.coverage[j];
+                destination[j * 4] = destination[j * 4 + 1] = destination[j * 4 + 2] = 255;
+                destination[j * 4 + 3] = page.coverage[j];
             }
             vkUnmapMemory(device, buffer.memory);
-            make_image(image, {page.size,page.size}, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-            VkImageMemoryBarrier barrier{}; barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            barrier.image = image.image; barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+            make_image(image, {page.size, page.size}, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.image = image.image;
+            barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
             barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            vkCmdPipelineBarrier(commands,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
-            VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
-            copy.imageExtent = {page.size,page.size,1};
-            vkCmdCopyBufferToImage(commands,buffer.buffer,image.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
-            barrier.oldLayout = barrier.newLayout; barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            vkCmdPipelineBarrier(commands,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+            vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                                 nullptr, 0, nullptr, 1, &barrier);
+            VkBufferImageCopy copy{};
+            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.imageExtent = {page.size, page.size, 1};
+            vkCmdCopyBufferToImage(commands, buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                                   &copy);
+            barrier.oldLayout = barrier.newLayout;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                                 nullptr, 0, nullptr, 1, &barrier);
         }
         execute(); // Host completion; staging may now be freed. No backend queue ownership.
         for (auto& buffer : atlas_staging) destroy(buffer);
@@ -166,7 +185,8 @@ struct Host {
     void destroy_target() {
         if (framebuffer) vkDestroyFramebuffer(device, framebuffer, nullptr);
         framebuffer = VK_NULL_HANDLE;
-        destroy(target); destroy(readback);
+        destroy(target);
+        destroy(readback);
     }
     std::uint32_t memory_type(std::uint32_t bits, VkMemoryPropertyFlags flags) {
         VkPhysicalDeviceMemoryProperties memory;
@@ -176,32 +196,45 @@ struct Host {
         throw std::runtime_error("No memory type for fixture");
     }
     void make_buffer(Buffer& buffer, VkDeviceSize size, VkBufferUsageFlags usage) {
-        VkBufferCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        info.size = size; info.usage = usage;
+        VkBufferCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        info.size = size;
+        info.usage = usage;
         require(vkCreateBuffer(device, &info, nullptr, &buffer.buffer), "create buffer");
         VkMemoryRequirements requirements;
         vkGetBufferMemoryRequirements(device, buffer.buffer, &requirements);
-        VkMemoryAllocateInfo allocation{}; allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        VkMemoryAllocateInfo allocation{};
+        allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocation.allocationSize = requirements.size;
-        allocation.memoryTypeIndex = memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        allocation.memoryTypeIndex = memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         require(vkAllocateMemory(device, &allocation, nullptr, &buffer.memory), "allocate buffer");
         require(vkBindBufferMemory(device, buffer.buffer, buffer.memory, 0), "bind buffer");
     }
     void make_image(Image& image, VkExtent2D size, VkImageUsageFlags usage, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB) {
-        VkImageCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        info.imageType = VK_IMAGE_TYPE_2D; info.format = format;
-        info.extent = {size.width, size.height, 1}; info.mipLevels = info.arrayLayers = 1;
-        info.samples = VK_SAMPLE_COUNT_1_BIT; info.tiling = VK_IMAGE_TILING_OPTIMAL; info.usage = usage;
+        VkImageCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        info.imageType = VK_IMAGE_TYPE_2D;
+        info.format = format;
+        info.extent = {size.width, size.height, 1};
+        info.mipLevels = info.arrayLayers = 1;
+        info.samples = VK_SAMPLE_COUNT_1_BIT;
+        info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        info.usage = usage;
         require(vkCreateImage(device, &info, nullptr, &image.image), "create image");
         VkMemoryRequirements requirements;
         vkGetImageMemoryRequirements(device, image.image, &requirements);
-        VkMemoryAllocateInfo allocation{}; allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        VkMemoryAllocateInfo allocation{};
+        allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocation.allocationSize = requirements.size;
         allocation.memoryTypeIndex = memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         require(vkAllocateMemory(device, &allocation, nullptr, &image.memory), "allocate image");
         require(vkBindImageMemory(device, image.image, image.memory, 0), "bind image");
-        VkImageViewCreateInfo view{}; view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        view.image = image.image; view.viewType = VK_IMAGE_VIEW_TYPE_2D; view.format = info.format;
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = image.image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view.format = info.format;
         view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         require(vkCreateImageView(device, &view, nullptr, &image.view), "create view");
     }
@@ -211,24 +244,40 @@ struct Host {
         std::vector<VkLayerProperties> layers(count);
         require(vkEnumerateInstanceLayerProperties(&count, layers.data()), "enumerate layers");
         bool validation = false;
-        for (const auto& layer : layers) if (std::strcmp(layer.layerName, "VK_LAYER_KHRONOS_validation") == 0) validation = true;
+        for (const auto& layer : layers)
+            if (std::strcmp(layer.layerName, "VK_LAYER_KHRONOS_validation") == 0) validation = true;
         check(validation, "GPU fixtures require VK_LAYER_KHRONOS_validation");
         const char* layer = "VK_LAYER_KHRONOS_validation";
         const char* extensions[]{VK_EXT_DEBUG_UTILS_EXTENSION_NAME, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME};
         const VkValidationFeatureEnableEXT feature = VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
-        VkValidationFeaturesEXT validation_features{}; validation_features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
-        validation_features.enabledValidationFeatureCount = 1; validation_features.pEnabledValidationFeatures = &feature;
-        VkDebugUtilsMessengerCreateInfoEXT debug_info{}; debug_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-        debug_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-        debug_info.pfnUserCallback = debug; debug_info.pNext = &validation_features;
-        VkApplicationInfo app{}; app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO; app.apiVersion = VK_API_VERSION_1_1;
-        VkInstanceCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        info.pApplicationInfo = &app; info.enabledLayerCount = 1; info.ppEnabledLayerNames = &layer;
-        info.enabledExtensionCount = 2; info.ppEnabledExtensionNames = extensions; info.pNext = &debug_info;
+        VkValidationFeaturesEXT validation_features{};
+        validation_features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+        validation_features.enabledValidationFeatureCount = 1;
+        validation_features.pEnabledValidationFeatures = &feature;
+        VkDebugUtilsMessengerCreateInfoEXT debug_info{};
+        debug_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        debug_info.messageSeverity =
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debug_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                 VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        debug_info.pfnUserCallback = debug;
+        debug_info.pNext = &validation_features;
+        VkApplicationInfo app{};
+        app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        app.apiVersion = VK_API_VERSION_1_1;
+        VkInstanceCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        info.pApplicationInfo = &app;
+        info.enabledLayerCount = 1;
+        info.ppEnabledLayerNames = &layer;
+        info.enabledExtensionCount = 2;
+        info.ppEnabledExtensionNames = extensions;
+        info.pNext = &debug_info;
         require(vkCreateInstance(&info, nullptr, &instance), "create instance");
         debug_info.pNext = nullptr;
-        auto create_debug = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
+        auto create_debug = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
         require(create_debug(instance, &debug_info, nullptr, &messenger), "create debug messenger");
         require(vkEnumeratePhysicalDevices(instance, &count, nullptr), "enumerate GPUs");
         std::vector<VkPhysicalDevice> devices(count);
@@ -241,66 +290,109 @@ struct Host {
             if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) continue;
             VkFormatProperties format;
             vkGetPhysicalDeviceFormatProperties(candidate, VK_FORMAT_R8G8B8A8_SRGB, &format);
-            constexpr VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
-                VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+            constexpr VkFormatFeatureFlags needed =
+                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
+                VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
+                VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
             if ((format.optimalTilingFeatures & needed) != needed) continue;
             vkGetPhysicalDeviceQueueFamilyProperties(candidate, &count, nullptr);
             std::vector<VkQueueFamilyProperties> families(count);
             vkGetPhysicalDeviceQueueFamilyProperties(candidate, &count, families.data());
-            for (std::uint32_t i = 0; i < count; ++i) if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                physical = candidate; family = i; break;
-            }
+            for (std::uint32_t i = 0; i < count; ++i)
+                if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                    physical = candidate;
+                    family = i;
+                    break;
+                }
             if (physical) {
-                std::cout << "GPU: " << properties.deviceName << ", vendor=" << properties.vendorID << ", driver=" << properties.driverVersion
-                    << ", Vulkan=" << VK_VERSION_MAJOR(properties.apiVersion) << '.' << VK_VERSION_MINOR(properties.apiVersion) << '.' << VK_VERSION_PATCH(properties.apiVersion) << '\n';
+                std::cout << "GPU: " << properties.deviceName << ", vendor=" << properties.vendorID
+                          << ", driver=" << properties.driverVersion
+                          << ", Vulkan=" << VK_VERSION_MAJOR(properties.apiVersion) << '.'
+                          << VK_VERSION_MINOR(properties.apiVersion) << '.' << VK_VERSION_PATCH(properties.apiVersion)
+                          << '\n';
                 break;
             }
         }
         check(bool(physical), "No Vulkan 1.1 graphics device with required sRGB capabilities");
         const float priority = 1;
-        VkDeviceQueueCreateInfo queue_info{}; queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_info.queueFamilyIndex = family; queue_info.queueCount = 1; queue_info.pQueuePriorities = &priority;
-        VkDeviceCreateInfo device_info{}; device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        device_info.queueCreateInfoCount = 1; device_info.pQueueCreateInfos = &queue_info;
+        VkDeviceQueueCreateInfo queue_info{};
+        queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_info.queueFamilyIndex = family;
+        queue_info.queueCount = 1;
+        queue_info.pQueuePriorities = &priority;
+        VkDeviceCreateInfo device_info{};
+        device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        device_info.queueCreateInfoCount = 1;
+        device_info.pQueueCreateInfos = &queue_info;
         require(vkCreateDevice(physical, &device_info, nullptr, &device), "create device");
         vkGetDeviceQueue(device, family, 0, &queue);
-        VkCommandPoolCreateInfo pool_info{}; pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        pool_info.queueFamilyIndex = family; pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        VkCommandPoolCreateInfo pool_info{};
+        pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        pool_info.queueFamilyIndex = family;
+        pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         require(vkCreateCommandPool(device, &pool_info, nullptr, &pool), "create command pool");
-        VkCommandBufferAllocateInfo command_info{}; command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        command_info.commandPool = pool; command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; command_info.commandBufferCount = 1;
+        VkCommandBufferAllocateInfo command_info{};
+        command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        command_info.commandPool = pool;
+        command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_info.commandBufferCount = 1;
         require(vkAllocateCommandBuffers(device, &command_info, &commands), "allocate command buffer");
-        VkFenceCreateInfo fence_info{}; fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFenceCreateInfo fence_info{};
+        fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         require(vkCreateFence(device, &fence_info, nullptr, &fence), "create fence");
         VkAttachmentDescription attachment{};
-        attachment.format = VK_FORMAT_R8G8B8A8_SRGB; attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; attachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        attachment.format = VK_FORMAT_R8G8B8A8_SRGB;
+        attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        attachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         VkAttachmentReference reference{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        VkSubpassDescription subpass{}; subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 1; subpass.pColorAttachments = &reference;
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &reference;
         VkSubpassDependency dependencies[2]{};
-        dependencies[0] = {VK_SUBPASS_EXTERNAL, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                           0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0};
-        dependencies[1] = {0, VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                           VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, 0};
-        VkRenderPassCreateInfo pass_info{}; pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        pass_info.attachmentCount = 1; pass_info.pAttachments = &attachment; pass_info.subpassCount = 1; pass_info.pSubpasses = &subpass;
-        pass_info.dependencyCount = 2; pass_info.pDependencies = dependencies;
+        dependencies[0] = {VK_SUBPASS_EXTERNAL,
+                           0,
+                           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           0,
+                           VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                           0};
+        dependencies[1] = {0,
+                           VK_SUBPASS_EXTERNAL,
+                           VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                           VK_ACCESS_TRANSFER_READ_BIT,
+                           0};
+        VkRenderPassCreateInfo pass_info{};
+        pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        pass_info.attachmentCount = 1;
+        pass_info.pAttachments = &attachment;
+        pass_info.subpassCount = 1;
+        pass_info.pSubpasses = &subpass;
+        pass_info.dependencyCount = 2;
+        pass_info.pDependencies = dependencies;
         require(vkCreateRenderPass(device, &pass_info, nullptr, &pass), "create render pass");
     }
     void begin_commands() {
         require(vkResetCommandBuffer(commands, 0), "reset commands");
-        VkCommandBufferBeginInfo info{}; info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        VkCommandBufferBeginInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         require(vkBeginCommandBuffer(commands, &info), "begin commands");
     }
     void execute() {
         require(vkEndCommandBuffer(commands), "end commands");
         require(vkResetFences(device, 1, &fence), "reset fence");
-        VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1; submit.pCommandBuffers = &commands;
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &commands;
         require(vkQueueSubmit(queue, 1, &submit, fence), "submit queue");
         require(vkWaitForFences(device, 1, &fence, VK_TRUE, 30'000'000'000ull), "wait fence");
     }
@@ -308,525 +400,712 @@ struct Host {
         make_buffer(buffer, pixels.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
         void* mapped;
         require(vkMapMemory(device, buffer.memory, 0, pixels.size(), 0, &mapped), "map texture staging");
-        std::memcpy(mapped, pixels.data(), pixels.size()); vkUnmapMemory(device, buffer.memory);
-        make_image(image, {2,2}, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, format);
+        std::memcpy(mapped, pixels.data(), pixels.size());
+        vkUnmapMemory(device, buffer.memory);
+        make_image(image, {2, 2}, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, format);
         begin_commands();
-        VkImageMemoryBarrier barrier{}; barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.image = image.image; barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0,1,0,1};
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.image = image.image;
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,nullptr,0,nullptr,1,&barrier);
-        VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1}; copy.imageExtent = {2,2,1};
+        vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &barrier);
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageExtent = {2, 2, 1};
         vkCmdCopyBufferToImage(commands, buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-        barrier.oldLayout = barrier.newLayout; barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,0,nullptr,0,nullptr,1,&barrier);
+        barrier.oldLayout = barrier.newLayout;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &barrier);
         execute();
     }
     void make_texture() {
         // Procedural test data: red, green / blue, white. No external asset dependency.
-        upload_texture(texture, staging, {255,0,0,255, 0,255,0,255, 0,0,255,255, 255,255,255,255}, VK_FORMAT_R8G8B8A8_SRGB);
+        upload_texture(texture, staging, {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255},
+                       VK_FORMAT_R8G8B8A8_SRGB);
         upload_texture(premultiplied, premultiplied_staging, premultiplied_texels, VK_FORMAT_R8G8B8A8_UNORM);
-        VkSamplerCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        info.magFilter = info.minFilter = VK_FILTER_NEAREST; info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        VkSamplerCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        info.magFilter = info.minFilter = VK_FILTER_NEAREST;
+        info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         info.addressModeU = info.addressModeV = info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         require(vkCreateSampler(device, &info, nullptr, &sampler), "create sampler");
     }
     void resize(VkExtent2D size) {
-        destroy_target(); extent = size;
+        destroy_target();
+        extent = size;
         make_image(target, extent, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-        make_buffer(readback, VkDeviceSize(extent.width)*extent.height*4, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        VkFramebufferCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        info.renderPass = pass; info.attachmentCount = 1; info.pAttachments = &target.view;
-        info.width = extent.width; info.height = extent.height; info.layers = 1;
+        make_buffer(readback, VkDeviceSize(extent.width) * extent.height * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        VkFramebufferCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        info.renderPass = pass;
+        info.attachmentCount = 1;
+        info.pAttachments = &target.view;
+        info.width = extent.width;
+        info.height = extent.height;
+        info.layers = 1;
         require(vkCreateFramebuffer(device, &info, nullptr, &framebuffer), "create framebuffer");
     }
     void begin(tessera::VulkanRenderer& renderer) {
         begin_commands();
-        VkClearValue clear{}; clear.color.float32[3] = 1;
-        VkRenderPassBeginInfo info{}; info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        info.renderPass = pass; info.framebuffer = framebuffer; info.renderArea = {{0,0},extent};
-        info.clearValueCount = 1; info.pClearValues = &clear;
+        VkClearValue clear{};
+        clear.color.float32[3] = 1;
+        VkRenderPassBeginInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        info.renderPass = pass;
+        info.framebuffer = framebuffer;
+        info.renderArea = {{0, 0}, extent};
+        info.clearValueCount = 1;
+        info.pClearValues = &clear;
         vkCmdBeginRenderPass(commands, &info, VK_SUBPASS_CONTENTS_INLINE);
         renderer.set_target({commands, extent});
     }
     std::vector<std::uint8_t> finish(const char* artifact) {
         vkCmdEndRenderPass(commands);
-        VkBufferImageCopy copy{}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
-        copy.imageExtent = {extent.width,extent.height,1};
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageExtent = {extent.width, extent.height, 1};
         vkCmdCopyImageToBuffer(commands, target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.buffer, 1, &copy);
-        VkBufferMemoryBarrier barrier{}; barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        VkBufferMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
         barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.buffer = readback.buffer; barrier.size = VK_WHOLE_SIZE;
-        vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0,0,nullptr,1,&barrier,0,nullptr);
+        barrier.buffer = readback.buffer;
+        barrier.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1,
+                             &barrier, 0, nullptr);
         execute();
-        std::vector<std::uint8_t> pixels(std::size_t(extent.width)*extent.height*4);
+        std::vector<std::uint8_t> pixels(std::size_t(extent.width) * extent.height * 4);
         void* mapped;
         require(vkMapMemory(device, readback.memory, 0, pixels.size(), 0, &mapped), "map readback");
-        std::memcpy(pixels.data(), mapped, pixels.size()); vkUnmapMemory(device, readback.memory);
+        std::memcpy(pixels.data(), mapped, pixels.size());
+        vkUnmapMemory(device, readback.memory);
         std::filesystem::create_directories(artifact_directory());
         std::ofstream file(artifact_directory() / artifact, std::ios::binary);
         file << "P6\n" << extent.width << ' ' << extent.height << "\n255\n";
-        for (std::size_t i=0; i<pixels.size(); i+=4) file.write(reinterpret_cast<const char*>(pixels.data()+i), 3);
+        for (std::size_t i = 0; i < pixels.size(); i += 4)
+            file.write(reinterpret_cast<const char*>(pixels.data() + i), 3);
         check(bool(file), "Cannot write GPU image artifact");
         return pixels;
     }
 };
-void pixel(const std::vector<std::uint8_t>& pixels, unsigned width, unsigned x, unsigned y,
-           std::array<int,4> expected, const char* message) {
-    const auto index = (std::size_t(y)*width+x)*4;
-    for (unsigned c=0; c<4; ++c) if (std::abs(int(pixels.at(index+c))-expected[c]) > 2) {
-        throw std::runtime_error(std::string(message) + " at " + std::to_string(x) + "," + std::to_string(y) +
-            " channel " + std::to_string(c) + ": got " + std::to_string(pixels[index+c]) + " expected " + std::to_string(expected[c]));
-    }
+void pixel(const std::vector<std::uint8_t>& pixels, unsigned width, unsigned x, unsigned y, std::array<int, 4> expected,
+           const char* message) {
+    const auto index = (std::size_t(y) * width + x) * 4;
+    for (unsigned c = 0; c < 4; ++c)
+        if (std::abs(int(pixels.at(index + c)) - expected[c]) > 2) {
+            throw std::runtime_error(std::string(message) + " at " + std::to_string(x) + "," + std::to_string(y) +
+                                     " channel " + std::to_string(c) + ": got " + std::to_string(pixels[index + c]) +
+                                     " expected " + std::to_string(expected[c]));
+        }
 }
 void fixtures(Host& host, bool batched = false) {
-    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv");
     const auto batch = shader("primitive.batch.spv");
-    tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB, vertex, fragment, image, 1};
+    tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+                                   vertex,        fragment,    image,     1};
     if (batched) context.batch_vertex_spirv = batch;
     tessera::VulkanRenderer renderer(context);
-    host.resize({64,64});
-    check(renderer.bind_image({1},host.texture.view,host.sampler).empty(), "Image binding failed");
-    check(has(renderer.bind_image({2},host.texture.view,host.sampler), "image_limit", "/image"), "Image capacity not enforced");
+    host.resize({64, 64});
+    check(renderer.bind_image({1}, host.texture.view, host.sampler).empty(), "Image binding failed");
+    check(has(renderer.bind_image({2}, host.texture.view, host.sampler), "image_limit", "/image"),
+          "Image capacity not enforced");
     const tessera::UiDrawList list{{
-        tessera::DrawRect{{{8,8},{28,28}},{1,0,0,1}},
-        tessera::DrawRect{{{20,20},{28,28}},{0,0,1,0.5f}},
-        tessera::DrawRect{{{44,0},{20,16}},{1,1,1,1},6},
-        tessera::DrawBorder{{{0,40},{20,20}},{2,4,3,1},{0,1,0,1}},
-        tessera::PushClip{{{30,40},{20,20}}}, tessera::PushClip{{{36,44},{6,8}}},
-        tessera::DrawRect{{{0,0},{64,64}},{1,1,1,1}}, tessera::PopClip{}, tessera::PopClip{},
-        tessera::PushTransform{{0,1,-1,0,60,40}},
-        tessera::DrawRect{{{0,0},{8,12}},{0,1,1,1}}, tessera::PopTransform{},
-        tessera::DrawImage{{{48,48},{16,16}},{1}},
+        tessera::DrawRect{{{8, 8}, {28, 28}}, {1, 0, 0, 1}},
+        tessera::DrawRect{{{20, 20}, {28, 28}}, {0, 0, 1, 0.5f}},
+        tessera::DrawRect{{{44, 0}, {20, 16}}, {1, 1, 1, 1}, 6},
+        tessera::DrawBorder{{{0, 40}, {20, 20}}, {2, 4, 3, 1}, {0, 1, 0, 1}},
+        tessera::PushClip{{{30, 40}, {20, 20}}},
+        tessera::PushClip{{{36, 44}, {6, 8}}},
+        tessera::DrawRect{{{0, 0}, {64, 64}}, {1, 1, 1, 1}},
+        tessera::PopClip{},
+        tessera::PopClip{},
+        tessera::PushTransform{{0, 1, -1, 0, 60, 40}},
+        tessera::DrawRect{{{0, 0}, {8, 12}}, {0, 1, 1, 1}},
+        tessera::PopTransform{},
+        tessera::DrawImage{{{48, 48}, {16, 16}}, {1}},
     }};
     host.begin(renderer);
-    check(renderer.submit({1,{64,64},1},list).empty(), "Primitive submission failed");
-    check(has(renderer.unbind_image({1}),"resource_in_use","/image"), "In-flight image unbound");
-    check(has(renderer.bind_image({1},host.texture.view,host.sampler),"resource_in_use","/image"), "In-flight image rebound");
+    check(renderer.submit({1, {64, 64}, 1}, list).empty(), "Primitive submission failed");
+    check(has(renderer.unbind_image({1}), "resource_in_use", "/image"), "In-flight image unbound");
+    check(has(renderer.bind_image({1}, host.texture.view, host.sampler), "resource_in_use", "/image"),
+          "In-flight image rebound");
     // Future retirement must not authorize resource mutation in later frames.
     const auto pixels = host.finish("primitives.ppm");
-    pixel(pixels,64,12,12,{255,0,0,255},"Solid rectangle");
-    pixel(pixels,64,24,24,{188,0,188,255},"Ordered linear-light alpha blend");
-    pixel(pixels,64,40,24,{0,0,188,255},"Straight alpha blend over black");
-    pixel(pixels,64,44,0,{0,0,0,255},"Rounded corner outside");
-    pixel(pixels,64,54,8,{255,255,255,255},"Rounded rectangle interior");
-    pixel(pixels,64,10,40,{0,255,0,255},"Top border");
-    pixel(pixels,64,18,50,{0,255,0,255},"Right border");
-    pixel(pixels,64,10,58,{0,255,0,255},"Bottom border");
-    pixel(pixels,64,0,50,{0,255,0,255},"Left border");
-    pixel(pixels,64,8,50,{0,0,0,255},"Border inner hole");
-    pixel(pixels,64,38,46,{255,255,255,255},"Nested clip interior");
-    pixel(pixels,64,34,50,{0,0,0,255},"Nested clip exterior");
-    pixel(pixels,64,50,42,{0,255,255,255},"Rotated primitive");
-    pixel(pixels,64,47,42,{0,0,188,255},"Rotated primitive bounds");
-    pixel(pixels,64,50,50,{255,0,0,255},"Image top left");
-    pixel(pixels,64,60,50,{0,255,0,255},"Image top right");
-    pixel(pixels,64,50,60,{0,0,255,255},"Image bottom left");
-    pixel(pixels,64,60,60,{255,255,255,255},"Image bottom right");
+    pixel(pixels, 64, 12, 12, {255, 0, 0, 255}, "Solid rectangle");
+    pixel(pixels, 64, 24, 24, {188, 0, 188, 255}, "Ordered linear-light alpha blend");
+    pixel(pixels, 64, 40, 24, {0, 0, 188, 255}, "Straight alpha blend over black");
+    pixel(pixels, 64, 44, 0, {0, 0, 0, 255}, "Rounded corner outside");
+    pixel(pixels, 64, 54, 8, {255, 255, 255, 255}, "Rounded rectangle interior");
+    pixel(pixels, 64, 10, 40, {0, 255, 0, 255}, "Top border");
+    pixel(pixels, 64, 18, 50, {0, 255, 0, 255}, "Right border");
+    pixel(pixels, 64, 10, 58, {0, 255, 0, 255}, "Bottom border");
+    pixel(pixels, 64, 0, 50, {0, 255, 0, 255}, "Left border");
+    pixel(pixels, 64, 8, 50, {0, 0, 0, 255}, "Border inner hole");
+    pixel(pixels, 64, 38, 46, {255, 255, 255, 255}, "Nested clip interior");
+    pixel(pixels, 64, 34, 50, {0, 0, 0, 255}, "Nested clip exterior");
+    pixel(pixels, 64, 50, 42, {0, 255, 255, 255}, "Rotated primitive");
+    pixel(pixels, 64, 47, 42, {0, 0, 188, 255}, "Rotated primitive bounds");
+    pixel(pixels, 64, 50, 50, {255, 0, 0, 255}, "Image top left");
+    pixel(pixels, 64, 60, 50, {0, 255, 0, 255}, "Image top right");
+    pixel(pixels, 64, 50, 60, {0, 0, 255, 255}, "Image bottom left");
+    pixel(pixels, 64, 60, 60, {255, 255, 255, 255}, "Image bottom right");
     renderer.retire(999);
-    check(renderer.bind_image({1},host.texture.view,host.sampler).empty(), "Retired image cannot be rebound");
+    check(renderer.bind_image({1}, host.texture.view, host.sampler).empty(), "Retired image cannot be rebound");
 
     host.begin(renderer);
-    const tessera::UiDrawList bad{{tessera::DrawRect{{{0,0},{64,64}},{0,1,0,1}}, tessera::DrawGlyphRun{{},{{},16},{1,1,1,1}}}};
-    check(has(renderer.submit({2,{64,64},1},bad),"unsupported_command","/commands/1"), "Unsupported glyph command accepted");
-    check(has(renderer.submit({2,{64,64},1},{{tessera::DrawImage{{{0,0},{8,8}},{2}}}}),"invalid_handle","/commands/0/image"), "Unbound image accepted");
-    check(has(renderer.submit({2,{64,64},1},{{tessera::DrawImage{{{0,0},{8,8}},{1},{{0.8f,0},{0.5f,1}}}}}),"out_of_range","/commands/0/source"), "Invalid normalized source accepted");
-    check(has(renderer.submit({1,{64,64},1},{}),"stale_frame","/frame"), "Stale frame accepted");
-    check(has(renderer.submit({2,{63,64},1},{}),"extent_mismatch","/target/extent"), "Extent mismatch accepted");
+    const tessera::UiDrawList bad{
+        {tessera::DrawRect{{{0, 0}, {64, 64}}, {0, 1, 0, 1}}, tessera::DrawGlyphRun{{}, {{}, 16}, {1, 1, 1, 1}}}};
+    check(has(renderer.submit({2, {64, 64}, 1}, bad), "unsupported_command", "/commands/1"),
+          "Unsupported glyph command accepted");
+    check(has(renderer.submit({2, {64, 64}, 1}, {{tessera::DrawImage{{{0, 0}, {8, 8}}, {2}}}}), "invalid_handle",
+              "/commands/0/image"),
+          "Unbound image accepted");
+    check(has(renderer.submit({2, {64, 64}, 1}, {{tessera::DrawImage{{{0, 0}, {8, 8}}, {1}, {{0.8f, 0}, {0.5f, 1}}}}}),
+              "out_of_range", "/commands/0/source"),
+          "Invalid normalized source accepted");
+    check(has(renderer.submit({1, {64, 64}, 1}, {}), "stale_frame", "/frame"), "Stale frame accepted");
+    check(has(renderer.submit({2, {63, 64}, 1}, {}), "extent_mismatch", "/target/extent"), "Extent mismatch accepted");
     const float huge = std::numeric_limits<float>::max();
-    check(has(renderer.submit({2,{64,64},1},{{tessera::PushTransform{{huge,0,0,1,0,0}},
-        tessera::PushTransform{{2,0,0,1,0,0}}, tessera::PopTransform{},tessera::PopTransform{}}}),"geometry_overflow","/commands/1"), "Composed overflow accepted");
+    check(has(renderer.submit({2, {64, 64}, 1}, {{tessera::PushTransform{{huge, 0, 0, 1, 0, 0}},
+                                                  tessera::PushTransform{{2, 0, 0, 1, 0, 0}}, tessera::PopTransform{},
+                                                  tessera::PopTransform{}}}),
+              "geometry_overflow", "/commands/1"),
+          "Composed overflow accepted");
     const auto rejected = host.finish("rejected.ppm");
-    for (unsigned y=0;y<64;++y) for(unsigned x=0;x<64;++x) pixel(rejected,64,x,y,{0,0,0,255},"Rejected submission recorded commands");
+    for (unsigned y = 0; y < 64; ++y)
+        for (unsigned x = 0; x < 64; ++x)
+            pixel(rejected, 64, x, y, {0, 0, 0, 255}, "Rejected submission recorded commands");
 
     // Same unconsumed frame number is usable after rejection.
     host.begin(renderer);
-    check(renderer.submit({2,{64,64},1},{{tessera::DrawImage{{{0,0},{8,8}},{1},{{0.5f,0},{0.5f,0.5f}},{0.5f,1,1,0.5f}}}}).empty(), "Cropped image submission failed");
-    check(has(renderer.unbind_image({1}),"resource_in_use","/image"), "Future retire incorrectly covered a later frame");
+    check(renderer
+              .submit({2, {64, 64}, 1},
+                      {{tessera::DrawImage{{{0, 0}, {8, 8}}, {1}, {{0.5f, 0}, {0.5f, 0.5f}}, {0.5f, 1, 1, 0.5f}}}})
+              .empty(),
+          "Cropped image submission failed");
+    check(has(renderer.unbind_image({1}), "resource_in_use", "/image"),
+          "Future retire incorrectly covered a later frame");
     const auto cropped = host.finish("image-crop.ppm");
-    pixel(cropped,64,4,4,{0,188,0,255},"Cropped image tint/alpha");
+    pixel(cropped, 64, 4, 4, {0, 188, 0, 255}, "Cropped image tint/alpha");
     renderer.retire(2);
-    check(renderer.unbind_image({1}).empty(),"Retired image cannot be unbound");
-    check(has(renderer.unbind_image({1}),"invalid_handle","/image"),"Unknown unbind accepted");
+    check(renderer.unbind_image({1}).empty(), "Retired image cannot be unbound");
+    check(has(renderer.unbind_image({1}), "invalid_handle", "/image"), "Unknown unbind accepted");
 
-    check(renderer.bind_image({1},host.texture.view,host.sampler).empty(),"Image rebind failed");
+    check(renderer.bind_image({1}, host.texture.view, host.sampler).empty(), "Image rebind failed");
     host.begin(renderer);
     const tessera::UiDrawList transforms{{
-        tessera::PushTransform{{2,0,0,1,8,8}}, tessera::PushTransform{{1,0,0,2,3,2}},
-        tessera::PushClip{{{0,0},{4,4}}}, tessera::DrawRect{{{-10,-10},{20,20}},{1,1,1,1}},
-        tessera::PopClip{}, tessera::PopTransform{}, tessera::PopTransform{},
-        tessera::PushTransform{{1,0,0.5f,1,28,8}}, tessera::DrawRect{{{0,0},{8,8}},{0,0,1,1}}, tessera::PopTransform{},
-        tessera::PushClip{{{0,0},{0,0}}}, tessera::DrawImage{{{0,0},{8,8}},{1}}, tessera::PopClip{},
+        tessera::PushTransform{{2, 0, 0, 1, 8, 8}},
+        tessera::PushTransform{{1, 0, 0, 2, 3, 2}},
+        tessera::PushClip{{{0, 0}, {4, 4}}},
+        tessera::DrawRect{{{-10, -10}, {20, 20}}, {1, 1, 1, 1}},
+        tessera::PopClip{},
+        tessera::PopTransform{},
+        tessera::PopTransform{},
+        tessera::PushTransform{{1, 0, 0.5f, 1, 28, 8}},
+        tessera::DrawRect{{{0, 0}, {8, 8}}, {0, 0, 1, 1}},
+        tessera::PopTransform{},
+        tessera::PushClip{{{0, 0}, {0, 0}}},
+        tessera::DrawImage{{{0, 0}, {8, 8}}, {1}},
+        tessera::PopClip{},
     }};
-    check(renderer.submit({3,{64,64},1},transforms).empty(),"Composed transform submission failed");
-    check(has(renderer.unbind_image({1}),"resource_in_use","/image"),"Clipped image lifetime was not retained");
+    check(renderer.submit({3, {64, 64}, 1}, transforms).empty(), "Composed transform submission failed");
+    check(has(renderer.unbind_image({1}), "resource_in_use", "/image"), "Clipped image lifetime was not retained");
     const auto transformed = host.finish("transforms.ppm");
-    pixel(transformed,64,16,12,{255,255,255,255},"Composed transformed clip");
-    pixel(transformed,64,13,12,{0,0,0,255},"Composed transformed clip left bound");
-    pixel(transformed,64,22,12,{0,0,0,255},"Composed transformed clip right bound");
-    pixel(transformed,64,34,12,{0,0,255,255},"Skewed primitive interior");
-    pixel(transformed,64,29,14,{0,0,0,255},"Skewed primitive exterior");
-    renderer.retire(3); check(renderer.unbind_image({1}).empty(),"Clipped image retirement failed");
+    pixel(transformed, 64, 16, 12, {255, 255, 255, 255}, "Composed transformed clip");
+    pixel(transformed, 64, 13, 12, {0, 0, 0, 255}, "Composed transformed clip left bound");
+    pixel(transformed, 64, 22, 12, {0, 0, 0, 255}, "Composed transformed clip right bound");
+    pixel(transformed, 64, 34, 12, {0, 0, 255, 255}, "Skewed primitive interior");
+    pixel(transformed, 64, 29, 14, {0, 0, 0, 255}, "Skewed primitive exterior");
+    renderer.retire(3);
+    check(renderer.unbind_image({1}).empty(), "Clipped image retirement failed");
 
     // Fractional scale, mirrored clips, empty intersection, stack restoration and resize.
-    for (float scale : {1.0f,1.25f,1.5f,2.0f}) {
-        const unsigned extent = unsigned(std::ceil(32*scale));
-        host.resize({extent,extent}); host.begin(renderer);
+    for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+        const unsigned extent = unsigned(std::ceil(32 * scale));
+        host.resize({extent, extent});
+        host.begin(renderer);
         const tessera::UiDrawList scaled{{
-            tessera::PushTransform{{-1,0,0,1,24,0}},
-            tessera::PushClip{{{4.2f,4.2f},{6.4f,6.4f}}},
-            tessera::DrawRect{{{0,0},{32,32}},{1,0,0,1}},
-            tessera::PushClip{{{28,28},{2,2}}},
-            tessera::DrawRect{{{0,0},{32,32}},{0,1,0,1}}, tessera::PopClip{},
-            tessera::PopClip{}, tessera::PopTransform{},
-            tessera::DrawRect{{{0,24},{8,8}},{0.5f,0.5f,0.5f,1}},
-            tessera::DrawBorder{{{24,24},{8,8}},{1,1,1,1},{1,1,1,1},3},
+            tessera::PushTransform{{-1, 0, 0, 1, 24, 0}},
+            tessera::PushClip{{{4.2f, 4.2f}, {6.4f, 6.4f}}},
+            tessera::DrawRect{{{0, 0}, {32, 32}}, {1, 0, 0, 1}},
+            tessera::PushClip{{{28, 28}, {2, 2}}},
+            tessera::DrawRect{{{0, 0}, {32, 32}}, {0, 1, 0, 1}},
+            tessera::PopClip{},
+            tessera::PopClip{},
+            tessera::PopTransform{},
+            tessera::DrawRect{{{0, 24}, {8, 8}}, {0.5f, 0.5f, 0.5f, 1}},
+            tessera::DrawBorder{{{24, 24}, {8, 8}}, {1, 1, 1, 1}, {1, 1, 1, 1}, 3},
         }};
-        const auto frame = std::uint64_t(scale*4); // 4,5,6,8
-        check(renderer.submit({frame,{32,32},scale},scaled).empty(),"Fractional scale submission failed");
+        const auto frame = std::uint64_t(scale * 4); // 4,5,6,8
+        check(renderer.submit({frame, {32, 32}, scale}, scaled).empty(), "Fractional scale submission failed");
         const std::string artifact = "scale-" + std::to_string(frame) + ".ppm";
-        const auto scaled_pixels = host.finish(artifact.c_str()); renderer.retire(frame);
+        const auto scaled_pixels = host.finish(artifact.c_str());
+        renderer.retire(frame);
         // Pixel-center scissor: the same pixels an unclipped rectangle with these edges would cover.
-        const auto edge = [&](double logical) { return unsigned(std::ceil(logical*scale - 0.5)); };
+        const auto edge = [&](double logical) { return unsigned(std::ceil(logical * scale - 0.5)); };
         const auto l = edge(13.4), r = edge(19.8), t = edge(4.2), b = edge(10.6);
-        for (unsigned y=0; y<unsigned(20*scale); ++y) for(unsigned x=0;x<extent;++x)
-            pixel(scaled_pixels,extent,x,y,x>=l && x<r && y>=t && y<b ? std::array<int,4>{255,0,0,255} : std::array<int,4>{0,0,0,255},"Fractional mirrored scissor");
-        pixel(scaled_pixels,extent,unsigned(4*scale),unsigned(28*scale),{128,128,128,255},"Scale restoration/sRGB conversion");
-        pixel(scaled_pixels,extent,unsigned(28*scale),unsigned(28*scale),{0,0,0,255},"Rounded border hole");
+        for (unsigned y = 0; y < unsigned(20 * scale); ++y)
+            for (unsigned x = 0; x < extent; ++x)
+                pixel(scaled_pixels, extent, x, y,
+                      x >= l && x < r && y >= t && y < b ? std::array<int, 4>{255, 0, 0, 255}
+                                                         : std::array<int, 4>{0, 0, 0, 255},
+                      "Fractional mirrored scissor");
+        pixel(scaled_pixels, extent, unsigned(4 * scale), unsigned(28 * scale), {128, 128, 128, 255},
+              "Scale restoration/sRGB conversion");
+        pixel(scaled_pixels, extent, unsigned(28 * scale), unsigned(28 * scale), {0, 0, 0, 255}, "Rounded border hole");
     }
     renderer.set_target({});
-    check(has(renderer.submit({9,{32,32},1},{}),"invalid_target","/target"),"Null target accepted");
+    check(has(renderer.submit({9, {32, 32}, 1}, {}), "invalid_target", "/target"), "Null target accepted");
 }
 
 void glyph_fixtures(Host& host, bool batched = false) {
-    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv");
     const auto batch = shader("primitive.batch.spv");
-    tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,1,true};
+    tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB, vertex, fragment,
+                                   image,         1,           true};
     if (batched) context.batch_vertex_spirv = batch;
     tessera::VulkanRenderer renderer(context);
     tessera::PlaceholderTextShaper shaper;
     tessera::TextStyle style;
-    style.size = 20; style.line_height = 24.0f;
-    const auto shaped = shaper.shape("A a\nあ",style);
-    check(bool(shaped),"Placeholder shaping failed");
-    const tessera::DrawGlyphRun glyphs{{},*shaped.value,{1,1,1,1}};
-    check(renderer.bind_image({1},host.texture.view,host.sampler).empty(),"Glyph fixture image binding failed");
+    style.size = 20;
+    style.line_height = 24.0f;
+    const auto shaped = shaper.shape("A a\nあ", style);
+    check(bool(shaped), "Placeholder shaping failed");
+    const tessera::DrawGlyphRun glyphs{{}, *shaped.value, {1, 1, 1, 1}};
+    check(renderer.bind_image({1}, host.texture.view, host.sampler).empty(), "Glyph fixture image binding failed");
 
     // Rejected glyphs must not record preceding commands, consume frames or pin images.
-    host.resize({48,56}); host.begin(renderer);
-    auto bad = glyphs; bad.run.font = {7};
-    tessera::UiDrawList rejected{{tessera::DrawImage{{{0,0},{48,56}},{1}},bad}};
-    check(has(renderer.submit({1,{48,56},1},rejected),"unsupported_font","/commands/1/run/font"),"Real font accepted by placeholder mode");
-    bad = glyphs; bad.run.glyphs[0].id = 0xd800;
-    check(has(renderer.submit({1,{48,56},1},{{bad}}),"invalid_glyph","/commands/0/run/glyphs/0/id"),"Surrogate glyph accepted");
+    host.resize({48, 56});
+    host.begin(renderer);
+    auto bad = glyphs;
+    bad.run.font = {7};
+    tessera::UiDrawList rejected{{tessera::DrawImage{{{0, 0}, {48, 56}}, {1}}, bad}};
+    check(has(renderer.submit({1, {48, 56}, 1}, rejected), "unsupported_font", "/commands/1/run/font"),
+          "Real font accepted by placeholder mode");
+    bad = glyphs;
+    bad.run.glyphs[0].id = 0xd800;
+    check(has(renderer.submit({1, {48, 56}, 1}, {{bad}}), "invalid_glyph", "/commands/0/run/glyphs/0/id"),
+          "Surrogate glyph accepted");
     bad.run.glyphs[0].id = 0x110000;
-    check(has(renderer.submit({1,{48,56},1},{{bad}}),"invalid_glyph","/commands/0/run/glyphs/0/id"),"Out-of-range scalar accepted");
+    check(has(renderer.submit({1, {48, 56}, 1}, {{bad}}), "invalid_glyph", "/commands/0/run/glyphs/0/id"),
+          "Out-of-range scalar accepted");
     bad = glyphs;
     bad.origin.x = bad.run.glyphs[0].position.x = std::numeric_limits<float>::max();
-    check(has(renderer.submit({1,{48,56},1},{{tessera::PushClip{{{0,0},{0,0}}},bad,tessera::PopClip{}}}),
-        "geometry_overflow","/commands/1/run/glyphs/0/position"),"Clipped glyph overflow accepted");
-    bad = glyphs; bad.run.glyphs[0].position.x = std::numeric_limits<float>::quiet_NaN();
-    check(has(renderer.submit({1,{48,56},1},{{bad}}),"invalid_number","/commands/0/run/glyphs/0/position/x"),"Nonfinite glyph accepted");
+    check(has(renderer.submit({1, {48, 56}, 1}, {{tessera::PushClip{{{0, 0}, {0, 0}}}, bad, tessera::PopClip{}}}),
+              "geometry_overflow", "/commands/1/run/glyphs/0/position"),
+          "Clipped glyph overflow accepted");
+    bad = glyphs;
+    bad.run.glyphs[0].position.x = std::numeric_limits<float>::quiet_NaN();
+    check(has(renderer.submit({1, {48, 56}, 1}, {{bad}}), "invalid_number", "/commands/0/run/glyphs/0/position/x"),
+          "Nonfinite glyph accepted");
     const auto black = host.finish("glyph-rejected.ppm");
-    for (unsigned y=0;y<56;++y) for (unsigned x=0;x<48;++x)
-        pixel(black,48,x,y,{0,0,0,255},"Glyph rejection recorded partial commands");
-    check(renderer.unbind_image({1}).empty(),"Rejected glyph submission pinned an image");
+    for (unsigned y = 0; y < 56; ++y)
+        for (unsigned x = 0; x < 48; ++x)
+            pixel(black, 48, x, y, {0, 0, 0, 255}, "Glyph rejection recorded partial commands");
+    check(renderer.unbind_image({1}).empty(), "Rejected glyph submission pinned an image");
 
     // Exhaustive small images prove baseline, multiline spacing, blank space, missing
     // marks, lowercase policy and device scale against independent A/box masks.
     std::uint64_t frame = 1;
-    for (float scale : {1.0f,1.25f,1.5f,2.0f}) {
-        const unsigned width = unsigned(48*scale), height = unsigned(56*scale);
-        host.resize({width,height}); host.begin(renderer);
-        check(renderer.submit({frame,{48,56},scale},{{glyphs}}).empty(),"Placeholder GPU submission failed");
+    for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+        const unsigned width = unsigned(48 * scale), height = unsigned(56 * scale);
+        host.resize({width, height});
+        host.begin(renderer);
+        check(renderer.submit({frame, {48, 56}, scale}, {{glyphs}}).empty(), "Placeholder GPU submission failed");
         const std::string artifact = "glyph-scale-" + std::to_string(frame) + ".ppm";
-        const auto pixels = host.finish(artifact.c_str()); renderer.retire(frame++);
-        const std::array<unsigned,7> a{14,17,17,31,17,17,17}, box{31,17,17,17,17,17,31};
-        for (unsigned y=0;y<height;++y) for (unsigned x=0;x<width;++x) {
-            bool on = false, boundary = false;
-            for (unsigned mark = 0; mark < 3; ++mark) {
-                const double gx = mark == 1 ? 21 : 1, gy = mark == 2 ? 26 : 2;
-                const double cx = ((x+0.5)/scale-gx)/1.6, cy = ((y+0.5)/scale-gy)/2;
-                if (std::abs(cx-std::round(cx)) < 0.00001 || std::abs(cy-std::round(cy)) < 0.00001) boundary = true;
-                if (cx >= 0 && cx < 5 && cy >= 0 && cy < 7)
-                    on = on || (((mark == 2 ? box : a)[unsigned(cy)] & (1u << (4-unsigned(cx)))) != 0);
+        const auto pixels = host.finish(artifact.c_str());
+        renderer.retire(frame++);
+        const std::array<unsigned, 7> a{14, 17, 17, 31, 17, 17, 17}, box{31, 17, 17, 17, 17, 17, 31};
+        for (unsigned y = 0; y < height; ++y)
+            for (unsigned x = 0; x < width; ++x) {
+                bool on = false, boundary = false;
+                for (unsigned mark = 0; mark < 3; ++mark) {
+                    const double gx = mark == 1 ? 21 : 1, gy = mark == 2 ? 26 : 2;
+                    const double cx = ((x + 0.5) / scale - gx) / 1.6, cy = ((y + 0.5) / scale - gy) / 2;
+                    if (std::abs(cx - std::round(cx)) < 0.00001 || std::abs(cy - std::round(cy)) < 0.00001)
+                        boundary = true;
+                    if (cx >= 0 && cx < 5 && cy >= 0 && cy < 7)
+                        on = on || (((mark == 2 ? box : a)[unsigned(cy)] & (1u << (4 - unsigned(cx)))) != 0);
+                }
+                if (!boundary)
+                    pixel(pixels, width, x, y,
+                          on ? std::array<int, 4>{255, 255, 255, 255} : std::array<int, 4>{0, 0, 0, 255},
+                          "Placeholder bitmap/scale");
             }
-            if (!boundary) pixel(pixels,width,x,y,on ? std::array<int,4>{255,255,255,255} : std::array<int,4>{0,0,0,255},"Placeholder bitmap/scale");
-        }
     }
 
     // Glyphs use the same ordered blending, transform and clip path as primitives.
-    auto single = shaper.shape("A",style);
-    tessera::DrawGlyphRun red{{},*single.value,{1,0,0,1}};
-    tessera::DrawGlyphRun blue = red; blue.color = {0,0,1,0.5f};
+    auto single = shaper.shape("A", style);
+    tessera::DrawGlyphRun red{{}, *single.value, {1, 0, 0, 1}};
+    tessera::DrawGlyphRun blue = red;
+    blue.color = {0, 0, 1, 0.5f};
     const tessera::UiDrawList transformed{{
-        red,blue,
-        tessera::PushTransform{{-1,0,0,1,24,0}},tessera::PushClip{{{1,2},{4,14}}},
-        tessera::DrawGlyphRun{{},*single.value,{0,1,0,1}},tessera::PopClip{},tessera::PopTransform{},
-        tessera::PushTransform{{0,1,-1,0,48,4}},red,tessera::PopTransform{},
-        tessera::PushClip{{{0,0},{0,0}}},red,tessera::PopClip{},
-        tessera::DrawRect{{{0,40},{4,4}},{1,1,1,1}},
+        red,
+        blue,
+        tessera::PushTransform{{-1, 0, 0, 1, 24, 0}},
+        tessera::PushClip{{{1, 2}, {4, 14}}},
+        tessera::DrawGlyphRun{{}, *single.value, {0, 1, 0, 1}},
+        tessera::PopClip{},
+        tessera::PopTransform{},
+        tessera::PushTransform{{0, 1, -1, 0, 48, 4}},
+        red,
+        tessera::PopTransform{},
+        tessera::PushClip{{{0, 0}, {0, 0}}},
+        red,
+        tessera::PopClip{},
+        tessera::DrawRect{{{0, 40}, {4, 4}}, {1, 1, 1, 1}},
     }};
-    host.resize({48,56}); host.begin(renderer);
-    check(renderer.submit({frame,{48,56},1},transformed).empty(),"Transformed glyph submission failed");
-    const auto transformed_pixels = host.finish("glyph-transforms.ppm"); renderer.retire(frame++);
-    pixel(transformed_pixels,48,4,2,{188,0,188,255},"Ordered glyph alpha");
-    pixel(transformed_pixels,48,1,2,{0,0,0,255},"Glyph transparent cell");
-    pixel(transformed_pixels,48,20,2,{0,255,0,255},"Mirrored glyph and clip");
-    pixel(transformed_pixels,48,17,4,{0,0,0,255},"Mirrored glyph clip exterior");
-    pixel(transformed_pixels,48,45,8,{255,0,0,255},"Rotated glyph");
-    pixel(transformed_pixels,48,1,41,{255,255,255,255},"Clip/transform restoration after glyphs");
+    host.resize({48, 56});
+    host.begin(renderer);
+    check(renderer.submit({frame, {48, 56}, 1}, transformed).empty(), "Transformed glyph submission failed");
+    const auto transformed_pixels = host.finish("glyph-transforms.ppm");
+    renderer.retire(frame++);
+    pixel(transformed_pixels, 48, 4, 2, {188, 0, 188, 255}, "Ordered glyph alpha");
+    pixel(transformed_pixels, 48, 1, 2, {0, 0, 0, 255}, "Glyph transparent cell");
+    pixel(transformed_pixels, 48, 20, 2, {0, 255, 0, 255}, "Mirrored glyph and clip");
+    pixel(transformed_pixels, 48, 17, 4, {0, 0, 0, 255}, "Mirrored glyph clip exterior");
+    pixel(transformed_pixels, 48, 45, 8, {255, 0, 0, 255}, "Rotated glyph");
+    pixel(transformed_pixels, 48, 1, 41, {255, 255, 255, 255}, "Clip/transform restoration after glyphs");
 
     // Full JSON -> tree -> layout -> paint -> GPU, retaining backend-neutral Text.
-    const auto document = tessera::load_document(R"({"version":1,"root":{"type":"Box","id":"menu","children":[{"type":"Text","id":"start","properties":{"text":"Start"}},{"type":"Text","id":"quit","properties":{"text":"Quit"}}]}})");
-    check(bool(document),"GPU menu JSON rejected");
+    const auto document = tessera::load_document(
+        R"({"version":1,"root":{"type":"Box","id":"menu","children":[{"type":"Text","id":"start","properties":{"text":"Start"}},{"type":"Text","id":"quit","properties":{"text":"Quit"}}]}})");
+    check(bool(document), "GPU menu JSON rejected");
     const auto tree = tessera::UiTree::create(*document.value);
-    check(bool(tree),"GPU menu tree rejected");
+    check(bool(tree), "GPU menu tree rejected");
     std::vector<tessera::ResolvedStyle> styles((*tree.value)->size());
-    styles[0].padding = {4,4,4,4}; styles[0].gap = 4;
-    for (std::size_t i=1;i<styles.size();++i) { styles[i].text = style; styles[i].color = {1,1,1,1}; }
-    const auto layout = tessera::compute_layout({tree.value->get(),styles,{96,64},&shaper});
-    check(bool(layout),"GPU menu layout rejected");
-    const auto paint = tessera::build_paint_list({tree.value->get(),styles,&*layout.value,&shaper});
-    check(bool(paint),"GPU menu paint rejected");
-    const auto repeated = tessera::build_paint_list({tree.value->get(),styles,&*layout.value,&shaper});
-    check(repeated && *paint.value == *repeated.value,"GPU menu paint is nondeterministic");
-    host.resize({96,64}); host.begin(renderer);
-    check(renderer.submit({frame,{96,64},1},*paint.value).empty(),"Full document Text paint rejected by Vulkan");
-    const auto menu = host.finish("placeholder-menu.ppm"); renderer.retire(frame++);
-    pixel(menu,96,8,6,{255,255,255,255},"Menu Start first row");
-    pixel(menu,96,8,34,{255,255,255,255},"Menu Quit first row");
-    pixel(menu,96,0,0,{0,0,0,255},"Menu padding");
+    styles[0].padding = {4, 4, 4, 4};
+    styles[0].gap = 4;
+    for (std::size_t i = 1; i < styles.size(); ++i) {
+        styles[i].text = style;
+        styles[i].color = {1, 1, 1, 1};
+    }
+    const auto layout = tessera::compute_layout({tree.value->get(), styles, {96, 64}, &shaper});
+    check(bool(layout), "GPU menu layout rejected");
+    const auto paint = tessera::build_paint_list({tree.value->get(), styles, &*layout.value, &shaper});
+    check(bool(paint), "GPU menu paint rejected");
+    const auto repeated = tessera::build_paint_list({tree.value->get(), styles, &*layout.value, &shaper});
+    check(repeated && *paint.value == *repeated.value, "GPU menu paint is nondeterministic");
+    host.resize({96, 64});
     host.begin(renderer);
-    const auto empty = shaper.shape("",style), spaces = shaper.shape("  ",style);
-    check(renderer.submit({frame,{96,64},1},{{tessera::DrawGlyphRun{{},*empty.value,{1,1,1,1}},
-        tessera::DrawGlyphRun{{},*spaces.value,{1,1,1,1}}}}).empty(),"Blank placeholder runs rejected");
-    const auto blank = host.finish("glyph-blank.ppm"); renderer.retire(frame);
-    for (unsigned y=0;y<64;++y) for (unsigned x=0;x<96;++x) pixel(blank,96,x,y,{0,0,0,255},"Blank runs drew pixels");
+    check(renderer.submit({frame, {96, 64}, 1}, *paint.value).empty(), "Full document Text paint rejected by Vulkan");
+    const auto menu = host.finish("placeholder-menu.ppm");
+    renderer.retire(frame++);
+    pixel(menu, 96, 8, 6, {255, 255, 255, 255}, "Menu Start first row");
+    pixel(menu, 96, 8, 34, {255, 255, 255, 255}, "Menu Quit first row");
+    pixel(menu, 96, 0, 0, {0, 0, 0, 255}, "Menu padding");
+    host.begin(renderer);
+    const auto empty = shaper.shape("", style), spaces = shaper.shape("  ", style);
+    check(renderer
+              .submit({frame, {96, 64}, 1}, {{tessera::DrawGlyphRun{{}, *empty.value, {1, 1, 1, 1}},
+                                              tessera::DrawGlyphRun{{}, *spaces.value, {1, 1, 1, 1}}}})
+              .empty(),
+          "Blank placeholder runs rejected");
+    const auto blank = host.finish("glyph-blank.ppm");
+    renderer.retire(frame);
+    for (unsigned y = 0; y < 64; ++y)
+        for (unsigned x = 0; x < 96; ++x) pixel(blank, 96, x, y, {0, 0, 0, 255}, "Blank runs drew pixels");
 }
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
 std::vector<std::byte> font_bytes(const char* name) {
-    std::ifstream file(std::filesystem::path(TESSERA_FONT_DIR)/name, std::ios::binary | std::ios::ate);
+    std::ifstream file(std::filesystem::path(TESSERA_FONT_DIR) / name, std::ios::binary | std::ios::ate);
     check(bool(file), "Cannot read fixture font");
     std::vector<std::byte> bytes(static_cast<std::size_t>(file.tellg()));
-    file.seekg(0); file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    check(bool(file), "Cannot read fixture font bytes"); return bytes;
+    file.seekg(0);
+    file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    check(bool(file), "Cannot read fixture font bytes");
+    return bytes;
 }
 // Small independent image oracle: sample original rasters at unsnapped baselines,
 // never read atlas coordinates or lowered DrawImages. Only fixture translations/clips.
-std::vector<std::uint8_t> glyph_reference(const tessera::UiDrawList& list, tessera::GlyphCache& cache,
-    float scale, VkExtent2D extent, std::uint32_t subpixel_bits) {
-    struct State { double tx=0,ty=0,left=0,top=0,right=0,bottom=0; };
-    State state{0,0,0,0,double(extent.width),double(extent.height)};
+std::vector<std::uint8_t> glyph_reference(const tessera::UiDrawList& list, tessera::GlyphCache& cache, float scale,
+                                          VkExtent2D extent, std::uint32_t subpixel_bits) {
+    struct State {
+        double tx = 0, ty = 0, left = 0, top = 0, right = 0, bottom = 0;
+    };
+    State state{0, 0, 0, 0, double(extent.width), double(extent.height)};
     std::vector<State> stack;
-    std::vector<std::array<double,3>> colors(std::size_t(extent.width)*extent.height, {0,0,0});
-    const auto linear = [](double c) { return c <= 0.04045 ? c/12.92 : std::pow((c+0.055)/1.055,2.4); };
-    const double precision=std::ldexp(1.0,int(subpixel_bits));
+    std::vector<std::array<double, 3>> colors(std::size_t(extent.width) * extent.height, {0, 0, 0});
+    const auto linear = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+    const double precision = std::ldexp(1.0, int(subpixel_bits));
     for (const auto& command : list.commands) {
         if (const auto* transform = std::get_if<tessera::PushTransform>(&command)) {
-            check(transform->transform.a==1 && transform->transform.d==1 && transform->transform.b==0 && transform->transform.c==0,
-                "Reference fixture only supports translations");
-            stack.push_back(state); state.tx += transform->transform.tx; state.ty += transform->transform.ty;
+            check(transform->transform.a == 1 && transform->transform.d == 1 && transform->transform.b == 0 &&
+                      transform->transform.c == 0,
+                  "Reference fixture only supports translations");
+            stack.push_back(state);
+            state.tx += transform->transform.tx;
+            state.ty += transform->transform.ty;
         } else if (const auto* clip = std::get_if<tessera::PushClip>(&command)) {
             stack.push_back(state);
-            state.left = std::max(state.left, (clip->rect.origin.x+state.tx)*scale);
-            state.top = std::max(state.top, (clip->rect.origin.y+state.ty)*scale);
-            state.right = std::min(state.right, (double(clip->rect.origin.x)+clip->rect.size.width+state.tx)*scale);
-            state.bottom = std::min(state.bottom, (double(clip->rect.origin.y)+clip->rect.size.height+state.ty)*scale);
-        } else if (std::holds_alternative<tessera::PopClip>(command) || std::holds_alternative<tessera::PopTransform>(command)) {
-            state=stack.back(); stack.pop_back();
+            state.left = std::max(state.left, (clip->rect.origin.x + state.tx) * scale);
+            state.top = std::max(state.top, (clip->rect.origin.y + state.ty) * scale);
+            state.right =
+                std::min(state.right, (double(clip->rect.origin.x) + clip->rect.size.width + state.tx) * scale);
+            state.bottom =
+                std::min(state.bottom, (double(clip->rect.origin.y) + clip->rect.size.height + state.ty) * scale);
+        } else if (std::holds_alternative<tessera::PopClip>(command) ||
+                   std::holds_alternative<tessera::PopTransform>(command)) {
+            state = stack.back();
+            stack.pop_back();
         } else if (const auto* run = std::get_if<tessera::DrawGlyphRun>(&command)) {
             for (const auto& glyph : run->run.glyphs) {
-                const auto raster = cache.get({glyph.font,glyph.id,std::uint32_t(std::round(double(run->run.size)*scale*64))});
-                check(bool(raster), "Reference glyph raster failed"); const auto& bitmap = **raster.value;
+                const auto raster =
+                    cache.get({glyph.font, glyph.id, std::uint32_t(std::round(double(run->run.size) * scale * 64))});
+                check(bool(raster), "Reference glyph raster failed");
+                const auto& bitmap = **raster.value;
                 if (!bitmap.width) continue;
-                const double left=(double(run->origin.x)+glyph.position.x+state.tx)*scale+bitmap.left;
-                const double top=(double(run->origin.y)+glyph.position.y+state.ty)*scale-bitmap.top;
-                const auto coverage = [&](int x,int y) {
-                    return x<0 || y<0 || x>=int(bitmap.width) || y>=int(bitmap.height) ? 0.0 : double(bitmap.coverage[std::size_t(y)*bitmap.width+x])/255;
+                const double left = (double(run->origin.x) + glyph.position.x + state.tx) * scale + bitmap.left;
+                const double top = (double(run->origin.y) + glyph.position.y + state.ty) * scale - bitmap.top;
+                const auto coverage = [&](int x, int y) {
+                    return x < 0 || y < 0 || x >= int(bitmap.width) || y >= int(bitmap.height)
+                               ? 0.0
+                               : double(bitmap.coverage[std::size_t(y) * bitmap.width + x]) / 255;
                 };
-                for(unsigned y=0;y<extent.height;++y) for(unsigned x=0;x<extent.width;++x) {
-                    const double px=x+0.5,py=y+0.5;
-                    // Quad coverage uses the declared device rasterizer precision;
-                    // texture interpolation retains the continuous baseline phase.
-                    const auto edge=[&](double v) { return std::round(v*precision)/precision; };
-                    if(px<state.left || px>=state.right || py<state.top || py>=state.bottom ||
-                        px<edge(left) || px>=edge(left+bitmap.width) || py<edge(top) || py>=edge(top+bitmap.height)) continue;
-                    const double sx=px-left-0.5,sy=py-top-0.5;
-                    const int ix=int(std::floor(sx)),iy=int(std::floor(sy));
-                    const double fx=sx-ix,fy=sy-iy;
-                    const double alpha=((1-fy)*((1-fx)*coverage(ix,iy)+fx*coverage(ix+1,iy))+
-                        fy*((1-fx)*coverage(ix,iy+1)+fx*coverage(ix+1,iy+1)))*run->color.a;
-                    auto& destination=colors[std::size_t(y)*extent.width+x];
-                    const std::array<double,3> tint{linear(run->color.r),linear(run->color.g),linear(run->color.b)};
-                    for(unsigned c=0;c<3;++c) destination[c]=tint[c]*alpha+destination[c]*(1-alpha);
-                }
+                for (unsigned y = 0; y < extent.height; ++y)
+                    for (unsigned x = 0; x < extent.width; ++x) {
+                        const double px = x + 0.5, py = y + 0.5;
+                        // Quad coverage uses the declared device rasterizer precision;
+                        // texture interpolation retains the continuous baseline phase.
+                        const auto edge = [&](double v) { return std::round(v * precision) / precision; };
+                        if (px < state.left || px >= state.right || py < state.top || py >= state.bottom ||
+                            px < edge(left) || px >= edge(left + bitmap.width) || py < edge(top) ||
+                            py >= edge(top + bitmap.height))
+                            continue;
+                        const double sx = px - left - 0.5, sy = py - top - 0.5;
+                        const int ix = int(std::floor(sx)), iy = int(std::floor(sy));
+                        const double fx = sx - ix, fy = sy - iy;
+                        const double alpha = ((1 - fy) * ((1 - fx) * coverage(ix, iy) + fx * coverage(ix + 1, iy)) +
+                                              fy * ((1 - fx) * coverage(ix, iy + 1) + fx * coverage(ix + 1, iy + 1))) *
+                                             run->color.a;
+                        auto& destination = colors[std::size_t(y) * extent.width + x];
+                        const std::array<double, 3> tint{linear(run->color.r), linear(run->color.g),
+                                                         linear(run->color.b)};
+                        for (unsigned c = 0; c < 3; ++c)
+                            destination[c] = tint[c] * alpha + destination[c] * (1 - alpha);
+                    }
             }
-        } else check(false, "Unexpected command in glyph reference fixture");
+        } else
+            check(false, "Unexpected command in glyph reference fixture");
     }
-    std::vector<std::uint8_t> pixels(colors.size()*4,255);
-    for(std::size_t i=0;i<colors.size();++i) for(unsigned c=0;c<3;++c) {
-        const auto v=colors[i][c];
-        pixels[i*4+c]=std::uint8_t(std::round(255*(v<=0.0031308 ? 12.92*v : 1.055*std::pow(v,1/2.4)-0.055)));
-    }
+    std::vector<std::uint8_t> pixels(colors.size() * 4, 255);
+    for (std::size_t i = 0; i < colors.size(); ++i)
+        for (unsigned c = 0; c < 3; ++c) {
+            const auto v = colors[i][c];
+            pixels[i * 4 + c] =
+                std::uint8_t(std::round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1 / 2.4) - 0.055)));
+        }
     return pixels;
 }
 void real_glyph_fixtures(Host& host) {
     tessera::FontShaper shaper;
-    const auto latin=font_bytes("NotoSans-Regular.ttf");
-    check(shaper.set_face({0},latin).empty() && shaper.set_face({1},font_bytes("NotoSansJP-Regular.otf")).empty(), "Fixture fonts rejected");
-    check(shaper.set_fallback({0},{{1}}).empty(), "Fixture fallback rejected");
+    const auto latin = font_bytes("NotoSans-Regular.ttf");
+    check(shaper.set_face({0}, latin).empty() && shaper.set_face({1}, font_bytes("NotoSansJP-Regular.otf")).empty(),
+          "Fixture fonts rejected");
+    check(shaper.set_fallback({0}, {{1}}).empty(), "Fixture fallback rejected");
     tessera::GlyphCache cache(shaper);
-    tessera::UiDocument document; document.root.kind=tessera::NodeKind::text;
-    document.root.properties.emplace("text",std::string("Start スタート"));
-    const auto tree=tessera::UiTree::create(document); check(bool(tree), "Real Text tree failed");
-    tessera::ResolvedStyle style; style.text.size=20; style.padding={4,4,4,4}; style.color={0.6f,0.85f,1,0.75f};
+    tessera::UiDocument document;
+    document.root.kind = tessera::NodeKind::text;
+    document.root.properties.emplace("text", std::string("Start スタート"));
+    const auto tree = tessera::UiTree::create(document);
+    check(bool(tree), "Real Text tree failed");
+    tessera::ResolvedStyle style;
+    style.text.size = 20;
+    style.padding = {4, 4, 4, 4};
+    style.color = {0.6f, 0.85f, 1, 0.75f};
     const std::vector<tessera::ResolvedStyle> styles{style};
-    const auto layout=tessera::compute_layout({tree.value->get(),styles,{78.1f,100},&shaper});
+    const auto layout = tessera::compute_layout({tree.value->get(), styles, {78.1f, 100}, &shaper});
     check(bool(layout), "Real Text layout failed");
-    const auto paint=tessera::build_paint_list({tree.value->get(),styles,&*layout.value,&shaper});
+    const auto paint = tessera::build_paint_list({tree.value->get(), styles, &*layout.value, &shaper});
     check(bool(paint), "Real Text paint failed");
-    const auto mixed=shaper.shape("Start スタート",style.text,{70.1f});
-    check(mixed && mixed.value->metrics.lines==2 && mixed.value->glyphs[6].font.value==1, "Mixed wrapped face/metrics differ");
-    const auto marks=shaper.shape("j ffi a\xcc\x81",style.text);
+    const auto mixed = shaper.shape("Start スタート", style.text, {70.1f});
+    check(mixed && mixed.value->metrics.lines == 2 && mixed.value->glyphs[6].font.value == 1,
+          "Mixed wrapped face/metrics differ");
+    const auto marks = shaper.shape("j ffi a\xcc\x81", style.text);
     check(bool(marks), "Ligature/mark shaping failed");
-    tessera::UiDrawList source{{tessera::PushTransform{{1,0,0,1,0.2f,0.3f}}, tessera::PushClip{{{7.3f,6.1f},{61.2f,82.2f}}}}};
-    source.commands.insert(source.commands.end(),paint.value->commands.begin(),paint.value->commands.end());
-    source.commands.push_back(tessera::DrawGlyphRun{{5,64},*marks.value,{1,0.7f,0.3f,0.65f}});
-    source.commands.push_back(tessera::PopClip{}); source.commands.push_back(tessera::PopTransform{});
+    tessera::UiDrawList source{
+        {tessera::PushTransform{{1, 0, 0, 1, 0.2f, 0.3f}}, tessera::PushClip{{{7.3f, 6.1f}, {61.2f, 82.2f}}}}};
+    source.commands.insert(source.commands.end(), paint.value->commands.begin(), paint.value->commands.end());
+    source.commands.push_back(tessera::DrawGlyphRun{{5, 64}, *marks.value, {1, 0.7f, 0.3f, 0.65f}});
+    source.commands.push_back(tessera::PopClip{});
+    source.commands.push_back(tessera::PopTransform{});
     check(tessera::validate(source).empty(), "Real glyph source invalid");
-    const auto vertex=shader("primitive.vertex.spv"),fragment=shader("primitive.fragment.spv"),image=shader("primitive.image.spv"),batch=shader("primitive.batch.spv");
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
     // Dedicated linear sampler: coverage lives in alpha, never in encoded RGB.
-    VkSamplerCreateInfo info{}; info.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    info.magFilter=info.minFilter=VK_FILTER_LINEAR; info.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    info.addressModeU=info.addressModeV=info.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    VkSampler sampler; require(vkCreateSampler(host.device,&info,nullptr,&sampler), "create glyph sampler");
-    struct SamplerOwner { VkDevice device; VkSampler sampler; ~SamplerOwner(){vkDestroySampler(device,sampler,nullptr);} } sampler_owner{host.device,sampler};
-    VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(host.physical,&properties);
+    VkSamplerCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter = info.minFilter = VK_FILTER_LINEAR;
+    info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    info.addressModeU = info.addressModeV = info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler sampler;
+    require(vkCreateSampler(host.device, &info, nullptr, &sampler), "create glyph sampler");
+    struct SamplerOwner {
+        VkDevice device;
+        VkSampler sampler;
+        ~SamplerOwner() { vkDestroySampler(device, sampler, nullptr); }
+    } sampler_owner{host.device, sampler};
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(host.physical, &properties);
     std::cout << "Glyph rasterizer subpixel bits=" << properties.limits.subPixelPrecisionBits << '\n';
-    for(float scale : {1.0f,1.25f,1.5f,2.0f}) {
-        host.resize({unsigned(100*scale),unsigned(100*scale)});
-        const auto expected=glyph_reference(source,cache,scale,host.extent,properties.limits.subPixelPrecisionBits);
+    for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+        host.resize({unsigned(100 * scale), unsigned(100 * scale)});
+        const auto expected =
+            glyph_reference(source, cache, scale, host.extent, properties.limits.subPixelPrecisionBits);
         std::vector<std::uint8_t> reference;
-        for(bool batched : {false,true}) {
-            tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,16};
-            if(batched) context.batch_vertex_spirv=batch;
+        for (bool batched : {false, true}) {
+            tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+                                           vertex,        fragment,    image,     16};
+            if (batched) context.batch_vertex_spirv = batch;
             tessera::VulkanRenderer renderer(context);
-            auto prepared=tessera::prepare_glyph_atlas(source,cache,scale,{100},{batched ? 128u : 64u,16,4096});
+            auto prepared = tessera::prepare_glyph_atlas(source, cache, scale, {100}, {batched ? 128u : 64u, 16, 4096});
             check(prepared && prepared.diagnostics.empty(), "Real atlas preparation failed");
             host.upload_atlas(*prepared.value);
             std::vector<tessera::ImageHandle> handles;
-            for(std::size_t i=0;i<prepared.value->pages.size();++i) {
+            for (std::size_t i = 0; i < prepared.value->pages.size(); ++i) {
                 handles.push_back(prepared.value->pages[i].image);
-                check(renderer.bind_image(handles.back(),host.atlas_images[i].view,sampler).empty(), "Atlas bind failed");
+                check(renderer.bind_image(handles.back(), host.atlas_images[i].view, sampler).empty(),
+                      "Atlas bind failed");
             }
             // GPU copies survive CPU page/cache destruction and face replacement.
-            prepared.value->pages.clear(); cache.clear();
-            check(shaper.set_face({0},latin).empty(), "Face replacement failed");
+            prepared.value->pages.clear();
+            cache.clear();
+            check(shaper.set_face({0}, latin).empty(), "Face replacement failed");
             host.begin(renderer);
-            check(renderer.submit({1,{100,100},scale},prepared.value->draw_list).empty(), "Real glyph image submission failed");
-            for(const auto handle : handles) {
-                check(has(renderer.unbind_image(handle),"resource_in_use","/image"), "Live atlas unbound");
-                check(has(renderer.bind_image(handle,host.texture.view,host.sampler),"resource_in_use","/image"), "Live atlas replaced");
+            check(renderer.submit({1, {100, 100}, scale}, prepared.value->draw_list).empty(),
+                  "Real glyph image submission failed");
+            for (const auto handle : handles) {
+                check(has(renderer.unbind_image(handle), "resource_in_use", "/image"), "Live atlas unbound");
+                check(has(renderer.bind_image(handle, host.texture.view, host.sampler), "resource_in_use", "/image"),
+                      "Live atlas replaced");
             }
             renderer.retire(0);
-            const auto actual=host.finish(("real-glyph-"+std::string(batched ? "batch-" : "reference-")+std::to_string(int(scale*4))+".ppm").c_str());
-            double max_linear_error=0;
-            unsigned max_encoded_error=0;
-            const auto decode=[](std::uint8_t v) { const double c=double(v)/255; return c<=0.04045 ? c/12.92 : std::pow((c+0.055)/1.055,2.4); };
-            for(std::size_t i=0;i<actual.size();++i) {
-                max_encoded_error=std::max(max_encoded_error,unsigned(std::abs(int(actual[i])-int(expected[i]))));
-                max_linear_error=std::max(max_linear_error,std::abs(decode(actual[i])-decode(expected[i])));
-                if(batched) check(std::abs(int(actual[i])-int(reference[i]))<=2,"Atlas placement/batch altered glyph pixels");
+            const auto actual = host.finish(("real-glyph-" + std::string(batched ? "batch-" : "reference-") +
+                                             std::to_string(int(scale * 4)) + ".ppm")
+                                                .c_str());
+            double max_linear_error = 0;
+            unsigned max_encoded_error = 0;
+            const auto decode = [](std::uint8_t v) {
+                const double c = double(v) / 255;
+                return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+            };
+            for (std::size_t i = 0; i < actual.size(); ++i) {
+                max_encoded_error = std::max(max_encoded_error, unsigned(std::abs(int(actual[i]) - int(expected[i]))));
+                max_linear_error = std::max(max_linear_error, std::abs(decode(actual[i]) - decode(expected[i])));
+                if (batched)
+                    check(std::abs(int(actual[i]) - int(reference[i])) <= 2,
+                          "Atlas placement/batch altered glyph pixels");
             }
-            std::cout << "Real glyph scale=" << scale << " batch=" << batched << " max linear error=" << max_linear_error << " max encoded error=" << max_encoded_error << '\n';
-            check(max_linear_error<=2.0/255,"Real glyph image differs from independent bilinear raster sampling (linear tolerance 2/255)");
-            if(!batched) reference=actual;
+            std::cout << "Real glyph scale=" << scale << " batch=" << batched
+                      << " max linear error=" << max_linear_error << " max encoded error=" << max_encoded_error << '\n';
+            check(max_linear_error <= 2.0 / 255,
+                  "Real glyph image differs from independent bilinear raster sampling (linear tolerance 2/255)");
+            if (!batched) reference = actual;
             renderer.retire(1);
-            check(renderer.pending_uploads()==0, "Glyph batch upload retained after completion");
-            for(const auto handle : handles) check(renderer.unbind_image(handle).empty(), "Atlas retirement failed");
+            check(renderer.pending_uploads() == 0, "Glyph batch upload retained after completion");
+            for (const auto handle : handles) check(renderer.unbind_image(handle).empty(), "Atlas retirement failed");
             host.clear_atlas();
         }
     }
 }
 #endif
 void batch_fixtures(Host& host) {
-    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv");
     const auto batch = shader("primitive.batch.spv");
-    tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,2,true};
+    tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB, vertex, fragment,
+                                   image,         2,           true};
     tessera::VulkanRenderer reference(context);
     context.batch_vertex_spirv = batch;
     tessera::VulkanRenderer renderer(context);
     for (auto* current : {&reference, &renderer}) {
-        check(current->bind_image({1},host.texture.view,host.sampler).empty(),"Batch image binding failed");
-        check(current->bind_image({2},host.texture.view,host.sampler).empty(),"Second batch image binding failed");
+        check(current->bind_image({1}, host.texture.view, host.sampler).empty(), "Batch image binding failed");
+        check(current->bind_image({2}, host.texture.view, host.sampler).empty(), "Second batch image binding failed");
     }
     tessera::PlaceholderTextShaper shaper;
-    tessera::TextStyle style; style.size = 20;
-    const auto run = shaper.shape("Aa",style); check(bool(run),"Batch glyph shaping failed");
+    tessera::TextStyle style;
+    style.size = 20;
+    const auto run = shaper.shape("Aa", style);
+    check(bool(run), "Batch glyph shaping failed");
     const tessera::UiDrawList list{{
-        tessera::DrawRect{{{0,0},{64,64}},{1,0,0,1}},
-        tessera::DrawRect{{{8,8},{48,48}},{0,0,1,0.5f},4},
-        tessera::DrawImage{{{12,12},{32,32}},{1}},
-        tessera::DrawImage{{{16,16},{32,32}},{1},{{0.5f,0},{0.5f,1}},{1,1,1,0.5f}},
-        tessera::DrawImage{{{24,24},{32,32}},{2}},
-        tessera::DrawRect{{{4,4},{32,32}},{0,1,0,0.25f}},
-        tessera::PushTransform{{0,1,-1,0,48,4}},
-        tessera::DrawGlyphRun{{},*run.value,{1,1,1,0.5f}}, tessera::PopTransform{},
-        tessera::PushTransform{{-1,0,0,1,64,0}},
-        tessera::PushClip{{{5.2f,5.2f},{30.4f,30.4f}}},
-        tessera::DrawRect{{{0,0},{64,64}},{1,1,0,0.25f}},
-        tessera::DrawBorder{{{4,4},{40,40}},{2,3,4,1},{0,1,1,0.5f},5},
-        tessera::PopClip{}, tessera::PopTransform{},
-        tessera::DrawImage{{{0,40},{24,24}},{1}},
-        tessera::DrawRect{{{8,48},{16,16}},{1,1,1,0.25f}},
+        tessera::DrawRect{{{0, 0}, {64, 64}}, {1, 0, 0, 1}},
+        tessera::DrawRect{{{8, 8}, {48, 48}}, {0, 0, 1, 0.5f}, 4},
+        tessera::DrawImage{{{12, 12}, {32, 32}}, {1}},
+        tessera::DrawImage{{{16, 16}, {32, 32}}, {1}, {{0.5f, 0}, {0.5f, 1}}, {1, 1, 1, 0.5f}},
+        tessera::DrawImage{{{24, 24}, {32, 32}}, {2}},
+        tessera::DrawRect{{{4, 4}, {32, 32}}, {0, 1, 0, 0.25f}},
+        tessera::PushTransform{{0, 1, -1, 0, 48, 4}},
+        tessera::DrawGlyphRun{{}, *run.value, {1, 1, 1, 0.5f}},
+        tessera::PopTransform{},
+        tessera::PushTransform{{-1, 0, 0, 1, 64, 0}},
+        tessera::PushClip{{{5.2f, 5.2f}, {30.4f, 30.4f}}},
+        tessera::DrawRect{{{0, 0}, {64, 64}}, {1, 1, 0, 0.25f}},
+        tessera::DrawBorder{{{4, 4}, {40, 40}}, {2, 3, 4, 1}, {0, 1, 1, 0.5f}, 5},
+        tessera::PopClip{},
+        tessera::PopTransform{},
+        tessera::DrawImage{{{0, 40}, {24, 24}}, {1}},
+        tessera::DrawRect{{{8, 48}, {16, 16}}, {1, 1, 1, 0.25f}},
     }};
-    const tessera::UiDrawList overlay{{tessera::DrawRect{{{0,0},{64,64}},{0,0,1,0.125f}}}};
+    const tessera::UiDrawList overlay{{tessera::DrawRect{{{0, 0}, {64, 64}}, {0, 0, 1, 0.125f}}}};
     std::uint64_t frame = 1;
-    for (float scale : {1.0f,1.25f,1.5f,2.0f}) {
-        host.resize({unsigned(64*scale),unsigned(64*scale)});
+    for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+        host.resize({unsigned(64 * scale), unsigned(64 * scale)});
         host.begin(reference);
-        check(reference.submit({frame,{64,64},scale},list).empty(),"Batch reference submission failed");
+        check(reference.submit({frame, {64, 64}, scale}, list).empty(), "Batch reference submission failed");
         check(reference.submission_stats().primitives == 12 && reference.submission_stats().draw_calls == 12 &&
-            reference.submission_stats().upload_bytes == 0 && reference.pending_uploads() == 0,"Reference counters disagree");
-        check(reference.submit({frame+1,{64,64},scale},overlay).empty(),"Reference overlay failed");
+                  reference.submission_stats().upload_bytes == 0 && reference.pending_uploads() == 0,
+              "Reference counters disagree");
+        check(reference.submit({frame + 1, {64, 64}, scale}, overlay).empty(), "Reference overlay failed");
         const auto expected = host.finish(("batch-reference-" + std::to_string(frame) + ".ppm").c_str());
-        reference.retire(frame+1);
+        reference.retire(frame + 1);
 
         host.begin(renderer);
-        check(renderer.submit({frame,{64,64},scale},list).empty(),"Adjacent batch submission failed");
+        check(renderer.submit({frame, {64, 64}, scale}, list).empty(), "Adjacent batch submission failed");
         const auto stats = renderer.submission_stats();
-        check(stats.primitives == 12 && stats.draw_calls == 7 && stats.upload_bytes == 12*112,
-            "Adjacent batches must split at scissor, pipeline and image changes without sorting");
-        check(renderer.pending_uploads() == 1,"Batch upload was not retained");
-        const tessera::UiDrawList bad{{tessera::DrawRect{{{0,0},{64,64}},{1,1,1,1}},
-            tessera::DrawImage{{{0,0},{64,64}},{3}}}};
-        check(has(renderer.submit({frame+1,{64,64},scale},bad),"invalid_handle","/commands/1/image"),"Invalid batched image accepted");
+        check(stats.primitives == 12 && stats.draw_calls == 7 && stats.upload_bytes == 12 * 112,
+              "Adjacent batches must split at scissor, pipeline and image changes without sorting");
+        check(renderer.pending_uploads() == 1, "Batch upload was not retained");
+        const tessera::UiDrawList bad{
+            {tessera::DrawRect{{{0, 0}, {64, 64}}, {1, 1, 1, 1}}, tessera::DrawImage{{{0, 0}, {64, 64}}, {3}}}};
+        check(has(renderer.submit({frame + 1, {64, 64}, scale}, bad), "invalid_handle", "/commands/1/image"),
+              "Invalid batched image accepted");
         check(renderer.pending_uploads() == 1 && renderer.submission_stats().draw_calls == stats.draw_calls &&
-            renderer.submission_stats().upload_bytes == stats.upload_bytes,"Rejected batch changed uploads/counters");
-        check(renderer.submit({frame+1,{64,64},scale},overlay).empty(),"Rejected batch consumed frame number");
-        check(renderer.pending_uploads() == 2,"Multiple submissions reused in-flight upload memory");
-        check(has(renderer.unbind_image({2}),"resource_in_use","/image"),"Batch image unbound before completion");
-        renderer.retire(frame-1);
-        check(renderer.pending_uploads() == 2,"Early retirement freed live uploads");
+                  renderer.submission_stats().upload_bytes == stats.upload_bytes,
+              "Rejected batch changed uploads/counters");
+        check(renderer.submit({frame + 1, {64, 64}, scale}, overlay).empty(), "Rejected batch consumed frame number");
+        check(renderer.pending_uploads() == 2, "Multiple submissions reused in-flight upload memory");
+        check(has(renderer.unbind_image({2}), "resource_in_use", "/image"), "Batch image unbound before completion");
+        renderer.retire(frame - 1);
+        check(renderer.pending_uploads() == 2, "Early retirement freed live uploads");
         const auto actual = host.finish(("batch-adjacent-" + std::to_string(frame) + ".ppm").c_str());
-        for (std::size_t i=0; i<actual.size(); ++i)
-            check(std::abs(int(actual[i])-int(expected[i])) <= 2,"Batched pixels differ from ordered reference");
+        for (std::size_t i = 0; i < actual.size(); ++i)
+            check(std::abs(int(actual[i]) - int(expected[i])) <= 2, "Batched pixels differ from ordered reference");
         renderer.retire(frame);
-        check(renderer.pending_uploads() == 1,"Partial retirement did not free only the completed upload");
+        check(renderer.pending_uploads() == 1, "Partial retirement did not free only the completed upload");
         renderer.retire(UINT64_MAX);
-        check(renderer.pending_uploads() == 0,"Completed batch uploads leaked");
-        check(renderer.bind_image({2},host.texture.view,host.sampler).empty(),"Retired batch image cannot be replaced");
+        check(renderer.pending_uploads() == 0, "Completed batch uploads leaked");
+        check(renderer.bind_image({2}, host.texture.view, host.sampler).empty(),
+              "Retired batch image cannot be replaced");
         frame += 2;
     }
     host.begin(renderer);
-    check(renderer.submit({frame,{64,64},2},{}).empty(),"Empty batched submission failed");
+    check(renderer.submit({frame, {64, 64}, 2}, {}).empty(), "Empty batched submission failed");
     check(renderer.pending_uploads() == 0 && renderer.submission_stats().draw_calls == 0 &&
-        renderer.submission_stats().upload_bytes == 0,"Empty batch allocated upload memory");
-    host.finish("batch-empty.ppm"); renderer.retire(frame);
+              renderer.submission_stats().upload_bytes == 0,
+          "Empty batch allocated upload memory");
+    host.finish("batch-empty.ppm");
+    renderer.retire(frame);
 }
 // Offscreen runner adapter: this host owns the target, submission, completion, retirement and readback.
 // With a glyph cache, each generation's atlas pages are prepared, uploaded and bound before submission, then
@@ -848,8 +1127,12 @@ public:
             atlas = std::move(*prepared.value);
             host_.upload_atlas(*atlas);
             for (; bound < atlas->pages.size(); ++bound) {
-                auto errors = renderer_.bind_image(atlas->pages[bound].image, host_.atlas_images[bound].view, glyph_sampler);
-                if (!errors.empty()) { release(*atlas, bound); return {std::nullopt, std::move(errors)}; }
+                auto errors =
+                    renderer_.bind_image(atlas->pages[bound].image, host_.atlas_images[bound].view, glyph_sampler);
+                if (!errors.empty()) {
+                    release(*atlas, bound);
+                    return {std::nullopt, std::move(errors)};
+                }
             }
             paint = &atlas->draw_list;
         }
@@ -857,7 +1140,8 @@ public:
         host_.begin(renderer_);
         // Renderer frame numbers stay strictly increasing across runs; the generation is the run's identity.
         auto errors = renderer_.submit({frame_ + 1, request.logical_size, request.device_scale}, *paint);
-        const auto artifact = artifacts + "-" + std::to_string(runs) + "-" + std::to_string(request.generation) + ".ppm";
+        const auto artifact =
+            artifacts + "-" + std::to_string(runs) + "-" + std::to_string(request.generation) + ".ppm";
         auto pixels = host_.finish(artifact.c_str());
         if (errors.empty()) renderer_.retire(++frame_);
         if (atlas) release(*atlas, bound);
@@ -869,6 +1153,7 @@ public:
     std::string artifacts = "runner";
     tessera::GlyphCache* glyphs = nullptr; // Borrowed; its service must outlive the run.
     VkSampler glyph_sampler = VK_NULL_HANDLE;
+
 private:
     // A completed (or rejected, hence unpinned) frame no longer references its pages.
     void release(const tessera::GlyphAtlasFrame& atlas, std::size_t bound) {
@@ -882,76 +1167,94 @@ private:
     std::uint64_t frame_ = 0;
 };
 void runner_fixtures(Host& host) {
-    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"), image = shader("primitive.image.spv");
-    tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,1,true};
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv");
+    tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB, vertex, fragment,
+                                   image,         1,           true};
     tessera::VulkanRenderer renderer(context);
-    VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(host.physical,&properties);
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(host.physical, &properties);
     const tessera::CaptureBackend declared{"vulkan-reference-placeholder", properties.deviceName};
     VulkanCapture frames(host, renderer, declared);
     // A scrolled placeholder menu at a fractional scale, resized; restored through Replay JSON v1.
     tessera::ReplayRecording recording;
-    recording.context = {{"start","quit"}};
+    recording.context = {{"start", "quit"}};
     recording.environment.scale = 1.25f;
-    recording.viewport = {120,80};
+    recording.viewport = {120, 80};
     recording.document.root.id = "menu";
-    for (const char* id : {"start","quit"}) {
-        tessera::UiNode label; label.kind = tessera::NodeKind::text; label.properties["text"] = std::string(id);
-        tessera::UiNode button; button.id = id; button.properties["focusable"] = true; button.events["activate"] = id;
+    for (const char* id : {"start", "quit"}) {
+        tessera::UiNode label;
+        label.kind = tessera::NodeKind::text;
+        label.properties["text"] = std::string(id);
+        tessera::UiNode button;
+        button.id = id;
+        button.properties["focusable"] = true;
+        button.events["activate"] = id;
         button.children.push_back(std::move(label));
         recording.document.root.children.push_back(std::move(button));
     }
     recording.styles.resize(5);
     recording.styles[0].height = tessera::Dimension::points(48);
     recording.styles[0].overflow = tessera::Overflow::scroll;
-    recording.styles[0].padding = {4,4,4,4}; recording.styles[0].gap = 4;
-    recording.styles[0].background = {0.5f,0.5f,0.5f,1};
-    for (const std::size_t i : {1,3}) { recording.styles[i].padding = {4,4,4,4}; recording.styles[i].background = {0,0,1,1}; }
-    for (const std::size_t i : {2,4}) recording.styles[i].color = {1,1,1,1};
-    recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10,10},{0,20}}},
-                       tessera::ReplayResize{{100.3f,72}},
-                       tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"quit"}},
-                       tessera::ReplayScale{1.5f}, tessera::ReplayScale{2}};
+    recording.styles[0].padding = {4, 4, 4, 4};
+    recording.styles[0].gap = 4;
+    recording.styles[0].background = {0.5f, 0.5f, 0.5f, 1};
+    for (const std::size_t i : {1, 3}) {
+        recording.styles[i].padding = {4, 4, 4, 4};
+        recording.styles[i].background = {0, 0, 1, 1};
+    }
+    for (const std::size_t i : {2, 4}) recording.styles[i].color = {1, 1, 1, 1};
+    recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10, 10}, {0, 20}}},
+                       tessera::ReplayResize{{100.3f, 72}},
+                       tessera::ReplaySemanticAction{tessera::AuthorIdTarget{"quit"}}, tessera::ReplayScale{1.5f},
+                       tessera::ReplayScale{2}};
     const auto saved = tessera::save_replay(recording);
     const auto loaded = tessera::load_replay(*saved.value);
     check(saved && loaded && *loaded.value == recording, "Runner recording JSON round trip failed");
     tessera::PlaceholderTextShaper text;
-    const auto result = tessera::run_offscreen({&*loaded.value,&text,declared,&frames});
+    const auto result = tessera::run_offscreen({&*loaded.value, &text, declared, &frames});
     check(result && result.diagnostics.empty(), "Vulkan offscreen run rejected");
     const auto& run = *result.value;
     check(run.manifest.capture == declared && run.frames.size() == 5 && run.output.actions.size() == 1,
-        "Vulkan run lost its declaration, generations or actions");
-    const tessera::CaptureExtent extents[]{{150,100},{150,100},{126,90},{151,108},{201,144}};
+          "Vulkan run lost its declaration, generations or actions");
+    const tessera::CaptureExtent extents[]{{150, 100}, {150, 100}, {126, 90}, {151, 108}, {201, 144}};
     for (std::size_t g = 0; g < run.frames.size(); ++g) {
         const auto& frame = run.frames[g];
         check(frame.status == tessera::FrameStatus::captured && frame.extent == extents[g] && frame.image,
-            "Vulkan frame extent/status differs");
+              "Vulkan frame extent/status differs");
         const auto& boxes = run.output.generations[g].boxes;
         const auto at = [&](float x, float y) {
-            return std::array<unsigned,2>{unsigned((x+0.5f)*frame.device_scale),unsigned((y+0.5f)*frame.device_scale)};
+            return std::array<unsigned, 2>{unsigned((x + 0.5f) * frame.device_scale),
+                                           unsigned((y + 0.5f) * frame.device_scale)};
         };
         // Panel padding, each visible button's top-left padding, and the clear below the fixed-height panel.
-        const auto panel = at(1,1);
-        pixel(frame.image->pixels,frame.extent.width,panel[0],panel[1],{128,128,128,255},"Runner panel background");
-        for (const std::size_t node : {1,3}) {
+        const auto panel = at(1, 1);
+        pixel(frame.image->pixels, frame.extent.width, panel[0], panel[1], {128, 128, 128, 255},
+              "Runner panel background");
+        for (const std::size_t node : {1, 3}) {
             const auto& box = boxes[node].border_box;
             const auto& clip = *boxes[node].clip;
             if (box.origin.y + 1 < clip.origin.y || box.origin.y + 2 > clip.origin.y + clip.size.height) continue;
-            const auto inside = at(box.origin.x+1, box.origin.y+1);
-            pixel(frame.image->pixels,frame.extent.width,inside[0],inside[1],{0,0,255,255},"Runner button padding");
+            const auto inside = at(box.origin.x + 1, box.origin.y + 1);
+            pixel(frame.image->pixels, frame.extent.width, inside[0], inside[1], {0, 0, 255, 255},
+                  "Runner button padding");
         }
-        const auto below = at(1,60);
-        pixel(frame.image->pixels,frame.extent.width,below[0],below[1],{0,0,0,255},"Runner clear outside panel");
+        const auto below = at(1, 60);
+        pixel(frame.image->pixels, frame.extent.width, below[0], below[1], {0, 0, 0, 255},
+              "Runner clear outside panel");
     }
-    check(run.output.generations[1].boxes[1].border_box.origin.y < run.output.generations[0].boxes[1].border_box.origin.y,
-        "Scroll generation did not move the captured menu");
+    check(run.output.generations[1].boxes[1].border_box.origin.y <
+              run.output.generations[0].boxes[1].border_box.origin.y,
+          "Scroll generation did not move the captured menu");
     // Repeated runs on the same declared device reproduce every observation and image byte.
     ++frames.runs;
-    const auto repeated = tessera::run_offscreen({&recording,&text,declared,&frames});
+    const auto repeated = tessera::run_offscreen({&recording, &text, declared, &frames});
     check(repeated && repeated.value == result.value, "Repeated Vulkan offscreen run differs");
     // A different declaration fails before submission; no CPU or other backend substitutes.
-    auto other = declared; other.backend = "cpu-reference";
-    check(has(tessera::run_offscreen({&recording,&text,other,&frames}).diagnostics,"capture_mismatch","/capture"),
-        "Mismatched capture backend accepted");
+    auto other = declared;
+    other.backend = "cpu-reference";
+    check(has(tessera::run_offscreen({&recording, &text, other, &frames}).diagnostics, "capture_mismatch", "/capture"),
+          "Mismatched capture backend accepted");
 }
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
 // Real-font capture: the recording declares the grayscale fixture profile by digest, the host verifies its
@@ -959,30 +1262,33 @@ void runner_fixtures(Host& host) {
 // are compared with the independent raster oracle across wrapping, scroll clipping and resize.
 void real_runner_fixtures(Host& host) {
     tessera::FontProfile profile;
-    profile.assets = {{"noto-latin","2.015",font_bytes("NotoSans-Regular.ttf")},
-                      {"noto-jp","2.004",font_bytes("NotoSansJP-Regular.otf")}};
-    profile.faces = {{{0},"noto-latin"},{{1},"noto-jp"}};
-    profile.fallbacks = {{{0},{{1}}}};
+    profile.assets = {{"noto-latin", "2.015", font_bytes("NotoSans-Regular.ttf")},
+                      {"noto-jp", "2.004", font_bytes("NotoSansJP-Regular.otf")}};
+    profile.faces = {{{0}, "noto-latin"}, {{1}, "noto-jp"}};
+    profile.fallbacks = {{{0}, {{1}}}};
     const auto digest = tessera::font_profile_sha256(profile);
     check(digest && digest.diagnostics.empty(), "Fixture profile digest failed");
 
     tessera::ReplayRecording recording;
     recording.environment = {1.25f, "ja-JP", {tessera::ReplayText::Kind::font_profile, "menu-fonts", *digest.value}};
-    recording.viewport = {78.1f,72};
+    recording.viewport = {78.1f, 72};
     recording.document.root.id = "menu";
     for (const char* text : {"Start スタート", "終了 Quit"}) {
-        tessera::UiNode label; label.kind = tessera::NodeKind::text; label.properties["text"] = std::string(text);
+        tessera::UiNode label;
+        label.kind = tessera::NodeKind::text;
+        label.properties["text"] = std::string(text);
         recording.document.root.children.push_back(std::move(label));
     }
     recording.styles.resize(3);
     recording.styles[0].height = tessera::Dimension::points(56);
     recording.styles[0].overflow = tessera::Overflow::scroll;
-    recording.styles[0].padding = {4,4,4,4}; recording.styles[0].gap = 4;
-    for (const std::size_t i : {1,2}) recording.styles[i].text.size = 20;
-    recording.styles[1].color = {0.6f,0.85f,1,0.75f};
-    recording.styles[2].color = {1,0.7f,0.3f,0.65f};
-    recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10,10},{0,20}}},
-                       tessera::ReplayResize{{180.6f,72}}, tessera::ReplayScale{1.5f}, tessera::ReplayScale{2},
+    recording.styles[0].padding = {4, 4, 4, 4};
+    recording.styles[0].gap = 4;
+    for (const std::size_t i : {1, 2}) recording.styles[i].text.size = 20;
+    recording.styles[1].color = {0.6f, 0.85f, 1, 0.75f};
+    recording.styles[2].color = {1, 0.7f, 0.3f, 0.65f};
+    recording.steps = {tessera::InputEvent{std::chrono::microseconds{0}, tessera::Scroll{{10, 10}, {0, 20}}},
+                       tessera::ReplayResize{{180.6f, 72}}, tessera::ReplayScale{1.5f}, tessera::ReplayScale{2},
                        tessera::ReplayTick{std::chrono::microseconds{16000}}};
     recording.version = tessera::replay_host_version;
     recording.environment.host = {{"menu-ready", "menu"}};
@@ -991,70 +1297,90 @@ void real_runner_fixtures(Host& host) {
     auto loading = tessera::ReplayReload{recording.document, recording.styles};
     loading.document.root.children[0].properties["text"] = std::string("Loading 読み込み中");
     loading.styles[0].padding = {4.25f, 4.5f, 4.75f, 4.125f};
-    recording.steps.push_back(tessera::ReplayHostUpdate{
-        {"menu-ready", "menu", 1, tessera::ReplayReadiness::loading, false}, loading});
+    recording.steps.push_back(
+        tessera::ReplayHostUpdate{{"menu-ready", "menu", 1, tessera::ReplayReadiness::loading, false}, loading});
     auto ready = loading;
     ready.document.root.children[0].properties["text"] = std::string("Ready 準備完了");
-    recording.steps.push_back(tessera::ReplayHostUpdate{
-        {"menu-ready", "menu", 1, tessera::ReplayReadiness::ready, true}, ready});
+    recording.steps.push_back(
+        tessera::ReplayHostUpdate{{"menu-ready", "menu", 1, tessera::ReplayReadiness::ready, true}, ready});
 
     // The host restores both inputs and verifies the declared profile before running; core checks neither.
     const auto saved = tessera::save_replay(recording);
     const auto loaded = tessera::load_replay(*saved.value);
     const auto saved_profile = tessera::save_font_profile(profile);
     const auto restored = tessera::load_font_profile(*saved_profile.value);
-    check(saved && loaded && *loaded.value == recording && saved_profile && restored, "Real runner inputs did not round trip");
-    check(tessera::verify_replay_fonts(*loaded.value, *restored.value).empty(), "Declared fixture profile did not verify");
+    check(saved && loaded && *loaded.value == recording && saved_profile && restored,
+          "Real runner inputs did not round trip");
+    check(tessera::verify_replay_fonts(*loaded.value, *restored.value).empty(),
+          "Declared fixture profile did not verify");
     auto service = tessera::ProfileFontShaper::create(*restored.value);
     check(service && service.diagnostics.empty(), "Fixture profile service rejected");
     tessera::GlyphCache cache(*service.value);
 
-    const auto vertex=shader("primitive.vertex.spv"),fragment=shader("primitive.fragment.spv"),image=shader("primitive.image.spv");
-    tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,16};
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv");
+    tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+                                   vertex,        fragment,    image,     16};
     tessera::VulkanRenderer renderer(context);
-    VkSamplerCreateInfo info{}; info.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    info.magFilter=info.minFilter=VK_FILTER_LINEAR; info.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    info.addressModeU=info.addressModeV=info.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    VkSampler sampler; require(vkCreateSampler(host.device,&info,nullptr,&sampler), "create runner glyph sampler");
-    struct SamplerOwner { VkDevice device; VkSampler sampler; ~SamplerOwner(){vkDestroySampler(device,sampler,nullptr);} } sampler_owner{host.device,sampler};
-    VkPhysicalDeviceProperties properties; vkGetPhysicalDeviceProperties(host.physical,&properties);
+    VkSamplerCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter = info.minFilter = VK_FILTER_LINEAR;
+    info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    info.addressModeU = info.addressModeV = info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler sampler;
+    require(vkCreateSampler(host.device, &info, nullptr, &sampler), "create runner glyph sampler");
+    struct SamplerOwner {
+        VkDevice device;
+        VkSampler sampler;
+        ~SamplerOwner() { vkDestroySampler(device, sampler, nullptr); }
+    } sampler_owner{host.device, sampler};
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(host.physical, &properties);
     const tessera::CaptureBackend declared{"vulkan-reference-atlas", properties.deviceName};
     VulkanCapture frames(host, renderer, declared);
-    frames.artifacts = "runner-real"; frames.glyphs = &cache; frames.glyph_sampler = sampler;
+    frames.artifacts = "runner-real";
+    frames.glyphs = &cache;
+    frames.glyph_sampler = sampler;
 
-    const auto result = tessera::run_offscreen({&*loaded.value,&*service.value,declared,&frames});
+    const auto result = tessera::run_offscreen({&*loaded.value, &*service.value, declared, &frames});
     check(result && result.diagnostics.empty(), "Real-font offscreen run rejected");
     const auto& run = *result.value;
-    check(run.manifest.environment == recording.environment && run.manifest.capture == declared && run.frames.size() == 10,
-        "Real-font run lost its profile, declaration or generations");
+    check(run.manifest.environment == recording.environment && run.manifest.capture == declared &&
+              run.frames.size() == 10,
+          "Real-font run lost its profile, declaration or generations");
     check(host.atlas_images.empty() && renderer.pending_uploads() == 0, "Generation atlas outlived its frame");
     const auto& generations = run.output.generations;
     check(generations[1].boxes[1].border_box.origin.y < generations[0].boxes[1].border_box.origin.y,
-        "Scroll generation did not move the wrapped text");
+          "Scroll generation did not move the wrapped text");
     check(generations[2].boxes[1].border_box.size.height < generations[0].boxes[1].border_box.size.height,
-        "Resize generation did not unwrap the mixed text");
-    const tessera::CaptureExtent extents[]{{98,90},{98,90},{226,90},{271,108},{362,144},{362,144},
-                                          {317,126},{407,162},{407,162},{407,162}};
-    check(generations[8].host[0].readiness == tessera::ReplayReadiness::loading &&
-          generations[9].host[0].value && run.frames[8].image != run.frames[9].image,
+          "Resize generation did not unwrap the mixed text");
+    const tessera::CaptureExtent extents[]{{98, 90},   {98, 90},   {226, 90},  {271, 108}, {362, 144},
+                                           {362, 144}, {317, 126}, {407, 162}, {407, 162}, {407, 162}};
+    check(generations[8].host[0].readiness == tessera::ReplayReadiness::loading && generations[9].host[0].value &&
+              run.frames[8].image != run.frames[9].image,
           "Real-font capture lost its coherent loading/ready state or changed no pixels");
     for (std::size_t g = 0; g < run.frames.size(); ++g) {
         const auto& frame = run.frames[g];
         check(frame.status == tessera::FrameStatus::captured && frame.extent == extents[g] && frame.image,
-            "Real-font frame extent/status differs");
-        const auto expected = glyph_reference(generations[g].paint, cache, frame.device_scale,
-            {frame.extent.width, frame.extent.height}, properties.limits.subPixelPrecisionBits);
+              "Real-font frame extent/status differs");
+        const auto expected =
+            glyph_reference(generations[g].paint, cache, frame.device_scale, {frame.extent.width, frame.extent.height},
+                            properties.limits.subPixelPrecisionBits);
         const auto& actual = frame.image->pixels;
-        const auto decode=[](std::uint8_t v) { const double c=double(v)/255; return c<=0.04045 ? c/12.92 : std::pow((c+0.055)/1.055,2.4); };
+        const auto decode = [](std::uint8_t v) {
+            const double c = double(v) / 255;
+            return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+        };
         double max_linear_error = 0;
         bool ink = false;
         for (std::size_t i = 0; i < actual.size(); ++i) {
-            max_linear_error = std::max(max_linear_error, std::abs(decode(actual[i])-decode(expected[i])));
+            max_linear_error = std::max(max_linear_error, std::abs(decode(actual[i]) - decode(expected[i])));
             ink = ink || (i % 4 != 3 && actual[i] != 0);
         }
         std::cout << "Real runner generation=" << g << " max linear error=" << max_linear_error << '\n';
         check(ink, "Real-font frame drew no glyphs");
-        check(max_linear_error <= 2.0/255, "Real-font runner frame differs from independent raster sampling (linear tolerance 2/255)");
+        check(max_linear_error <= 2.0 / 255,
+              "Real-font runner frame differs from independent raster sampling (linear tolerance 2/255)");
     }
     // A second service and cache from the same declared profile reproduce every observation and image byte.
     ++frames.runs;
@@ -1062,7 +1388,7 @@ void real_runner_fixtures(Host& host) {
     check(again && again.diagnostics.empty(), "Original fixture profile service rejected");
     tessera::GlyphCache repeated_cache(*again.value);
     frames.glyphs = &repeated_cache;
-    const auto repeated = tessera::run_offscreen({&recording,&*again.value,declared,&frames});
+    const auto repeated = tessera::run_offscreen({&recording, &*again.value, declared, &frames});
     check(repeated && repeated.value == result.value, "Repeated real-font offscreen run differs");
 }
 #endif
@@ -1072,94 +1398,125 @@ void cpu_reference_fixtures(Host& host) {
     struct Rasterizer : tessera::GlyphRasterizer {
         std::uint64_t face_revision(tessera::FontId) const override { return 1; }
         tessera::Result<tessera::GlyphBitmap> rasterize(const tessera::GlyphRasterRequest&) override {
-            return {tessera::GlyphBitmap{3,3,0,3,{0,64,0,128,255,128,0,64,0}},{}};
+            return {tessera::GlyphBitmap{3, 3, 0, 3, {0, 64, 0, 128, 255, 128, 0, 64, 0}}, {}};
         }
     } rasterizer;
     tessera::GlyphCache cache(rasterizer);
     tessera::CpuFrameCapture cpu(&cache);
-    const std::array<std::uint8_t,16> texture{255,0,0,255,0,255,0,255,0,0,255,255,255,255,255,255};
-    check(cpu.bind_image({1},{{2,2},texture}).empty(),"CPU comparison image binding failed");
-    check(cpu.bind_image({2},{{2,2},premultiplied_texels,tessera::CpuImageEncoding::rgba8_unorm,tessera::ImageAlpha::premultiplied}).empty(),
-        "CPU premultiplied comparison image binding failed");
-    const auto vertex=shader("primitive.vertex.spv"),fragment=shader("primitive.fragment.spv"),image=shader("primitive.image.spv"),batch=shader("primitive.batch.spv");
-    VkSamplerCreateInfo info{}; info.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    info.magFilter=info.minFilter=VK_FILTER_LINEAR; info.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    info.addressModeU=info.addressModeV=info.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    VkSampler sampler; require(vkCreateSampler(host.device,&info,nullptr,&sampler),"CPU comparison sampler");
-    struct Owner { VkDevice device; VkSampler sampler; ~Owner(){vkDestroySampler(device,sampler,nullptr);} } owner{host.device,sampler};
-    tessera::GlyphRun run{{0},16,{{1,0,{2,6},{0}},{1,1,{7,6},{0}}},{}};
-    const tessera::UiDrawList source{{
-        tessera::DrawRect{{{0,0},{32,32}},{0.15f,0.2f,0.3f,1}},
-        tessera::DrawRect{{{4,4},{24,24}},{0.7f,0.2f,0.1f,0.5f},4},
-        // Inner fragment-discard edges avoid pixel centers: interpolation at an
-        // exact inner boundary may round to either side on a GPU.
-        tessera::DrawBorder{{{4,4},{24,24}},{4,8,4,4},{0.1f,0.8f,0.4f,0.75f},4},
-        tessera::DrawImage{{{4,4},{12,12}},{1},{{0.125f,0},{0.75f,1}},{0.8f,1,1,0.5f}},
-        tessera::PushTransform{{-1,0,0,1,32,0}},
-        tessera::PushClip{{{2.25f,1.25f},{12.5f,22.5f}}},
-        tessera::DrawRect{{{0,0},{24,24}},{0.1f,0.2f,1,0.25f}},tessera::PopClip{},tessera::PopTransform{},
-        tessera::PushTransform{{0,1,-1,0,30,17}},
-        tessera::DrawRect{{{0,0},{6,4}},{1,1,0,0.75f}},tessera::PopTransform{},
-        // Keep bitmap quad edges away from pixel centers at these scales; GPU
-        // subpixel raster precision is a separate comparison condition.
-        tessera::DrawGlyphRun{{4.125f,18.125f},run,{1,1,1,0.75f}}
-    }};
+    const std::array<std::uint8_t, 16> texture{255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
+    check(cpu.bind_image({1}, {{2, 2}, texture}).empty(), "CPU comparison image binding failed");
+    check(cpu.bind_image({2}, {{2, 2},
+                               premultiplied_texels,
+                               tessera::CpuImageEncoding::rgba8_unorm,
+                               tessera::ImageAlpha::premultiplied})
+              .empty(),
+          "CPU premultiplied comparison image binding failed");
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
+    VkSamplerCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter = info.minFilter = VK_FILTER_LINEAR;
+    info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    info.addressModeU = info.addressModeV = info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler sampler;
+    require(vkCreateSampler(host.device, &info, nullptr, &sampler), "CPU comparison sampler");
+    struct Owner {
+        VkDevice device;
+        VkSampler sampler;
+        ~Owner() { vkDestroySampler(device, sampler, nullptr); }
+    } owner{host.device, sampler};
+    tessera::GlyphRun run{{0}, 16, {{1, 0, {2, 6}, {0}}, {1, 1, {7, 6}, {0}}}, {}};
+    const tessera::UiDrawList source{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {0.15f, 0.2f, 0.3f, 1}},
+         tessera::DrawRect{{{4, 4}, {24, 24}}, {0.7f, 0.2f, 0.1f, 0.5f}, 4},
+         // Inner fragment-discard edges avoid pixel centers: interpolation at an
+         // exact inner boundary may round to either side on a GPU.
+         tessera::DrawBorder{{{4, 4}, {24, 24}}, {4, 8, 4, 4}, {0.1f, 0.8f, 0.4f, 0.75f}, 4},
+         tessera::DrawImage{{{4, 4}, {12, 12}}, {1}, {{0.125f, 0}, {0.75f, 1}}, {0.8f, 1, 1, 0.5f}},
+         tessera::PushTransform{{-1, 0, 0, 1, 32, 0}}, tessera::PushClip{{{2.25f, 1.25f}, {12.5f, 22.5f}}},
+         tessera::DrawRect{{{0, 0}, {24, 24}}, {0.1f, 0.2f, 1, 0.25f}}, tessera::PopClip{}, tessera::PopTransform{},
+         tessera::PushTransform{{0, 1, -1, 0, 30, 17}}, tessera::DrawRect{{{0, 0}, {6, 4}}, {1, 1, 0, 0.75f}},
+         tessera::PopTransform{},
+         // Keep bitmap quad edges away from pixel centers at these scales; GPU
+         // subpixel raster precision is a separate comparison condition.
+         tessera::DrawGlyphRun{{4.125f, 18.125f}, run, {1, 1, 1, 0.75f}}}};
     // Premultiplied images get their own scene: the mixed scene above already approaches the tolerance.
-    const tessera::UiDrawList premultiplied{{
-        tessera::DrawRect{{{0,0},{32,32}},{0.15f,0.2f,0.3f,1}},
-        tessera::DrawImage{{{2,2},{14,28}},{2}},
-        tessera::DrawImage{{{16,2},{14,28}},{2},{{0,0},{1,1}},{1,0.8f,1,0.6f}}
-    }};
-    const auto compare=[](const std::vector<std::uint8_t>& actual, const std::vector<std::uint8_t>& expected,
-                          VkExtent2D extent, const char* name, float scale) {
-        double error=0; std::size_t worst=0;
-        const auto decode=[](std::uint8_t byte) { const double c=byte/255.0; return c<=0.04045?c/12.92:std::pow((c+0.055)/1.055,2.4); };
-        for (std::size_t i=0;i<actual.size();++i) {
-            const auto a=i%4==3?actual[i]/255.0:decode(actual[i]);
-            const auto b=i%4==3?expected[i]/255.0:decode(expected[i]);
-            if (std::abs(a-b)>error) { error=std::abs(a-b); worst=i; }
+    const tessera::UiDrawList premultiplied{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {0.15f, 0.2f, 0.3f, 1}}, tessera::DrawImage{{{2, 2}, {14, 28}}, {2}},
+         tessera::DrawImage{{{16, 2}, {14, 28}}, {2}, {{0, 0}, {1, 1}}, {1, 0.8f, 1, 0.6f}}}};
+    const auto compare = [](const std::vector<std::uint8_t>& actual, const std::vector<std::uint8_t>& expected,
+                            VkExtent2D extent, const char* name, float scale) {
+        double error = 0;
+        std::size_t worst = 0;
+        const auto decode = [](std::uint8_t byte) {
+            const double c = byte / 255.0;
+            return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+        };
+        for (std::size_t i = 0; i < actual.size(); ++i) {
+            const auto a = i % 4 == 3 ? actual[i] / 255.0 : decode(actual[i]);
+            const auto b = i % 4 == 3 ? expected[i] / 255.0 : decode(expected[i]);
+            if (std::abs(a - b) > error) {
+                error = std::abs(a - b);
+                worst = i;
+            }
         }
-        std::cout<<"CPU comparison path="<<name<<" scale="<<scale<<" max linear error="<<error
-            <<" at ("<<(worst/4)%extent.width<<','<<(worst/4)/extent.width<<") channel="<<worst%4
-            <<" gpu="<<int(actual[worst])<<" cpu="<<int(expected[worst])<<'\n';
-        check(error<=2.0/255,"GPU differs from CPU scalar reference (linear tolerance 2/255)");
+        std::cout << "CPU comparison path=" << name << " scale=" << scale << " max linear error=" << error << " at ("
+                  << (worst / 4) % extent.width << ',' << (worst / 4) / extent.width << ") channel=" << worst % 4
+                  << " gpu=" << int(actual[worst]) << " cpu=" << int(expected[worst]) << '\n';
+        check(error <= 2.0 / 255, "GPU differs from CPU scalar reference (linear tolerance 2/255)");
     };
-    for (bool batched : {false,true}) {
-        tessera::VulkanContext context{host.physical,host.device,host.pass,VK_FORMAT_R8G8B8A8_SRGB,vertex,fragment,image,32};
-        if (batched) context.batch_vertex_spirv=batch;
+    for (bool batched : {false, true}) {
+        tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+                                       vertex,        fragment,    image,     32};
+        if (batched) context.batch_vertex_spirv = batch;
         tessera::VulkanRenderer gpu(context);
-        check(gpu.bind_image({1},host.texture.view,sampler).empty(),"GPU comparison image binding failed");
-        check(gpu.bind_image({2},host.premultiplied.view,sampler,tessera::ImageAlpha::premultiplied).empty(),
-            "GPU premultiplied comparison image binding failed");
-        check(has(gpu.bind_image({3},host.premultiplied.view,sampler,static_cast<tessera::ImageAlpha>(9)),"unknown_value","/image/alpha"),
-            "Unknown image alpha accepted");
-        std::uint64_t frame=1;
-        for (float scale : {1.0f,1.25f,1.5f,2.0f}) {
-            const auto extent=*tessera::capture_extent({32,32},scale).value;
-            const auto expected=cpu.capture({0,{32,32},scale,extent,&source});
-            check(bool(expected),"CPU comparison capture rejected");
-            check(expected.value==cpu.capture({0,{32,32},scale,extent,&source}).value,"Scalar capture is not deterministic");
-            const auto atlas=tessera::prepare_glyph_atlas(source,cache,scale,{10});
-            check(bool(atlas),"Comparison atlas failed"); host.upload_atlas(*atlas.value);
-            for (std::size_t i=0;i<atlas.value->pages.size();++i)
-                check(gpu.bind_image(atlas.value->pages[i].image,host.atlas_images[i].view,sampler).empty(),"Comparison atlas binding failed");
-            host.resize({extent.width,extent.height}); host.begin(gpu);
-            check(gpu.submit({frame,{32,32},scale},atlas.value->draw_list).empty(),"GPU comparison submission rejected");
-            const auto index=std::to_string((frame+1)/2); // Two frames per scale; artifacts keep scale indices 1-4.
-            const auto actual=host.finish(("cpu-compare-"+std::string(batched?"batch-":"reference-")+index+".ppm").c_str());
-            compare(actual,expected.value->pixels,{extent.width,extent.height},batched?"batch":"reference",scale);
+        check(gpu.bind_image({1}, host.texture.view, sampler).empty(), "GPU comparison image binding failed");
+        check(gpu.bind_image({2}, host.premultiplied.view, sampler, tessera::ImageAlpha::premultiplied).empty(),
+              "GPU premultiplied comparison image binding failed");
+        check(has(gpu.bind_image({3}, host.premultiplied.view, sampler, static_cast<tessera::ImageAlpha>(9)),
+                  "unknown_value", "/image/alpha"),
+              "Unknown image alpha accepted");
+        std::uint64_t frame = 1;
+        for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+            const auto extent = *tessera::capture_extent({32, 32}, scale).value;
+            const auto expected = cpu.capture({0, {32, 32}, scale, extent, &source});
+            check(bool(expected), "CPU comparison capture rejected");
+            check(expected.value == cpu.capture({0, {32, 32}, scale, extent, &source}).value,
+                  "Scalar capture is not deterministic");
+            const auto atlas = tessera::prepare_glyph_atlas(source, cache, scale, {10});
+            check(bool(atlas), "Comparison atlas failed");
+            host.upload_atlas(*atlas.value);
+            for (std::size_t i = 0; i < atlas.value->pages.size(); ++i)
+                check(gpu.bind_image(atlas.value->pages[i].image, host.atlas_images[i].view, sampler).empty(),
+                      "Comparison atlas binding failed");
+            host.resize({extent.width, extent.height});
+            host.begin(gpu);
+            check(gpu.submit({frame, {32, 32}, scale}, atlas.value->draw_list).empty(),
+                  "GPU comparison submission rejected");
+            const auto index =
+                std::to_string((frame + 1) / 2); // Two frames per scale; artifacts keep scale indices 1-4.
+            const auto actual =
+                host.finish(("cpu-compare-" + std::string(batched ? "batch-" : "reference-") + index + ".ppm").c_str());
+            compare(actual, expected.value->pixels, {extent.width, extent.height}, batched ? "batch" : "reference",
+                    scale);
             gpu.retire(frame++);
-            for (const auto& page:atlas.value->pages) check(gpu.unbind_image(page.image).empty(),"Comparison atlas retirement failed");
+            for (const auto& page : atlas.value->pages)
+                check(gpu.unbind_image(page.image).empty(), "Comparison atlas retirement failed");
             host.clear_atlas();
-            const auto straight_over=cpu.capture({0,{32,32},scale,extent,&premultiplied});
-            check(bool(straight_over),"CPU premultiplied comparison capture rejected");
-            host.resize({extent.width,extent.height}); host.begin(gpu);
-            check(gpu.submit({frame,{32,32},scale},premultiplied).empty(),"GPU premultiplied comparison submission rejected");
-            const auto blended=host.finish(("cpu-compare-premultiplied-"+std::string(batched?"batch-":"reference-")+index+".ppm").c_str());
-            compare(blended,straight_over.value->pixels,{extent.width,extent.height},batched?"premultiplied-batch":"premultiplied-reference",scale);
+            const auto straight_over = cpu.capture({0, {32, 32}, scale, extent, &premultiplied});
+            check(bool(straight_over), "CPU premultiplied comparison capture rejected");
+            host.resize({extent.width, extent.height});
+            host.begin(gpu);
+            check(gpu.submit({frame, {32, 32}, scale}, premultiplied).empty(),
+                  "GPU premultiplied comparison submission rejected");
+            const auto blended = host.finish(
+                ("cpu-compare-premultiplied-" + std::string(batched ? "batch-" : "reference-") + index + ".ppm")
+                    .c_str());
+            compare(blended, straight_over.value->pixels, {extent.width, extent.height},
+                    batched ? "premultiplied-batch" : "premultiplied-reference", scale);
             gpu.retire(frame++);
         }
-        check(gpu.unbind_image({1}).empty() && gpu.unbind_image({2}).empty(),"Comparison texture retirement failed");
+        check(gpu.unbind_image({1}).empty() && gpu.unbind_image({2}).empty(), "Comparison texture retirement failed");
     }
 }
 #ifdef TESSERA_UI_FIXTURES
@@ -1172,12 +1529,14 @@ template<class T> T ui_take(tessera::Result<T> result) {
     }
     return std::move(*result.value);
 }
-std::vector<std::uint8_t> ui_boundary_mask(const tessera::UiDrawList& list, tessera::CaptureExtent extent,
-                                         float scale, unsigned subpixel_bits) {
+std::vector<std::uint8_t> ui_boundary_mask(const tessera::UiDrawList& list, tessera::CaptureExtent extent, float scale,
+                                           unsigned subpixel_bits) {
     check(subpixel_bits >= 4 && subpixel_bits <= 32, "UI comparison requires declared raster subpixel precision");
     const double epsilon = std::ldexp(1.0, -static_cast<int>(subpixel_bits));
     std::vector<std::uint8_t> mask(std::size_t(extent.width) * extent.height);
-    struct Clip { double left, top, right, bottom; };
+    struct Clip {
+        double left, top, right, bottom;
+    };
     Clip clip{0, 0, double(extent.width), double(extent.height)};
     std::vector<Clip> clips;
     const auto mark = [&](tessera::Rect rect) {
@@ -1203,13 +1562,15 @@ std::vector<std::uint8_t> ui_boundary_mask(const tessera::UiDrawList& list, tess
         if (const auto* pushed = std::get_if<tessera::PushClip>(&command)) {
             clips.push_back(clip);
             clip = {std::max(clip.left, double(pushed->rect.origin.x) * scale),
-                std::max(clip.top, double(pushed->rect.origin.y) * scale),
-                std::min(clip.right, (double(pushed->rect.origin.x) + pushed->rect.size.width) * scale),
-                std::min(clip.bottom, (double(pushed->rect.origin.y) + pushed->rect.size.height) * scale)};
+                    std::max(clip.top, double(pushed->rect.origin.y) * scale),
+                    std::min(clip.right, (double(pushed->rect.origin.x) + pushed->rect.size.width) * scale),
+                    std::min(clip.bottom, (double(pushed->rect.origin.y) + pushed->rect.size.height) * scale)};
         } else if (std::holds_alternative<tessera::PopClip>(command)) {
             check(!clips.empty(), "Unbalanced UI comparison clips");
-            clip = clips.back(); clips.pop_back();
-        } else if (const auto* image = std::get_if<tessera::DrawImage>(&command)) mark(image->rect);
+            clip = clips.back();
+            clips.pop_back();
+        } else if (const auto* image = std::get_if<tessera::DrawImage>(&command))
+            mark(image->rect);
         else if (const auto* rect = std::get_if<tessera::DrawRect>(&command)) {
             check(rect->corner_radius == 0, "Extend the UI comparison oracle before adding rounded geometry");
             mark(rect->rect);
@@ -1217,10 +1578,12 @@ std::vector<std::uint8_t> ui_boundary_mask(const tessera::UiDrawList& list, tess
             check(border->corner_radius == 0, "Extend the UI comparison oracle before adding rounded borders");
             mark(border->rect);
             const auto& w = border->widths;
-            const tessera::Rect inner{{border->rect.origin.x + w.left, border->rect.origin.y + w.top},
+            const tessera::Rect inner{
+                {border->rect.origin.x + w.left, border->rect.origin.y + w.top},
                 {border->rect.size.width - w.left - w.right, border->rect.size.height - w.top - w.bottom}};
             if (inner.size.width > 0 && inner.size.height > 0) mark(inner);
-        } else check(false, "UI comparison supports atlas-lowered, untransformed paint only");
+        } else
+            check(false, "UI comparison supports atlas-lowered, untransformed paint only");
     }
     check(clips.empty(), "Unbalanced UI comparison clips");
     return mask;
@@ -1229,7 +1592,7 @@ void latest_ui_fixtures(Host& host) {
     const tessera::UiDrawList boundary_probe{{tessera::DrawRect{{{0.5f, 0}, {2, 4}}, {1, 1, 1, 1}}}};
     const auto probe = ui_boundary_mask(boundary_probe, {4, 4}, 1, 8);
     check(std::count(probe.begin(), probe.end(), 255) == 8 && probe[0] == 255 && probe[1] == 0 && probe[2] == 255,
-        "UI boundary oracle must exclude only pixel centers on subpixel-ambiguous edges");
+          "UI boundary oracle must exclude only pixel centers on subpixel-ambiguous edges");
     const auto separated = ui_boundary_mask({{tessera::DrawRect{{{0.51f, 0}, {2, 4}}, {1, 1, 1, 1}}}}, {4, 4}, 1, 8);
     check(std::count(separated.begin(), separated.end(), 255) == 0, "UI boundary oracle masks stable pixels");
     VkPhysicalDeviceProperties properties;
@@ -1243,7 +1606,8 @@ void latest_ui_fixtures(Host& host) {
             const auto width = static_cast<std::uint32_t>(std::ceil(0.4f * em));
             const auto height = static_cast<std::uint32_t>(std::ceil(0.7f * em));
             tessera::GlyphBitmap bitmap{width, height, static_cast<std::int32_t>(std::round(0.05f * em)),
-                static_cast<std::int32_t>(std::round(0.8f * em)), std::vector<std::uint8_t>(width * height)};
+                                        static_cast<std::int32_t>(std::round(0.8f * em)),
+                                        std::vector<std::uint8_t>(width * height)};
             const auto rows = tessera::detail::placeholder_glyph(request.glyph);
             for (std::uint32_t y = 0; y < height; ++y)
                 for (std::uint32_t x = 0; x < width; ++x)
@@ -1256,33 +1620,59 @@ void latest_ui_fixtures(Host& host) {
     const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv");
     const auto image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
     tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
-        vertex, fragment, image, 32};
+                                   vertex,        fragment,    image,     32};
     tessera::VulkanRenderer reference(context);
     context.batch_vertex_spirv = batch;
     tessera::VulkanRenderer adjacent(context);
-    VkSamplerCreateInfo sampler_info{}; sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    VkSamplerCreateInfo sampler_info{};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_info.magFilter = sampler_info.minFilter = VK_FILTER_LINEAR;
     sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    sampler_info.addressModeU = sampler_info.addressModeV = sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeU = sampler_info.addressModeV = sampler_info.addressModeW =
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     VkSampler sampler;
     require(vkCreateSampler(host.device, &sampler_info, nullptr, &sampler), "UI regression sampler");
     struct SamplerOwner {
-        VkDevice device; VkSampler sampler;
+        VkDevice device;
+        VkSampler sampler;
         ~SamplerOwner() { vkDestroySampler(device, sampler, nullptr); }
     } owner{host.device, sampler};
-    std::set<std::string, std::less<>> remaining{
-        "stack-initial", "stack-zoomed", "stack-resized",
-        "grid-initial", "grid-edited", "grid-narrow", "grid-restored",
-        "popup-initial", "popup-tooltip", "popup-open", "popup-scrolled", "popup-resized",
-        "modal-initial", "modal-open", "modal-confirmed", "modal-narrow-scrolled",
-        "tree-initial", "tree-expanded", "tree-selected", "tree-collapsed", "tree-narrow-scrolled",
-        "menu-initial", "menu-open", "menu-context", "menu-resized",
-        "settings-initial", "settings-dropdown", "settings-slider", "settings-split-dragged",
-        "settings-narrow", "settings-restored"};
+    std::set<std::string, std::less<>> remaining{"stack-initial",
+                                                 "stack-zoomed",
+                                                 "stack-resized",
+                                                 "grid-initial",
+                                                 "grid-edited",
+                                                 "grid-narrow",
+                                                 "grid-restored",
+                                                 "popup-initial",
+                                                 "popup-tooltip",
+                                                 "popup-open",
+                                                 "popup-scrolled",
+                                                 "popup-resized",
+                                                 "modal-initial",
+                                                 "modal-open",
+                                                 "modal-confirmed",
+                                                 "modal-narrow-scrolled",
+                                                 "tree-initial",
+                                                 "tree-expanded",
+                                                 "tree-selected",
+                                                 "tree-collapsed",
+                                                 "tree-narrow-scrolled",
+                                                 "menu-initial",
+                                                 "menu-open",
+                                                 "menu-context",
+                                                 "menu-resized",
+                                                 "settings-initial",
+                                                 "settings-dropdown",
+                                                 "settings-slider",
+                                                 "settings-split-dragged",
+                                                 "settings-narrow",
+                                                 "settings-restored"};
     std::map<std::string, std::vector<std::uint8_t>> initial_pixels;
     std::filesystem::create_directories(artifact_directory());
     std::ofstream summary(artifact_directory() / "latest-ui.tsv");
-    summary << "state\tscale\twidth\theight\tboundary_pixels\tmax_cpu_linear_error\tmax_cpu_encoded_error\tmax_batch_encoded_error\n";
+    summary
+        << "state\tscale\twidth\theight\tboundary_pixels\tmax_cpu_linear_error\tmax_cpu_encoded_error\tmax_batch_encoded_error\n";
     check(bool(summary), "Cannot create latest UI comparison summary");
     const auto decode = [](std::uint8_t byte) {
         const double value = byte / 255.0;
@@ -1291,7 +1681,7 @@ void latest_ui_fixtures(Host& host) {
     std::uint64_t reference_frame = 0, batch_frame = 0;
     std::size_t captures = 0;
     const tessera::examples::FrameObserver observe = [&](std::string_view name, tessera::Size size,
-                                                        const tessera::UiDrawList& paint) {
+                                                         const tessera::UiDrawList& paint) {
         check(remaining.erase(std::string(name)) == 1, "Unexpected or repeated latest UI state");
         tessera::UiDrawList source = paint;
         source.commands.insert(source.commands.begin(), tessera::DrawRect{{{0, 0}, size}, {1, 1, 1, 1}});
@@ -1299,19 +1689,20 @@ void latest_ui_fixtures(Host& host) {
             const auto extent = ui_take(tessera::capture_extent(size, scale));
             const auto expected = ui_take(cpu.capture({captures, size, scale, extent, &source}));
             check(expected == ui_take(cpu.capture({captures, size, scale, extent, &source})),
-                "Repeated latest UI CPU capture differs");
+                  "Repeated latest UI CPU capture differs");
             const auto prefix = "ui-" + std::string(name) + "-" + std::to_string(static_cast<int>(scale * 100));
             const auto atlas = ui_take(tessera::prepare_glyph_atlas(source, cache, scale, {1}));
-            const auto boundary = ui_boundary_mask(atlas.draw_list, extent, scale, properties.limits.subPixelPrecisionBits);
+            const auto boundary =
+                ui_boundary_mask(atlas.draw_list, extent, scale, properties.limits.subPixelPrecisionBits);
             const auto boundary_count = std::count(boundary.begin(), boundary.end(), 255);
             check(boundary_count * 20 < static_cast<std::ptrdiff_t>(boundary.size()),
-                "UI comparison must retain more than 95% of CPU reference pixels");
+                  "UI comparison must retain more than 95% of CPU reference pixels");
             host.upload_atlas(atlas);
             for (std::size_t i = 0; i < atlas.pages.size(); ++i) {
                 check(reference.bind_image(atlas.pages[i].image, host.atlas_images[i].view, sampler).empty(),
-                    "UI reference atlas binding failed");
+                      "UI reference atlas binding failed");
                 check(adjacent.bind_image(atlas.pages[i].image, host.atlas_images[i].view, sampler).empty(),
-                    "UI batch atlas binding failed");
+                      "UI batch atlas binding failed");
             }
             host.resize({extent.width, extent.height});
             auto render = [&](tessera::VulkanRenderer& renderer, std::uint64_t& frame, const char* suffix) {
@@ -1330,12 +1721,16 @@ void latest_ui_fixtures(Host& host) {
             double cpu_error = 0;
             int cpu_encoded_error = 0, batch_error = 0;
             std::size_t worst = 0;
-            check(actual.size() == expected.pixels.size() && batched.size() == actual.size(), "UI capture extent differs");
+            check(actual.size() == expected.pixels.size() && batched.size() == actual.size(),
+                  "UI capture extent differs");
             for (std::size_t i = 0; i < actual.size(); ++i) {
                 const double a = i % 4 == 3 ? actual[i] / 255.0 : decode(actual[i]);
                 const double b = i % 4 == 3 ? expected.pixels[i] / 255.0 : decode(expected.pixels[i]);
                 if (!boundary[i / 4]) {
-                    if (std::abs(a - b) > cpu_error) { cpu_error = std::abs(a - b); worst = i; }
+                    if (std::abs(a - b) > cpu_error) {
+                        cpu_error = std::abs(a - b);
+                        worst = i;
+                    }
                     cpu_encoded_error = std::max(cpu_encoded_error, std::abs(int(actual[i]) - int(expected.pixels[i])));
                 }
                 batch_error = std::max(batch_error, std::abs(int(actual[i]) - int(batched[i])));
@@ -1347,20 +1742,22 @@ void latest_ui_fixtures(Host& host) {
             check(bool(cpu_image), "Cannot write UI CPU artifact");
             std::ofstream mask_image(artifact_directory() / (prefix + "-boundary.pgm"), std::ios::binary);
             mask_image << "P5\n" << extent.width << ' ' << extent.height << "\n255\n";
-            mask_image.write(reinterpret_cast<const char*>(boundary.data()), static_cast<std::streamsize>(boundary.size()));
+            mask_image.write(reinterpret_cast<const char*>(boundary.data()),
+                             static_cast<std::streamsize>(boundary.size()));
             check(bool(mask_image), "Cannot write UI boundary mask");
-            summary << name << '\t' << scale << '\t' << extent.width << '\t' << extent.height << '\t'
-                << boundary_count << '\t' << cpu_error << '\t' << cpu_encoded_error << '\t' << batch_error << std::endl;
+            summary << name << '\t' << scale << '\t' << extent.width << '\t' << extent.height << '\t' << boundary_count
+                    << '\t' << cpu_error << '\t' << cpu_encoded_error << '\t' << batch_error << std::endl;
             check(bool(summary), "Cannot write latest UI comparison summary");
-            std::cout << prefix << ": CPU linear error=" << cpu_error << " at (" << (worst / 4) % extent.width
-                << ',' << (worst / 4) / extent.width << ") channel=" << worst % 4
-                << ", CPU encoded error=" << cpu_encoded_error
-                << ", batch encoded error=" << batch_error << ", boundary pixels=" << boundary_count << '\n';
+            std::cout << prefix << ": CPU linear error=" << cpu_error << " at (" << (worst / 4) % extent.width << ','
+                      << (worst / 4) / extent.width << ") channel=" << worst % 4
+                      << ", CPU encoded error=" << cpu_encoded_error << ", batch encoded error=" << batch_error
+                      << ", boundary pixels=" << boundary_count << '\n';
             check(cpu_encoded_error <= 2, "Latest UI GPU differs from scalar CPU (encoded tolerance 2/255)");
             check(batch_error <= 2, "Latest UI batch differs from reference (encoded tolerance 2/255)");
-            const auto initial_key = std::string(name.substr(0, name.find('-'))) + "-" +
-                std::to_string(static_cast<int>(scale * 100));
-            if (name.ends_with("-initial")) initial_pixels.emplace(initial_key, actual);
+            const auto initial_key =
+                std::string(name.substr(0, name.find('-'))) + "-" + std::to_string(static_cast<int>(scale * 100));
+            if (name.ends_with("-initial"))
+                initial_pixels.emplace(initial_key, actual);
             else {
                 const auto initial = initial_pixels.find(initial_key);
                 check(initial != initial_pixels.end(), "Capture the initial UI state before its operations");
@@ -1383,31 +1780,44 @@ void latest_ui_fixtures(Host& host) {
     check(run_menu_context(observe) == 0, "Menu/ContextMenu GPU regression failed");
     check(run_settings_starter(observe) == 0, "Settings/SplitPane GPU regression failed");
     check(remaining.empty() && captures == 124, "Latest UI regression did not capture all 31 states at four scales");
-    std::cout << "Latest UI GPU regression passed: 31 states, 124 scale cases, reference/batch/repeat, scalar CPU comparisons.\n";
+    std::cout
+        << "Latest UI GPU regression passed: 31 states, 124 scale cases, reference/batch/repeat, scalar CPU comparisons.\n";
 }
 #endif
 int main(int argc, char** argv) {
     try {
         const bool latest_ui = argc == 2 && std::string_view(argv[1]) == "--latest-ui";
         check(argc == 1 || latest_ui, "Usage: tessera_vulkan_tests [--latest-ui]");
-        { Host host; host.initialize(); host.make_texture();
-          if (latest_ui) {
+        {
+            Host host;
+            host.initialize();
+            host.make_texture();
+            if (latest_ui) {
 #ifdef TESSERA_UI_FIXTURES
-              latest_ui_fixtures(host);
+                latest_ui_fixtures(host);
 #else
-              throw std::runtime_error("--latest-ui requires TESSERA_BUILD_EXAMPLES=ON");
+                throw std::runtime_error("--latest-ui requires TESSERA_BUILD_EXAMPLES=ON");
 #endif
-          } else {
-          fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host); runner_fixtures(host); cpu_reference_fixtures(host);
+            } else {
+                fixtures(host);
+                glyph_fixtures(host);
+                fixtures(host, true);
+                glyph_fixtures(host, true);
+                batch_fixtures(host);
+                runner_fixtures(host);
+                cpu_reference_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
-          real_glyph_fixtures(host); real_runner_fixtures(host);
+                real_glyph_fixtures(host);
+                real_runner_fixtures(host);
 #endif
-          }
+            }
         }
-        check(validation_errors == 0,"Vulkan validation errors occurred");
+        check(validation_errors == 0, "Vulkan validation errors occurred");
         if (!latest_ui)
-            std::cout << "Vulkan GPU primitive, image, placeholder Text/menu, scale, rejection and retirement fixtures passed (RGBA8 sRGB, tolerance 2/255).\n";
+            std::cout
+                << "Vulkan GPU primitive, image, placeholder Text/menu, scale, rejection and retirement fixtures passed (RGBA8 sRGB, tolerance 2/255).\n";
     } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n'; return 1;
+        std::cerr << error.what() << '\n';
+        return 1;
     }
 }

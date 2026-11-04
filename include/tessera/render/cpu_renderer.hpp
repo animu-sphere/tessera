@@ -31,6 +31,7 @@ public:
     std::vector<Diagnostic> unbind_image(ImageHandle);
     std::vector<Diagnostic> submit(const FrameInfo&, const UiDrawList&) override;
     void retire(std::uint64_t completed_frame) override;
+
 private:
     friend class CpuFrameCapture;
     struct Image {
@@ -54,6 +55,7 @@ public:
     std::vector<Diagnostic> bind_image(ImageHandle, CpuImage);
     std::vector<Diagnostic> unbind_image(ImageHandle);
     Result<CapturedImage> capture(const CaptureRequest&) override;
+
 private:
     CpuRenderer renderer_;
     GlyphCache* glyphs_;

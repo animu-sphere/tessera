@@ -14,7 +14,7 @@ struct ComponentInvocationMount {
 };
 struct ComponentTreeUpdate {
     std::vector<ComponentSetup> instances; // Input index order; owned weak contexts.
-    std::vector<std::size_t> created; // Setup order: parent, declared slots, children.
+    std::vector<std::size_t> created;      // Setup order: parent, declared slots, children.
 };
 
 // A keyed invocation tree beneath a host-owned scope. The host disposes that
@@ -33,7 +33,8 @@ public:
     // before mutation. Runtime/setup failures repair records but do not roll
     // back removals or host writes. Empty input unmounts the accepted root.
     Result<ComponentTreeUpdate> reconcile(ReactiveRuntime&, std::span<const ComponentInvocation>,
-        std::span<const ComponentInvocationMount>, std::size_t root = 0);
+                                          std::span<const ComponentInvocationMount>, std::size_t root = 0);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

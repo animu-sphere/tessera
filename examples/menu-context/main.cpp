@@ -33,36 +33,44 @@ struct Host final : CommandHost {
     int invocations = 0;
     int selections = 0;
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
-        if (invocation.command == "menu.open") open = OpenMenu::actions;
-        else if (invocation.command == "asset.select") ++selections;
+        if (invocation.command == "menu.open")
+            open = OpenMenu::actions;
+        else if (invocation.command == "asset.select")
+            ++selections;
         else if (invocation.command == "asset.inspect" || invocation.command == "asset.rename") {
             status = invocation.command == "asset.inspect" ? "Inspected Asset" : "Renamed Asset";
             ++invocations;
             open = OpenMenu::none;
-        } else throw std::runtime_error("Unexpected or disabled menu command");
+        } else
+            throw std::runtime_error("Unexpected or disabled menu command");
         return {};
     }
 };
 ui::Element Form(const Host& host) {
     const std::vector<ui::MenuItem> items{{"inspect", "Inspect", "asset.inspect"},
-        {"delete", "Delete (unavailable)", "asset.delete", true}, {"rename", "Rename", "asset.rename"}};
+                                          {"delete", "Delete (unavailable)", "asset.delete", true},
+                                          {"rename", "Rename", "asset.rename"}};
     std::vector<ui::Element> content;
-    if (host.asset) content.push_back(ui::Button("Asset: right-click or Shift+F10", "asset.select",
-        {.node = {.id = "asset", .style = {.height = Dimension::points(56)}}}));
+    if (host.asset)
+        content.push_back(ui::Button("Asset: right-click or Shift+F10", "asset.select",
+                                     {.node = {.id = "asset", .style = {.height = Dimension::points(56)}}}));
     content.push_back(ui::Column({}, {.style = {.height = Dimension::points(160)}}));
     auto menu_props = [](const char* id, bool open) {
-        return ui::PopupProps{.node = {.id = id, .style = {.width = Dimension::points(200),
-            .padding = Edges{4, 4, 4, 4}, .background = Color{0.85f, 0.9f, 1, 1}}}, .open = open};
+        return ui::PopupProps{.node = {.id = id,
+                                       .style = {.width = Dimension::points(200),
+                                                 .padding = Edges{4, 4, 4, 4},
+                                                 .background = Color{0.85f, 0.9f, 1, 1}}},
+                              .open = open};
     };
-    return ui::Column({
-        ui::Button("Actions", "menu.open", {.node = {.id = "actions", .style = {.height = Dimension::points(28)}}}),
-        ui::ScrollView(std::move(content), {.id = "browser", .style = {.height = Dimension::points(88)}}),
-        ui::Button("Background", "asset.select", {.node = {.id = "background",
-            .style = {.height = Dimension::points(64)}}}),
-        ui::Text(host.status, {.id = "status"}),
-        ui::Menu("Asset actions", "actions", items, menu_props("actions-menu", host.open == OpenMenu::actions)),
-        ui::ContextMenu("Asset actions", "asset", host.position, items,
-            menu_props("asset-menu", host.open == OpenMenu::asset))},
+    return ui::Column(
+        {ui::Button("Actions", "menu.open", {.node = {.id = "actions", .style = {.height = Dimension::points(28)}}}),
+         ui::ScrollView(std::move(content), {.id = "browser", .style = {.height = Dimension::points(88)}}),
+         ui::Button("Background", "asset.select",
+                    {.node = {.id = "background", .style = {.height = Dimension::points(64)}}}),
+         ui::Text(host.status, {.id = "status"}),
+         ui::Menu("Asset actions", "actions", items, menu_props("actions-menu", host.open == OpenMenu::actions)),
+         ui::ContextMenu("Asset actions", "asset", host.position, items,
+                         menu_props("asset-menu", host.open == OpenMenu::asset))},
         {.id = "root", .style = {.overflow = Overflow::clip}});
 }
 struct View {
@@ -73,7 +81,8 @@ struct View {
     SemanticInput semantic() const { return {tree.get(), styles, &layout}; }
     Rect bounds(const char* id) const {
         const auto node = tree->find(id);
-        for (const auto& box : layout.boxes) if (node == box.node) return box.border_box;
+        for (const auto& box : layout.boxes)
+            if (node == box.node) return box.border_box;
         throw std::runtime_error("Expected a visible menu example node");
     }
     Point center(const char* id) const {
@@ -96,14 +105,22 @@ int tessera::examples::run_menu_context(const FrameObserver& observer) {
         Size viewport{360, 240};
         float scroll_y = 0;
         View view;
-        const auto registry = take(CommandRegistry::create({
-            {"menu.open", "Open actions"}, {"asset.select", "Select asset"},
-            {"asset.inspect", "Inspect asset"}, {"asset.rename", "Rename asset"}, {"asset.delete", "Delete asset"}},
-            {{"menu.open", "menu.open"}, {"asset.select", "asset.select"}, {"asset.inspect", "asset.inspect"},
-             {"asset.rename", "asset.rename"}, {"asset.delete", "asset.delete"}}));
+        const auto registry = take(CommandRegistry::create({{"menu.open", "Open actions"},
+                                                            {"asset.select", "Select asset"},
+                                                            {"asset.inspect", "Inspect asset"},
+                                                            {"asset.rename", "Rename asset"},
+                                                            {"asset.delete", "Delete asset"}},
+                                                           {{"menu.open", "menu.open"},
+                                                            {"asset.select", "asset.select"},
+                                                            {"asset.inspect", "asset.inspect"},
+                                                            {"asset.rename", "asset.rename"},
+                                                            {"asset.delete", "asset.delete"}}));
         const auto commands = take(CommandSnapshot::publish(registry, 1, CommandMode::production,
-            {{"menu.open", {true}}, {"asset.select", {true}}, {"asset.inspect", {true}},
-             {"asset.rename", {true}}, {"asset.delete", {false}}}));
+                                                            {{"menu.open", {true}},
+                                                             {"asset.select", {true}},
+                                                             {"asset.inspect", {true}},
+                                                             {"asset.rename", {true}},
+                                                             {"asset.delete", {false}}}));
         std::uint64_t sequence = 0;
         auto refresh = [&] {
             for (int attempt = 0; attempt < 3; ++attempt) {
@@ -134,14 +151,14 @@ int tessera::examples::run_menu_context(const FrameObserver& observer) {
             throw std::runtime_error("Menu presentation did not settle");
         };
         auto capture = [&](std::string_view name) {
-            if (observer) observer(name, viewport,
-                take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
+            if (observer)
+                observer(name, viewport, take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
         };
         auto execute = [&](const std::vector<ActionRequest>& requests, CommandSource source) {
             for (const auto& request : requests) {
                 const auto semantic = view.semantic();
-                const auto invocation = take(commands.resolve_action(semantic, request,
-                    commands.generation(), {}, source, ++sequence));
+                const auto invocation =
+                    take(commands.resolve_action(semantic, request, commands.generation(), {}, source, ++sequence));
                 const auto result = take(executor.execute(commands, invocation, host, &semantic));
                 require(result.outcome.status == CommandOutcomeStatus::success, "Menu command failed");
             }
@@ -154,14 +171,16 @@ int tessera::examples::run_menu_context(const FrameObserver& observer) {
             if (transition.open_at) {
                 host.position = *transition.open_at;
                 host.open = OpenMenu::asset;
-            } else if (transition.dismiss) host.open = OpenMenu::none;
+            } else if (transition.dismiss)
+                host.open = OpenMenu::none;
             if (transition.open_at || transition.dismiss) {
                 pointer.reset();
                 refresh();
             }
             if (transition.consumed) return;
             if (const auto* key = std::get_if<KeyDown>(&event.data); key && key->key == Key::tab)
-                event.data = key->modifiers.shift ? decltype(event.data){FocusPrevious{}} : decltype(event.data){FocusNext{}};
+                event.data =
+                    key->modifiers.shift ? decltype(event.data){FocusPrevious{}} : decltype(event.data){FocusNext{}};
             if (std::holds_alternative<PointerMove>(event.data) || std::holds_alternative<PointerDown>(event.data) ||
                 std::holds_alternative<PointerUp>(event.data) || std::holds_alternative<PointerCancel>(event.data)) {
                 const auto result = take(pointer.dispatch(view.hit(), event));
@@ -170,8 +189,9 @@ int tessera::examples::run_menu_context(const FrameObserver& observer) {
                         if (state.pressed) focused = take(focus.focus(view.hit(), *state.pressed)).focused;
                 execute(result.actions, CommandSource::pointer);
                 if (!result.actions.empty()) refresh();
-            } else if (std::holds_alternative<FocusNext>(event.data) || std::holds_alternative<FocusPrevious>(event.data) ||
-                std::holds_alternative<Navigate>(event.data) || std::holds_alternative<Activate>(event.data)) {
+            } else if (std::holds_alternative<FocusNext>(event.data) ||
+                       std::holds_alternative<FocusPrevious>(event.data) ||
+                       std::holds_alternative<Navigate>(event.data) || std::holds_alternative<Activate>(event.data)) {
                 const auto result = take(focus.dispatch(view.hit(), event));
                 focused = result.focused;
                 execute(result.actions, source);
@@ -194,26 +214,28 @@ int tessera::examples::run_menu_context(const FrameObserver& observer) {
         capture("menu-initial");
         click("actions");
         require(host.open == OpenMenu::actions && focused_id() == "actions-menu-item-inspect",
-            "Pointer opening must focus the first command");
+                "Pointer opening must focus the first command");
         capture("menu-open");
         click("actions-menu-item-inspect");
         require(host.invocations == 1 && host.status == "Inspected Asset" && focused_id() == "actions",
-            "Pointer choice must execute once, close and restore focus");
+                "Pointer choice must execute once, close and restore focus");
         dispatch({++time, Activate{}});
         dispatch({++time, Navigate{Direction::down}}, CommandSource::gamepad);
         require(focused_id() == "actions-menu-item-rename", "Gamepad navigation must skip the disabled command");
         dispatch({++time, Activate{}}, CommandSource::gamepad);
-        require(host.invocations == 2 && host.status == "Renamed Asset", "Gamepad must execute the ordinary item command");
+        require(host.invocations == 2 && host.status == "Renamed Asset",
+                "Gamepad must execute the ordinary item command");
         right_click();
         require(host.open == OpenMenu::asset && host.selections == 0 && focused_id() == "asset-menu-item-inspect",
-            "Right-click must open without activating the asset");
+                "Right-click must open without activating the asset");
         capture("menu-context");
         dispatch({++time, Cancel{}}, CommandSource::gamepad);
         require(host.open == OpenMenu::none && focused_id() == "asset", "Cancel must restore the context target");
         dispatch({++time, KeyDown{Key::f10, {true}}});
         require(host.open == OpenMenu::asset, "Shift+F10 must open from the focused asset");
         click("asset-menu-item-inspect");
-        require(host.invocations == 3 && host.status == "Inspected Asset", "Context item must share the same command path");
+        require(host.invocations == 3 && host.status == "Inspected Asset",
+                "Context item must share the same command path");
         right_click();
         dispatch({++time, KeyDown{Key::escape}});
         require(host.open == OpenMenu::none && host.invocations == 3, "Escape must close without executing");
@@ -229,7 +251,7 @@ int tessera::examples::run_menu_context(const FrameObserver& observer) {
         scroll_y = 8;
         refresh();
         require(host.open == OpenMenu::asset && host.position == position && focused_id() == "asset-menu-item-inspect",
-            "Resize and scroll must preserve the open context operation");
+                "Resize and scroll must preserve the open context operation");
         capture("menu-resized");
         host.asset = false;
         refresh();
@@ -240,7 +262,6 @@ int tessera::examples::run_menu_context(const FrameObserver& observer) {
         std::cerr << error.what() << '\n';
         return 1;
     }
-
 }
 
 #ifndef TESSERA_EXAMPLE_LIBRARY

@@ -12,21 +12,21 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-constexpr std::array<std::string_view, 11> roles{
-    "root", "button", "text", "separator", "dialog", "list", "tree", "list_item", "tree_item", "menu", "menu_item"};
+constexpr std::array<std::string_view, 11> roles{"root", "button",    "text",      "separator", "dialog",   "list",
+                                                 "tree", "list_item", "tree_item", "menu",      "menu_item"};
 constexpr std::array<std::string_view, 3> sources{"none", "relationship", "content"};
-struct Failure { std::vector<Diagnostic> diagnostics; };
+struct Failure {
+    std::vector<Diagnostic> diagnostics;
+};
 
 [[noreturn]] void fail(std::string code, std::string path, std::string message) {
     throw Failure{{{std::move(code), Severity::error, std::move(path), std::move(message), {}}}};
 }
-template<class T>
-const T& as(const JsonValue& value, const std::string& path) {
+template<class T> const T& as(const JsonValue& value, const std::string& path) {
     if (const auto* found = std::get_if<T>(&value.value)) return *found;
     fail("schema_type", path, "Use the type declared by Semantic JSON v1.");
 }
-const Object& object(const JsonValue& value, const std::string& path,
-                     std::initializer_list<std::string_view> fields,
+const Object& object(const JsonValue& value, const std::string& path, std::initializer_list<std::string_view> fields,
                      std::initializer_list<std::string_view> optional = {}) {
     const auto& result = as<Object>(value, path);
     for (const auto& [key, child] : result) {
@@ -61,12 +61,13 @@ std::optional<bool> optional_bool(const Object& object, const char* key, const s
 template<class E, std::size_t N>
 E choice(const JsonValue& value, const std::string& path, const std::array<std::string_view, N>& names) {
     const auto& text = as<std::string>(value, path);
-    for (std::size_t i = 0; i < names.size(); ++i) if (text == names[i]) return static_cast<E>(i);
+    for (std::size_t i = 0; i < names.size(); ++i)
+        if (text == names[i]) return static_cast<E>(i);
     fail("unknown_value", path, "Use a declared semantic enumeration name.");
 }
 bool identifier(std::string_view value) {
     return !value.empty() && detail::valid_utf8(value) &&
-        std::none_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; });
+           std::none_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; });
 }
 JsonValue number(std::uint32_t value) { return JsonValue{static_cast<double>(value)}; }
 JsonValue text(std::string_view value) { return JsonValue{std::string(value)}; }
@@ -79,17 +80,18 @@ SemanticSnapshot read(const JsonValue& json) {
     if (result.version != semantic_version) fail("unsupported_version", "/version", "Use semantic version 1.");
     const auto& generation = as<std::string>(root.at("generation"), "/generation");
     const auto parsed = std::from_chars(generation.data(), generation.data() + generation.size(), result.generation);
-    if (generation.empty() || (generation.size() > 1 && generation.front() == '0') ||
-        parsed.ec != std::errc{} || parsed.ptr != generation.data() + generation.size())
+    if (generation.empty() || (generation.size() > 1 && generation.front() == '0') || parsed.ec != std::errc{} ||
+        parsed.ptr != generation.data() + generation.size())
         fail("schema_type", "/generation", "Use the canonical unsigned 64-bit decimal string.");
     result.node_count = index(root.at("node_count"), "/node_count");
     const auto& nodes = as<Array>(root.at("nodes"), "/nodes");
     if (nodes.size() > max_document_nodes) fail("out_of_range", "/nodes", "Use at most 10000 semantic entries.");
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         const auto at = "/nodes/" + std::to_string(i);
-        const auto& o = object(nodes[i], at, {"node", "id", "parent", "role", "name", "name_source",
-                                             "labelled_by", "enabled", "focusable", "focused", "actions"},
-                                             {"selected", "expanded"});
+        const auto& o = object(nodes[i], at,
+                               {"node", "id", "parent", "role", "name", "name_source", "labelled_by", "enabled",
+                                "focusable", "focused", "actions"},
+                               {"selected", "expanded"});
         SemanticRecord entry;
         entry.node = index(o.at("node"), at + "/node");
         entry.id = optional_string(o.at("id"), at + "/id");
@@ -107,12 +109,13 @@ SemanticSnapshot read(const JsonValue& json) {
         entry.selected = optional_bool(o, "selected", at);
         entry.expanded = optional_bool(o, "expanded", at);
         const auto& actions = as<Array>(o.at("actions"), at + "/actions");
-        if (actions.size() > 2) fail("out_of_range", at + "/actions", "Expose at most activation and one expansion action.");
+        if (actions.size() > 2)
+            fail("out_of_range", at + "/actions", "Expose at most activation and one expansion action.");
         for (std::size_t a = 0; a < actions.size(); ++a) {
             const auto path = at + "/actions/" + std::to_string(a);
             const auto& action = object(actions[a], path, {"binding", "action"});
             entry.actions.push_back({as<std::string>(action.at("binding"), path + "/binding"),
-                                      as<std::string>(action.at("action"), path + "/action")});
+                                     as<std::string>(action.at("action"), path + "/action")});
         }
         result.nodes.push_back(std::move(entry));
     }
@@ -125,19 +128,25 @@ JsonValue write(const SemanticSnapshot& snapshot) {
         for (const auto& action : entry.actions)
             actions.push_back(JsonValue{Object{{"binding", text(action.binding)}, {"action", text(action.action)}}});
         nodes.push_back(JsonValue{Object{
-            {"node", number(entry.node)}, {"id", entry.id ? text(*entry.id) : JsonValue{}},
+            {"node", number(entry.node)},
+            {"id", entry.id ? text(*entry.id) : JsonValue{}},
             {"parent", optional_json(entry.parent == no_semantic_parent ? std::nullopt : std::optional(entry.parent))},
-            {"role", text(roles[static_cast<std::size_t>(entry.role)])}, {"name", text(entry.name)},
+            {"role", text(roles[static_cast<std::size_t>(entry.role)])},
+            {"name", text(entry.name)},
             {"name_source", text(sources[static_cast<std::size_t>(entry.name_source)])},
-            {"labelled_by", optional_json(entry.labelled_by)}, {"enabled", JsonValue{entry.enabled}},
-            {"focusable", JsonValue{entry.focusable}}, {"focused", JsonValue{entry.focused}},
+            {"labelled_by", optional_json(entry.labelled_by)},
+            {"enabled", JsonValue{entry.enabled}},
+            {"focusable", JsonValue{entry.focusable}},
+            {"focused", JsonValue{entry.focused}},
             {"actions", JsonValue{std::move(actions)}}}});
         auto& object = std::get<Object>(nodes.back().value);
         if (entry.selected) object["selected"] = JsonValue{*entry.selected};
         if (entry.expanded) object["expanded"] = JsonValue{*entry.expanded};
     }
-    return JsonValue{Object{{"version", number(snapshot.version)}, {"generation", text(std::to_string(snapshot.generation))},
-                            {"node_count", number(snapshot.node_count)}, {"nodes", JsonValue{std::move(nodes)}}}};
+    return JsonValue{Object{{"version", number(snapshot.version)},
+                            {"generation", text(std::to_string(snapshot.generation))},
+                            {"node_count", number(snapshot.node_count)},
+                            {"nodes", JsonValue{std::move(nodes)}}}};
 }
 } // namespace
 
@@ -148,8 +157,8 @@ std::vector<SemanticRecord> own_semantic_records(const SemanticTree& tree) {
         std::optional<std::uint32_t> labelled_by;
         if (entry.labelled_by) labelled_by = entry.labelled_by->index;
         result.push_back({entry.node.index, entry.id, entry.parent, entry.role, entry.name, entry.name_source,
-                          labelled_by, entry.enabled, entry.focusable, entry.focused, entry.actions,
-                          entry.selected, entry.expanded});
+                          labelled_by, entry.enabled, entry.focusable, entry.focused, entry.actions, entry.selected,
+                          entry.expanded});
     }
     return result;
 }
@@ -158,7 +167,7 @@ Result<SemanticSnapshot> capture_semantics(const SemanticInput& input, std::uint
     auto projected = build_semantic_tree(input);
     if (!projected) return {std::nullopt, std::move(projected.diagnostics)};
     SemanticSnapshot snapshot{semantic_version, generation, static_cast<std::uint32_t>(input.tree->size()),
-                               own_semantic_records(*projected.value)};
+                              own_semantic_records(*projected.value)};
     return {std::move(snapshot), std::move(projected.diagnostics)};
 }
 
@@ -167,8 +176,12 @@ Result<ActionRequest> request_semantic_action(const SemanticInput& input, std::u
     auto errors = validate(input);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     if (target.generation != current_generation || target.node >= input.tree->size())
-        return {std::nullopt, {{"stale_target", Severity::error, "/target",
-                               "Capture and resolve the target in the host's current update generation.", {}}}};
+        return {std::nullopt,
+                {{"stale_target",
+                  Severity::error,
+                  "/target",
+                  "Capture and resolve the target in the host's current update generation.",
+                  {}}}};
     return request_semantic_action(input, NodeHandle{input.tree->root().tree, target.node}, binding);
 }
 
@@ -189,7 +202,8 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
         const auto& entry = snapshot.nodes[i];
         const auto at = "/nodes/" + std::to_string(i);
         if (entry.node >= snapshot.node_count || (i && entry.node <= snapshot.nodes[i - 1].node))
-            check.error("invalid_identity", at + "/node", "Use strictly increasing authored preorder indices within node_count.");
+            check.error("invalid_identity", at + "/node",
+                        "Use strictly increasing authored preorder indices within node_count.");
         if (entry.parent != no_semantic_parent && entry.parent >= i)
             check.error("invalid_parent", at + "/parent", "A parent must precede its child.");
         else {
@@ -207,7 +221,8 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
             if (entry.id->empty() || !detail::valid_utf8(*entry.id) ||
                 std::any_of(entry.id->begin(), entry.id->end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; }))
                 check.error("invalid_identifier", at + "/id", "Use a nonempty UTF-8 author ID without ASCII controls.");
-            else if (!ids.insert(*entry.id).second) check.error("duplicate_id", at + "/id", "Use unique author IDs.");
+            else if (!ids.insert(*entry.id).second)
+                check.error("duplicate_id", at + "/id", "Use unique author IDs.");
         }
         if (!detail::valid_utf8(entry.name)) check.error("invalid_utf8", at + "/name", "Use valid UTF-8.");
         if (entry.labelled_by && *entry.labelled_by >= snapshot.node_count)
@@ -215,29 +230,35 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
         if (entry.name_source == NameSource::relationship && !entry.labelled_by)
             check.error("invalid_reference", at + "/labelled_by", "A relationship-derived name requires a reference.");
         if ((entry.name.empty()) != (entry.name_source == NameSource::none))
-            check.error("invalid_name", at + "/name_source", "An empty name has source none; a nonempty name has a source.");
+            check.error("invalid_name", at + "/name_source",
+                        "An empty name has source none; a nonempty name has a source.");
         if ((!entry.enabled && entry.focusable) || (entry.focused && (!entry.focusable || focused)))
-            check.error("invalid_state", at + "/focused", "Focus requires enabled/focusable state and at most one focused entry.");
+            check.error("invalid_state", at + "/focused",
+                        "Focus requires enabled/focusable state and at most one focused entry.");
         focused = focused || entry.focused;
         const bool item = entry.role == SemanticRole::list_item || entry.role == SemanticRole::tree_item;
         if ((entry.selected && !item) || (entry.expanded && entry.role != SemanticRole::tree_item))
-            check.error("invalid_state", at, "Selection belongs to collection items; expansion belongs to tree branches.");
+            check.error("invalid_state", at,
+                        "Selection belongs to collection items; expansion belongs to tree branches.");
         if (entry.actions.size() > (entry.role == SemanticRole::tree_item ? 2u : 1u) ||
-            (!entry.actions.empty() && (!entry.enabled ||
-            (!item && entry.role != SemanticRole::button && entry.role != SemanticRole::separator &&
-             entry.role != SemanticRole::menu_item))))
-            check.error("invalid_action", at + "/actions", "Only enabled controls expose activation or tree expansion actions.");
+            (!entry.actions.empty() &&
+             (!entry.enabled || (!item && entry.role != SemanticRole::button && entry.role != SemanticRole::separator &&
+                                 entry.role != SemanticRole::menu_item))))
+            check.error("invalid_action", at + "/actions",
+                        "Only enabled controls expose activation or tree expansion actions.");
         std::set<std::string> bindings;
         for (std::size_t a = 0; a < entry.actions.size(); ++a) {
             const auto path = at + "/actions/" + std::to_string(a);
             const auto& binding = entry.actions[a].binding;
             if (binding != "activate" && !(entry.role == SemanticRole::tree_item && entry.expanded &&
-                binding == (*entry.expanded ? "collapse" : "expand")))
-                check.error("unsupported_action", path + "/binding", "Use activate or the applicable tree expansion action.");
+                                           binding == (*entry.expanded ? "collapse" : "expand")))
+                check.error("unsupported_action", path + "/binding",
+                            "Use activate or the applicable tree expansion action.");
             if (!bindings.insert(binding).second)
                 check.error("invalid_action", path + "/binding", "Expose each binding at most once.");
             if (!identifier(entry.actions[a].action))
-                check.error("invalid_identifier", path + "/action", "Use a nonempty UTF-8 action name without ASCII controls.");
+                check.error("invalid_identifier", path + "/action",
+                            "Use a nonempty UTF-8 action name without ASCII controls.");
         }
     }
     return errors;

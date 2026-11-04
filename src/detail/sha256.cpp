@@ -32,8 +32,14 @@ void compress(std::array<std::uint32_t, 8>& state, const unsigned char* block) {
     for (int i = 0; i < 64; ++i) {
         const auto t1 = h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + k[i] + w[i];
         const auto t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
-        h = g; g = f; f = e; e = d + t1;
-        d = c; c = b; b = a; a = t1 + t2;
+        h = g;
+        g = f;
+        f = e;
+        e = d + t1;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2;
     }
     const std::array<std::uint32_t, 8> next{a, b, c, d, e, f, g, h};
     for (int i = 0; i < 8; ++i) state[i] += next[i];

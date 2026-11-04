@@ -68,11 +68,11 @@ void placement_and_constraints() {
     center.stack_horizontal = center.stack_vertical = Align::center;
     auto result = f.layout({240, 140});
     check(result.boxes[1].border_box == Rect{{10, 10}, {220, 120}},
-        "Automatic children must fill the same content box, ignoring Flex controls");
+          "Automatic children must fill the same content box, ignoring Flex controls");
     check(result.boxes[2].border_box == Rect{{184, 14}, {40, 20}},
-        "Edge placement must use the parent content box and child margins");
+          "Edge placement must use the parent content box and child margins");
     check(result.boxes[3].border_box == Rect{{112, 63}, {20, 10}},
-        "Each Stack child must align independently on both axes");
+          "Each Stack child must align independently on both axes");
 
     center.width = center.height = {};
     center.max_width = 60;
@@ -81,7 +81,7 @@ void placement_and_constraints() {
     center.stack_horizontal = center.stack_vertical = Align::stretch;
     result = f.layout({240, 140});
     check(result.boxes[3].border_box == Rect{{18, 12}, {60, 50}},
-        "Stretch must respect margins and min/max limits, with leading placement");
+          "Stretch must respect margins and min/max limits, with leading placement");
     center.width = Dimension::points(300);
     center.height = Dimension::points(200);
     center.max_width = center.max_height = std::numeric_limits<float>::infinity();
@@ -89,7 +89,7 @@ void placement_and_constraints() {
     center.stack_vertical = Align::center;
     result = f.layout({240, 140});
     check(result.boxes[3].border_box == Rect{{18, 12}, {300, 200}},
-        "Overflowing centered/end children must stay at the leading margin edge");
+          "Overflowing centered/end children must stay at the leading margin edge");
     center.width = Dimension::points(1);
     center.height = Dimension::points(1);
     center.min_height = 0;
@@ -116,15 +116,14 @@ void intrinsic_and_wrapped_height() {
     f.styles[4].height = Dimension::points(8);
     auto result = f.layout({100, 200});
     check(result.boxes[1].border_box == Rect{{0, 0}, {20, 75}} &&
-        result.boxes[2].border_box == Rect{{0, 0}, {20, 75}} &&
-        result.boxes[3].border_box == Rect{{0, 35}, {12, 40}} &&
-        result.boxes[4].border_box.origin.y == 75,
-        "Nested Stack height must use the largest width-remeasured child, not a sum or gap");
+              result.boxes[2].border_box == Rect{{0, 0}, {20, 75}} &&
+              result.boxes[3].border_box == Rect{{0, 35}, {12, 40}} && result.boxes[4].border_box.origin.y == 75,
+          "Nested Stack height must use the largest width-remeasured child, not a sum or gap");
     f.styles[0].align = Align::start;
     f.styles[1].max_width = std::numeric_limits<float>::infinity();
     result = f.layout({100, 200});
     check(result.boxes[1].border_box.size == Size{50, 40},
-        "Unstretched automatic Stack width/height must use maximum intrinsic extents");
+          "Unstretched automatic Stack width/height must use maximum intrinsic extents");
 }
 
 void scroll_and_nested_clip() {
@@ -143,13 +142,12 @@ void scroll_and_nested_clip() {
     f.offsets.resize(f.styles.size(), {1000, 1000});
     const auto result = f.layout({80, 60});
     check(result.boxes[0].scroll == ScrollGeometry{{92, 114}, {12, 54}},
-        "Stack scroll extent must cover overlapping margin boxes, not summed children");
+          "Stack scroll extent must cover overlapping margin boxes, not summed children");
     check(result.boxes[1].border_box == Rect{{-8, -50}, {80, 100}} &&
-        result.boxes[2].border_box.origin == Point{-8, -50},
-        "Nested Stack descendants must receive the ordinary ancestor scroll offset");
-    check(result.boxes[1].clip == Rect{{0, 0}, {80, 60}} &&
-        result.boxes[2].clip == Rect{{0, 0}, {72, 50}},
-        "Stack must retain intersected ancestor padding-box clips");
+              result.boxes[2].border_box.origin == Point{-8, -50},
+          "Nested Stack descendants must receive the ordinary ancestor scroll offset");
+    check(result.boxes[1].clip == Rect{{0, 0}, {80, 60}} && result.boxes[2].clip == Rect{{0, 0}, {72, 50}},
+          "Stack must retain intersected ancestor padding-box clips");
 }
 
 std::array<std::uint8_t, 4> pixel(const CapturedImage& image, unsigned x, unsigned y) {
@@ -174,7 +172,7 @@ void paint_and_hit_order() {
         const auto hit = take(hit_test({f.tree.get(), f.styles, &layout}, {4, 4}));
         check(hit.target && hit.target->index == expected, "Topmost visible hit must agree with paint order");
         check(pixel(image, 1, 1) == std::array<std::uint8_t, 4>{0, 255, 0, 255},
-            "Earlier descendants must remain visible outside the overlay");
+              "Earlier descendants must remain visible outside the overlay");
         return layout;
     };
     observe(3, {0, 0, 255, 255});
@@ -198,7 +196,7 @@ void paint_and_hit_order() {
         const auto image = take(frames.capture({0, {20, 20}, 1, {20, 20}, &paint}));
         const auto hit = take(hit_test({f.tree.get(), f.styles, &layout}, {14, 5}));
         check(bool(hit.target) == !clipped && pixel(image, 14, 5)[3] == (clipped ? 0 : 255),
-            "Overflowing Stack paint and hits must share the ordinary clip");
+              "Overflowing Stack paint and hits must share the ordinary clip");
     }
 }
 
@@ -208,13 +206,13 @@ void invalid_values() {
     f.styles[1].stack_vertical = static_cast<Align>(9);
     auto result = compute_layout({f.tree.get(), f.styles, {100, 100}, &f.text});
     check(!result && has(result.diagnostics, "unknown_value", "/styles/1/stack_horizontal") &&
-        has(result.diagnostics, "unknown_value", "/styles/1/stack_vertical"),
-        "Invalid Stack placement must report located errors");
+              has(result.diagnostics, "unknown_value", "/styles/1/stack_vertical"),
+          "Invalid Stack placement must report located errors");
     f.styles[1] = {};
     f.styles[0].padding.left = f.styles[0].padding.right = std::numeric_limits<float>::max();
     result = compute_layout({f.tree.get(), f.styles, {100, 100}, &f.text});
     check(!result && has(result.diagnostics, "non_finite_geometry", "/nodes/0"),
-        "Stack geometry overflow must reject the entire candidate");
+          "Stack geometry overflow must reject the entire candidate");
 }
 } // namespace
 

@@ -18,9 +18,9 @@ inline constexpr std::size_t max_capture_bytes = std::size_t(256) << 20;
 // declaration the run is core-only and produces no images. No backend is chosen or substituted.
 struct OffscreenInput {
     const ReplayRecording* recording = nullptr;
-    TextShaper* text = nullptr;               // The service the recording's environment declares.
-    std::optional<CaptureBackend> capture;    // Declared completed-frame backend configuration.
-    FrameCapture* frames = nullptr;           // Required exactly when capture is declared.
+    TextShaper* text = nullptr;            // The service the recording's environment declares.
+    std::optional<CaptureBackend> capture; // Declared completed-frame backend configuration.
+    FrameCapture* frames = nullptr;        // Required exactly when capture is declared.
 };
 
 // Run conditions a comparison must match before judging differences.
@@ -39,11 +39,11 @@ enum class FrameStatus : std::uint8_t {
 // Completed frame of one replay generation.
 struct OffscreenFrame {
     std::size_t generation = 0;
-    Size logical_size;   // The generation's viewport.
+    Size logical_size; // The generation's viewport.
     float device_scale = 1;
     CaptureExtent extent;
     FrameStatus status = FrameStatus::not_declared;
-    std::optional<CapturedImage> image; // Present exactly when captured.
+    std::optional<CapturedImage> image;         // Present exactly when captured.
     std::chrono::microseconds animation_time{}; // Explicit replay clock of this generation.
     bool operator==(const OffscreenFrame&) const = default;
 };
