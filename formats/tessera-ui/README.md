@@ -34,7 +34,7 @@ The caller must supply `start_game` in `ValidationContext.actions` to accept thi
 | Node `id` | No | Nonempty UTF-8 string without ASCII controls; unique across the document |
 | Node `classes` | No | Ordered array of distinct nonempty UTF-8 identifiers; default empty |
 | Node `properties` | No | Object following the model's property vocabulary; default empty |
-| Node `events` | No | Object of `activate`/`cancel` to registered host-action identifiers; default empty |
+| Node `events` | No | Object of `activate`/`cancel` and tree-branch `expand`/`collapse` to registered host-action identifiers; default empty |
 | Node `children` | No | Ordered array of nodes; default empty; Text must be a leaf |
 
 Identifiers reject U+0000–U+001F and U+007F; no other normalization is performed. Case and Unicode bytes are significant. A reference is an object containing exactly `ref`, whose value is an author ID. Forward references are allowed. Missing targets fail; this slice validates existence only, without relationship/focus behavior.
@@ -54,6 +54,8 @@ Unknown fields fail at every schema level. Unknown properties and bindings fail 
 Box-only boolean `modal` is another additive v1 property (absent: false). At most one true marker is allowed; it requires a stable ID and must be the last direct root child, after Popup/Tooltip siblings. It cannot also carry `popup_anchor` or a layer-level `activate` binding. Popups cannot anchor to it or its descendants. Closure uses ordinary `display: none` styles, not a serialized host callback/open-state mechanism. [Layout](../../docs/architecture/layout.md#implemented-modal-placement), [input](../../docs/architecture/input.md#implemented-modal-interaction) and [semantics](../../docs/architecture/semantics.md#implemented-prototype-projection) own its bounded placement, eligibility and `dialog` role. Older readers reject the unknown marker; ordinary Box/Text identity and canonical encoding remain unchanged.
 
 ## Canonical output
+
+The additive collection vocabulary remains version 1. Box-only `collection_role` is `list`, `tree`, `list_item` or `tree_item`. Items are direct children of their matching collection. Optional boolean `selected` belongs only to items; optional boolean `expanded` belongs only to tree items (absence denotes a leaf). Optional `tree_parent` is a strict reference to an earlier logical ancestor item in the same flat tree. Logical subtrees must be contiguous in preorder and at most 64 levels deep. Expansion bindings require a tree item with expanded state. [Collection authoring](../../docs/guides/tree-list.md) explicitly hides collapsed rows through styles and owns application selection/expansion; properties do not mutate host state or automatically change document styles. Older readers reject this new vocabulary. Existing documents keep their canonical encoding.
 
 - UTF-8 without BOM, compact JSON, exactly one trailing LF.
 - Every object uses ascending string byte order, including properties and metadata.

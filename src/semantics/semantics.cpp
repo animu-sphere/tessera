@@ -3,6 +3,7 @@
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
 #include "../detail/targeting.hpp"
+#include "../detail/collection.hpp"
 #include <algorithm>
 #include <utility>
 
@@ -37,11 +38,21 @@ public:
         const auto& boxes = input_.layout->boxes;
         // Nearest included entry for each box, or no_semantic_parent.
         std::vector<std::uint32_t> owner(boxes.size(), no_semantic_parent);
+        std::vector<std::uint32_t> by_node(input_.tree->size(), no_semantic_parent);
         std::vector<std::string> content;
         for (std::size_t i = 0; i < boxes.size(); ++i) {
             const auto& box = boxes[i];
             const auto& node = *input_.tree->get(box.node);
-            const auto inherited = box.parent == no_layout_parent ? no_semantic_parent : owner[box.parent];
+            auto inherited = box.parent == no_layout_parent ? no_semantic_parent : owner[box.parent];
+            auto logical = effective_property(node, property_names::tree_parent);
+            while (logical) {
+                const auto parent = *input_.tree->find(std::get<NodeReference>(*logical).id);
+                if (by_node[parent.index] != no_semantic_parent) {
+                    inherited = by_node[parent.index];
+                    break;
+                }
+                logical = effective_property(*input_.tree->get(parent), property_names::tree_parent);
+            }
             owner[i] = inherited;
             if (!box.visible) continue;
 
@@ -50,11 +61,17 @@ public:
             const auto* text = text_of(node);
             std::optional<SemanticRole> role;
             const auto* separator = effective_property(node, property_names::separator);
+            const auto collection = detail::collection_role(node);
             if (detail::modal(node)) role = SemanticRole::dialog;
+            else if (collection == "list") role = SemanticRole::list;
+            else if (collection == "tree") role = SemanticRole::tree;
+            else if (collection == "list_item") role = SemanticRole::list_item;
+            else if (collection == "tree_item") role = SemanticRole::tree_item;
             else if (separator && std::get<bool>(*separator)) role = SemanticRole::separator;
             else if (activate) role = SemanticRole::button;
             else if (text && !(inherited != no_semantic_parent &&
-                (tree_.nodes[inherited].role == SemanticRole::button || tree_.nodes[inherited].role == SemanticRole::separator)))
+                (tree_.nodes[inherited].role == SemanticRole::button || tree_.nodes[inherited].role == SemanticRole::separator ||
+                 tree_.nodes[inherited].role == SemanticRole::list_item || tree_.nodes[inherited].role == SemanticRole::tree_item)))
                 role = SemanticRole::text;
             else if (box.parent == no_layout_parent && node.kind == NodeKind::box) role = SemanticRole::root;
             if (!role) {
@@ -69,12 +86,22 @@ public:
             entry.focusable = targeting_.focusable(i);
             entry.focused = entry.focusable && input_.focused == box.node;
             if (activate && entry.enabled) entry.actions.push_back({"activate", *activate});
+            if (const auto* selected = effective_property(node, property_names::selected))
+                entry.selected = std::get<bool>(*selected);
+            if (const auto* expanded = effective_property(node, property_names::expanded)) {
+                entry.expanded = std::get<bool>(*expanded);
+                const auto binding_name = *entry.expanded ? "collapse" : "expand";
+                const auto action = node.events.find(binding_name);
+                if (entry.enabled && action != node.events.end())
+                    entry.actions.push_back({binding_name, action->second});
+            }
             if (const auto* reference = effective_property(node, property_names::labelled_by)) {
                 entry.labelled_by = input_.tree->find(std::get<NodeReference>(*reference).id);
                 subtree_text(*input_.tree->get(*entry.labelled_by), entry.name);
                 if (!entry.name.empty()) entry.name_source = NameSource::relationship;
             }
             owner[i] = static_cast<std::uint32_t>(tree_.nodes.size());
+            by_node[box.node.index] = owner[i];
             tree_.nodes.push_back(std::move(entry));
             content.emplace_back(text ? *text : std::string());
         }
@@ -121,7 +148,9 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
     std::vector<Diagnostic> warnings;
     for (const auto& entry : tree.nodes) {
         if ((entry.role == SemanticRole::button || entry.role == SemanticRole::separator ||
-             entry.role == SemanticRole::dialog) && entry.name.empty())
+             entry.role == SemanticRole::dialog || entry.role == SemanticRole::list ||
+             entry.role == SemanticRole::tree || entry.role == SemanticRole::list_item ||
+             entry.role == SemanticRole::tree_item) && entry.name.empty())
             warnings.push_back({"missing_name", Severity::warning, "/nodes/" + std::to_string(entry.node.index),
                                 "Give the control visible Text content or a labelled_by reference to named text.", {}});
     }

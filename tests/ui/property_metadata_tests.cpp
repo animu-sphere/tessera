@@ -43,6 +43,18 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
     tessera::UiNode child;
     child.id = "child";
     child.kind = kind;
+    if (except == "collection_role" || except == "selected" || except == "expanded" || except == "tree_parent") {
+        result.root.properties["collection_role"] = std::string("tree");
+        if (kind == tessera::NodeKind::box && except != "collection_role")
+            child.properties["collection_role"] = std::string("tree_item");
+        if (except == "tree_parent") {
+            tessera::UiNode parent;
+            parent.id = "parent";
+            parent.properties["collection_role"] = std::string("tree_item");
+            parent.properties["expanded"] = true;
+            result.root.children.push_back(std::move(parent));
+        }
+    }
     for (const auto& descriptor : tessera::property_descriptors()) {
         if (descriptor.name != except && tessera::contains(descriptor.required, kind))
             child.properties.emplace(descriptor.name, sample(descriptor.type));
@@ -53,7 +65,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 10, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 14, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");
@@ -89,11 +101,22 @@ void descriptor_table() {
 // Every descriptor/kind/type combination must agree with validation and JSON v1 encoding.
 void validation_and_encoding_agreement() {
     for (const auto& descriptor : tessera::property_descriptors()) {
-        const auto path = "/root/children/0/properties/" + std::string(descriptor.name);
+        const auto child_index = descriptor.name == "tree_parent" ? 1u : 0u;
+        const auto path = "/root/children/" + std::to_string(child_index) + "/properties/" + std::string(descriptor.name);
         for (const auto kind : kinds) {
             for (const auto type : types) {
                 auto candidate = document(kind, descriptor.name);
-                candidate.root.children[0].properties.insert_or_assign(std::string(descriptor.name), sample(type));
+                auto value = sample(type);
+                auto encoding = encoded(type);
+                if (descriptor.name == "collection_role" && type == tessera::PropertyType::string) {
+                    value = std::string("tree_item");
+                    encoding = "\"tree_item\"";
+                }
+                if (descriptor.name == "tree_parent" && type == tessera::PropertyType::reference) {
+                    value = tessera::NodeReference{"parent"};
+                    encoding = R"({"ref":"parent"})";
+                }
+                candidate.root.children[child_index].properties.insert_or_assign(std::string(descriptor.name), value);
                 const auto errors = tessera::validate(candidate);
                 if (!tessera::contains(descriptor.accepted, kind)) {
                     check(has(errors, "unknown_property", path), "Unaccepted node kind must reject the property");
@@ -102,7 +125,7 @@ void validation_and_encoding_agreement() {
                 } else {
                     check(errors.empty(), "Descriptor-typed value must validate");
                     const auto saved = tessera::save_document(candidate);
-                    check(saved && saved.value->find('"' + std::string(descriptor.name) + "\":" + encoded(type)) !=
+                    check(saved && saved.value->find('"' + std::string(descriptor.name) + "\":" + encoding) !=
                                        std::string::npos, "Encoded name/value differs from the descriptor");
                     const auto loaded = tessera::load_document(*saved.value);
                     check(loaded && *loaded.value == candidate, "Descriptor-typed value must round trip");
@@ -114,11 +137,11 @@ void validation_and_encoding_agreement() {
                 check(has(errors, "missing_property", path), "Required property absence must be rejected");
             } else {
                 check(errors.empty(), "Optional property absence must validate");
-                const auto* value = tessera::effective_property(absent.root.children[0], descriptor.name);
+                const auto* value = tessera::effective_property(absent.root.children[child_index], descriptor.name);
                 check(descriptor.absent_value ? value == &*descriptor.absent_value : value == nullptr,
                       "Effective absent value must come from the descriptor");
                 const auto restored = tessera::load_document(*tessera::save_document(absent).value);
-                check(restored && !restored.value->root.children[0].properties.contains(descriptor.name),
+                check(restored && !restored.value->root.children[child_index].properties.contains(descriptor.name),
                       "Absent values must not be materialized");
             }
         }

@@ -81,7 +81,9 @@ void capture_joins_one_generation() {
               start.events.at("activate") == "start-game",
           "Authored identity, hierarchy, classes, and events");
     const std::vector<tessera::PropertyObservation> box_properties{
+        {"collection_role", std::nullopt, false},
         {"disabled", tessera::Property{false}, false},
+        {"expanded", std::nullopt, false},
         {"focusable", tessera::Property{true}, true},
         {"labelled_by", std::nullopt, false},
         {"modal", tessera::Property{false}, false},
@@ -89,7 +91,9 @@ void capture_joins_one_generation() {
         {"popup_anchor", std::nullopt, false},
         {"popup_gap", tessera::Property{4.0}, false},
         {"popup_side", tessera::Property{std::string("bottom")}, false},
-        {"separator", tessera::Property{false}, false}};
+        {"selected", std::nullopt, false},
+        {"separator", tessera::Property{false}, false},
+        {"tree_parent", std::nullopt, false}};
     check(start.properties == box_properties, "Box properties follow descriptors with absence values");
     check(elements[1].properties.size() == 5 && elements[1].properties[4].name == "text" &&
               elements[1].properties[4].authored,

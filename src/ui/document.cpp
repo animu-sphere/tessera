@@ -1,6 +1,7 @@
 #include <tessera/ui/document.hpp>
 #include <tessera/ui/property_metadata.hpp>
 #include "json_detail.hpp"
+#include "../detail/collection.hpp"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -77,9 +78,12 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
     std::vector<std::pair<std::string, std::string>> anchors;
     std::vector<std::string> popups;
     std::size_t modal_count = 0;
+    struct TreeEntry { const UiNode* node; const UiNode* owner; std::string path; };
+    std::vector<TreeEntry> tree_entries;
+    std::map<const UiNode*, std::size_t> selected_counts;
     std::size_t count = 0;
-    std::function<void(const UiNode&, const std::string&, std::size_t)> visit;
-    visit = [&](const UiNode& node, const std::string& path, std::size_t depth) {
+    std::function<void(const UiNode&, const std::string&, std::size_t, const UiNode*)> visit;
+    visit = [&](const UiNode& node, const std::string& path, std::size_t depth, const UiNode* parent) {
         if (++count > max_document_nodes) return;
         if (depth > max_document_depth) {
             error("depth_limit", path, "Document exceeds the node nesting limit (64).");
@@ -154,20 +158,76 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
                 gap && (!std::isfinite(*gap) || *gap < 0 || *gap > std::numeric_limits<float>::max()))
                 error("popup_gap", path + "/properties/popup_gap", "Use a finite, nonnegative logical gap within float range.");
         }
+        const auto role = detail::collection_role(node);
+        if (node.properties.contains(property_names::collection_role) &&
+            role != "list" && role != "tree" && !detail::collection_item(role))
+            error("collection_role", path + "/properties/collection_role", "Choose list, tree, list_item, or tree_item.");
+        const auto parent_role = parent ? detail::collection_role(*parent) : std::string_view{};
+        if ((role == "list_item" && parent_role != "list") ||
+            (role == "tree_item" && parent_role != "tree"))
+            error("collection_parent", path, "Place list items directly under a list and tree items directly under a tree.");
+        if (role == "tree_item" || parent_role == "tree") tree_entries.push_back({&node, parent, path});
+        if (node.properties.contains(property_names::tree_parent) && role != "tree_item")
+            error("collection_state", path + "/properties/tree_parent", "Only tree items have a logical tree parent.");
+        if (node.properties.contains(property_names::selected) && !detail::collection_item(role))
+            error("collection_state", path + "/properties/selected", "Only collection items have selection state.");
+        if (node.properties.contains(property_names::expanded) && role != "tree_item")
+            error("collection_state", path + "/properties/expanded", "Only tree items have expansion state.");
+        if (const auto* selected = effective_property(node, property_names::selected);
+            selected && std::get_if<bool>(selected) && std::get<bool>(*selected) && detail::collection_item(role) &&
+            ++selected_counts[parent] > 1)
+            error("collection_selection", path + "/properties/selected", "Select at most one item in each collection.");
+        if ((role == "tree" || role == "list") && node.events.contains("activate"))
+            error("collection_action", path + "/events/activate", "Put selection actions on collection items.");
+        const auto marked = [&](std::string_view name) {
+            const auto* value = effective_property(node, name);
+            const auto* flag = value ? std::get_if<bool>(value) : nullptr;
+            return flag && *flag;
+        };
+        if (!role.empty() && (marked(property_names::modal) || marked(property_names::separator)))
+            error("collection_role", path + "/properties/collection_role", "Do not combine a collection role with modal or separator markers.");
         for (const auto& [event, action] : node.events) {
             const auto location = path + "/events/" + detail::pointer_token(event);
-            if (event != "activate" && event != "cancel")
-                error("unknown_event", location, "Supported binding names are activate and cancel.");
+            if (event != "activate" && event != "cancel" && event != "expand" && event != "collapse")
+                error("unknown_event", location, "Supported bindings are activate, cancel, expand, and collapse.");
+            if ((event == "expand" || event == "collapse") &&
+                (role != "tree_item" || !node.properties.contains(property_names::expanded)))
+                error("collection_event", location, "Expansion bindings require a tree item with expanded state.");
             check_string(action, location, true);
             if (!context.actions.contains(action))
                 error("unknown_action", location, "Register host action '" + action + "' in ValidationContext before loading.");
         }
         extensions(node.extensions, path + "/extensions", depth * 2);
         for (std::size_t i = 0; i < node.children.size() && count <= max_document_nodes; ++i)
-            visit(node.children[i], path + "/children/" + std::to_string(i), depth + 1);
+            visit(node.children[i], path + "/children/" + std::to_string(i), depth + 1, &node);
     };
     extensions(document_extensions, "/extensions", 1);
-    visit(root, "/root", 1);
+    visit(root, "/root", 1, nullptr);
+    std::vector<const UiNode*> tree_ancestors;
+    const UiNode* tree_owner = nullptr;
+    for (const auto& entry : tree_entries) {
+        if (entry.owner != tree_owner) tree_ancestors.clear();
+        tree_owner = entry.owner;
+        if (detail::collection_role(*entry.node) != "tree_item") {
+            tree_ancestors.clear();
+            continue;
+        }
+        const auto* value = effective_property(*entry.node, property_names::tree_parent);
+        const auto* parent = value ? std::get_if<NodeReference>(value) : nullptr;
+        if (!parent) tree_ancestors.clear();
+        else {
+            while (!tree_ancestors.empty() && tree_ancestors.back()->id != parent->id) tree_ancestors.pop_back();
+            if (tree_ancestors.empty())
+                error("tree_parent", entry.path + "/properties/tree_parent",
+                    "Reference an earlier ancestor item in the same tree; keep logical subtrees contiguous in preorder.");
+            else if (!tree_ancestors.back()->properties.contains(property_names::expanded))
+                error("tree_parent", entry.path + "/properties/tree_parent",
+                    "A logical parent must declare expanded state.");
+        }
+        tree_ancestors.push_back(entry.node);
+        if (tree_ancestors.size() > max_document_depth)
+            error("depth_limit", entry.path + "/properties/tree_parent", "Keep logical tree depth within 64 levels.");
+    }
     if (count > max_document_nodes) error("node_limit", "/root", "Document exceeds the node limit (10000).");
     for (const auto& [id, path] : references) {
         if (!ids.contains(id)) error("invalid_reference", path, "No node has author ID '" + id + "'.");

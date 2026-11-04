@@ -22,4 +22,8 @@ The [dedicated theme-selection example](../guides/popup-tooltip.md) delivers a r
 
 The dedicated [settings-reset confirmation](../guides/modal-dialog.md) delivers a single root Modal and title-labelled Dialog: background input/semantic actions are blocked, keyboard/gamepad focus stays inside, Cancel/Escape closes without resetting, confirmation uses an ordinary command, and closure restores a surviving eligible opener. [Support](../reference/support-matrix.md#modal-and-dialog-evidence--2026-11-04) owns validation evidence and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No Modal/Dialog work items remain.
 
-Choose another application operation from the [layout follow-ups](backlog.md#layout-follow-ups) before promoting further scope. Absolute positioning, advanced Grid placement, generalized Portal and nested/stacked modal lifetimes remain inactive.
+## TreeView and ListView
+
+The [folder/asset browser](../guides/tree-list.md) delivers controlled single selection, branch expansion/collapse and dependent detail text through ordinary commands. Pointer and keyboard/gamepad input share item actions; collapsed descendant selection survives, focus recovers to its logical ancestor, and scrolling/resize retain state. [Support](../reference/support-matrix.md) owns validation scope and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No single-selection TreeView/ListView work items remain.
+
+Choose another application operation from the [backlog](backlog.md) before promoting further scope. Multiple selection, virtualization, absolute positioning, advanced Grid placement, generalized Portal and nested/stacked modal lifetimes remain inactive.

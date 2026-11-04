@@ -3,6 +3,7 @@
 #include <set>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 namespace tessera::authoring {
 namespace detail {
@@ -15,6 +16,7 @@ struct ElementData {
     std::optional<Value<TextEditState>> editing;
     bool selection = false;
     std::optional<std::string> action;
+    std::map<std::string, std::string, std::less<>> events;
     std::map<std::string, Property, std::less<>> properties;
     std::vector<Element> children;
     std::vector<Diagnostic> diagnostics;
@@ -22,6 +24,7 @@ struct ElementData {
 
 struct Lowerer {
     static Element split_pane(Element, Element, float, std::string, SplitPaneProps, FlexDirection);
+    static Element collection(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps, bool);
     Presentation result;
     std::vector<const ElementData*> elements;
     std::vector<Diagnostic> errors;
@@ -64,6 +67,7 @@ struct Lowerer {
         node.id = data.props.id;
         node.classes = data.props.classes;
         node.properties = data.properties;
+        node.events = data.events;
         if (data.text) {
             const auto* literal = std::get_if<std::string>(&data.text->value_);
             node.properties["text"] = literal ? *literal : std::string{};
@@ -79,7 +83,7 @@ struct Lowerer {
         }
         if (data.action) {
             node.events["activate"] = *data.action;
-            node.properties["focusable"] = true;
+            node.properties.try_emplace("focusable", true);
             node.properties["disabled"] = false;
         }
         NodeSource source;
@@ -92,7 +96,11 @@ struct Lowerer {
             source.unmapped_properties.insert(name);
             if (data.props.source) source.property_arguments[name] = *data.props.source;
         }
-        if (data.action && data.props.source) source.event_arguments["activate"] = *data.props.source;
+        if (data.props.source)
+            for (const auto& [event, action] : node.events) {
+                (void)action;
+                source.event_arguments[event] = *data.props.source;
+            }
         result.sources.nodes.push_back(std::move(source));
         result.styles.push_back(data.props.style);
         auto style_errors = validate(data.props.style, path + "/style");
@@ -271,6 +279,104 @@ Element Stack(std::vector<Element> children, Props props) {
 Element ScrollView(std::vector<Element> children, Props props) {
     props.style.overflow = Overflow::scroll;
     return Column(std::move(children), std::move(props));
+}
+
+Element detail::Lowerer::collection(std::string label, std::optional<std::string> selected,
+    std::vector<TreeItem> items, CollectionProps props, bool tree) {
+    auto data = std::make_shared<ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    const auto source = props.node.source;
+    auto error = [&](const char* code, const char* message) {
+        data->diagnostics.push_back({code, Severity::error, {}, message});
+    };
+    if (prefix.empty()) error("collection_id", "Give the collection a stable nonempty author ID.");
+    if (label.empty()) error("collection_label", "Give the collection a nonempty label.");
+    auto part = [&](std::string id) {
+        return Props{.id = std::move(id), .source = source};
+    };
+    std::set<std::string> keys;
+    bool found_selection = !selected;
+    std::size_t count = 0;
+    std::function<void(const TreeItem&, std::size_t, bool, bool, std::optional<std::string>)> item;
+    item = [&](const TreeItem& value, std::size_t depth, bool shown, bool disabled,
+        std::optional<std::string> parent) {
+        auto entry = std::make_shared<ElementData>();
+        entry->props = part(prefix + "-item-" + value.key);
+        entry->props.style.direction = FlexDirection::row;
+        entry->props.style.padding = Edges{2, 4, 2, static_cast<float>(depth - 1) * 16 + 4};
+        entry->props.style.gap = 4.f;
+        if (!shown) entry->props.style.display = Display::none;
+        entry->action = value.action;
+        disabled = disabled || value.disabled;
+        entry->disabled = disabled;
+        entry->properties["collection_role"] = std::string(tree ? "tree_item" : "list_item");
+        entry->properties["selected"] = selected == value.key;
+        entry->properties["labelled_by"] = NodeReference{prefix + "-label-" + value.key};
+        if (parent) entry->properties["tree_parent"] = NodeReference{*parent};
+        if (value.key.empty() || !keys.insert(value.key).second)
+            error("collection_keys", "Supply unique nonempty item keys across the collection.");
+        if (selected == value.key) found_selection = true;
+        if (++count > max_document_nodes || depth > max_document_depth) {
+            error("collection_limit", "Keep collection items within document depth and node limits.");
+            return;
+        }
+        if (!value.children.empty()) {
+            if (value.toggle_action.empty())
+                error("tree_toggle", "Give each tree branch a host toggle action.");
+            entry->properties["expanded"] = value.expanded;
+            entry->events["expand"] = value.toggle_action;
+            entry->events["collapse"] = value.toggle_action;
+            auto toggle = Button(value.expanded ? "-" : "+", value.toggle_action,
+                {.node = part(prefix + "-toggle-" + value.key)});
+            auto toggle_data = std::make_shared<ElementData>(*toggle.data_);
+            toggle_data->properties["focusable"] = false;
+            entry->children.push_back(Element(std::move(toggle_data)));
+        } else if (value.expanded || !value.toggle_action.empty()) {
+            error("tree_leaf", "Leaves cannot be expanded or declare a toggle action.");
+        }
+        entry->children.push_back(Text(selected == value.key ? "*" : " ", {.source = source}));
+        entry->children.push_back(Text(value.label, part(prefix + "-label-" + value.key)));
+        data->children.push_back(Element(std::move(entry)));
+        for (const auto& child : value.children) {
+            if (count >= max_document_nodes) {
+                error("collection_limit", "Keep collection items within document depth and node limits.");
+                break;
+            }
+            item(child, depth + 1, shown && value.expanded, disabled, prefix + "-item-" + value.key);
+        }
+    };
+    data->children.push_back(Text(std::move(label), part(prefix + "-title")));
+    for (const auto& value : items) {
+        if (count >= max_document_nodes) {
+            error("collection_limit", "Keep collection items within document depth and node limits.");
+            break;
+        }
+        item(value, 1, true, false, std::nullopt);
+    }
+    if (!found_selection) error("collection_selection", "Select an existing item key or use nullopt.");
+    data->props = std::move(props.node);
+    data->props.style.direction = FlexDirection::column;
+    data->props.style.overflow = Overflow::scroll;
+    data->disabled = props.disabled;
+    data->properties["collection_role"] = std::string(tree ? "tree" : "list");
+    data->properties["labelled_by"] = NodeReference{prefix + "-title"};
+    return Element(std::move(data));
+}
+
+Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem> items,
+    CollectionProps props) {
+    std::vector<TreeItem> entries;
+    entries.reserve(std::min(items.size(), max_document_nodes + 1));
+    for (auto& item : items) {
+        if (entries.size() > max_document_nodes) break;
+        entries.push_back({std::move(item.key), std::move(item.label), std::move(item.action), {}, false, item.disabled, {}});
+    }
+    return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(entries), std::move(props), false);
+}
+
+Element TreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem> items,
+    CollectionProps props) {
+    return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(items), std::move(props), true);
 }
 
 Element Grid(std::vector<Element> children, Props props) {

@@ -3,6 +3,7 @@
 #include <tessera/input/pointer.hpp>
 #include <tessera/ui/property_metadata.hpp>
 #include "modal.hpp"
+#include "collection.hpp"
 #include <string_view>
 
 namespace tessera::detail {
@@ -26,6 +27,7 @@ public:
             const auto& box = boxes[i];
             by_node_[box.node.index] = static_cast<std::uint32_t>(i);
             disabled_.push_back(std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::disabled)) ||
+                                tree_ancestor_disabled(*input.tree, *input.tree->get(box.node)) ||
                                 (box.parent != no_layout_parent && disabled_[box.parent]));
             pointer_events_.push_back(std::get<bool>(*effective_property(*input.tree->get(box.node), property_names::pointer_events)) &&
                                       (box.parent == no_layout_parent || pointer_events_[box.parent]));

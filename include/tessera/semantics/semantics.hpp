@@ -13,20 +13,21 @@
 namespace tessera {
 
 // Prototype in-process projection; not a serialized schema or stable API. Roles are derived from the
-// existing vocabulary, including the Box separator and modal markers.
+// existing vocabulary, including the Box separator/modal markers and bounded collection roles.
 enum class SemanticRole : std::uint8_t {
     root,   // The document root when it has no other role.
     button, // A node with an `activate` binding. Text descendants name it and get no entries.
     text,   // A Text node outside a button.
     separator, // A Box with separator=true; its activate binding requests host adjustment.
     dialog, // The root-sibling Modal; labelled_by supplies its title.
+    list, tree, list_item, tree_item,
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 
 inline constexpr std::uint32_t no_semantic_parent = std::numeric_limits<std::uint32_t>::max();
 
 struct SemanticAction {
-    std::string binding; // Event binding name; only "activate" is exposed.
+    std::string binding; // "activate", or the currently applicable tree "expand"/"collapse".
     std::string action;  // Host action name from the node's binding.
     bool operator==(const SemanticAction&) const = default;
 };
@@ -45,6 +46,8 @@ struct SemanticNode {
     bool focusable = false;                // Focus eligibility, as FocusDispatcher decides it.
     bool focused = false;                  // The supplied focus is this eligible node.
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
+    std::optional<bool> selected;          // Collection items only; independent of focus.
+    std::optional<bool> expanded;          // Tree branches only; absent for leaves.
     bool operator==(const SemanticNode&) const = default;
 };
 

@@ -116,7 +116,7 @@ std::vector<Diagnostic> validate(const InputEvent&);
 // Dispatch output. Tessera stores no host callbacks: the host runs each requested action
 // after dispatch returns, and applies resulting mutations at its next update point.
 struct ActionRequest {
-    std::string binding; // "activate" or "cancel".
+    std::string binding; // "activate", "cancel", or tree-branch "expand"/"collapse".
     std::string action;  // A name accepted through ValidationContext::actions.
     NodeHandle target;   // Valid only while the producing tree snapshot is alive.
     bool operator==(const ActionRequest&) const = default;
