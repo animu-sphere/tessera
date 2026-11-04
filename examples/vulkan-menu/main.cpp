@@ -31,11 +31,13 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -879,8 +881,14 @@ struct App {
         if (format.format == VK_FORMAT_B8G8R8A8_SRGB)
             for (std::size_t i = 0; i < pixels.size(); i += 4) std::swap(pixels[i], pixels[i + 2]);
         const auto name = std::string(menu.glyph_cache ? "vulkan-menu-real-" : "vulkan-menu-") + std::to_string(++captures) + ".ppm";
-        std::filesystem::create_directories(TESSERA_GPU_ARTIFACT_DIR);
-        std::ofstream file(std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR) / name, std::ios::binary);
+        wchar_t* output = nullptr;
+        std::size_t length = 0;
+        if (_wdupenv_s(&output, &length, L"TESSERA_GPU_OUTPUT") != 0)
+            throw std::runtime_error("Cannot read TESSERA_GPU_OUTPUT");
+        const std::unique_ptr<wchar_t, decltype(&std::free)> owner(output, &std::free);
+        const auto directory = output && *output ? std::filesystem::path(output) : std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR);
+        std::filesystem::create_directories(directory);
+        std::ofstream file(directory / name, std::ios::binary);
         file << "P6\n" << extent.width << ' ' << extent.height << "\n255\n";
         for (std::size_t i = 0; i < pixels.size(); i += 4) file.write(reinterpret_cast<const char*>(pixels.data() + i), 3);
         if (!file) return fail("Cannot write " + name);

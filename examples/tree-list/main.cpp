@@ -3,6 +3,7 @@
 #include <tessera/input/scroll.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/render/paint.hpp>
+#include "../fixtures.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -86,7 +87,7 @@ struct View {
 };
 } // namespace
 
-int main() {
+int tessera::examples::run_tree_list(const FrameObserver& observer) {
     try {
         Host host;
         ui::Session session;
@@ -143,6 +144,10 @@ int main() {
             (void)take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text}));
             session.publish();
         };
+        auto capture = [&](std::string_view name) {
+            if (observer) observer(name, viewport,
+                take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
+        };
         auto execute = [&](const std::vector<ActionRequest>& requests, CommandSource source) {
             for (const auto& request : requests) {
                 const auto semantic = view.semantic();
@@ -178,10 +183,13 @@ int main() {
             refresh(true);
         };
         refresh();
+        capture("tree-initial");
         click("folders-toggle-workspace");
         require(host.expanded && host.toggles == 1 && host.asset == "cube", "Expansion must preserve selection/details");
+        capture("tree-expanded");
         click("assets-label-sphere");
         require(host.asset == "sphere" && host.selections == 1, "Pointer selection must update details once");
+        capture("tree-selected");
         navigate({time += 1us, KeyDown{Key::home}});
         navigate({time += 1us, Activate{}});
         require(host.asset == "cube" && host.selections == 2, "Keyboard must select the same list command");
@@ -194,6 +202,7 @@ int main() {
         navigate({time += 1us, Navigate{Direction::left}}, CommandSource::gamepad);
         require(!host.expanded && host.folder == "materials" && host.asset == "paint",
             "Collapsing a selected descendant must retain selection/details");
+        capture("tree-collapsed");
         navigate({time += 1us, Navigate{Direction::right}}, CommandSource::gamepad);
         click("folders-label-workspace");
         viewport = {140, 190};
@@ -206,13 +215,20 @@ int main() {
         store_scroll(take(route_scroll(view.hit(), {view.center("assets"), {0, -20}})).updates);
         refresh();
         require(host.asset == "paint" && host.folder == "all", "Wheel scrolling must not mutate browser state");
+        capture("tree-narrow-scrolled");
         const auto semantics = take(build_semantic_tree(view.semantic()));
         require(std::any_of(semantics.nodes.begin(), semantics.nodes.end(), [](const SemanticNode& node) {
             return node.id == "assets-item-paint" && node.selected == true;
         }), "Inspection must observe the selected asset");
         std::cout << "TreeView/ListView browser: pointer, keyboard/gamepad, details, collapse, resize and scroll passed.\n";
+        return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
+
 }
+
+#ifndef TESSERA_EXAMPLE_LIBRARY
+int main() { return tessera::examples::run_tree_list({}); }
+#endif

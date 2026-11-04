@@ -231,7 +231,18 @@ struct SyntheticGlyphs final : GlyphRasterizer {
 };
 } // namespace
 
+#ifdef TESSERA_EXAMPLE_LIBRARY
+#include "../fixtures.hpp"
+int tessera::examples::run_settings_starter(const FrameObserver& observer) {
+    const int argc = 1;
+    char** argv = nullptr;
+    const auto frame_observer = [&](std::string_view name, Size size, const UiDrawList& paint) {
+        if (observer) observer(name, size, paint);
+    };
+#else
 int main(int argc, char** argv) {
+    const auto frame_observer = [](std::string_view, Size, const UiDrawList&) {};
+#endif
     try {
         const bool native = argc == 2 && (std::string_view(argv[1]) == "--native" ||
             std::string_view(argv[1]) == "--native-smoke");
@@ -766,6 +777,7 @@ int main(int argc, char** argv) {
         focus.reset();
         const auto command_start = sequence, edit_start = host.username.revision;
         const auto initial = observe();
+        frame_observer("settings-initial", canvas, accepted.paint);
         const auto unfocused = observations();
         send(KeyDown{Key::a, {.control = true}});
         require(observations() == unfocused, "Unfocused username consumed Select All");
@@ -953,6 +965,7 @@ int main(int argc, char** argv) {
         const auto before_theme = host.draft;
         seek("theme-trigger"); send(Activate{}); focused("theme-trigger");
         require(host.theme_open && name(accepted, "theme-option-system") == "* System", "Dropdown did not open");
+        frame_observer("settings-dropdown", canvas, accepted.paint);
         (void)observe();
         send(FocusNext{}); focused("theme-option-system");
         send(Cancel{}); focused("theme-trigger");
@@ -1008,6 +1021,7 @@ int main(int argc, char** argv) {
         send(KeyDown{Key::left}); send(KeyDown{Key::down, {}, true});
         require(observations() == minimum, "Slider underflow executed a command");
         require(observe() != initial_volume_image, "Slider change did not change visible pixels");
+        frame_observer("settings-slider", canvas, accepted.paint);
         send(KeyDown{Key::end});
         require(host.draft.volume == 100, "Slider End did not reach maximum");
         const auto maximum = observations();
@@ -1087,6 +1101,7 @@ int main(int argc, char** argv) {
         send(PointerMove{{9}, split_position}, CommandSource::pointer);
         require(host.sidebar_size == 172 && splitter.dragging() && capture() != before_split_image,
             "Settings split did not resize visible panes through replacement");
+        frame_observer("settings-split-dragged", canvas, accepted.paint);
         send(PointerCancel{{9}}, CommandSource::pointer);
         split_position.x += 32;
         send(PointerUp{{9}, split_position}, CommandSource::pointer);
@@ -1100,6 +1115,7 @@ int main(int argc, char** argv) {
         auto narrow = take(stage(host.selected, offsets, focus, true, host.draft.theme, host.theme_open, host.draft.volume));
         session.publish(); accept(std::move(narrow));
         require(host.sidebar_size == 148, "Settings parent resize did not clamp its canonical split");
+        frame_observer("settings-narrow", canvas, accepted.paint);
         canvas = viewport;
         auto wide = take(stage(host.selected, offsets, focus, true, host.draft.theme, host.theme_open, host.draft.volume));
         session.publish(); accept(std::move(wide));
@@ -1112,9 +1128,11 @@ int main(int argc, char** argv) {
         seek("username"); send(tessera::TextInput{"cancel"});
         seek("cancel"); send(Activate{});
         require(host.draft == before_split_apply && host.sidebar_size == 148, "Cancel restored a stale split");
+        frame_observer("settings-restored", canvas, accepted.paint);
         (void)observe();
         std::cout << host.saves.size() << " owned saves; " << sequence << " host commands; " << extent.width << 'x' << extent.height
             << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";
+        return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
