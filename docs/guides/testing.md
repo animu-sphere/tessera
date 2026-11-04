@@ -1,139 +1,92 @@
 # Testing strategy
 
-Test algorithms and boundaries heavily; test appearance selectively. Keep tests deterministic, compact, and meaningful. Do not build exhaustive screenshot coverage for every widget.
+Test algorithms and boundaries heavily; appearance selectively. Prefer deterministic numeric/event assertions to a screenshot catalog. Commands are in [development](development.md); executed results belong in PR/CI, current scope and limits in [support](../reference/support-matrix.md).
 
 ## Verification ownership
 
-Guarantees belong at the boundary that implements them; consumers verify their use. When a change touches a subsystem, run that subsystem's owner tests; when it adds an application operation, test the operation through the consumer fixture. Unchanged runtime guarantees are covered by the owner tests below and need no new consumer proof.
+Run the owner tests for changed guarantees and one consumer smoke for the application operation. Do not duplicate unchanged runtime proofs in every consumer.
 
-| Property | Owner test | Consumer check |
+| Property | Owner tests | Consumer check |
 | --- | --- | --- |
-| Once-only sequence consumption and stale command/activation rejection | [commands](../../tests/commands/commands_tests.cpp) | The intended command reaches the handler once |
-| Logical text draft/selection and edit owner/revision rejection | [text_edit](../../tests/input/text_edit_tests.cpp) | Correct field routing and one independent-field retention case |
-| Focus recovery, pointer cancellation and scroll geometry | [focus](../../tests/input/focus_tests.cpp), [pointer](../../tests/input/pointer_tests.cpp), [scroll](../../tests/input/scroll_tests.cpp) | A representative reachable operation |
-| Root-modal scope, dismissal/recovery and bounded dialog geometry | [modal](../../tests/input/modal_tests.cpp) | [Settings-reset confirmation](../../examples/modal-dialog/main.cpp) through ordinary commands |
-| Collection order, logical ancestry, selected/expanded semantics and collapse focus recovery | [collection](../../tests/input/collection_tests.cpp) | [Folder/asset browser](../../examples/tree-list/main.cpp) selection and dependent details through ordinary commands |
-| Menu/context triggers, point placement, ordered/wrapped command focus and dismissal | [menu](../../tests/input/menu_tests.cpp), [popup](../../tests/input/popup_tests.cpp) | [Asset actions](../../examples/menu-context/main.cpp) through ordinary commands |
-| Accepted settings/view retention after rejected staging | [Diagnostics fixture](../../tests/integrations/renderer_diagnostics_tests.cpp), [Settings fixture](../../examples/settings/main.cpp) | A new staging branch and retained unrelated state |
-| Deterministic CPU pixels and replay processing | [cpu_renderer](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [offscreen_runner](../../tests/inspection/offscreen_runner_tests.cpp) | Image comparisons only for changed drawing behavior |
+| Once-only consumption and stale commands | [commands](../../tests/commands/commands_tests.cpp) | Intended handler runs once |
+| Draft/selection and revision rejection | [text edit](../../tests/input/text_edit_tests.cpp) | Field routing and independent-field retention |
+| Focus, pointer cancellation and scroll | [focus](../../tests/input/focus_tests.cpp), [pointer](../../tests/input/pointer_tests.cpp), [scroll](../../tests/input/scroll_tests.cpp) | Reachable application operation |
+| Modal scope and bounded dialog geometry | [modal](../../tests/input/modal_tests.cpp) | [Reset confirmation](../../examples/modal-dialog/main.cpp) |
+| Collection order and logical ancestry | [collection](../../tests/input/collection_tests.cpp) | [Browser](../../examples/tree-list/main.cpp) selection/details |
+| Menu triggers, placement and dismissal | [menu](../../tests/input/menu_tests.cpp), [popup](../../tests/input/popup_tests.cpp) | [Asset actions](../../examples/menu-context/main.cpp) |
+| Accepted settings after rejected staging | [Diagnostics](../../tests/integrations/renderer_diagnostics_tests.cpp), [Settings](../../examples/settings/main.cpp) | New branch and retained unrelated state |
+| CPU pixels and replay | [CPU](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [runner](../../tests/inspection/offscreen_runner_tests.cpp) | Images only for changed drawing behavior |
 
-Add a test for a new failure mode, a new state/command path or an actual regression. Pointer and keyboard/gamepad routing share ordinary commands, so one representative parity check per consumer is enough.
+Add tests for new failure modes, state/command paths and actual regressions. One representative pointer versus keyboard/gamepad parity check per consumer is enough when both share ordinary commands.
 
 ## Validation tiers
 
 | Tier | Scope |
 | --- | --- |
-| 0 Local | Build affected targets; run the affected owner tests and one consumer smoke. Documentation-only changes use the documentation checker. |
-| 1 PR | One representative core environment, runtime/widget contracts with examples OFF. API/build/unknown changes add only the minimal independent core consumer, never copied examples. No example-specific change detection or PR example checks. |
-| 2 Integration/periodic | Full core Debug/Release with examples ON, all example smokes and Diagnostics/Settings fixtures, independent add_subdirectory imports, deterministic CPU/replay checks. Runs after main integration or on a schedule. |
-| 3 Release/platform | Version/tag/changelog consistency, full Debug/Release and add_subdirectory imports, plus optional module, GPU/font/native-host evidence for the supported configuration. FetchContent is manual when its path is affected or recertified. Unavailable hardware checks are unvalidated, never replaced by compile success. |
+| Local | Affected targets, owner tests and consumer smoke; docs-only changes use the docs checker |
+| PR | Representative core Debug contracts, examples OFF; API/build/unknown changes add the minimal independent core import |
+| Integration/periodic | Full core Debug/Release, examples/fixtures, add_subdirectory imports and CPU/replay |
+| Release/platform | Metadata consistency and full Debug/Release, plus optional module/GPU/font/native evidence needed by the release claims |
 
-Repeated Tier 2 failure blocks the next release and takes repair priority. The [development guide](development.md#release-workflow) owns release commands.
+Repeated integration failure takes repair priority before the next release. Unavailable hardware checks are unvalidated, not replaced by compile success. FetchContent is manual when its import path changes or is recertified.
 
 ### Change selection
 
-| Change | PR/local selection |
+| Change | Local selection |
 | --- | --- |
-| Documentation only | Documentation checker |
-| C++ authoring/widget | Authoring, affected widget contract and one consumer |
-| Commands/input/reactive | Affected owner contracts, representative integration and replay |
-| Render/layout | Affected contracts, a CPU fixture and one consumer |
-| Example sources/fixtures | Local: affected example smoke/fixtures. PR: core contracts only; examples are checked after main integration |
-| Public headers | Core contracts and minimal independent add_subdirectory consumer; application API-usage regressions are detected by integration |
-| CMake/import configuration | Core contracts and minimal independent add_subdirectory consumer, not copied applications; manually check FetchContent when its import path is affected |
-| Vulkan/fonts/native host | Affected module build and dedicated rendering/font/platform checks |
-| Release metadata/workflow | Metadata validation and the minimum affected build configuration |
+| Documentation | [Documentation checks](development.md#documentation-checks) |
+| Authoring/widgets | Authoring, affected widget owner and one consumer |
+| Commands/input/reactive | Affected owners, representative integration and replay |
+| Render/layout | Affected owners, CPU fixture and one consumer |
+| Examples | Affected smoke/fixtures; PR CI remains core-only |
+| Public headers / CMake / imports | Core contracts and minimal independent host; manually exercise changed FetchContent paths |
+| Vulkan/fonts/native host | Affected module and rendering/font/platform checks |
+| Release metadata/workflow | Metadata and affected configuration |
 
-Core CTest labels: `contract` for runtime/widget owner checks, `smoke` for quick application/consumer runs, `fixture` for the long Diagnostics/Settings fixtures, and `import` for independent host configure/build/link/run checks. [Runtime registration](../../cmake/TesseraTesting.cmake) and [consumer registration](../../tests/cmake/register.cmake) own membership; the [CI procedure](development.md#ci-scopes-and-reproducible-measurements) selects matching build groups and labels without removing tests. The standard PR `core` suite runs only `contract`; API/build/unknown changes and missing diffs add the `consumer` suite, selecting only `source_consumer_add_subdirectory`. Both keep examples OFF. All example smokes/fixtures and copied application imports run in Debug/Release integration even when those files changed in the PR; discovering those regressions after merge is an intentional trade-off. Documentation-only PRs keep the reporting jobs but skip native build/test phases. Existing manual suites remain unchanged.
+[Runtime registration](../../cmake/TesseraTesting.cmake) and [consumer registration](../../tests/cmake/register.cmake) own membership. [Development](development.md#ci-scopes-and-reproducible-measurements) owns labels, suite selection and CI commands. Copied applications run in integration rather than PR CI; example-only regressions may first appear after merge.
 
-Automatic import checks cover add_subdirectory only. FetchContent remains supported by the source projects and manual [consumer procedure](development.md#source-consumption-workflow), but is not registered even in an unfiltered local or integration CTest run. Historical evidence for both modes is not continuous regression coverage.
-
-The Settings Windows host adds an opt-in `native` label when `TESSERA_TEST_NATIVE_HOST=ON`. Its smoke creates and presents a desktop window, routes window messages and checks accepted application state; run it in a desktop session under the [starter procedure](settings-starter.md#run-in-a-windows-window). Default headless/import runs keep the no-argument consumer check. Injected window messages establish host wiring; physical-device and IME evidence remain separate.
+The opt-in Settings `native` smoke requires a desktop and verifies injected message routing, not physical-device/IME behavior. See the [starter procedure](settings-starter.md#run-in-a-windows-window).
 
 ### Measurement and safe reduction
 
-Before changing required checks or removing a duplicate test, compare available CI durations, identify equivalent owner coverage and verify the replacement detects the regressions the old check did. Keep slow substantive checks in wider tiers; a temporary flaky-check quarantine needs a reason, owner and return condition. [Development](development.md#focused-checks-and-timing) owns collection commands; support owns material baselines.
+Measure configure, compile/link and CTest separately; distinguish fresh/reused builds, local/hosted execution, configurations and nested consumer builds. Keep logs, JUnit and command/exit-code evidence in PR/CI. A timeout is not an elapsed measurement.
 
-Reduce redundant work before reducing coverage: measure configure, compile/link and CTest separately, and distinguish nested consumer builds, configurations, fresh/reused builds, local/hosted execution and parallelism. Profile expensive fixture host rebuilds before changing observation frequency; prefer test-side reuse of one accepted view and representative CPU/replay observations over test-only runtime caches. Keep independent scenarios separately schedulable with cost hints. Do not remove import `RUN_SERIAL` without verifying isolated directories, shared caches, build processes and resource usage; evaluate consumer deduplication separately from concurrency. Keep Debug PR checks and full Debug/Release integration until equivalent detection is established. Refine file-level selection only if measurements still justify its maintenance cost; preserve conservative fallback and avoid new fixed timing gates.
+Before removing redundant tests or changing required checks, identify equivalent owner coverage and verify replacement detection. Keep substantive slow checks in wider tiers. Quarantine needs a reason, owner and return condition. No fixed observation period or merge-time budget is imposed.
+
+Profile expensive fixture setup before reducing observations; prefer test-side reuse over runtime caches. Evaluate consumer deduplication separately from concurrency, retaining `RUN_SERIAL` until directories, caches, processes and resources are independent. Refine file-level selection only when measurements justify it, with conservative fallback.
 
 ## High-value checks
 
-| Subsystem | Primary checks |
-| --- | --- |
-| [UI model](../architecture/ui-model.md) | Semantic round trip, stable ordering, schema/type failures, invalid IDs/references/versions, keyed instance reuse and disposal, async attempt/lifetime rejection and stale-value preservation, typed binding candidate rejection and full-tree parity |
-| [Reactive runtime](../architecture/reactive-runtime.md) | Chain/diamond coherence, dynamic edges, equality suppression, batching, cycle/reentrancy failures, fault-boundary containment, disposal and effect phases |
-| [Layout](../architecture/layout.md) | Fixed, Row/Column/Flex, [overlapping Stack](../../tests/layout/stack_tests.cpp), [explicit Grid tracks/cells](../../tests/layout/grid_tests.cpp), constraints, wrapped heights, nested spacing, scroll extents/offsets; later absolute/advanced-grid/intrinsic geometry |
-| [Styling](../architecture/styling.md) | Selector matching, layer/source-order ties, inheritance, overrides, pseudo-state invalidation |
-| [Input](../architecture/input.md) | Hit testing, clip/transform agreement, cancellation, propagation, focus/navigation recovery, typed drop eligibility |
-| [Commands](../architecture/commands.md) | Equal invocation and eligibility across input sources, argument validation, disabled agreement with semantics, one transaction per gesture |
-| [Text](../architecture/text.md) | Shaping/measurement agreement, UTF-8 errors, fallback, wrapping, cache invalidation |
-| [Localization](../architecture/localization.md) | Locale/argument validation, fallback and missing-key distinctions, formatting, atomic locale/catalog changes, logical direction and pseudo locales |
-| [Rendering](../architecture/rendering.md) | Paint order, stack validity, resource lifetime, a few primitive/glyph images |
-| [Semantics](../architecture/semantics.md) | Roles/names/relationships, state/action consistency, stale identities and adapter boundaries |
-| [Replay](../architecture/replay.md) | Controlled time/readiness, deterministic outputs, malformed recording/version failures |
-| [Editor bridge](../integrations/path-finder.md) | Shared documents, metadata preservation, rejected reload, compatible state and cleanup |
-| [Inspection](../architecture/inspection.md) | Coherent generations, target/source mapping, state-slot validation, invariant results, snapshot/diff bounds and production boundary |
-| [Web host](../proposals/web-host.md) | Native/Web parity, semantic DOM/focus, browser editing, JS/WASM ownership and teardown |
-
-Use synthetic inputs and numeric output wherever possible. Golden serialized fixtures must assert semantics as well as deterministic formatting. Later dirty-update paths should agree with the full-tree reference calculation.
-
-[Runtime registration](../../cmake/TesseraTesting.cmake) and [consumer registration](../../tests/cmake/register.cmake) own core checks. Subsystem pages link their focused checks; the [development guide](development.md) owns execution commands, and [support](../reference/support-matrix.md) owns dated outcomes/configurations. Checks should remain active in Release as well as Debug.
+Choose boundary and rejection cases from the affected [subsystem contract](../README.md#architecture) and its source-linked tests. Keep checks active in Release as well as Debug. Serialized fixtures assert semantics, not just formatting; incremental paths compare with full-tree references.
 
 ## Replay fixtures
 
-Use the [Replay contract](../architecture/replay.md) for fixture inputs and observable outputs. Start with numeric geometry, semantic snapshots, expected action order, and owned paint commands. Add GPU images only for rendering behavior that numeric/command fixtures cannot prove.
-
-Each milestone should retain the artifacts relevant to its capability: unit/boundary checks, serialized documents, numeric fixtures, replay/expected-action fixtures when interaction tooling exists, and selective runtime images when rendering exists. Record unsupported-feature diagnostics and the tested environment. Do not require GPU screenshots for a core-only foundation or claim a proposed replay tool ran.
+Use the [replay contract](../architecture/replay.md) for controlled time/readiness and observable outputs. Start with geometry, semantics, actions and paint commands; use GPU images only for behavior those cannot prove.
 
 ## Evidence by capability kind
 
-- Data model and serialization: tree creation/inspection/round trips without any GPU SDK.
-- Geometry: exact or explicitly tolerance-bounded `LayoutBox` fixtures.
-- GPU backends: actual pixels demonstrate order, clipping, and transforms; shader compilation alone is insufficient.
-- Interaction: synthetic dispatch checks plus a native host smoke; physical-device sessions are separate evidence.
-- Text: fixed fonts and representative Latin/Japanese fixtures with measurement and image agreement.
-- Reference rendering: CPU reference images, identical across runs and thread counts in deterministic mode, with GPU agreement within declared tolerances.
-- Components and reload: identity, cleanup, resource retirement, error containment, and repeated reload behavior.
-- Source consumption: configure a separate host through each import path, build/link only public target aliases, and execute a compact API fixture. Check transitive language/include/link requirements, host testing ownership, embedded defaults, and core-only exclusion of optional discovery. Optional backend linkage checks do not establish GPU execution.
-
-The [roadmap](../roadmap/README.md) decides when each capability is scheduled; this list only states what kind of evidence it needs.
+- Data/serialization: round trips, bounds and located rejection without a GPU SDK.
+- Layout/input: numeric geometry, eligibility, lifecycle and normalized dispatch.
+- Rendering: actual pixels with declared backend/device/font/tolerance; shader compilation is insufficient.
+- Native adapters: their own platform smoke; injected and physical input are distinct.
+- Source consumption: independent public-alias configure/build/link/run, host testing ownership and core-only dependency exclusion. Optional linkage is not GPU execution.
 
 ## Inspection and snapshot fixtures
 
-As the [inspection proposal](../architecture/inspection.md) is implemented, use in-process fixtures before testing CLI or transport wrappers. Verify missing/ambiguous/scoped selectors, stale generation rejection after reload, source origins through lowering, and semantic versus raw-input action behavior. Reject undeclared/invalid state slots and restore state only at defined update points.
-
-Capture tree, geometry, diagnostics, render counters, and optional image from one generation. Prefer [UI invariants](../architecture/inspection.md#proposed-ui-invariants) and semantic/layout comparisons over image comparison; an invariant with an ambiguous or missing target must fail. Test malformed/oversized bundles, unsupported versions, missing artifacts, and incompatible comparison environments. Match stable identities and assert semantic/layout changes directly. Reuse a small visual fixture set; multiple selected viewports should reveal layout/clip/focus issues without creating a widget screenshot catalog.
-
-Check a core-only observation path with no renderer, a window-free CPU reference capture path, and a window-free GPU capture path with explicit device/completion requirements. Never silently substitute the CPU backend for a failing GPU configuration. Future CI artifacts may include actual/expected/diff images, a snapshot bundle, and a machine-readable report. Reports must distinguish unavailable observations from successful zero-valued metrics.
-
-Development transports require bounded input, ordinary action eligibility, allowed-state enforcement, cancellation/disposal, and production exclusion fixtures. Browser adapters require their own focus/IME/accessibility and lifecycle checks under [Web host](../proposals/web-host.md#verification); native evidence does not establish browser behavior.
+Use in-process [inspection](../architecture/inspection.md) before transport wrappers. Select scoped/stale/ambiguous targets, coherent-generation observations and rejected state injection. Prefer numeric invariants over images; unavailable observations must not look successful. Bundle/transport/browser fixtures become relevant when those mechanisms are implemented.
 
 ## Localization fixtures
 
-As the [localization proposal](../architecture/localization.md) is implemented, verify locale normalization/rejection, script-preserving fallback, duplicate/missing message IDs, argument types, plural/select branches, number/date/time/unit formatting, and unavailable data with fixed catalog/formatter inputs. Distinguish fallback hits from missing messages and formatting failures. Cover rejected catalog reload, late resource completion after provider disposal, nested locale providers and stable component/focus/edit state across switches. Incremental results must equal full resolution and presentation.
-
-Use a compact consumer fixture in its declared default locale, an expanded pseudo locale and an RTL pseudo locale. Pseudo transformations operate on message literal content while preserving IDs, argument types and formatting structure; make expansion and direction settings deterministic. Assert expected message coverage/markers, geometry, wrapping/clipping, logical edge/alignment mapping, nested direction overrides, semantic names, and directional icons. Check pointer targeting and keyboard/gamepad navigation against the resolved geometry. Intentional clipping/scrolling follows the fixture's declared overflow policy. Pseudo RTL stresses UI direction but does not replace actual mixed-direction shaping fixtures.
-
-Text fixtures introduce real script/BiDi and language-aware fallback cases under the [text contract](../architecture/text.md#proposed-international-text-layout). Fix locale-data identity, catalog revisions, formatting preferences/time zone, fonts and backend in [replay](../architecture/replay.md#proposed-localization-inputs) and capture inputs. Pair numeric/semantic checks with a few CPU-reference images when that capture path is available, plus declared GPU comparisons for render behavior. Avoid locale-by-widget screenshot multiplication. CI/agent reports distinguish missing translation, fallback, missing glyph and overflow and identify resource/node source locations; these are procedures, not CLI flags or executed-check evidence.
+Select cases from [localization](../architecture/localization.md) and [text](../architecture/text.md): invalid locale/catalog inputs, fallback/missing distinctions, atomic switching and retained edits/focus. Fixed default, expanded and RTL pseudo locales cover geometry/direction without multiplying screenshots per widget; pseudo RTL does not replace mixed-script shaping tests. Fix locale data, fonts and formatting inputs for replay.
 
 ## Image regression and performance
 
-Keep a small reference set for overlapping rectangles, clips, transforms, borders, alpha, images, and glyphs as each capability arrives. Declare target size/scale, color format, font versions, pixel tolerances, edge/subpixel conditions, and backend/GPU configuration. The [CPU reference backend](../architecture/rendering.md#implemented-scalar-cpu-reference-backend) provides deterministic reference output: GPU candidates are compared with it under declared tolerances, and optimized CPU paths with its scalar result. Do not use images to prove behavior better established by geometry or event assertions.
+Use a small primitive/glyph reference set with explicit size, scale, fonts, backend and tolerances. Compare GPU paths against the scalar CPU reference where applicable, and optimized CPU paths against scalar output. Do not silently substitute CPU for failing GPU execution.
 
-The [latest-UI Vulkan suite](development.md#latest-ui-gpu-regression) observes settled states from the existing application operations rather than copying their UI or input scenarios into a renderer-only fixture. Keep that state inventory explicit when extending a covered sample. Its local driver checks registration and failure propagation, preserves unique run evidence, and includes the original native menu smokes; it is not part of hosted core CI. Placeholder-metric offscreen captures do not establish native input or real-font coverage for those widgets.
+The [latest-UI GPU procedure](development.md#latest-ui-gpu-regression) owns the application-state inventory, pixel oracle and local driver; its placeholder offscreen captures do not establish native input or real-font coverage.
 
-Performance checks follow a correct baseline. Record UI size, changed-node count, layout/paint CPU cost, uploads, batches/submissions, and GPU cost when useful. Hardware timing is an observation with conditions, not a universal pass threshold. Avoid premature optimization gates.
-
-Use representative dense lists/inspectors, deep composition, animation, and frequent property updates when a consumer needs them. State hardware/build/backend/fonts, warmup, samples, and tolerances; keep counter regressions separate from timing noise. Set budgets from measured consumer workloads rather than framework-speedup estimates. Include source-edit-to-verified-snapshot latency and its stage breakdown when reload/capture tooling exists. Incremental/reactive and retained-GPU optimizations must preserve full-tree/reference output before their performance matters.
+Performance follows correctness and a representative application bottleneck. Report workload, changed work versus total size, build/hardware/backend/fonts, warmup/samples and timing noise; separate deterministic counters from timing. Optimization must retain reference output, not merely improve a benchmark.
 
 ## Documentation verification
 
-For Markdown-only changes, run from the repository root:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-docs.ps1
-```
-
-The [checker](../../scripts/check-docs.ps1) validates relative file/directory links, Markdown heading fragments, code fences, canonical ownership links and architecture core-invariant sections. External links are not checked. Runtime tests are unnecessary for documentation-only changes.
-
-Keep technical details in one subsystem page, active scope in current, delivery history in changelog, and capability/configuration evidence in support ([canonical owners](../README.md#canonical-owners)).
+Use the [documentation command](development.md#documentation-checks). The [checker](../../scripts/check-docs.ps1) checks local links/anchors, fences, reachability from the docs index and architecture invariants; external URLs are not checked. Docs-only changes need no runtime tests.

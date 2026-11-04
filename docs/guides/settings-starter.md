@@ -31,7 +31,7 @@ cmake --build build-settings-starter-fetch --config Release --parallel 4 -- /nod
 ctest --test-dir build-settings-starter-fetch -C Release --output-on-failure --no-tests=error
 ```
 
-No network fetch is needed for either import. Independent checks copy these exact three files through the [consumer driver](../../tests/cmake/run-consumer.cmake). Actual configurations and results belong to [support](../reference/support-matrix.md#settings-native-host-evidence--2026-11-03).
+No network fetch is needed for either import. Independent checks copy these exact three files through the [consumer driver](../../tests/cmake/run-consumer.cmake). Actual configurations and results belong to [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#settings-native-host-evidence--2026-11-03).
 
 ## Run in a Windows window
 

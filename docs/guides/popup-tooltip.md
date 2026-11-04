@@ -1,6 +1,6 @@
 # Popup and Tooltip
 
-The [dedicated example](../../examples/popup-tooltip/main.cpp) implements a theme selection Popup and explanatory Tooltip using public `tessera::core` APIs. It is a deterministic scripted/headless example, not a desktop window. [UI model](../architecture/ui-model.md#implemented-c-form-authoring), [layout](../architecture/layout.md#implemented-anchored-popups) and [input](../architecture/input.md#implemented-popup-and-tooltip-interaction) own the contracts; [support](../reference/support-matrix.md#popup-and-tooltip-evidence--2026-11-04) owns validation limits.
+The [dedicated example](../../examples/popup-tooltip/main.cpp) implements a theme selection Popup and explanatory Tooltip using public `tessera::core` APIs. It is a deterministic scripted/headless example, not a desktop window. [UI model](../architecture/ui-model.md#implemented-c-form-authoring), [layout](../architecture/layout.md#implemented-anchored-popups) and [input](../architecture/input.md#implemented-popup-and-tooltip-interaction) own the contracts; [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#popup-and-tooltip-evidence--2026-11-04) owns validation limits.
 
 ## Compose at the root
 

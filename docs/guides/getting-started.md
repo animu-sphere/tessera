@@ -4,7 +4,7 @@ Build a small C++ application with Tessera's form API, then follow [your first a
 
 ## Prerequisites
 
-Use CMake 3.20 or newer and a C++20 compiler. The PowerShell commands below use Visual Studio 18 2026 with its x64 C++ tools and Windows SDK. See [dependencies](../reference/dependencies.md) for dependency policy and [support](../reference/support-matrix.md#first-app-onboarding-evidence--2026-10-17) for the exact checked configuration. This core-only example needs no Vulkan SDK, font libraries, package manager or network fetch during configuration.
+Use CMake 3.20 or newer and a C++20 compiler. The PowerShell commands below use Visual Studio 18 2026 with its x64 C++ tools and Windows SDK. See [dependencies](../reference/dependencies.md) for dependency policy and [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#first-app-onboarding-evidence--2026-10-17) for the exact checked configuration. This core-only example needs no Vulkan SDK, font libraries, package manager or network fetch during configuration.
 
 ## Run from the checkout
 

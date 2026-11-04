@@ -30,27 +30,7 @@ ctest --preset core-dev
 
 The preset is a local convenience, not a platform support claim. Project option defaults live in [TesseraOptions.cmake](../../cmake/TesseraOptions.cmake); the [measurement script](../../scripts/measure-core-ci.ps1) remains the authority for CI configuration, suite selection and parallelism and chooses the installed default Visual Studio generator. The preset pins the documented local generator, does not select a CI suite and runs the full inventory. Use ordinary configure arguments for other toolchains or optional modules.
 
-The [tool-panel example](../../examples/tool-panel/main.cpp) uses synthetic keyboard navigation and placeholder text with no native window. It projects host-owned selection through a [reactive source and calculation](../architecture/reactive-runtime.md#implemented-in-process-graph-contract), explicitly flushes each update batch, then publishes selection-dependent [command eligibility](../architecture/commands.md#implemented-in-process-command-boundary), lowers disabled state into the shared UI document, and resolves an inspection command for the [host execution adapter](../architecture/commands.md#implemented-host-execution-and-result-boundary), which rechecks the invocation, consumes its sequence once, and validates the returned object identity. Selection and deselection rebuild the full UI snapshot; descriptor/query/argument inputs are owned C++ fixtures, not a command recording format. Item details live in a [fault boundary](../architecture/reactive-runtime.md#implemented-subtree-fault-boundary): the selected item has no host record, so flush reports a contained fault and the host prints fallback text while the panel still publishes. After each successful rebuild it [publishes](../architecture/reactive-runtime.md#implemented-effect-and-publication-boundary) the settled graph and delivers a notify-phase effect to a synthetic host status line. Inventory rows use [keyed component mounting](../architecture/ui-model.md#implemented-keyed-component-mounting) to register named pinned state automatically; their owners also hold a name observation, a label binding, and a synthetic thumbnail cleanup: a host reorder keeps the pinned row, its focus, and its binding without recalculation, removal delivers the row's cleanup, and reinsertion starts a new lifetime. Its panel owner also registers a synthetic host subscription's [external cleanup](../architecture/reactive-runtime.md#implemented-external-cleanup-boundary); shutdown closes the owner before the host explicitly delivers that operation and the status effect's last cleanup.
-
-MSVC uses the ordinary Windows SDK C++ toolchain. A core-only workflow requires no graphics/font/editor SDK or dependency download. Restricted build environments may need access to the toolchain's SDK configuration directories; dated environment issues belong in support evidence.
-
-The tool panel also exercises the [transaction boundary](../architecture/commands.md#implemented-synchronous-transaction-boundary) with host-owned item amounts and history. Its [gesture adapter](../architecture/commands.md#implemented-edit-gesture-boundary) begins on the first edit and retains one token across three caption updates through ordinary components and the full presentation pipeline. A normalized pointer release commits once; a subsequent Escape-cancelled edit restores the amount before publishing its restoration. Inspection and editing share one command sequence stream. Native capture/lifecycle integration follows the [transaction proposal](../architecture/commands.md#proposed-transaction-boundary).
-
-Inventory rows use [nested invocation descriptions](../architecture/ui-model.md#implemented-nested-component-invocations): the host supplies one inventory root and ordered keyed row records with weak label arguments and typed height overrides. [Invocation mounting](../architecture/ui-model.md#implemented-component-invocation-mounting) creates/reuses their scoped owners and local pinned state from those same records; [initial setup](../architecture/ui-model.md#implemented-component-initial-setup) attaches row-owned observations and calculations only when a fresh lifetime is created. [Declared cleanup](../architecture/ui-model.md#implemented-declared-component-cleanup) binds the row's thumbnail operation at mounting. The host attaches their weak labels to the invocation arguments, flushes, then calls `lower_component_tree` to compose document/styles before full-tree presentation and focus recovery.
-
-The inventory and row descriptions load embedded document templates with opaque fixture source identities. [Component source mapping](../architecture/ui-model.md#implemented-component-source-mapping) carries their authored node locations through the invocation tree into ordinary inspection. Instance captions and focusable values have no template value span; a separate embedded invocation fixture supplies the row's call, caption-expression and complete-style origins. These identities refer to the embedded fixtures; the example opens no source file through inspection.
-
-Their names use keyed row-owned [typed async observations](../architecture/ui-model.md#implemented-typed-async-view-observations). The host explicitly declares initial cache values and leaves equal item data alone. A synthetic replacement reports progress, fails while retaining the accepted name, retries under a fresh attempt, rejects the old completion and accepts the complete new name in one host batch. Mounting creates its [declared async observation and detachment](../architecture/ui-model.md#implemented-declared-component-async-observations) before fresh setup initializes the cache; a loading name survives reorder, its removal delivers the host attempt address once through cleanup, and its late completion is rejected against both old and recreated rows. The row caption calculation projects that value into the ordinary invocation arguments; no file/network execution or automatic retry runs in core.
-
-Its panel-scoped [keyboard shortcut](../architecture/commands.md#implemented-keyboard-shortcut-boundary) routes a synthetic logical Control+I `KeyDown` to the same live inspection activation owner, with the current selection arguments and shared execution sequence. The host rebuilds the shortcut map with each replacement tree and executes its returned invocation after routing. Native key conventions are a host policy.
-
-Inventory rows inherit text color and size from a host-built [theme](../architecture/styling.md#implemented-theme-variable-boundary). The host switches its typed variables during reorder and resolves the full presentation again with the same keyed owners and component overrides; a zero-size theme candidate is rejected before replacing the accepted presentation. The example uses one table for its tree, with an alias for row ink and no external theme loading.
-
-Before publishing each selection generation, the tool panel captures its full-tree inspection snapshot and evaluates five [UI invariants](../architecture/inspection.md#implemented-in-process-ui-invariant-boundary): inspection-button visibility, selection-dependent enabled/focusable state, command label, and containment within the host-declared logical viewport. Evaluation returns owned observations; the host requires `report.passed()` before publication.
-
-The same scope declares a synthetic [gamepad shortcut](../architecture/commands.md#implemented-gamepad-shortcut-boundary): left shoulder held while pressing west. Its normalized request resolves the same inspection command, owner and arguments as Control+I, then executes with a fresh sequence. Physical button mapping and polling belong to the host. The inspection button's event comes from a [declared component action](../architecture/ui-model.md#implemented-component-actions-and-events) supplied by a panel-owned string source; the host lowers the settled component before applying command eligibility and building the presentation.
-
-The tool-panel rows bind a [declared notification effect](../architecture/ui-model.md#implemented-declared-component-effects) to their pinned state through a fresh-setup factory. After accepting the full presentation, the host publishes and delivers notifications; compatible reorder retains the original registration, changed state replaces its previous application cleanup, and row removal or shutdown delivers the last cleanup explicitly. The printed notification count and host observations follow component lifetimes.
+The [tool-panel example](../../examples/tool-panel/main.cpp) is a scripted, core-only component/command host with placeholder text. Its source demonstrates keyed rows, reactive updates, explicit cleanup/publication and inspection; it opens no window.
 
 ## Editor panel fixture
 
@@ -63,7 +43,7 @@ After the core build above, run it directly or through CTest:
 ctest --test-dir build -C Debug -R '^editor_prototype$' --output-on-failure
 ```
 
-Use `Release` for the other configuration. The executable checks panel invariants, schema/value/source observations, metadata preservation, shared eligibility, scalar editing, gesture history/cancellation, label Undo/Redo and branch truncation, label edit/removal/type replacement/restoration, parse/validation/layout/paint rejection, keyed state/focus retention, stale targets, async removal/recreation/shutdown and deterministic replay/CPU comparison. It prints a compact result and exits nonzero on a failed assertion. Source edits and images stay in memory; it opens no window and changes no fixture file. Evidence and configuration limits belong to [support](../reference/support-matrix.md#editor-label-history-evidence--2026-10-16).
+Use `Release` for the other configuration. The executable checks panel invariants, schema/value/source observations, metadata preservation, shared eligibility, scalar editing, gesture history/cancellation, label Undo/Redo and branch truncation, label edit/removal/type replacement/restoration, parse/validation/layout/paint rejection, keyed state/focus retention, stale targets, async removal/recreation/shutdown and deterministic replay/CPU comparison. It prints a compact result and exits nonzero on a failed assertion. Source edits and images stay in memory; it opens no window and changes no fixture file. Evidence and configuration limits belong to [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#editor-label-history-evidence--2026-10-16).
 
 ## Settings form fixture
 
@@ -76,11 +56,11 @@ Run it through the ordinary core build:
 ctest --test-dir build -C Debug -R '^(authoring|settings)$' --output-on-failure
 ```
 
-Use `Release` for the other configuration. The executable prints its command/frame observations and exits nonzero on a failed check. It uses placeholder text and synthetic glyph coverage, captures in memory, and opens no window. The [consumer boundary](../integrations/settings-app.md#implemented-form-skeleton-boundary) owns its operations and replay limits; [support](../reference/support-matrix.md#c-form-authoring-evidence--2026-10-16) owns configuration/results.
+Use `Release` for the other configuration. The executable prints its command/frame observations and exits nonzero on a failed check. It uses placeholder text and synthetic glyph coverage, captures in memory, and opens no window. The [consumer boundary](../integrations/settings-app.md#implemented-form-skeleton-boundary) owns its operations and replay limits; [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#c-form-authoring-evidence--2026-10-16) owns configuration/results.
 
 ## Settings starter native host
 
-The [copyable Settings starter](settings-starter.md#run-in-a-windows-window) also has a Windows desktop mode, using the Windows SDK with the ordinary CPU renderer. Build `tessera_settings_starter` and run it with `--native` for interaction or `--native-smoke` for an automated window/input/presentation check. The no-argument smoke remains window-free. Configure with `-DTESSERA_TEST_NATIVE_HOST=ON` to register `settings_starter_native` under the `native` label; run it in a desktop session. The starter guide owns the complete copy/build/run commands and host limitations; [support](../reference/support-matrix.md#settings-native-host-evidence--2026-11-03) records executed checks.
+The [copyable Settings starter](settings-starter.md#run-in-a-windows-window) also has a Windows desktop mode, using the Windows SDK with the ordinary CPU renderer. Build `tessera_settings_starter` and run it with `--native` for interaction or `--native-smoke` for an automated window/input/presentation check. The no-argument smoke remains window-free. Configure with `-DTESSERA_TEST_NATIVE_HOST=ON` to register `settings_starter_native` under the `native` label; run it in a desktop session. The starter guide owns the complete copy/build/run commands and host limitations; [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#settings-native-host-evidence--2026-11-03) records executed checks.
 
 ## Focused checks and timing
 
@@ -92,8 +72,6 @@ ctest --test-dir build -C Debug -R '^(authoring|renderer_diagnostics|renderer_di
 ```
 
 The Diagnostics fixture registers one `renderer_diagnostics_contract.<scenario>` check per independent scenario so `ctest -j` spreads its Debug cost; `tessera_renderer_diagnostics_tests` without arguments runs every scenario in one process, and it accepts scenario names (for example `msaa outlines`) to run a subset directly.
-
-Its setup-only `reveal` helper plans the shorter forward/backward focus traversal against one accepted view using the public focus dispatcher, then routes real Tab/Shift+Tab or logical gamepad events through the host. Explicit navigation/parity scenarios and every accepted-view/rejection assertion remain; this avoids full-wrap setup rebuilds without adding a runtime cache.
 
 Choose other target/test names from [runtime registration](../../cmake/TesseraTesting.cmake), including [independent consumers](../../tests/cmake/register.cmake), rather than copying this selection for every change. `ctest -R` selects execution only; an unrestricted build still compiles all enabled targets. The suite targets below restrict the build as well. An automatic source-import CTest configures/builds its own add_subdirectory host project. Use Release when that configuration is affected or collecting wider integration/release evidence; documentation-only changes use the [documentation check](testing.md#documentation-verification).
 
@@ -146,7 +124,7 @@ The measurement script configures Windows x64 Visual Studio with testing ON and 
 
 [Test registration](../../cmake/TesseraTesting.cmake) associates each runtime test's executable and label with its build group in one place. With examples OFF, the PR group depends only on contracts. Fixture targets depend on the PR group; the wide group also covers an opted-in native host. Imports configure/build their own isolated hosts during CTest. The PR `consumer` suite selects only the minimal core host; copied application imports remain in the legacy `imports`/`wide`/`full` selections, not PR CI. Selecting a narrow suite does not delete executables left by an earlier wide build; use a fresh directory to verify that no examples were built or to measure avoided compilation.
 
-It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. The JSON also records suite, examples ON/OFF, selected build targets (an empty array means the default build), fresh/reused cache, local/GitHub Actions execution, OS, logical processor count and parallelism. Core and consumer phases have separate artifact directories even when they share the build cache. Native failures stop the run with a nonzero exit while retaining completed phase measurements. Build parallelism defaults to two and test workers to two; the PR workflow explicitly requests four test workers without changing build parallelism. Import checks remain `RUN_SERIAL` in CTest, so nested builds never overlap each other or runtime checks. These settings are measurement conditions, not universal speed guarantees. Record hosted and local timings separately; Debug PR feedback does not replace full Debug/Release integration. [Support](../reference/support-matrix.md#core-pr-separation-evidence--2026-11-04) records the fresh before/after comparison and its limits.
+It saves configure/build/test commands, durations and exit codes in `<build>/ci-<configuration>-<suite>/phases.json`, alongside phase logs, selected CTest inventory, JUnit and cost data. The JSON also records suite, examples ON/OFF, selected build targets (an empty array means the default build), fresh/reused cache, local/GitHub Actions execution, OS, logical processor count and parallelism. Core and consumer phases have separate artifact directories even when they share the build cache. Native failures stop the run with a nonzero exit while retaining completed phase measurements. Build parallelism defaults to two and test workers to two; the PR workflow explicitly requests four test workers without changing build parallelism. Import checks remain `RUN_SERIAL` in CTest, so nested builds never overlap each other or runtime checks. These settings are measurement conditions, not universal speed guarantees. Record hosted and local timings separately; Debug PR feedback does not replace full Debug/Release integration. [Support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#core-pr-separation-evidence--2026-11-04) records the fresh before/after comparison and its limits.
 
 ## Scalar CPU capture workflow
 
@@ -161,7 +139,7 @@ ctest --test-dir build-v030-cpu -C Debug -R '^cpu_renderer$' --output-on-failure
 
 Use `Release` for the other configuration. `CpuRenderer` borrows host target bytes; `CpuFrameCapture` returns owned RGBA8 images with an optional borrowed glyph cache. Supply `frames.backend()` and `&frames` to `run_offscreen` explicitly. A glyph list without an injected cache fails; applications choose the rasterizer and image assets.
 
-To compare both Vulkan paths with CPU output, use the [optional Vulkan workflow](#optional-vulkan-workflow) and its `vulkan` CTest check. `cpu-compare-{reference,batch}-{1,2,3,4}.ppm` and the premultiplied-image scene's `cpu-compare-premultiplied-{reference,batch}-{1,2,3,4}.ppm` appear in `<build>/backends/vulkan/artifacts`. The fixture fixes bilinear clamp sampling, target format, scales, glyph data and boundary conditions; it requires a real eligible GPU and does not replace a failing device with CPU rendering. Recorded configuration and tolerances are in [support](../reference/support-matrix.md#scalar-cpu-rendering-evidence--2026-10-12).
+To compare both Vulkan paths with CPU output, use the [optional Vulkan workflow](#optional-vulkan-workflow) and its `vulkan` CTest check. `cpu-compare-{reference,batch}-{1,2,3,4}.ppm` and the premultiplied-image scene's `cpu-compare-premultiplied-{reference,batch}-{1,2,3,4}.ppm` appear in `<build>/backends/vulkan/artifacts`. The fixture fixes bilinear clamp sampling, target format, scales, glyph data and boundary conditions; it requires a real eligible GPU and does not replace a failing device with CPU rendering. Recorded configuration and tolerances are in [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#scalar-cpu-rendering-evidence--2026-10-12).
 
 ## Library-only workflow
 
@@ -173,15 +151,6 @@ cmake --build build-core --config Debug
 ```
 
 This produces `build-core/Debug/tessera_core.lib`. Test and example options are independently selectable. Build directories are ignored by Git.
-
-Historical evidence also uses a separate directory:
-
-```powershell
-cmake -S . -B build-paint-core -G "Visual Studio 18 2026" -A x64 -DBUILD_TESTING=OFF -DTESSERA_BUILD_EXAMPLES=OFF
-cmake --build build-paint-core --config Debug
-```
-
-These are procedures, not claims that this edit reran them. Consult support for their recorded outcomes and limits.
 
 ## Source-consumption workflow
 
@@ -230,7 +199,7 @@ Automatic CTest imports use add_subdirectory only, including when Vulkan is enab
 
 The [driver](../../tests/cmake/run-consumer.cmake) forwards the configured generator, platform, toolset, toolchain and optional SDK paths into isolated host builds. Per-phase logs, executables and libraries are under `<build>/source-consumers/<import>[-vulkan]/<configuration>` (copied applications add their starter name before the import); fixture tests are separate from runtime GPU tests. Imports remain `RUN_SERIAL`; this change does not establish safe concurrency.
 
-FetchContent support, its local-source project options and the manual configure/build/test commands above remain available, but no default, PR, integration or release CTest run exercises it. Run the affected consumer manually when changing or certifying that import path, including copied applications through their own guides. Removing those automatic checks reduces repeated independent builds; it is not evidence that FetchContent itself is intrinsically slower. Historical configuration evidence and current limits belong to [support](../reference/support-matrix.md#source-consumption-evidence--2026-10-11).
+FetchContent support, its local-source project options and the manual configure/build/test commands above remain available, but no default, PR, integration or release CTest run exercises it. Run the affected consumer manually when changing or certifying that import path, including copied applications through their own guides. Removing those automatic checks reduces repeated independent builds; it is not evidence that FetchContent itself is intrinsically slower. Historical configuration evidence and current limits belong to [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#source-consumption-evidence--2026-10-11).
 
 ## Optional Vulkan workflow
 
@@ -268,15 +237,9 @@ cmake -S . -B build-vulkan-core -G "Visual Studio 18 2026" -A x64 `
 cmake --build build-vulkan-core --config Debug
 ```
 
-That configuration performs no Vulkan/Slang dependency discovery or shader compilation. Actual results/configurations belong in [support](../reference/support-matrix.md#vulkan-primitive-evidence--2026-10-05).
+That configuration performs no Vulkan/Slang dependency discovery or shader compilation. Actual results/configurations belong in [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#vulkan-primitive-evidence--2026-10-05).
 
-The same CTest workflow exercises reference and adjacent-batch paths and writes `batch-{reference,adjacent}-{1,3,5,7}.ppm` plus `batch-empty.ppm` beside the primitive artifacts. A separate fresh directory reproduces the batch slice's core independence check:
-
-```powershell
-cmake -S . -B build-batch-core -G "Visual Studio 18 2026" -A x64 `
-    -DBUILD_TESTING=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_VULKAN=OFF
-cmake --build build-batch-core --config Debug
-```
+The same CTest workflow exercises reference and adjacent-batch paths. Use the core-only configuration above to check backend independence.
 
 ### Latest UI GPU regression
 
@@ -310,7 +273,7 @@ The driver has window/GPU-free failure-path checks:
 .\scripts\test-vulkan-ui-driver.ps1
 ```
 
-Executed configurations, measurements and limitations belong to [support](../reference/support-matrix.md#latest-ui-vulkan-regression-evidence--2026-11-05).
+Executed configurations, measurements and limitations belong to [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#latest-ui-vulkan-regression-evidence--2026-11-05).
 
 ### Win32 Vulkan menu host
 
@@ -401,8 +364,8 @@ cmake --build build-atlas-core --config Debug --parallel 4
 
 [VERSION](../../VERSION) holds the single `MAJOR.MINOR.PATCH` value; CMake reads it as the project version. A release is cut only after the active milestone's exit criteria are accepted against [support](../reference/support-matrix.md); 0.x versions carry no API/ABI compatibility guarantee. Patch releases fix defects in released scope; otherwise development continues on `main` without maintenance branches.
 
-1. Rerun full core Debug/Release and independent add_subdirectory consumers in fresh build directories, plus manual FetchContent checks when that import path is affected or recertified and the optional Vulkan/font/native workflows needed by the release's claims. Record results and unavailable environments in support. Resolve persistent integration/periodic-suite failures before acceptance; the [tier policy](testing.md#validation-tiers) owns gate responsibilities.
-2. In the release pull request, set `VERSION` and turn the changelog's `## Unreleased` section into `## vX.Y.Z — YYYY-MM-DD`.
+1. Rerun full core Debug/Release and independent add_subdirectory consumers in fresh build directories, plus manual FetchContent checks when that import path is affected or recertified and the optional Vulkan/font/native workflows needed by the release's claims. Keep executed results in the release PR/CI and update support only for changed claims or limits. Resolve persistent integration/periodic-suite failures before acceptance; the [tier policy](testing.md#validation-tiers) owns gate responsibilities.
+2. In the release pull request, set `VERSION` and turn the changelog's `## Unreleased` section into `## vX.Y.Z — YYYY-MM-DD`. Add `docs/releases/vX.Y.Z.md` with links to that entry and the published release, and link it from the [release index](../releases/README.md).
 3. Before merging, check the metadata locally:
 
    ```powershell
@@ -422,6 +385,14 @@ No binaries or installed packages are published; consumers build from source. Pa
 
 ## Adding workflows
 
-When a backend, native host, real-font fixture, or package/export consumer lands, add the concrete procedure here. Record the shell/generator/configuration, required tools, expected output location, and reproducible clean-build steps. Record actual results and configuration limits only in support.
+When a backend, native host, real-font fixture, or package/export consumer lands, add the concrete procedure here. Record required tools, commands and output locations. Keep actual results in PR/CI; update support when the supported scope or limits change.
 
 Each example should prove one boundary and identify placeholder behavior. Scheduled examples/features belong in current or backlog, rather than a second proposed directory list here. Follow [testing](testing.md) for verification and [documentation checks](testing.md#documentation-verification) for docs-only changes.
+
+## Documentation checks
+
+From the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-docs.ps1
+```
