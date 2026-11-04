@@ -1,0 +1,10 @@
+**/[Tt]hird_party/**
+**/[Tt]hird-party/**
+**/[Tt]hirdparty/**
+**/vendor/**
+**/external/**
+**/generated/**
+**/_deps/**
+**/build/**
+**/build-*/**
+**/build_*/**
