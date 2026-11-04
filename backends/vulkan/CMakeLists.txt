@@ -50,6 +50,28 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         TESSERA_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders"
         TESSERA_GPU_ARTIFACT_DIR="${CMAKE_CURRENT_BINARY_DIR}/artifacts")
     add_test(NAME vulkan COMMAND tessera_vulkan_tests)
+    if(TESSERA_BUILD_EXAMPLES)
+        target_sources(tessera_vulkan_tests PRIVATE
+            ../../examples/viewport-toolbar/main.cpp
+            ../../examples/grid-inspector/main.cpp
+            ../../examples/popup-tooltip/main.cpp
+            ../../examples/modal-dialog/main.cpp
+            ../../examples/tree-list/main.cpp
+            ../../examples/menu-context/main.cpp
+            ../../examples/settings-starter/main.cpp)
+        target_compile_definitions(tessera_vulkan_tests PRIVATE
+            TESSERA_EXAMPLE_LIBRARY=1 TESSERA_UI_FIXTURES=1)
+        if(WIN32)
+            target_link_libraries(tessera_vulkan_tests PRIVATE user32 gdi32)
+        endif()
+        add_test(NAME vulkan_ui COMMAND tessera_vulkan_tests --latest-ui)
+        set_tests_properties(vulkan_ui PROPERTIES TIMEOUT 300)
+    endif()
+    if(MSVC)
+        target_compile_options(tessera_vulkan_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(tessera_vulkan_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
 endif()
 # Win32 example host: window, OS input, DPI, swapchain and presentation stay outside the backend.
 if(WIN32 AND TESSERA_BUILD_EXAMPLES)

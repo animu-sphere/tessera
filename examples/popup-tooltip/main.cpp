@@ -2,6 +2,7 @@
 #include <tessera/input/popup.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/render/paint.hpp>
+#include "../fixtures.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -76,7 +77,7 @@ struct Host final : CommandHost {
 Point center(Rect box) { return {box.origin.x + box.size.width / 2, box.origin.y + box.size.height / 2}; }
 } // namespace
 
-int main() {
+int tessera::examples::run_popup_tooltip(const FrameObserver& observer) {
     try {
         Host host;
         ui::Session session;
@@ -124,6 +125,10 @@ int main() {
             }
             throw std::runtime_error("Popup presentation did not settle");
         };
+        auto capture = [&](std::string_view name) {
+            if (observer) observer(name, viewport,
+                take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
+        };
         auto execute = [&](const std::vector<ActionRequest>& requests, CommandSource source) {
             for (const auto& request : requests) {
                 const auto semantic = view.semantic();
@@ -162,12 +167,15 @@ int main() {
             dispatch({time + 1us, PointerUp{{1}, point}});
         };
         refresh();
+        capture("popup-initial");
         dispatch({1us, PointerMove{{1}, center(*view.bounds("theme"))}});
         require(host.help && !host.open, "Hover must show the noninteractive tooltip");
+        capture("popup-tooltip");
         click(center(*view.bounds("theme")), 2us);
         require(host.open && !host.help && focused == view.tree->find("dark"), "Pointer opening must focus the first popup item");
         require(view.bounds("theme-popup")->origin.y + view.bounds("theme-popup")->size.height > 72,
             "Popup operation must escape the ordinary scroll clip");
+        capture("popup-open");
         // Explicit refresh verifies the popup does not steal focus on replacement.
         focused = take(focus.focus(view.hit(), *view.tree->find("light"))).focused;
         refresh();
@@ -191,15 +199,23 @@ int main() {
         scroll_y = 16;
         refresh();
         require(view.bounds("theme-popup")->origin.y == 48, "Popup must follow the scrolled trigger");
+        capture("popup-scrolled");
         viewport.height = 100;
         refresh();
         require(view.bounds("theme-popup")->origin.y == 36, "Narrow viewport must shift the popup into view");
+        capture("popup-resized");
         host.anchor = false;
         refresh();
         require(!host.open && !host.help && !view.bounds("theme-popup"), "Removing the trigger must dismiss all transient content");
         std::cout << "Popup/Tooltip: hover, selection, keyboard/gamepad, outside dismissal, scrolling, resize and anchor removal passed.\n";
+        return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
+
 }
+
+#ifndef TESSERA_EXAMPLE_LIBRARY
+int main() { return tessera::examples::run_popup_tooltip({}); }
+#endif

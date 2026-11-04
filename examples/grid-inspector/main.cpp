@@ -1,6 +1,7 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/input/focus.hpp>
+#include "../fixtures.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -216,22 +217,29 @@ void verify_columns(Host& host) {
 }
 } // namespace
 
-int main() {
+int tessera::examples::run_grid_inspector(const FrameObserver& observer) {
     try {
         Host host;
+        auto capture = [&](std::string_view name) {
+            if (observer) observer(name, host.viewport,
+                take(build_paint_list({host.view.tree.get(), host.view.styles, &host.view.layout, &host.text})));
+        };
         verify_columns(host);
+        capture("grid-initial");
         const float wide_height = host.view.bounds("name").size.height;
         auto focused = take(host.focus.dispatch(host.view.hit(), {1us, FocusNext{}}));
         require(focused.focused == host.view.tree->find("name"), "Keyboard must reach the first property");
         require(host.insert({2us, tessera::TextInput{"!"}}).status == CommandOutcomeStatus::success &&
             host.name.text == "Ada!" && host.name.revision == 2 && host.category.text == "Tools",
             "Editing a property must retain its peer field");
+        capture("grid-edited");
         host.resize({168, 400});
         verify_columns(host);
         require(host.view.bounds("name").size.height > wide_height &&
             take(host.focus.refresh(host.view.hit())).focused == host.view.tree->find("name") &&
             host.name.text == "Ada!" && host.category.text == "Tools",
             "Narrow resize must remeasure rows while retaining edits and focus");
+        capture("grid-narrow");
         const auto field = host.view.bounds("name");
         host.click({field.origin.x + 5, field.origin.y + 5});
         focused = take(host.focus.dispatch(host.view.hit(), {3us, Navigate{Direction::down}}));
@@ -260,9 +268,16 @@ int main() {
         verify_columns(host);
         require(take(host.focus.refresh(host.view.hit())).focused == host.view.tree->find("category"),
             "Resize must preserve the edited property's focus by author ID");
+        capture("grid-restored");
         std::cout << "Grid Inspector: shared columns, narrow wrapping, keyboard edit, pointer/gamepad and rejection passed.\n";
+        return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
+
 }
+
+#ifndef TESSERA_EXAMPLE_LIBRARY
+int main() { return tessera::examples::run_grid_inspector({}); }
+#endif

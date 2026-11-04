@@ -5,6 +5,12 @@
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <tessera/ui/serialization.hpp>
+#ifdef TESSERA_UI_FIXTURES
+#include "../../examples/fixtures.hpp"
+#include "../../backends/vulkan/placeholder_glyph.hpp"
+#include <map>
+#include <set>
+#endif
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
 #include <tessera/fonts/font_profile_serialization.hpp>
 #include <tessera/fonts/font_shaper.hpp>
@@ -15,16 +21,32 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 
 using tessera::test::check;
 using tessera::test::has;
 namespace {
+std::filesystem::path artifact_directory() {
+#ifdef _WIN32
+    wchar_t* value = nullptr;
+    std::size_t length = 0;
+    if (_wdupenv_s(&value, &length, L"TESSERA_GPU_OUTPUT") != 0)
+        throw std::runtime_error("Cannot read TESSERA_GPU_OUTPUT");
+    const std::unique_ptr<wchar_t, decltype(&std::free)> owner(value, &std::free);
+    return value && *value ? std::filesystem::path(value) : std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR);
+#else
+    const auto* override_path = std::getenv("TESSERA_GPU_OUTPUT");
+    return override_path && *override_path ? std::filesystem::path(override_path) :
+        std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR);
+#endif
+}
 void require(VkResult result, const char* operation) {
     if (result != VK_SUCCESS) throw std::runtime_error(std::string(operation) + ": " + std::to_string(result));
 }
@@ -216,6 +238,7 @@ struct Host {
             VkPhysicalDeviceProperties properties;
             vkGetPhysicalDeviceProperties(candidate, &properties);
             if (properties.apiVersion < VK_API_VERSION_1_1) continue;
+            if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) continue;
             VkFormatProperties format;
             vkGetPhysicalDeviceFormatProperties(candidate, VK_FORMAT_R8G8B8A8_SRGB, &format);
             constexpr VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
@@ -343,8 +366,8 @@ struct Host {
         void* mapped;
         require(vkMapMemory(device, readback.memory, 0, pixels.size(), 0, &mapped), "map readback");
         std::memcpy(pixels.data(), mapped, pixels.size()); vkUnmapMemory(device, readback.memory);
-        std::filesystem::create_directories(TESSERA_GPU_ARTIFACT_DIR);
-        std::ofstream file(std::filesystem::path(TESSERA_GPU_ARTIFACT_DIR) / artifact, std::ios::binary);
+        std::filesystem::create_directories(artifact_directory());
+        std::ofstream file(artifact_directory() / artifact, std::ios::binary);
         file << "P6\n" << extent.width << ' ' << extent.height << "\n255\n";
         for (std::size_t i=0; i<pixels.size(); i+=4) file.write(reinterpret_cast<const char*>(pixels.data()+i), 3);
         check(bool(file), "Cannot write GPU image artifact");
@@ -1139,16 +1162,251 @@ void cpu_reference_fixtures(Host& host) {
         check(gpu.unbind_image({1}).empty() && gpu.unbind_image({2}).empty(),"Comparison texture retirement failed");
     }
 }
-int main() {
+#ifdef TESSERA_UI_FIXTURES
+template<class T> T ui_take(tessera::Result<T> result) {
+    if (!result) {
+        std::string message;
+        for (const auto& error : result.diagnostics)
+            message += error.code + " at " + error.path + ": " + error.message + "\n";
+        throw std::runtime_error(message);
+    }
+    return std::move(*result.value);
+}
+std::vector<std::uint8_t> ui_boundary_mask(const tessera::UiDrawList& list, tessera::CaptureExtent extent,
+                                         float scale, unsigned subpixel_bits) {
+    check(subpixel_bits >= 4 && subpixel_bits <= 32, "UI comparison requires declared raster subpixel precision");
+    const double epsilon = std::ldexp(1.0, -static_cast<int>(subpixel_bits));
+    std::vector<std::uint8_t> mask(std::size_t(extent.width) * extent.height);
+    struct Clip { double left, top, right, bottom; };
+    Clip clip{0, 0, double(extent.width), double(extent.height)};
+    std::vector<Clip> clips;
+    const auto mark = [&](tessera::Rect rect) {
+        const double left = double(rect.origin.x) * scale, top = double(rect.origin.y) * scale;
+        const double right = (double(rect.origin.x) + rect.size.width) * scale;
+        const double bottom = (double(rect.origin.y) + rect.size.height) * scale;
+        const auto limit = [](double value, std::uint32_t maximum) {
+            return static_cast<std::uint32_t>(std::clamp(std::ceil(value - 0.5), 0.0, double(maximum)));
+        };
+        const auto x0 = limit(std::max(clip.left, left - epsilon), extent.width);
+        const auto x1 = limit(std::min(clip.right, right + epsilon), extent.width);
+        const auto y0 = limit(std::max(clip.top, top - epsilon), extent.height);
+        const auto y1 = limit(std::min(clip.bottom, bottom + epsilon), extent.height);
+        for (auto y = y0; y < y1; ++y) {
+            const double py = y + 0.5;
+            const bool horizontal = std::abs(py - top) <= epsilon || std::abs(py - bottom) <= epsilon;
+            for (auto x = x0; x < x1; ++x)
+                if (horizontal || std::abs(x + 0.5 - left) <= epsilon || std::abs(x + 0.5 - right) <= epsilon)
+                    mask[std::size_t(y) * extent.width + x] = 255;
+        }
+    };
+    for (const auto& command : list.commands) {
+        if (const auto* pushed = std::get_if<tessera::PushClip>(&command)) {
+            clips.push_back(clip);
+            clip = {std::max(clip.left, double(pushed->rect.origin.x) * scale),
+                std::max(clip.top, double(pushed->rect.origin.y) * scale),
+                std::min(clip.right, (double(pushed->rect.origin.x) + pushed->rect.size.width) * scale),
+                std::min(clip.bottom, (double(pushed->rect.origin.y) + pushed->rect.size.height) * scale)};
+        } else if (std::holds_alternative<tessera::PopClip>(command)) {
+            check(!clips.empty(), "Unbalanced UI comparison clips");
+            clip = clips.back(); clips.pop_back();
+        } else if (const auto* image = std::get_if<tessera::DrawImage>(&command)) mark(image->rect);
+        else if (const auto* rect = std::get_if<tessera::DrawRect>(&command)) {
+            check(rect->corner_radius == 0, "Extend the UI comparison oracle before adding rounded geometry");
+            mark(rect->rect);
+        } else if (const auto* border = std::get_if<tessera::DrawBorder>(&command)) {
+            check(border->corner_radius == 0, "Extend the UI comparison oracle before adding rounded borders");
+            mark(border->rect);
+            const auto& w = border->widths;
+            const tessera::Rect inner{{border->rect.origin.x + w.left, border->rect.origin.y + w.top},
+                {border->rect.size.width - w.left - w.right, border->rect.size.height - w.top - w.bottom}};
+            if (inner.size.width > 0 && inner.size.height > 0) mark(inner);
+        } else check(false, "UI comparison supports atlas-lowered, untransformed paint only");
+    }
+    check(clips.empty(), "Unbalanced UI comparison clips");
+    return mask;
+}
+void latest_ui_fixtures(Host& host) {
+    const tessera::UiDrawList boundary_probe{{tessera::DrawRect{{{0.5f, 0}, {2, 4}}, {1, 1, 1, 1}}}};
+    const auto probe = ui_boundary_mask(boundary_probe, {4, 4}, 1, 8);
+    check(std::count(probe.begin(), probe.end(), 255) == 8 && probe[0] == 255 && probe[1] == 0 && probe[2] == 255,
+        "UI boundary oracle must exclude only pixel centers on subpixel-ambiguous edges");
+    const auto separated = ui_boundary_mask({{tessera::DrawRect{{{0.51f, 0}, {2, 4}}, {1, 1, 1, 1}}}}, {4, 4}, 1, 8);
+    check(std::count(separated.begin(), separated.end(), 255) == 0, "UI boundary oracle masks stable pixels");
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(host.physical, &properties);
+    std::cout << "UI raster subpixel precision bits=" << properties.limits.subPixelPrecisionBits << '\n';
+    struct Rasterizer final : tessera::GlyphRasterizer {
+        std::uint64_t face_revision(tessera::FontId font) const override { return font.value == 0 ? 1 : 0; }
+        tessera::Result<tessera::GlyphBitmap> rasterize(const tessera::GlyphRasterRequest& request) override {
+            if (request.glyph == ' ') return {tessera::GlyphBitmap{}, {}};
+            const float em = request.pixel_size_64 / 64.f;
+            const auto width = static_cast<std::uint32_t>(std::ceil(0.4f * em));
+            const auto height = static_cast<std::uint32_t>(std::ceil(0.7f * em));
+            tessera::GlyphBitmap bitmap{width, height, static_cast<std::int32_t>(std::round(0.05f * em)),
+                static_cast<std::int32_t>(std::round(0.8f * em)), std::vector<std::uint8_t>(width * height)};
+            const auto rows = tessera::detail::placeholder_glyph(request.glyph);
+            for (std::uint32_t y = 0; y < height; ++y)
+                for (std::uint32_t x = 0; x < width; ++x)
+                    bitmap.coverage[y * width + x] = rows[y * 7 / height] & (1u << (4 - x * 5 / width)) ? 255 : 0;
+            return {std::move(bitmap), {}};
+        }
+    } rasterizer;
+    tessera::GlyphCache cache(rasterizer);
+    tessera::CpuFrameCapture cpu(&cache);
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv");
+    const auto image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
+    tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+        vertex, fragment, image, 32};
+    tessera::VulkanRenderer reference(context);
+    context.batch_vertex_spirv = batch;
+    tessera::VulkanRenderer adjacent(context);
+    VkSamplerCreateInfo sampler_info{}; sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = sampler_info.minFilter = VK_FILTER_LINEAR;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler_info.addressModeU = sampler_info.addressModeV = sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler sampler;
+    require(vkCreateSampler(host.device, &sampler_info, nullptr, &sampler), "UI regression sampler");
+    struct SamplerOwner {
+        VkDevice device; VkSampler sampler;
+        ~SamplerOwner() { vkDestroySampler(device, sampler, nullptr); }
+    } owner{host.device, sampler};
+    std::set<std::string, std::less<>> remaining{
+        "stack-initial", "stack-zoomed", "stack-resized",
+        "grid-initial", "grid-edited", "grid-narrow", "grid-restored",
+        "popup-initial", "popup-tooltip", "popup-open", "popup-scrolled", "popup-resized",
+        "modal-initial", "modal-open", "modal-confirmed", "modal-narrow-scrolled",
+        "tree-initial", "tree-expanded", "tree-selected", "tree-collapsed", "tree-narrow-scrolled",
+        "menu-initial", "menu-open", "menu-context", "menu-resized",
+        "settings-initial", "settings-dropdown", "settings-slider", "settings-split-dragged",
+        "settings-narrow", "settings-restored"};
+    std::map<std::string, std::vector<std::uint8_t>> initial_pixels;
+    std::filesystem::create_directories(artifact_directory());
+    std::ofstream summary(artifact_directory() / "latest-ui.tsv");
+    summary << "state\tscale\twidth\theight\tboundary_pixels\tmax_cpu_linear_error\tmax_cpu_encoded_error\tmax_batch_encoded_error\n";
+    check(bool(summary), "Cannot create latest UI comparison summary");
+    const auto decode = [](std::uint8_t byte) {
+        const double value = byte / 255.0;
+        return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
+    };
+    std::uint64_t reference_frame = 0, batch_frame = 0;
+    std::size_t captures = 0;
+    const tessera::examples::FrameObserver observe = [&](std::string_view name, tessera::Size size,
+                                                        const tessera::UiDrawList& paint) {
+        check(remaining.erase(std::string(name)) == 1, "Unexpected or repeated latest UI state");
+        tessera::UiDrawList source = paint;
+        source.commands.insert(source.commands.begin(), tessera::DrawRect{{{0, 0}, size}, {1, 1, 1, 1}});
+        for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+            const auto extent = ui_take(tessera::capture_extent(size, scale));
+            const auto expected = ui_take(cpu.capture({captures, size, scale, extent, &source}));
+            check(expected == ui_take(cpu.capture({captures, size, scale, extent, &source})),
+                "Repeated latest UI CPU capture differs");
+            const auto prefix = "ui-" + std::string(name) + "-" + std::to_string(static_cast<int>(scale * 100));
+            const auto atlas = ui_take(tessera::prepare_glyph_atlas(source, cache, scale, {1}));
+            const auto boundary = ui_boundary_mask(atlas.draw_list, extent, scale, properties.limits.subPixelPrecisionBits);
+            const auto boundary_count = std::count(boundary.begin(), boundary.end(), 255);
+            check(boundary_count * 20 < static_cast<std::ptrdiff_t>(boundary.size()),
+                "UI comparison must retain more than 95% of CPU reference pixels");
+            host.upload_atlas(atlas);
+            for (std::size_t i = 0; i < atlas.pages.size(); ++i) {
+                check(reference.bind_image(atlas.pages[i].image, host.atlas_images[i].view, sampler).empty(),
+                    "UI reference atlas binding failed");
+                check(adjacent.bind_image(atlas.pages[i].image, host.atlas_images[i].view, sampler).empty(),
+                    "UI batch atlas binding failed");
+            }
+            host.resize({extent.width, extent.height});
+            auto render = [&](tessera::VulkanRenderer& renderer, std::uint64_t& frame, const char* suffix) {
+                host.begin(renderer);
+                const auto diagnostics = renderer.submit({++frame, size, scale}, atlas.draw_list);
+                for (const auto& error : diagnostics)
+                    std::cerr << name << ": " << error.code << " at " << error.path << ": " << error.message << '\n';
+                check(diagnostics.empty(), "Latest UI GPU submission failed");
+                auto pixels = host.finish((prefix + suffix + ".ppm").c_str());
+                renderer.retire(frame);
+                return pixels;
+            };
+            const auto actual = render(reference, reference_frame, "-reference");
+            const auto batched = render(adjacent, batch_frame, "-batch");
+            check(batched == render(adjacent, batch_frame, "-repeat"), "Repeated latest UI GPU capture differs");
+            double cpu_error = 0;
+            int cpu_encoded_error = 0, batch_error = 0;
+            std::size_t worst = 0;
+            check(actual.size() == expected.pixels.size() && batched.size() == actual.size(), "UI capture extent differs");
+            for (std::size_t i = 0; i < actual.size(); ++i) {
+                const double a = i % 4 == 3 ? actual[i] / 255.0 : decode(actual[i]);
+                const double b = i % 4 == 3 ? expected.pixels[i] / 255.0 : decode(expected.pixels[i]);
+                if (!boundary[i / 4]) {
+                    if (std::abs(a - b) > cpu_error) { cpu_error = std::abs(a - b); worst = i; }
+                    cpu_encoded_error = std::max(cpu_encoded_error, std::abs(int(actual[i]) - int(expected.pixels[i])));
+                }
+                batch_error = std::max(batch_error, std::abs(int(actual[i]) - int(batched[i])));
+            }
+            std::ofstream cpu_image(artifact_directory() / (prefix + "-cpu.ppm"), std::ios::binary);
+            cpu_image << "P6\n" << extent.width << ' ' << extent.height << "\n255\n";
+            for (std::size_t i = 0; i < expected.pixels.size(); i += 4)
+                cpu_image.write(reinterpret_cast<const char*>(expected.pixels.data() + i), 3);
+            check(bool(cpu_image), "Cannot write UI CPU artifact");
+            std::ofstream mask_image(artifact_directory() / (prefix + "-boundary.pgm"), std::ios::binary);
+            mask_image << "P5\n" << extent.width << ' ' << extent.height << "\n255\n";
+            mask_image.write(reinterpret_cast<const char*>(boundary.data()), static_cast<std::streamsize>(boundary.size()));
+            check(bool(mask_image), "Cannot write UI boundary mask");
+            summary << name << '\t' << scale << '\t' << extent.width << '\t' << extent.height << '\t'
+                << boundary_count << '\t' << cpu_error << '\t' << cpu_encoded_error << '\t' << batch_error << std::endl;
+            check(bool(summary), "Cannot write latest UI comparison summary");
+            std::cout << prefix << ": CPU linear error=" << cpu_error << " at (" << (worst / 4) % extent.width
+                << ',' << (worst / 4) / extent.width << ") channel=" << worst % 4
+                << ", CPU encoded error=" << cpu_encoded_error
+                << ", batch encoded error=" << batch_error << ", boundary pixels=" << boundary_count << '\n';
+            check(cpu_encoded_error <= 2, "Latest UI GPU differs from scalar CPU (encoded tolerance 2/255)");
+            check(batch_error <= 2, "Latest UI batch differs from reference (encoded tolerance 2/255)");
+            const auto initial_key = std::string(name.substr(0, name.find('-'))) + "-" +
+                std::to_string(static_cast<int>(scale * 100));
+            if (name.ends_with("-initial")) initial_pixels.emplace(initial_key, actual);
+            else {
+                const auto initial = initial_pixels.find(initial_key);
+                check(initial != initial_pixels.end(), "Capture the initial UI state before its operations");
+                check(actual != initial->second, "Latest UI operation did not change captured pixels");
+            }
+            for (const auto& page : atlas.pages) {
+                check(reference.unbind_image(page.image).empty(), "UI reference atlas retirement failed");
+                check(adjacent.unbind_image(page.image).empty(), "UI batch atlas retirement failed");
+            }
+            host.clear_atlas();
+            ++captures;
+        }
+    };
+    using namespace tessera::examples;
+    check(run_viewport_toolbar(observe) == 0, "Viewport toolbar GPU regression failed");
+    check(run_grid_inspector(observe) == 0, "Grid Inspector GPU regression failed");
+    check(run_popup_tooltip(observe) == 0, "Popup/Tooltip GPU regression failed");
+    check(run_modal_dialog(observe) == 0, "Modal/Dialog GPU regression failed");
+    check(run_tree_list(observe) == 0, "TreeView/ListView GPU regression failed");
+    check(run_menu_context(observe) == 0, "Menu/ContextMenu GPU regression failed");
+    check(run_settings_starter(observe) == 0, "Settings/SplitPane GPU regression failed");
+    check(remaining.empty() && captures == 124, "Latest UI regression did not capture all 31 states at four scales");
+    std::cout << "Latest UI GPU regression passed: 31 states, 124 scale cases, reference/batch/repeat, scalar CPU comparisons.\n";
+}
+#endif
+int main(int argc, char** argv) {
     try {
+        const bool latest_ui = argc == 2 && std::string_view(argv[1]) == "--latest-ui";
+        check(argc == 1 || latest_ui, "Usage: tessera_vulkan_tests [--latest-ui]");
         { Host host; host.initialize(); host.make_texture();
+          if (latest_ui) {
+#ifdef TESSERA_UI_FIXTURES
+              latest_ui_fixtures(host);
+#else
+              throw std::runtime_error("--latest-ui requires TESSERA_BUILD_EXAMPLES=ON");
+#endif
+          } else {
           fixtures(host); glyph_fixtures(host); fixtures(host,true); glyph_fixtures(host,true); batch_fixtures(host); runner_fixtures(host); cpu_reference_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
           real_glyph_fixtures(host); real_runner_fixtures(host);
 #endif
+          }
         }
         check(validation_errors == 0,"Vulkan validation errors occurred");
-        std::cout << "Vulkan GPU primitive, image, placeholder Text/menu, scale, rejection and retirement fixtures passed (RGBA8 sRGB, tolerance 2/255).\n";
+        if (!latest_ui)
+            std::cout << "Vulkan GPU primitive, image, placeholder Text/menu, scale, rejection and retirement fixtures passed (RGBA8 sRGB, tolerance 2/255).\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n'; return 1;
     }

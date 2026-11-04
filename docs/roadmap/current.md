@@ -30,4 +30,8 @@ The [folder/asset browser](../guides/tree-list.md) delivers controlled single se
 
 The [asset-actions operation](../guides/menu-context.md) delivers controlled single-level Menu and ContextMenu: button/keyboard/gamepad opening, right-click/Shift+F10 context triggers, bounded point placement, ordered/wrapped item focus, disabled-command skipping, ordinary command execution, outside/Cancel/Escape/Tab dismissal and eligible anchor recovery. [Support](../reference/support-matrix.md) owns validation scope and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No single-level Menu/ContextMenu work items remain.
 
+## Latest UI GPU regression
+
+The [local Vulkan regression workflow](../guides/development.md#latest-ui-gpu-regression) reuses the seven application operations above, capturing 31 states at four scales through reference/batch rendering and scalar CPU comparison. Debug/Release also run the existing placeholder/real-font native menu smokes. [Support](../reference/support-matrix.md#latest-ui-vulkan-regression-evidence--2026-11-05) owns executed hardware evidence and pixel-comparison limits. GPU CI provisioning and native-window input for the latest widgets remain separate follow-ups, not delivered by offscreen captures.
+
 Choose another application operation from the [backlog](backlog.md) before promoting further scope. Submenus, menu bars, richer menu item kinds, multiple selection, virtualization, absolute positioning, advanced Grid placement, generalized Portal and nested/stacked modal lifetimes remain inactive.

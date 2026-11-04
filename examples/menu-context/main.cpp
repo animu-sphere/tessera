@@ -2,6 +2,7 @@
 #include <tessera/input/popup.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/render/paint.hpp>
+#include "../fixtures.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -82,7 +83,7 @@ struct View {
 };
 } // namespace
 
-int main() {
+int tessera::examples::run_menu_context(const FrameObserver& observer) {
     try {
         Host host;
         ui::Session session;
@@ -131,6 +132,10 @@ int main() {
                 return;
             }
             throw std::runtime_error("Menu presentation did not settle");
+        };
+        auto capture = [&](std::string_view name) {
+            if (observer) observer(name, viewport,
+                take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
         };
         auto execute = [&](const std::vector<ActionRequest>& requests, CommandSource source) {
             for (const auto& request : requests) {
@@ -186,9 +191,11 @@ int main() {
         };
         auto focused_id = [&] { return focused ? view.tree->get(*focused)->id.value_or("") : ""; };
         refresh();
+        capture("menu-initial");
         click("actions");
         require(host.open == OpenMenu::actions && focused_id() == "actions-menu-item-inspect",
             "Pointer opening must focus the first command");
+        capture("menu-open");
         click("actions-menu-item-inspect");
         require(host.invocations == 1 && host.status == "Inspected Asset" && focused_id() == "actions",
             "Pointer choice must execute once, close and restore focus");
@@ -200,6 +207,7 @@ int main() {
         right_click();
         require(host.open == OpenMenu::asset && host.selections == 0 && focused_id() == "asset-menu-item-inspect",
             "Right-click must open without activating the asset");
+        capture("menu-context");
         dispatch({++time, Cancel{}}, CommandSource::gamepad);
         require(host.open == OpenMenu::none && focused_id() == "asset", "Cancel must restore the context target");
         dispatch({++time, KeyDown{Key::f10, {true}}});
@@ -222,6 +230,7 @@ int main() {
         refresh();
         require(host.open == OpenMenu::asset && host.position == position && focused_id() == "asset-menu-item-inspect",
             "Resize and scroll must preserve the open context operation");
+        capture("menu-resized");
         host.asset = false;
         refresh();
         require(host.open == OpenMenu::none, "Removing the target must dismiss without retaining stale handles");
@@ -231,4 +240,9 @@ int main() {
         std::cerr << error.what() << '\n';
         return 1;
     }
+
 }
+
+#ifndef TESSERA_EXAMPLE_LIBRARY
+int main() { return tessera::examples::run_menu_context({}); }
+#endif

@@ -3,6 +3,7 @@
 #include <tessera/input/scroll.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/render/paint.hpp>
+#include "../fixtures.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -70,7 +71,7 @@ struct View {
 };
 } // namespace
 
-int main() {
+int tessera::examples::run_modal_dialog(const FrameObserver& observer) {
     try {
         Host host;
         ui::Session session;
@@ -133,6 +134,10 @@ int main() {
             (void)take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text}));
             session.publish();
         };
+        auto capture = [&](std::string_view name) {
+            if (observer) observer(name, viewport,
+                take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
+        };
         auto execute = [&](const std::vector<ActionRequest>& requests, CommandSource source) {
             for (const auto& request : requests) {
                 const auto semantic = view.semantic();
@@ -175,8 +180,10 @@ int main() {
             dispatch({time += 1us, PointerUp{{1}, position}}, CommandSource::pointer);
         };
         refresh();
+        capture("modal-initial");
         click("reset");
         require(host.open && focused == view.tree->find("cancel"), "Pointer opening must focus safe Cancel");
+        capture("modal-open");
         const auto background = view.center("effects");
         dispatch({time += 1us, PointerDown{{2}, background}});
         dispatch({time += 1us, PointerUp{{2}, background}});
@@ -194,6 +201,7 @@ int main() {
         dispatch({time += 1us, Activate{}}, CommandSource::gamepad);
         require(!host.open && !host.enabled && host.resets == 1 && focused == view.tree->find("reset"),
             "Confirmation must reset once and recover focus");
+        capture("modal-confirmed");
         click("reset");
         dispatch({time += 1us, Cancel{}}, CommandSource::gamepad);
         require(!host.open && host.resets == 1, "Gamepad Cancel must close without another reset");
@@ -205,12 +213,19 @@ int main() {
         require(host.open && focused == view.tree->find("cancel"), "Resize must preserve a reachable safe default");
         dispatch({time += 1us, Scroll{view.center("reset-dialog-panel"), {0, -20}}});
         require(host.open && host.resets == 1, "Panel wheel routing must retain controlled settings");
+        capture("modal-narrow-scrolled");
         dispatch({time += 1us, Navigate{Direction::down}}, CommandSource::gamepad);
         click("confirm");
         require(!host.open && host.resets == 2, "Focus reveal must make narrow confirmation pointer-reachable");
         std::cout << "Modal/Dialog settings reset: pointer, keyboard/gamepad, background blocking, resize and focus recovery passed.\n";
+        return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
+
 }
+
+#ifndef TESSERA_EXAMPLE_LIBRARY
+int main() { return tessera::examples::run_modal_dialog({}); }
+#endif

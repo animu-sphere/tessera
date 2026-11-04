@@ -1,6 +1,7 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/input/focus.hpp>
+#include "../fixtures.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -74,7 +75,7 @@ Point center(Rect box) {
 }
 } // namespace
 
-int main() {
+int tessera::examples::run_viewport_toolbar(const FrameObserver& observer) {
     try {
         ui::Session session;
         Host host;
@@ -113,6 +114,10 @@ int main() {
             (void)take(pointer.refresh(view.hit()));
             (void)take(focus.refresh(view.hit()));
         };
+        auto capture = [&](std::string_view name) {
+            if (observer) observer(name, viewport,
+                take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
+        };
         auto click = [&](Point point, std::chrono::microseconds time) {
             (void)take(pointer.dispatch(view.hit(), {time, PointerDown{{1}, point}}));
             const auto result = take(pointer.dispatch(view.hit(), {time + 1us, PointerUp{{1}, point}}));
@@ -120,8 +125,10 @@ int main() {
             execute(result.actions, CommandSource::pointer);
             refresh();
         };
+        capture("stack-initial");
         click(center(view.bounds("zoom-in")), 1us);
         require(host.zoom == 125 && host.selected == 0, "Toolbar click leaked to the scene beneath it");
+        capture("stack-zoomed");
 
         (void)take(focus.dispatch(view.hit(), {3us, FocusNext{}}));
         auto focused = take(focus.dispatch(view.hit(), {4us, FocusNext{}}));
@@ -142,11 +149,18 @@ int main() {
             "Viewport resize must preserve the toolbar's top/end alignment");
         require(view.tree->get(*view.tree->find("zoom"))->properties.at("text") == Property{std::string("Zoom 100%")},
             "Host zoom must appear through the ordinary reactive caption");
+        capture("stack-resized");
         click({12, 100}, 8us);
         require(host.selected == 1 && host.zoom == 100, "Uncovered scene must remain interactive");
         std::cout << "Viewport toolbar: pointer zoom, keyboard zoom, gamepad reset, resize and scene selection passed.\n";
+        return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
+
 }
+
+#ifndef TESSERA_EXAMPLE_LIBRARY
+int main() { return tessera::examples::run_viewport_toolbar({}); }
+#endif

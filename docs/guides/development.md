@@ -278,6 +278,40 @@ cmake -S . -B build-batch-core -G "Visual Studio 18 2026" -A x64 `
 cmake --build build-batch-core --config Debug
 ```
 
+### Latest UI GPU regression
+
+With examples enabled, `vulkan_ui` reuses the ordinary operations in the Stack toolbar, Grid Inspector, Popup/Tooltip, Modal/Dialog, TreeView/ListView, Menu/ContextMenu and Settings starter (Dropdown, Slider and SplitPane). Seven applications expose synchronous borrowed-frame observers only to the fixture build; their standalone core-only entry points and copied Settings starter remain independent of Vulkan.
+
+The fixture captures 31 named accepted states at scales 1, 1.25, 1.5 and 2: 124 cases in RGBA8 sRGB over opaque white. Procedural, scaled 5x7 marks use placeholder metrics, not real font shaping. Every case compares both Vulkan paths over the whole frame within 2/255 encoded channels, repeats the batch capture byte-for-byte, and compares with scalar CPU within the same encoded tolerance outside explicitly recorded raster-boundary pixels. Those exclusions are only pixel centers within one device subpixel unit of an axis-aligned outer/inner edge, restricted by the active clip; more than 95% of CPU pixels must remain. Transforms and rounded geometry require extending this oracle, rather than silently relaxing it. Each operation must change the initial capture.
+
+Run just that fixture after building `tessera_vulkan_tests`:
+
+```powershell
+ctest --test-dir build-vulkan -C Debug -R '^vulkan_ui$' --output-on-failure --no-tests=error
+```
+
+For local Windows automation, use the [driver](../../scripts/test-vulkan-ui.ps1). It configures both optional modules and examples, builds only the GPU test/menu executables, checks that all four expected tests are registered and enabled, then runs `vulkan`, `vulkan_ui`, `vulkan_menu_smoke` and `vulkan_menu_fonts_smoke` serially in Debug and Release. An interactive desktop, a hardware Vulkan device, validation layers and the installed font dependencies are required; do not move the mouse over the smoke window. There is no CPU/software-device substitution, skip or automatic retry.
+
+```powershell
+.\scripts\test-vulkan-ui.ps1 -BuildDirectory build-ui-vulkan -CMakeArguments @(
+    '-DCMAKE_TOOLCHAIN_FILE=C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake',
+    '-DVCPKG_TARGET_TRIPLET=x64-windows',
+    '-DVulkan_INCLUDE_DIR=C:\VulkanSDK\1.4.350.0\Include',
+    '-DVulkan_LIBRARY=C:\VulkanSDK\1.4.350.0\Lib\vulkan-1.lib',
+    '-DTESSERA_SLANGC=C:\VulkanSDK\1.4.350.0\Bin\slangc.exe'
+)
+```
+
+Use the installed paths. A previously configured combined directory can instead be passed without `CMakeArguments`; `-Configuration Debug` selects only that configuration. No dependencies are installed or fetched. Each invocation gets a distinct `gpu-regression-<UTC>-<id>` directory under the build, containing commands/exit codes/revision/worktree status in `run.json`, the CMake cache, configure/build logs, per-configuration CTest inventory/log/JUnit, original/native captures and `latest-ui.tsv`. UI artifacts include CPU/reference/batch/repeat PPMs and a PGM boundary mask for each case. Failed runs retain their own evidence and report `failed`; later runs cannot overwrite them. `TESSERA_GPU_OUTPUT` redirects the two GPU hosts into this directory and is restored afterward. Hosted CI remains core-only; this is a local hardware suite, not a provisioned GPU runner.
+
+The driver has window/GPU-free failure-path checks:
+
+```powershell
+.\scripts\test-vulkan-ui-driver.ps1
+```
+
+Executed configurations, measurements and limitations belong to [support](../reference/support-matrix.md#latest-ui-vulkan-regression-evidence--2026-11-05).
+
 ### Win32 Vulkan menu host
 
 With `TESSERA_BUILD_VULKAN=ON` and examples enabled on Windows, the build above also produces the [example host](../architecture/rendering.md#implemented-win32-vulkan-example-host); CTest registers its smoke as `vulkan_menu_smoke`. Run it from the repository root:

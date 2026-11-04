@@ -46,4 +46,4 @@ ctest --test-dir build -C Debug -R '^(collection|tree_list)$' --output-on-failur
 
 The [owner fixture](../../tests/input/collection_tests.cpp) covers logical hierarchy, state/actions, disabled ancestry, navigation/recovery, scroll, modal exclusion, rejection and UI/Semantic JSON and Replay v1/v2. The consumer verifies pointer/keyboard/gamepad command parity, dependent list/details, retained hidden selection, resize and focus reveal.
 
-Multiple selection, virtualization, lazy loading, filtering, type-ahead, drag/reorder, horizontal trees, automatic selection-on-focus, native accessibility, physical-device and GPU validation are not included. [Support](../reference/support-matrix.md) owns validation scope.
+Multiple selection, virtualization, lazy loading, filtering, type-ahead, drag/reorder, horizontal trees, automatic selection-on-focus, native accessibility and physical-input validation are not included. The optional [latest-UI Vulkan regression](development.md#latest-ui-gpu-regression) captures expansion, selection, collapse, scroll and resize through this same example. [Support](../reference/support-matrix.md) owns validation scope.
