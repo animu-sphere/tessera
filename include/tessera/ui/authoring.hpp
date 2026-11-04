@@ -98,6 +98,25 @@ struct DialogProps {
     Props panel; // Defaults to centered, width-bounded, scrollable content.
     bool open = false;
 };
+struct ListItem {
+    std::string key;
+    std::string label;
+    std::string action;
+    bool disabled = false;
+};
+struct TreeItem {
+    std::string key;
+    std::string label;
+    std::string action;
+    std::string toggle_action; // Required for branches; both expand/collapse request this command.
+    bool expanded = false;
+    bool disabled = false;
+    std::vector<TreeItem> children;
+};
+struct CollectionProps {
+    Props node; // Required stable ID; item keys are unique across the collection.
+    bool disabled = false;
+};
 // If the parent cannot hold both minima, keep them and clip the overflow.
 Result<float> split_pane_size_at(SplitPaneLimits, float available, float requested);
 
@@ -124,6 +143,8 @@ private:
     friend Element Tooltip(std::string, Value<std::string>, PopupProps);
     friend Element Modal(std::vector<Element>, ModalProps);
     friend Element Dialog(Value<std::string>, std::vector<Element>, DialogProps);
+    friend Element ListView(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps);
+    friend Element TreeView(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -160,6 +181,12 @@ Element Dialog(Value<std::string> title, std::vector<Element> children, DialogPr
 // A Column with scroll overflow. Constrain its size through Props::style;
 // the host owns offsets and routes wheel input/focus reveal through input/scroll.
 Element ScrollView(std::vector<Element> children, Props = {});
+// Controlled single selection; nullopt means no selection. Branch expansion never
+// changes selection. IDs: <id>-item-<key>, -label-<key>, -toggle-<key>, and <id>-title.
+// Both are scrollable Columns; constrain their size and retain host scroll offsets.
+// Arrow navigation moves focus, Activate selects; tree Left/Right collapse/expand.
+Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem>, CollectionProps = {});
+Element TreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem>, CollectionProps = {});
 // Controlled inline dropdown: host commands own expansion and selected key.
 // With a node ID, generated controls use <id>-trigger / <id>-option-<key>.
 // Options are ordinary buttons in layout, reached through normal focus/scroll.

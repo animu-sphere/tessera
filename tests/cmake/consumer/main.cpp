@@ -58,6 +58,15 @@ int main() {
     const auto opened = popup.refresh(popup_hit);
     const auto help = tooltip.refresh(popup_hit, (*popup_tree.value)->find("anchor"));
     if (!opened || opened.value->focus != (*popup_tree.value)->find("choice") || !help || !help.value->visible) return 49;
+    const auto collections = form.lower(ui::Column({
+        ui::TreeView("Folders", "child",
+            {{"folder", "Folder", "choose", "open", true, false, {{"child", "Child", "choose"}}}},
+            {.node = {.id = "folders"}}),
+        ui::ListView("Items", "item", {{"item", "Item", "choose"}}, {.node = {.id = "items"}})}), popup_actions);
+    if (!collections ||
+        collections.value->document.root.children[0].children[2].properties.at("selected") != tessera::Property{true} ||
+        collections.value->document.root.children[1].children[1].properties.at("selected") != tessera::Property{true})
+        return 50;
     tessera::UiDocument document;
     document.root.id = "panel";
     tessera::UiNode title;

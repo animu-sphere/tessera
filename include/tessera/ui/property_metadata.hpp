@@ -10,6 +10,10 @@ namespace tessera {
 
 // Stable property identifiers. Each is also the JSON v1 member name under node `properties`.
 namespace property_names {
+inline constexpr std::string_view collection_role = "collection_role";
+inline constexpr std::string_view selected = "selected";
+inline constexpr std::string_view expanded = "expanded";
+inline constexpr std::string_view tree_parent = "tree_parent";
 inline constexpr std::string_view text = "text";
 inline constexpr std::string_view focusable = "focusable";
 inline constexpr std::string_view disabled = "disabled";

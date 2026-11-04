@@ -12,6 +12,7 @@ Guarantees belong at the boundary that implements them; consumers verify their u
 | Logical text draft/selection and edit owner/revision rejection | [text_edit](../../tests/input/text_edit_tests.cpp) | Correct field routing and one independent-field retention case |
 | Focus recovery, pointer cancellation and scroll geometry | [focus](../../tests/input/focus_tests.cpp), [pointer](../../tests/input/pointer_tests.cpp), [scroll](../../tests/input/scroll_tests.cpp) | A representative reachable operation |
 | Root-modal scope, dismissal/recovery and bounded dialog geometry | [modal](../../tests/input/modal_tests.cpp) | [Settings-reset confirmation](../../examples/modal-dialog/main.cpp) through ordinary commands |
+| Collection order, logical ancestry, selected/expanded semantics and collapse focus recovery | [collection](../../tests/input/collection_tests.cpp) | [Folder/asset browser](../../examples/tree-list/main.cpp) selection and dependent details through ordinary commands |
 | Accepted settings/view retention after rejected staging | [Diagnostics fixture](../../tests/integrations/renderer_diagnostics_tests.cpp), [Settings fixture](../../examples/settings/main.cpp) | A new staging branch and retained unrelated state |
 | Deterministic CPU pixels and replay processing | [cpu_renderer](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [offscreen_runner](../../tests/inspection/offscreen_runner_tests.cpp) | Image comparisons only for changed drawing behavior |
 

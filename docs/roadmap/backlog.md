@@ -43,7 +43,7 @@ Depends on the high-level C++ authoring surface, reusable components and the ref
 Candidates:
 
 - Clipboard, undo/redo, multiline and broader IME under declared platform boundaries. For clipboard promotion, begin with selected UTF-8 copy/paste in the Settings starter; distinguish injected-service evidence from a concrete platform adapter and preserve draft/save observations on rejection.
-- Widgets and interactions beyond the active flow: context menus, further dialogs beyond the delivered [reset confirmation](../guides/modal-dialog.md), richer Inspector controls/themes, tree selection/TreeView and extra focus scopes.
+- Widgets and interactions beyond the active flow: context menus, further dialogs beyond the delivered [reset confirmation](../guides/modal-dialog.md), richer Inspector controls/themes, multiple selection/virtualization beyond the delivered [TreeView/ListView browser](../guides/tree-list.md) and extra focus scopes.
 - Shared overlay/Portal behavior beyond the delivered root-sibling [Popup selection and Tooltip](../guides/popup-tooltip.md) and single [Modal/Dialog](../guides/modal-dialog.md), only when an [overlay operation](../proposals/overlays-and-portals.md) needs actual presentation relocation or nested/stacked modal lifetimes.
 - A first practical DevTools/inspection UI using ordinary semantics, commands and observations.
 

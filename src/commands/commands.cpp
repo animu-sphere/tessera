@@ -1,4 +1,5 @@
 #include <tessera/commands/commands.hpp>
+#include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
 #include "../ui/json_detail.hpp"
 #include <algorithm>
@@ -248,9 +249,13 @@ Result<UiDocument> CommandSnapshot::apply_eligibility(const UiDocument& authored
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     auto document = authored;
     const auto lower = [&](auto&& self, UiNode& node) -> void {
-        const auto event = node.events.find("activate");
-        if (event != node.events.end()) {
-            const auto binding = data_->registry->bindings.find(event->second);
+        for (const auto& [event, action] : node.events) {
+            if (event != "activate" && event != "expand" && event != "collapse") continue;
+            if (event == "expand" || event == "collapse") {
+                const auto* expanded = effective_property(node, property_names::expanded);
+                if (!expanded || (event == "expand") == std::get<bool>(*expanded)) continue;
+            }
+            const auto binding = data_->registry->bindings.find(action);
             if (binding != data_->registry->bindings.end()) {
                 const auto info = lookup(binding->second);
                 if (!info || !info.value->state.enabled) node.properties["disabled"] = true;

@@ -22,6 +22,8 @@ struct SemanticRecord {
     bool focusable = false;
     bool focused = false;
     std::vector<SemanticAction> actions;
+    std::optional<bool> selected;
+    std::optional<bool> expanded;
     bool operator==(const SemanticRecord&) const = default;
 };
 

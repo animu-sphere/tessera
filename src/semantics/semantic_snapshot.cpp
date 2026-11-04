@@ -12,7 +12,8 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-constexpr std::array<std::string_view, 5> roles{"root", "button", "text", "separator", "dialog"};
+constexpr std::array<std::string_view, 9> roles{
+    "root", "button", "text", "separator", "dialog", "list", "tree", "list_item", "tree_item"};
 constexpr std::array<std::string_view, 3> sources{"none", "relationship", "content"};
 struct Failure { std::vector<Diagnostic> diagnostics; };
 
@@ -25,11 +26,13 @@ const T& as(const JsonValue& value, const std::string& path) {
     fail("schema_type", path, "Use the type declared by Semantic JSON v1.");
 }
 const Object& object(const JsonValue& value, const std::string& path,
-                     std::initializer_list<std::string_view> fields) {
+                     std::initializer_list<std::string_view> fields,
+                     std::initializer_list<std::string_view> optional = {}) {
     const auto& result = as<Object>(value, path);
     for (const auto& [key, child] : result) {
         (void)child;
-        if (std::find(fields.begin(), fields.end(), key) == fields.end())
+        if (std::find(fields.begin(), fields.end(), key) == fields.end() &&
+            std::find(optional.begin(), optional.end(), key) == optional.end())
             fail("unknown_field", path + "/" + detail::pointer_token(key), "Remove this unknown semantic field.");
     }
     for (const auto field : fields)
@@ -49,6 +52,11 @@ std::optional<std::uint32_t> optional_index(const JsonValue& value, const std::s
 std::optional<std::string> optional_string(const JsonValue& value, const std::string& path) {
     if (std::holds_alternative<std::nullptr_t>(value.value)) return std::nullopt;
     return as<std::string>(value, path);
+}
+std::optional<bool> optional_bool(const Object& object, const char* key, const std::string& path) {
+    const auto value = object.find(key);
+    if (value == object.end() || std::holds_alternative<std::nullptr_t>(value->second.value)) return {};
+    return as<bool>(value->second, path + "/" + key);
 }
 template<class E, std::size_t N>
 E choice(const JsonValue& value, const std::string& path, const std::array<std::string_view, N>& names) {
@@ -80,7 +88,8 @@ SemanticSnapshot read(const JsonValue& json) {
     for (std::size_t i = 0; i < nodes.size(); ++i) {
         const auto at = "/nodes/" + std::to_string(i);
         const auto& o = object(nodes[i], at, {"node", "id", "parent", "role", "name", "name_source",
-                                             "labelled_by", "enabled", "focusable", "focused", "actions"});
+                                             "labelled_by", "enabled", "focusable", "focused", "actions"},
+                                             {"selected", "expanded"});
         SemanticRecord entry;
         entry.node = index(o.at("node"), at + "/node");
         entry.id = optional_string(o.at("id"), at + "/id");
@@ -95,8 +104,10 @@ SemanticSnapshot read(const JsonValue& json) {
         entry.enabled = as<bool>(o.at("enabled"), at + "/enabled");
         entry.focusable = as<bool>(o.at("focusable"), at + "/focusable");
         entry.focused = as<bool>(o.at("focused"), at + "/focused");
+        entry.selected = optional_bool(o, "selected", at);
+        entry.expanded = optional_bool(o, "expanded", at);
         const auto& actions = as<Array>(o.at("actions"), at + "/actions");
-        if (actions.size() > 1) fail("out_of_range", at + "/actions", "Schema v1 exposes at most one activate action.");
+        if (actions.size() > 2) fail("out_of_range", at + "/actions", "Expose at most activation and one expansion action.");
         for (std::size_t a = 0; a < actions.size(); ++a) {
             const auto path = at + "/actions/" + std::to_string(a);
             const auto& action = object(actions[a], path, {"binding", "action"});
@@ -121,6 +132,9 @@ JsonValue write(const SemanticSnapshot& snapshot) {
             {"labelled_by", optional_json(entry.labelled_by)}, {"enabled", JsonValue{entry.enabled}},
             {"focusable", JsonValue{entry.focusable}}, {"focused", JsonValue{entry.focused}},
             {"actions", JsonValue{std::move(actions)}}}});
+        auto& object = std::get<Object>(nodes.back().value);
+        if (entry.selected) object["selected"] = JsonValue{*entry.selected};
+        if (entry.expanded) object["expanded"] = JsonValue{*entry.expanded};
     }
     return JsonValue{Object{{"version", number(snapshot.version)}, {"generation", text(std::to_string(snapshot.generation))},
                             {"node_count", number(snapshot.node_count)}, {"nodes", JsonValue{std::move(nodes)}}}};
@@ -134,7 +148,8 @@ std::vector<SemanticRecord> own_semantic_records(const SemanticTree& tree) {
         std::optional<std::uint32_t> labelled_by;
         if (entry.labelled_by) labelled_by = entry.labelled_by->index;
         result.push_back({entry.node.index, entry.id, entry.parent, entry.role, entry.name, entry.name_source,
-                          labelled_by, entry.enabled, entry.focusable, entry.focused, entry.actions});
+                          labelled_by, entry.enabled, entry.focusable, entry.focused, entry.actions,
+                          entry.selected, entry.expanded});
     }
     return result;
 }
@@ -183,7 +198,7 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
                 check.error("invalid_parent", at + "/parent", "Keep each semantic subtree contiguous in preorder.");
             ancestors.push_back(static_cast<std::uint32_t>(i));
         }
-        check.enumeration(entry.role, SemanticRole::dialog, at + "/role");
+        check.enumeration(entry.role, SemanticRole::tree_item, at + "/role");
         check.enumeration(entry.name_source, NameSource::content, at + "/name_source");
         if (entry.role == SemanticRole::root && (entry.node != 0 || entry.parent != no_semantic_parent))
             check.error("invalid_role", at + "/role", "Only the authored root may have the root role.");
@@ -204,12 +219,22 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
         if ((!entry.enabled && entry.focusable) || (entry.focused && (!entry.focusable || focused)))
             check.error("invalid_state", at + "/focused", "Focus requires enabled/focusable state and at most one focused entry.");
         focused = focused || entry.focused;
-        if (entry.actions.size() > 1 || (!entry.actions.empty() && (!entry.enabled ||
-            (entry.role != SemanticRole::button && entry.role != SemanticRole::separator))))
-            check.error("invalid_action", at + "/actions", "Only an enabled button or separator can expose one activate action.");
+        const bool item = entry.role == SemanticRole::list_item || entry.role == SemanticRole::tree_item;
+        if ((entry.selected && !item) || (entry.expanded && entry.role != SemanticRole::tree_item))
+            check.error("invalid_state", at, "Selection belongs to collection items; expansion belongs to tree branches.");
+        if (entry.actions.size() > (entry.role == SemanticRole::tree_item ? 2u : 1u) ||
+            (!entry.actions.empty() && (!entry.enabled ||
+            (!item && entry.role != SemanticRole::button && entry.role != SemanticRole::separator))))
+            check.error("invalid_action", at + "/actions", "Only enabled controls expose activation or tree expansion actions.");
+        std::set<std::string> bindings;
         for (std::size_t a = 0; a < entry.actions.size(); ++a) {
             const auto path = at + "/actions/" + std::to_string(a);
-            if (entry.actions[a].binding != "activate") check.error("unsupported_action", path + "/binding", "Use activate.");
+            const auto& binding = entry.actions[a].binding;
+            if (binding != "activate" && !(entry.role == SemanticRole::tree_item && entry.expanded &&
+                binding == (*entry.expanded ? "collapse" : "expand")))
+                check.error("unsupported_action", path + "/binding", "Use activate or the applicable tree expansion action.");
+            if (!bindings.insert(binding).second)
+                check.error("invalid_action", path + "/binding", "Expose each binding at most once.");
             if (!identifier(entry.actions[a].action))
                 check.error("invalid_identifier", path + "/action", "Use a nonempty UTF-8 action name without ASCII controls.");
         }

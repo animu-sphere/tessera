@@ -30,10 +30,16 @@ The implemented semantic property vocabulary is deliberately small:
 | `popup_gap` | Box only | Finite nonnegative number within float range, absent means 4 | Logical gap used by anchored placement |
 | `popup_side` | Box only | `bottom`, `top`, `left` or `right`, absent means `bottom` | Preferred placement side |
 | `separator` | Box only | Boolean, absent means false | Projects a separator role; an eligible `activate` binding requests host adjustment |
+| `collection_role` | Box only | `list`, `tree`, `list_item`, `tree_item`; absent means none | Bounded collection semantics and collection-order navigation |
+| `selected` | Collection item Box | Optional boolean | Controlled selection observation, independent of focus |
+| `expanded` | Tree item Box | Optional boolean; absence means leaf | Controlled branch observation and applicable expansion action |
+| `tree_parent` | Tree item Box | Optional `NodeReference` | Earlier logical ancestor in the same flat tree; preserves semantic hierarchy, disabled ancestry and parent/child navigation |
 
 `Property` has explicit boolean, binary64, string, and reference alternatives; unknown properties or mismatched types fail without coercion. Optional absence values remain unmaterialized. The bounded popup properties are placement intent, not arbitrary styles. General layout/style encoding and asset references remain deferred. A `popup_anchor` string deliberately differs from a strict `NodeReference`: its target may be unmounted. Popup nodes must be direct root children after ordinary content; anchors cannot name any popup or popup descendant. These restrictions retain ordinary tree/preorder identity without introducing presentation reparenting.
 
-`events` stores `activate`/`cancel` action names. Every bound action must exist in the caller's `ValidationContext.actions`; the default empty context rejects all bound actions. Validation snapshots the names for the call only. Pointer and focus dispatch consume `activate` names, and focus dispatch consumes `cancel` names, to return host action requests as defined in [input](input.md). The document stores no callback, and the host remains responsible for action implementations.
+`events` stores `activate`/`cancel` action names and tree-branch `expand`/`collapse` names (requiring `tree_item` and an `expanded` property). Every bound action must exist in the caller's `ValidationContext.actions`; the default empty context rejects all bound actions. Validation snapshots the names for the call only. Dispatch returns host action requests as defined in [input](input.md). The document stores no callback, and the host remains responsible for action implementations.
+
+Collection items are direct children of their matching collection. Logical tree subtrees must remain contiguous in preorder; parent references cannot point forward, cross collections or form cycles, and logical depth is bounded to 64. `TreeView` lowers nested application items to flat rows, preserving single-row focus/hit/scroll geometry; it explicitly hides collapsed descendants and propagates controlled disabled ancestry. [The collection guide](../guides/tree-list.md) owns public composition, generated IDs and host state/command wiring.
 
 Document/node `extensions` preserve namespaced backend-neutral JSON metadata. Validation and runtime behavior do not interpret its contents. Names, strings, and metadata must be valid UTF-8; numeric metadata must be finite. Diagnostics and bounded recursion are described by the encoding page.
 

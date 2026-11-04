@@ -18,7 +18,10 @@ struct FocusDispatchResult {
 // and its `focusable` property is true.
 class FocusDispatcher final {
 public:
-    // Accepts only FocusNext/FocusPrevious/Navigate/Activate/Cancel; hosts translate keys and gamepad
+    // Accepts FocusNext/FocusPrevious/Navigate/Activate/Cancel and unmodified Home/End.
+    // Collection arrows use visible item order; tree Left/Right request collapse/expand
+    // or move to parent/child. Home/End move to the first/last item, otherwise do nothing.
+    // Hosts translate other keys and gamepad
     // input. Invalid input leaves state unchanged. When the focused node has become ineligible, the
     // call recovers focus and consumes the command.
     Result<FocusDispatchResult> dispatch(const HitTestInput&, const InputEvent&);

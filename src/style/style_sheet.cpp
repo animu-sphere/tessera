@@ -1,5 +1,6 @@
 #include <tessera/style/style_sheet.hpp>
 #include <tessera/ui/property_metadata.hpp>
+#include "../detail/collection.hpp"
 #include "../detail/checks.hpp"
 #include "../ui/json_detail.hpp"
 #include "theme_detail.hpp"
@@ -169,6 +170,7 @@ Result<std::vector<ResolvedStyle>> resolve_styles(const StyleInput& input) {
     for (std::uint32_t i = 0; i < tree.size(); ++i) {
         auto& node = states[i];
         node.disabled = std::get<bool>(*effective_property(*tree.get({tree.root().tree, i}), property_names::disabled)) ||
+                        detail::tree_ancestor_disabled(tree, *tree.get({tree.root().tree, i})) ||
                         (i != 0 && states[parents[i]].disabled);
         if (node.disabled) node.hover = node.active = node.focus = false;
     }
