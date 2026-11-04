@@ -87,6 +87,19 @@ The [latest-UI GPU procedure](development.md#latest-ui-gpu-regression) owns the 
 
 Performance follows correctness and a representative application bottleneck. Report workload, changed work versus total size, build/hardware/backend/fonts, warmup/samples and timing noise; separate deterministic counters from timing. Optimization must retain reference output, not merely improve a benchmark.
 
+### Look and effect verification
+
+For [Look extensions](../proposals/look.md), select the owners of the changed guarantees and one representative consumer:
+
+- Core validation: finite geometry, gradient stops, parameter types/bounds and ordered clip/transform behavior.
+- Built-in CPU/reference: coverage, thin strokes, small sizes and alpha, including declared gradient interpolation.
+- Backend: actual pixels for rounded/clip edges, color/opacity and fractional device scale; shader diagnostics, capability/fallback behavior and completion-safe resource lifetime.
+- Host/replay: explicit evaluation time, seed, uniform values and shader/asset identity for repeatable state and draw data. Add the necessary adapter coverage when those inputs become supported.
+
+Compare CPU/GPU output where both implement the feature, using declared tolerances; a GPU-only shader does not require arbitrary CPU Slang execution. Check a fallback as a fallback, not as proof that the requested effect rendered. Prefer numeric SDF/coverage cases and a small image set over snapshots per widget or effect.
+
+Use the existing validation tiers for visual showcases and GPU execution. Expand PR coverage or add performance thresholds when measured risk justifies them; unavailable GPU checks remain unvalidated, not replaced by compile-only success or a mandatory all-backend rollout.
+
 ## Documentation verification
 
 Use the [documentation command](development.md#documentation-checks). The [checker](../../scripts/check-docs.ps1) checks local links/anchors, fences, reachability from the docs index and architecture invariants; external URLs are not checked. Docs-only changes need no runtime tests.

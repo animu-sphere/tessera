@@ -2,7 +2,7 @@
 
 Inactive candidates; [current](current.md) owns selected work and [support](../reference/support-matrix.md) owns implementation/validation status. Expansion for v0.8.0 and beyond follows consumer needs, without fixed version ordering or committed dates.
 
-Choose the next user-visible blocker from the selected Inspector / Hierarchy application. Promote only the scope that operation needs; the candidates below are not a prerequisite checklist.
+Use the selected Inspector / Hierarchy application to identify the next user-visible blocker. Other concrete consumers and useful visual outcomes can also motivate independent slices; the candidates below are not a prerequisite checklist.
 
 ## Near-term editing and development experience
 
@@ -110,9 +110,20 @@ Real-font caret/selection geometry and authored font aliases; read-only rich spa
 
 See [text](../architecture/text.md), [localization](#later--localization-and-international-layout) and [font licensing](../reference/dependencies.md#font-licensing).
 
+## Unscheduled — Look and visual rendering
+
+Improve ordinary screens and enable distinctive GPU visuals through the [Look proposal](../proposals/look.md):
+
+- Visual basics: a gradient on a practical card, then useful shadow/stroke/text-decoration improvements.
+- Built-in analytic/SDF shapes and coverage; Slang procedural fills with explicit parameters and capabilities.
+- Custom SDF and host-clock motion; masks, blur and offscreen composition when a visual outcome needs them.
+- A representative screen that grows with the features rather than a demo or snapshot catalog per effect.
+
+This is a suggested progression, not fixed ordering or permanent shader/API limits. Promote useful slices without requiring the whole direction or expanding the v0.7.0 completion gate. Contracts: [rendering](../architecture/rendering.md), [animation](../proposals/animation.md); checks: [Look verification](../guides/testing.md#look-and-effect-verification).
+
 ## Later — Analytic primitives and CPU compatibility performance
 
-Shared analytic antialiasing and additional shapes/shadows; CPU tiles, damage-based repaint, workers/SIMD and host-selected compatibility fallback. Compare optimized output with the [scalar reference](../architecture/rendering.md#implemented-scalar-cpu-reference-backend) before measuring performance.
+Shared analytic coverage follows the [Look direction](#unscheduled--look-and-visual-rendering). CPU tiles, damage-based repaint, workers/SIMD and host-selected compatibility fallback follow measured workloads. Compare optimized output with the [scalar reference](../architecture/rendering.md#implemented-scalar-cpu-reference-backend) before measuring performance.
 
 ## Later — Graph canvas and node editor
 
