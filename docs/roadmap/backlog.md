@@ -1,10 +1,22 @@
 # Backlog
 
-Inactive candidates; [current](current.md) owns selected work and [support](../reference/support-matrix.md) owns implementation/validation status. Version labels are tentative, without committed dates.
+Inactive candidates; [current](current.md) owns selected work and [support](../reference/support-matrix.md) owns implementation/validation status. Expansion for v0.8.0 and beyond follows consumer needs, without fixed version ordering or committed dates.
 
-Choose the next user-visible blocker from an application such as [Settings](../integrations/settings-app.md). Promote only the scope that operation needs; the candidates below are not a prerequisite checklist.
+Choose the next user-visible blocker from the selected Inspector / Hierarchy application. Promote only the scope that operation needs; the candidates below are not a prerequisite checklist.
+
+## Near-term editing and development experience
+
+- Clipboard: selected UTF-8 copy/paste through an explicit host service when application editing needs it.
+- Japanese input: basic Windows IME composition/commit through TextInput, starting with a concrete input scenario.
+- Observation: make selection, focus, layout and command results easier to trace through existing [inspection](../architecture/inspection.md).
+- Failed edits/updates: retain the accepted UI and editing state while reporting a reproducible rejection.
+- Focused reload/development aids: shorten one edit -> update -> inspect round trip when manual repetition becomes a bottleneck.
+
+Select these as individual application slices, not a combined release gate. Broader tooling remains below.
 
 ## Validation and CI follow-ups
+
+The [PR Core / main Integration split](../guides/development.md#ci-scopes-and-reproducible-measurements) remains the baseline.
 
 - Further Diagnostics fixture reduction or finer test selection if [measurements](../guides/development.md#focused-checks-and-timing) justify the maintenance cost.
 - Independent consumer concurrency after verifying build-directory, cache and resource isolation.
@@ -27,32 +39,32 @@ Contracts: [layout](../architecture/layout.md), [input](../architecture/input.md
 
 ## Application UI follow-ups
 
-- Settings clipboard, undo/redo, multiline and broader IME; begin clipboard work with selected UTF-8 copy/paste and an explicit host service.
+- Undo/redo, multiline and broader composition support.
 - Submenus, menu bars, richer menu items, additional dialogs/Inspector controls, multiple selection and extra focus scopes.
 - Shared Portal behavior or nested/stacked modal lifetimes when an overlay operation needs them.
 - A practical DevTools/inspection UI.
 
 Consumers: [Settings](../integrations/settings-app.md), [Path-finder](../integrations/path-finder.md).
 
-## v0.6.0 candidate — Authoring and Tooling
+## Unscheduled — Authoring and Tooling
 
 Make `edit -> reload -> inspect -> interact -> capture -> verify` a practical workflow: source-aware hierarchy/property/style editing, source navigation, actionable reload diagnostics, capture/comparison and a component browser where useful.
 
 Select one [Path-finder](../integrations/path-finder.md) operation. Preserve accepted state on invalid edits and reproduce its observations through ordinary [inspection](../architecture/inspection.md), [reload](../proposals/live-reload.md) and [replay](../architecture/replay.md).
 
-## v0.7.0 candidate — Language Bindings and Stable Host Boundary
+## Unscheduled — Language Bindings and Stable Host Boundary
 
-Start with an independent scripting/tooling consumer. Evaluate Python, then Rust/Go as needed; define handles, ownership and errors, with a C ABI facade only where useful. Bind the high-level authoring/host model rather than mirroring internals.
+Follow the application/host work with an independent scripting/tooling consumer when one needs bindings. Evaluate Python, then Rust/Go as needed; define handles, ownership and errors, with a C ABI facade only where useful. Bind the high-level authoring/host model rather than mirroring internals.
 
 Use the common [UI model](../architecture/ui-model.md); compatibility commitments follow downstream evidence.
 
-## v0.8.0 candidate — Broader Application Model
+## Later — Broader Application Model
 
 Consumer-driven application shells, [command palette](../proposals/command-palette.md), docking, TreeTable/DataGrid and editable/resizable/sortable columns; larger collections and typed drag/drop. Add resources, async patterns, context, localization, accessibility or extension boundaries as the application needs them.
 
 See [UI model](../architecture/ui-model.md), [layout](../architecture/layout.md) and [commands](../architecture/commands.md).
 
-## v0.9.0 candidate — Performance and Scale
+## Later — Performance and Scale
 
 Select an identified bottleneck from representative application traces:
 
