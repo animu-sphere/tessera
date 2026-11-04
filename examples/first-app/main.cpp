@@ -26,21 +26,23 @@ void require(bool condition, const char* message) {
 }
 
 // Application composition: ordinary typed props, defaults and ordered children.
-struct FieldProps { std::string label; float gap = 12; };
+struct FieldProps {
+    std::string label;
+    float gap = 12;
+};
 ui::Element Field(FieldProps props, std::vector<ui::Element> children) {
-    return ui::Row({ui::Text(std::move(props.label)), ui::Column(std::move(children))},
-        {.style = {.gap = props.gap}});
+    return ui::Row({ui::Text(std::move(props.label)), ui::Column(std::move(children))}, {.style = {.gap = props.gap}});
 }
 ui::Element FirstApp(ui::Value<bool> enabled, ui::Value<std::string> summary) {
-    return ui::Column({
-        ui::Text("My first app"),
-        Field({"Feature"}, {
-            ui::Checkbox("Enable feature", enabled, "app.toggle", {.node = {
-                .id = "toggle", .style = {.padding = Edges{4, 8, 4, 8},
-                    .background = Color{0.8f, 0.9f, 1, 1}}}})}),
-        ui::Text(summary, {.id = "summary"})},
-        {.id = "app", .style = {.padding = Edges{12, 12, 12, 12}, .gap = 12.f,
-            .background = Color{0.95f, 0.95f, 0.95f, 1}}});
+    return ui::Column(
+        {ui::Text("My first app"),
+         Field({"Feature"}, {ui::Checkbox("Enable feature", enabled, "app.toggle",
+                                          {.node = {.id = "toggle",
+                                                    .style = {.padding = Edges{4, 8, 4, 8},
+                                                              .background = Color{0.8f, 0.9f, 1, 1}}}})}),
+         ui::Text(summary, {.id = "summary"})},
+        {.id = "app",
+         .style = {.padding = Edges{12, 12, 12, 12}, .gap = 12.f, .background = Color{0.95f, 0.95f, 0.95f, 1}}});
 }
 
 // Host presentation: all borrowed inputs are owned here until replacement.
@@ -56,8 +58,7 @@ struct Presentation {
     HitTestInput hit() const { return {tree.get(), styles, &layout}; }
     SemanticInput semantic() const { return {tree.get(), styles, &layout}; }
 };
-Presentation prepare(ui::Session& session, const ui::Element& form,
-    CommandSnapshot commands, TextShaper& text) {
+Presentation prepare(ui::Session& session, const ui::Element& form, CommandSnapshot commands, TextShaper& text) {
     auto authored = take(session.lower(form, actions));
     auto document = take(commands.apply_eligibility(authored.document, actions));
     auto tree = take(UiTree::create(document, actions));
@@ -66,8 +67,8 @@ Presentation prepare(ui::Session& session, const ui::Element& form,
     auto layout = take(compute_layout({tree.get(), styles, viewport, &text}));
     auto inspection = take(capture_inspection({tree.get(), styles, &layout, &authored.sources}));
     auto paint = take(build_paint_list({tree.get(), styles, &layout, &text}));
-    return {std::move(commands), std::move(tree), std::move(styles), std::move(layout),
-        std::move(inspection), std::move(paint)};
+    return {std::move(commands), std::move(tree),       std::move(styles),
+            std::move(layout),   std::move(inspection), std::move(paint)};
 }
 
 // Application state is host-owned. Execution proposes an in-memory change;
@@ -111,12 +112,12 @@ int main() {
             return enabled.read() ? std::string("Feature enabled") : std::string("Feature disabled");
         });
         const auto form = FirstApp(enabled, summary);
-        const auto registry = take(CommandRegistry::create({{"app.toggle", "Toggle feature"}},
-            {{"app.toggle", "app.toggle"}}));
+        const auto registry =
+            take(CommandRegistry::create({{"app.toggle", "Toggle feature"}}, {{"app.toggle", "app.toggle"}}));
         std::uint64_t generation = 0, sequence = 0;
         auto commands = [&] {
-            return take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
-                {{"app.toggle", {true}}}));
+            return take(
+                CommandSnapshot::publish(registry, ++generation, CommandMode::production, {{"app.toggle", {true}}}));
         };
         PlaceholderTextShaper text;
         auto accepted = prepare(session, form, commands(), text);
@@ -126,9 +127,7 @@ int main() {
         GlyphCache cache(raster);
         CpuFrameCapture frames(&cache);
         const auto extent = take(capture_extent(viewport, 1));
-        auto capture = [&] {
-            return take(frames.capture({0, viewport, 1, extent, &accepted.paint, 0us}));
-        };
+        auto capture = [&] { return take(frames.capture({0, viewport, 1, extent, &accepted.paint, 0us})); };
         const auto initial = capture();
         require(summary_name(accepted) == "Feature disabled", "Initial summary differs");
         std::cout << summary_name(accepted) << '\n';
@@ -141,16 +140,17 @@ int main() {
             const auto dispatched = take(focus.dispatch(accepted.hit(), event));
             for (const auto& action : dispatched.actions) {
                 const auto current = accepted.semantic();
-                const auto invocation = take(accepted.commands.resolve_action(current, action,
-                    accepted.commands.generation(), {}, source, ++sequence));
+                const auto invocation = take(accepted.commands.resolve_action(
+                    current, action, accepted.commands.generation(), {}, source, ++sequence));
                 const auto result = take(executor.execute(accepted.commands, invocation, host, &current));
                 require(result.outcome.status == CommandOutcomeStatus::success, "Command failed");
                 session.update([&] { enabled.write(host.candidate); });
                 // Keep the accepted state/snapshot if a presentation stage fails.
                 // This bounded restoration is not a general transaction system.
                 auto candidate = [&] {
-                    try { return prepare(session, form, commands(), text); }
-                    catch (...) {
+                    try {
+                        return prepare(session, form, commands(), text);
+                    } catch (...) {
                         session.update([&] { enabled.write(host.enabled); });
                         throw;
                     }
@@ -170,11 +170,11 @@ int main() {
         std::cout << summary_name(accepted) << '\n';
         input({3us, Activate{}}, CommandSource::gamepad);
         require(!host.enabled && sequence == 2 && summary_name(accepted) == "Feature disabled",
-            "Gamepad toggle or focus recovery differs");
+                "Gamepad toggle or focus recovery differs");
         require(capture() == initial, "Restored CPU image differs");
         std::cout << summary_name(accepted) << '\n'
-            << "2 host commands; " << extent.width << 'x' << extent.height
-            << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";
+                  << "2 host commands; " << extent.width << 'x' << extent.height
+                  << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

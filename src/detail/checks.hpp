@@ -19,8 +19,7 @@ public:
     void error(std::string code, std::string path, std::string message) {
         out_.push_back({std::move(code), Severity::error, std::move(path), std::move(message), {}});
     }
-    template<class Enum>
-    void enumeration(Enum value, Enum last, std::string path) {
+    template<class Enum> void enumeration(Enum value, Enum last, std::string path) {
         if (static_cast<unsigned>(value) > static_cast<unsigned>(last))
             error("unknown_value", std::move(path), "Use one of the declared enumeration values.");
     }

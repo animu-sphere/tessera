@@ -27,8 +27,10 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     // Maximums may be +infinity (unconstrained); a fixed size is later clamped into [min, max].
     auto constraint = [&](float minimum, float maximum, const std::string& axis) {
         check.non_negative(minimum, path + "/min_" + axis);
-        if (std::isnan(maximum)) check.error("invalid_number", path + "/max_" + axis, "Use a number or +infinity.");
-        else if (maximum < 0) check.error("out_of_range", path + "/max_" + axis, "Expected a value >= 0.");
+        if (std::isnan(maximum))
+            check.error("invalid_number", path + "/max_" + axis, "Use a number or +infinity.");
+        else if (maximum < 0)
+            check.error("out_of_range", path + "/max_" + axis, "Expected a value >= 0.");
         else if (std::isfinite(minimum) && minimum > maximum)
             check.error("conflicting_constraints", path + "/min_" + axis,
                         "min_" + axis + " exceeds max_" + axis + "; lower the minimum or raise the maximum.");

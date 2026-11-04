@@ -29,13 +29,13 @@ std::vector<Diagnostic> located(std::vector<Diagnostic> errors, const std::strin
 std::vector<Diagnostic> validate_profile(const FontProfile& profile) {
     if (profile.version != font_profile_version)
         return failure("unsupported_version", "/version", "Expected font profile version 1.");
-    const std::pair<std::size_t, const char*> counts[] = {
-        {profile.assets.size(), "/assets"}, {profile.faces.size(), "/faces"},
-        {profile.fallbacks.size(), "/fallbacks"}, {profile.families.size(), "/families"},
-        {profile.aliases.size(), "/aliases"}};
+    const std::pair<std::size_t, const char*> counts[] = {{profile.assets.size(), "/assets"},
+                                                          {profile.faces.size(), "/faces"},
+                                                          {profile.fallbacks.size(), "/fallbacks"},
+                                                          {profile.families.size(), "/families"},
+                                                          {profile.aliases.size(), "/aliases"}};
     for (const auto& [count, path] : counts)
-        if (count > max_font_profile_entries)
-            return failure("out_of_range", path, "Expected at most 64 entries.");
+        if (count > max_font_profile_entries) return failure("out_of_range", path, "Expected at most 64 entries.");
     if (profile.assets.empty() || profile.faces.empty())
         return failure("out_of_range", profile.assets.empty() ? "/assets" : "/faces", "Expected at least one entry.");
 
@@ -44,8 +44,8 @@ std::vector<Diagnostic> validate_profile(const FontProfile& profile) {
     for (std::size_t i = 0; i < profile.assets.size(); ++i) {
         const auto& asset = profile.assets[i];
         const auto path = "/assets/" + std::to_string(i);
-        for (const auto& [name, field] : {std::pair{std::string_view(asset.id), "/id"},
-                                        std::pair{std::string_view(asset.version), "/version"}}) {
+        for (const auto& [name, field] :
+             {std::pair{std::string_view(asset.id), "/id"}, std::pair{std::string_view(asset.version), "/version"}}) {
             auto errors = identifier(name, path + field);
             if (!errors.empty()) return errors;
         }
@@ -85,7 +85,8 @@ std::vector<Diagnostic> validate_profile(const FontProfile& profile) {
     std::set<std::string, std::less<>> families;
     for (std::size_t i = 0; i < profile.families.size(); ++i)
         if (!families.insert(profile.families[i].name).second)
-            return failure("duplicate_font_family", "/families/" + std::to_string(i) + "/name", "Family names must be unique.");
+            return failure("duplicate_font_family", "/families/" + std::to_string(i) + "/name",
+                           "Family names must be unique.");
     std::set<std::uint32_t> aliases;
     std::set<std::string, std::less<>> names;
     for (std::size_t i = 0; i < profile.aliases.size(); ++i) {
@@ -146,11 +147,15 @@ Result<ProfileFontShaper> ProfileFontShaper::create(FontProfile profile) {
 
 std::optional<FontId> ProfileFontShaper::find_alias(std::string_view name) const { return shaper_.find_alias(name); }
 std::uint64_t ProfileFontShaper::face_revision(FontId font) const { return shaper_.face_revision(font); }
-Result<GlyphBitmap> ProfileFontShaper::rasterize(const GlyphRasterRequest& request) { return shaper_.rasterize(request); }
-Result<TextMetrics> ProfileFontShaper::measure(std::string_view text, const TextStyle& style, const TextConstraints& constraints) {
+Result<GlyphBitmap> ProfileFontShaper::rasterize(const GlyphRasterRequest& request) {
+    return shaper_.rasterize(request);
+}
+Result<TextMetrics> ProfileFontShaper::measure(std::string_view text, const TextStyle& style,
+                                               const TextConstraints& constraints) {
     return shaper_.measure(text, style, constraints);
 }
-Result<GlyphRun> ProfileFontShaper::shape(std::string_view text, const TextStyle& style, const TextConstraints& constraints) {
+Result<GlyphRun> ProfileFontShaper::shape(std::string_view text, const TextStyle& style,
+                                          const TextConstraints& constraints) {
     return shaper_.shape(text, style, constraints);
 }
 

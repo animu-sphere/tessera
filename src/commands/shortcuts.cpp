@@ -42,11 +42,10 @@ void validate_chord(detail::Checker& check, const GamepadShortcutChord& chord, c
 }
 } // namespace
 
-CommandShortcuts::CommandShortcuts(std::shared_ptr<const detail::CommandShortcutData> data)
-    : data_(std::move(data)) {}
+CommandShortcuts::CommandShortcuts(std::shared_ptr<const detail::CommandShortcutData> data) : data_(std::move(data)) {}
 
 Result<CommandShortcuts> CommandShortcuts::create(const CommandSnapshot& commands, const UiTree& tree,
-    std::span<const ShortcutScope> scopes) {
+                                                  std::span<const ShortcutScope> scopes) {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     if (scopes.size() > max_shortcut_scopes) {
@@ -57,7 +56,8 @@ Result<CommandShortcuts> CommandShortcuts::create(const CommandSnapshot& command
     for (const auto& scope : scopes) {
         for (const auto size : {scope.bindings.size(), scope.gamepad_bindings.size()}) {
             if (size > max_shortcut_bindings - count) {
-                check.error("out_of_range", "/scopes", "Declare at most 1024 keyboard/gamepad shortcut bindings in total.");
+                check.error("out_of_range", "/scopes",
+                            "Declare at most 1024 keyboard/gamepad shortcut bindings in total.");
                 return {std::nullopt, std::move(errors)};
             }
             count += size;
@@ -86,16 +86,20 @@ Result<CommandShortcuts> CommandShortcuts::create(const CommandSnapshot& command
                 const auto bp = prefix + "/" + std::to_string(j);
                 validate_chord(check, binding.chord, bp + "/chord");
                 const auto [previous, unique] = chords.emplace(chord_id(binding.chord), j);
-                if (!unique) check.error("shortcut_conflict", bp + "/chord",
-                    "This chord conflicts with " + prefix + "/" + std::to_string(previous->second) + "/chord; keep one binding per scope.");
+                if (!unique)
+                    check.error("shortcut_conflict", bp + "/chord",
+                                "This chord conflicts with " + prefix + "/" + std::to_string(previous->second) +
+                                    "/chord; keep one binding per scope.");
                 if (binding.command.size() > 128) {
                     check.error("out_of_range", bp + "/command", "Use a command ID within 128 bytes.");
                     continue;
                 }
                 const auto info = commands.lookup(binding.command);
-                if (!info) check.error("unknown_command", bp + "/command", "Use an exact command ID available in this mode.");
+                if (!info)
+                    check.error("unknown_command", bp + "/command", "Use an exact command ID available in this mode.");
                 if (scope.root && !binding.owner)
-                    check.error("missing_owner", bp + "/owner", "Subtree shortcuts require an ordinary activation owner inside the scope.");
+                    check.error("missing_owner", bp + "/owner",
+                                "Subtree shortcuts require an ordinary activation owner inside the scope.");
                 if (!binding.owner) continue;
                 const auto& owner = *binding.owner;
                 const auto* node = tree.get(owner.target);
@@ -104,7 +108,8 @@ Result<CommandShortcuts> CommandShortcuts::create(const CommandSnapshot& command
                     continue;
                 }
                 if (scope.root && live_root && !contains(parents, *scope.root, owner.target))
-                    check.error("outside_scope", bp + "/owner/target", "Place the activation owner inside the scope subtree.");
+                    check.error("outside_scope", bp + "/owner/target",
+                                "Place the activation owner inside the scope subtree.");
                 const auto action = node->events.find("activate");
                 if (owner.binding != "activate" || action == node->events.end() || action->second != owner.action) {
                     check.error("stale_binding", bp + "/owner/action", "Supply this node's exact activate binding.");
@@ -112,7 +117,8 @@ Result<CommandShortcuts> CommandShortcuts::create(const CommandSnapshot& command
                 }
                 const auto mapped = commands.lookup_action(owner.action);
                 if (!mapped || mapped.value->descriptor.id != binding.command)
-                    check.error("unmapped_action", bp + "/owner/action", "Map this activation action to the shortcut's exact command ID.");
+                    check.error("unmapped_action", bp + "/owner/action",
+                                "Map this activation action to the shortcut's exact command ID.");
             }
         };
         validate_bindings(scope.bindings, path + "/bindings");
@@ -127,8 +133,9 @@ Result<CommandShortcuts> CommandShortcuts::create(const CommandSnapshot& command
 namespace {
 template<class Request, class Binding, class Chord>
 Result<ShortcutDispatch> route(const detail::CommandShortcutData& data, const CommandSnapshot& commands,
-    const SemanticInput& ui, const Request& request, const Chord* chord, bool repeat, CommandSource source,
-    std::vector<Binding> ShortcutScope::* bindings, std::vector<Diagnostic> errors) {
+                               const SemanticInput& ui, const Request& request, const Chord* chord, bool repeat,
+                               CommandSource source, std::vector<Binding> ShortcutScope::* bindings,
+                               std::vector<Diagnostic> errors) {
     auto snapshot_errors = validate(ui);
     errors.insert(errors.end(), snapshot_errors.begin(), snapshot_errors.end());
     detail::Checker check(errors);
@@ -168,34 +175,39 @@ Result<ShortcutDispatch> route(const detail::CommandShortcutData& data, const Co
         if (distance >= best) continue;
         const auto& candidates = scope.*bindings;
         const auto binding = std::find_if(candidates.begin(), candidates.end(),
-            [&](const auto& candidate) { return candidate.chord == *chord; });
-        if (binding != candidates.end()) { selected = &*binding; best = distance; }
+                                          [&](const auto& candidate) { return candidate.chord == *chord; });
+        if (binding != candidates.end()) {
+            selected = &*binding;
+            best = distance;
+        }
     }
     if (!selected) return {ShortcutDispatch{}, {}};
     if (repeat && !selected->repeat) return {ShortcutDispatch{true, {}}, {}};
-    auto invocation = selected->owner ? commands.resolve_action(ui, *selected->owner, request.generation,
-        request.arguments, source, request.sequence) :
-        commands.resolve({request.generation, selected->command, request.arguments, source, request.sequence});
+    auto invocation =
+        selected->owner
+            ? commands.resolve_action(ui, *selected->owner, request.generation, request.arguments, source,
+                                      request.sequence)
+            : commands.resolve({request.generation, selected->command, request.arguments, source, request.sequence});
     if (!invocation) return {std::nullopt, std::move(invocation.diagnostics)};
     return {ShortcutDispatch{true, std::move(*invocation.value)}, {}};
 }
 } // namespace
 
 Result<ShortcutDispatch> CommandShortcuts::dispatch(const CommandSnapshot& commands, const SemanticInput& ui,
-    const ShortcutRequest& request) const {
+                                                    const ShortcutRequest& request) const {
     const auto* key = std::get_if<KeyDown>(&request.event.data);
     const ShortcutChord chord{key ? key->key : Key::enter, key ? key->modifiers : Modifiers{}};
-    return route(*data_, commands, ui, request, key ? &chord : nullptr, key && key->repeat,
-        CommandSource::keyboard, &ShortcutScope::bindings, validate(request.event));
+    return route(*data_, commands, ui, request, key ? &chord : nullptr, key && key->repeat, CommandSource::keyboard,
+                 &ShortcutScope::bindings, validate(request.event));
 }
 
 Result<ShortcutDispatch> CommandShortcuts::dispatch(const CommandSnapshot& commands, const SemanticInput& ui,
-    const GamepadShortcutRequest& request) const {
+                                                    const GamepadShortcutRequest& request) const {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     validate_chord(check, request.chord, "/chord");
-    return route(*data_, commands, ui, request, &request.chord, request.repeat,
-        CommandSource::gamepad, &ShortcutScope::gamepad_bindings, std::move(errors));
+    return route(*data_, commands, ui, request, &request.chord, request.repeat, CommandSource::gamepad,
+                 &ShortcutScope::gamepad_bindings, std::move(errors));
 }
 
 } // namespace tessera

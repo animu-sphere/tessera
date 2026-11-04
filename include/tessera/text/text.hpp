@@ -24,8 +24,8 @@ struct TextStyle {
 };
 
 struct TextMetrics {
-    Size size;              // Widest line advance by lines * line_height.
-    float baseline = 0;     // First-line baseline below the top of the text box.
+    Size size;          // Widest line advance by lines * line_height.
+    float baseline = 0; // First-line baseline below the top of the text box.
     float line_height = 0;
     std::uint32_t lines = 0;
     bool operator==(const TextMetrics&) const = default;

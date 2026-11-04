@@ -8,16 +8,23 @@ namespace tessera {
 
 std::vector<Diagnostic> validate(const GlyphRasterRequest& request) {
     if (request.pixel_size_64 < 64 || request.pixel_size_64 > 512 * 64)
-        return {{"out_of_range", Severity::error, "/pixel_size_64",
-                 "Glyph size must be between 1 and 512 physical pixels per em, in 1/64-pixel units.", {}}};
+        return {{"out_of_range",
+                 Severity::error,
+                 "/pixel_size_64",
+                 "Glyph size must be between 1 and 512 physical pixels per em, in 1/64-pixel units.",
+                 {}}};
     return {};
 }
 
 std::vector<Diagnostic> validate(const GlyphBitmap& bitmap) {
     const auto area = static_cast<std::uint64_t>(bitmap.width) * bitmap.height;
     if ((bitmap.width == 0) != (bitmap.height == 0) || area > 1024 * 1024 || area != bitmap.coverage.size())
-        return {{"invalid_glyph_bitmap", Severity::error, "/bitmap",
-                 "Glyph coverage must be tightly packed width * height bytes, at most 1 MiB; empty glyphs need both dimensions zero.", {}}};
+        return {
+            {"invalid_glyph_bitmap",
+             Severity::error,
+             "/bitmap",
+             "Glyph coverage must be tightly packed width * height bytes, at most 1 MiB; empty glyphs need both dimensions zero.",
+             {}}};
     return {};
 }
 
@@ -43,7 +50,8 @@ struct GlyphCache::Impl {
     }
 };
 
-GlyphCache::GlyphCache(GlyphRasterizer& source, GlyphCacheLimits limits) : impl_(std::make_unique<Impl>(source, limits)) {}
+GlyphCache::GlyphCache(GlyphRasterizer& source, GlyphCacheLimits limits)
+    : impl_(std::make_unique<Impl>(source, limits)) {}
 GlyphCache::~GlyphCache() = default;
 GlyphCache::GlyphCache(GlyphCache&&) noexcept = default;
 GlyphCache& GlyphCache::operator=(GlyphCache&&) noexcept = default;
@@ -60,7 +68,8 @@ Result<std::shared_ptr<const GlyphBitmap>> GlyphCache::get(const GlyphRasterRequ
             ++at;
     }
     if (revision == 0)
-        return {std::nullopt, {{"unknown_font", Severity::error, "/font", "Register this FontId before requesting a glyph.", {}}}};
+        return {std::nullopt,
+                {{"unknown_font", Severity::error, "/font", "Register this FontId before requesting a glyph.", {}}}};
     const auto hit = std::find_if(impl_->entries.begin(), impl_->entries.end(), [&](const auto& entry) {
         return entry.request == request && entry.revision == revision;
     });
@@ -70,11 +79,13 @@ Result<std::shared_ptr<const GlyphBitmap>> GlyphCache::get(const GlyphRasterRequ
     }
     auto raster = impl_->rasterizer.rasterize(request);
     const auto has_error = [](const auto& diagnostics) {
-        return std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& d) { return d.severity == Severity::error; });
+        return std::any_of(diagnostics.begin(), diagnostics.end(),
+                           [](const auto& d) { return d.severity == Severity::error; });
     };
     if (!raster || has_error(raster.diagnostics)) {
         if (!has_error(raster.diagnostics))
-            raster.diagnostics.push_back({"glyph_raster_failed", Severity::error, "/glyph", "Rasterizer returned no glyph bitmap.", {}});
+            raster.diagnostics.push_back(
+                {"glyph_raster_failed", Severity::error, "/glyph", "Rasterizer returned no glyph bitmap.", {}});
         return {std::nullopt, std::move(raster.diagnostics)};
     }
     errors = validate(*raster.value);
@@ -94,7 +105,10 @@ Result<std::shared_ptr<const GlyphBitmap>> GlyphCache::get(const GlyphRasterRequ
     return {std::move(bitmap), std::move(raster.diagnostics)};
 }
 
-void GlyphCache::clear() { impl_->entries.clear(); impl_->usage = {}; }
+void GlyphCache::clear() {
+    impl_->entries.clear();
+    impl_->usage = {};
+}
 GlyphCacheUsage GlyphCache::usage() const { return impl_->usage; }
 
 } // namespace tessera

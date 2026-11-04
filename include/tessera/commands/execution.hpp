@@ -43,8 +43,9 @@ public:
     // failures and invalid outcomes return an owned error execution (no rollback).
     // Node-owned invocations require current_ui; all borrowed inputs stay alive
     // until return. Allocation failures propagate, preserving sequence consumption.
-    Result<CommandExecution> execute(const CommandSnapshot&, const CommandInvocation&,
-        CommandHost&, const SemanticInput* current_ui = nullptr);
+    Result<CommandExecution> execute(const CommandSnapshot&, const CommandInvocation&, CommandHost&,
+                                     const SemanticInput* current_ui = nullptr);
+
 private:
     const std::thread::id thread_;
     std::uint64_t last_sequence_ = 0;

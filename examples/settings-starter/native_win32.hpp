@@ -36,9 +36,9 @@ public:
         info.bmiHeader = {sizeof(BITMAPINFOHEADER), width, -height, 1, 32, BI_RGB};
         void* bits = nullptr;
         HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
-        HFONT font = CreateFontW(-size, width, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-            FIXED_PITCH, L"Consolas");
+        HFONT font =
+            CreateFontW(-size, width, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                        CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, FIXED_PITCH, L"Consolas");
         if (!bitmap || !font) {
             if (bitmap) DeleteObject(bitmap);
             if (font) DeleteObject(font);
@@ -61,12 +61,15 @@ public:
         }
         const bool drawn = TextOutW(dc, 0, top, text, count) != FALSE;
         GdiFlush(); // DIB bytes are read only after GDI's batch completes.
-        tessera::GlyphBitmap result{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height),
-            0, top, std::vector<std::uint8_t>(static_cast<std::size_t>(width) * height)};
+        tessera::GlyphBitmap result{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 0, top,
+                                    std::vector<std::uint8_t>(static_cast<std::size_t>(width) * height)};
         const auto* pixels = static_cast<const std::uint8_t*>(bits);
         for (std::size_t i = 0; i < result.coverage.size(); ++i) result.coverage[i] = pixels[i * 4];
-        SelectObject(dc, old_font); SelectObject(dc, old_bitmap);
-        DeleteObject(font); DeleteObject(bitmap); DeleteDC(dc);
+        SelectObject(dc, old_font);
+        SelectObject(dc, old_bitmap);
+        DeleteObject(font);
+        DeleteObject(bitmap);
+        DeleteDC(dc);
         check(drawn, "Cannot rasterize glyph");
         return {std::move(result), {}};
     }
@@ -83,7 +86,9 @@ public:
     HWND handle = nullptr;
     unsigned presentations = 0;
 
-    ~Window() { if (handle) DestroyWindow(handle); }
+    ~Window() {
+        if (handle) DestroyWindow(handle);
+    }
     int run(const std::function<void(Window&)>& smoke = {}) {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         WNDCLASSW type{};
@@ -97,14 +102,18 @@ public:
         RECT bounds{0, 0, MulDiv(960, dpi, 96), MulDiv(360, dpi, 96)};
         AdjustWindowRectExForDpi(&bounds, style, FALSE, 0, dpi);
         handle = CreateWindowExW(0, type.lpszClassName,
-            L"Tessera Settings - drag boundary: resize, Tab: focus, wheel: scroll",
-            style, CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left, bounds.bottom - bounds.top,
-            nullptr, nullptr, type.hInstance, this);
+                                 L"Tessera Settings - drag boundary: resize, Tab: focus, wheel: scroll", style,
+                                 CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left, bounds.bottom - bounds.top,
+                                 nullptr, nullptr, type.hInstance, this);
         check(handle != nullptr, "Cannot create Settings window");
         ShowWindow(handle, smoke ? SW_SHOWNOACTIVATE : SW_SHOW);
         UpdateWindow(handle);
         if (smoke && !failure) {
-            try { smoke(*this); } catch (...) { failure = std::current_exception(); }
+            try {
+                smoke(*this);
+            } catch (...) {
+                failure = std::current_exception();
+            }
             SendMessageW(handle, WM_CLOSE, 0, 0);
         }
         MSG message{};
@@ -127,10 +136,13 @@ public:
     POINT physical(tessera::Point point) const {
         const auto view = mapping();
         return {static_cast<LONG>(std::lround(view.x + point.x * view.scale)),
-            static_cast<LONG>(std::lround(view.y + point.y * view.scale))};
+                static_cast<LONG>(std::lround(view.y + point.y * view.scale))};
     }
+
 private:
-    struct Mapping { float x, y, scale; };
+    struct Mapping {
+        float x, y, scale;
+    };
     std::exception_ptr failure;
     wchar_t high_surrogate = 0;
     Mapping mapping() const {
@@ -143,13 +155,15 @@ private:
     }
     static tessera::Modifiers modifiers() {
         return {.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0,
-            .control = (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-            .alt = (GetKeyState(VK_MENU) & 0x8000) != 0,
-            .super = (GetKeyState(VK_LWIN) & 0x8000) != 0 || (GetKeyState(VK_RWIN) & 0x8000) != 0};
+                .control = (GetKeyState(VK_CONTROL) & 0x8000) != 0,
+                .alt = (GetKeyState(VK_MENU) & 0x8000) != 0,
+                .super = (GetKeyState(VK_LWIN) & 0x8000) != 0 || (GetKeyState(VK_RWIN) & 0x8000) != 0};
     }
     template<class T> void send(T event, tessera::CommandSource source = tessera::CommandSource::keyboard) {
-        input({std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()), std::move(event)}, source);
+        input(
+            {std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()),
+             std::move(event)},
+            source);
         InvalidateRect(handle, nullptr, FALSE);
     }
     void cancel_pointer() {
@@ -158,21 +172,29 @@ private:
         if (GetCapture() == handle) ReleaseCapture();
     }
     void character(wchar_t unit) {
-        if (unit >= 0xd800 && unit <= 0xdbff) { high_surrogate = unit; return; }
+        if (unit >= 0xd800 && unit <= 0xdbff) {
+            high_surrogate = unit;
+            return;
+        }
         wchar_t text[2]{unit, 0};
         int count = 1;
         if (unit >= 0xdc00 && unit <= 0xdfff) {
             if (!high_surrogate) return;
-            text[0] = high_surrogate; text[1] = unit; count = 2;
+            text[0] = high_surrogate;
+            text[1] = unit;
+            count = 2;
         }
         high_surrogate = 0;
         if (unit < 0x20 || unit == 0x7f || !editing()) return;
         const auto mods = modifiers();
         if ((mods.control || mods.alt || mods.super) && !(mods.control && mods.alt && !mods.super)) return;
         std::string utf8(8, '\0');
-        const int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text, count,
-            utf8.data(), static_cast<int>(utf8.size()), nullptr, nullptr);
-        if (bytes > 0) { utf8.resize(bytes); send(tessera::TextInput{std::move(utf8)}); }
+        const int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text, count, utf8.data(),
+                                              static_cast<int>(utf8.size()), nullptr, nullptr);
+        if (bytes > 0) {
+            utf8.resize(bytes);
+            send(tessera::TextInput{std::move(utf8)});
+        }
     }
     bool keyboard(WPARAM key, LPARAM flags) {
         const auto mods = modifiers();
@@ -180,7 +202,10 @@ private:
         if (!mods.control && !mods.alt && !mods.super) {
             if (key == VK_TAB) {
                 high_surrogate = 0;
-                if (mods.shift) send(tessera::FocusPrevious{}); else send(tessera::FocusNext{});
+                if (mods.shift)
+                    send(tessera::FocusPrevious{});
+                else
+                    send(tessera::FocusNext{});
                 return true;
             }
             if ((key == VK_RETURN || key == VK_SPACE) && !mods.shift && !editing()) {
@@ -190,16 +215,36 @@ private:
         }
         std::optional<tessera::Key> mapped;
         switch (key) {
-        case 'A': mapped = tessera::Key::a; break;
-        case VK_LEFT: mapped = tessera::Key::left; break;
-        case VK_RIGHT: mapped = tessera::Key::right; break;
-        case VK_UP: mapped = tessera::Key::up; break;
-        case VK_DOWN: mapped = tessera::Key::down; break;
-        case VK_HOME: mapped = tessera::Key::home; break;
-        case VK_END: mapped = tessera::Key::end; break;
-        case VK_BACK: mapped = tessera::Key::backspace; break;
-        case VK_DELETE: mapped = tessera::Key::delete_key; break;
-        case VK_ESCAPE: mapped = tessera::Key::escape; break;
+            case 'A':
+                mapped = tessera::Key::a;
+                break;
+            case VK_LEFT:
+                mapped = tessera::Key::left;
+                break;
+            case VK_RIGHT:
+                mapped = tessera::Key::right;
+                break;
+            case VK_UP:
+                mapped = tessera::Key::up;
+                break;
+            case VK_DOWN:
+                mapped = tessera::Key::down;
+                break;
+            case VK_HOME:
+                mapped = tessera::Key::home;
+                break;
+            case VK_END:
+                mapped = tessera::Key::end;
+                break;
+            case VK_BACK:
+                mapped = tessera::Key::backspace;
+                break;
+            case VK_DELETE:
+                mapped = tessera::Key::delete_key;
+                break;
+            case VK_ESCAPE:
+                mapped = tessera::Key::escape;
+                break;
         }
         if (!mapped) return false;
         send(tessera::KeyDown{*mapped, mods, repeat});
@@ -214,26 +259,34 @@ private:
             // black, encoded as sRGB. Composite white in linear light, then use BGRX.
             for (std::size_t i = 0; i < image.pixels.size(); i += 4) {
                 const unsigned alpha = image.pixels[i + 3];
-                if (alpha < 255) for (unsigned c = 0; c < 3; ++c) {
-                    const double value = image.pixels[i + c] / 255.0;
-                    const double linear = value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4);
-                    const double opaque = std::min(1.0, linear + (255 - alpha) / 255.0);
-                    const double encoded = opaque <= .0031308 ? opaque * 12.92 : 1.055 * std::pow(opaque, 1 / 2.4) - .055;
-                    image.pixels[i + c] = static_cast<std::uint8_t>(std::lround(encoded * 255));
-                }
+                if (alpha < 255)
+                    for (unsigned c = 0; c < 3; ++c) {
+                        const double value = image.pixels[i + c] / 255.0;
+                        const double linear = value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4);
+                        const double opaque = std::min(1.0, linear + (255 - alpha) / 255.0);
+                        const double encoded =
+                            opaque <= .0031308 ? opaque * 12.92 : 1.055 * std::pow(opaque, 1 / 2.4) - .055;
+                        image.pixels[i + c] = static_cast<std::uint8_t>(std::lround(encoded * 255));
+                    }
                 std::swap(image.pixels[i], image.pixels[i + 2]);
             }
-            RECT client{}; GetClientRect(handle, &client);
+            RECT client{};
+            GetClientRect(handle, &client);
             FillRect(dc, &client, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
             BITMAPINFO info{};
-            info.bmiHeader = {sizeof(BITMAPINFOHEADER), static_cast<LONG>(image.extent.width),
-                -static_cast<LONG>(image.extent.height), 1, 32, BI_RGB};
+            info.bmiHeader = {sizeof(BITMAPINFOHEADER),
+                              static_cast<LONG>(image.extent.width),
+                              -static_cast<LONG>(image.extent.height),
+                              1,
+                              32,
+                              BI_RGB};
             const auto view = mapping();
             SetStretchBltMode(dc, COLORONCOLOR);
-            const auto rows = StretchDIBits(dc, static_cast<int>(std::lround(view.x)), static_cast<int>(std::lround(view.y)),
-                static_cast<int>(std::lround(image.extent.width * view.scale)),
-                static_cast<int>(std::lround(image.extent.height * view.scale)),
-                0, 0, image.extent.width, image.extent.height, image.pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);
+            const auto rows =
+                StretchDIBits(dc, static_cast<int>(std::lround(view.x)), static_cast<int>(std::lround(view.y)),
+                              static_cast<int>(std::lround(image.extent.width * view.scale)),
+                              static_cast<int>(std::lround(image.extent.height * view.scale)), 0, 0, image.extent.width,
+                              image.extent.height, image.pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);
             check(rows != 0 && rows != GDI_ERROR, "Cannot present Settings frame");
             if (const auto rect = focused()) {
                 const auto a = physical(rect->origin);
@@ -242,66 +295,101 @@ private:
                 DrawFocusRect(dc, &ring);
             }
             ++presentations;
-        } catch (...) { EndPaint(handle, &state); throw; }
+        } catch (...) {
+            EndPaint(handle, &state);
+            throw;
+        }
         EndPaint(handle, &state);
     }
     LRESULT dispatch(UINT type, WPARAM w, LPARAM l) {
         switch (type) {
-        case WM_SETCURSOR: {
-            if (LOWORD(l) != HTCLIENT) break;
-            POINT point{}; GetCursorPos(&point); ScreenToClient(handle, &point);
-            const int cursor = resize_cursor(logical(point)) ? 32644 : 32512;
-            SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(cursor)));
-            return TRUE;
-        }
-        case WM_PAINT: paint(); return 0;
-        case WM_ERASEBKGND: return 1;
-        case WM_MOUSEMOVE:
-            send(tessera::PointerMove{{1}, logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}), modifiers()},
-                tessera::CommandSource::pointer); return 0;
-        case WM_LBUTTONDOWN:
-            high_surrogate = 0;
-            SetFocus(handle); SetCapture(handle);
-            send(tessera::PointerDown{{1}, logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}),
-                tessera::PointerButton::primary, modifiers()}, tessera::CommandSource::pointer); return 0;
-        case WM_LBUTTONUP:
-            send(tessera::PointerUp{{1}, logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}),
-                tessera::PointerButton::primary, modifiers()}, tessera::CommandSource::pointer);
-            if (GetCapture() == handle) ReleaseCapture();
-            return 0;
-        case WM_MOUSEWHEEL: case WM_MOUSEHWHEEL: {
-            POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)}; ScreenToClient(handle, &point);
-            const float delta = static_cast<float>(GET_WHEEL_DELTA_WPARAM(w)) / WHEEL_DELTA * 48;
-            send(tessera::Scroll{logical(point), type == WM_MOUSEWHEEL ? tessera::Point{0, -delta} :
-                tessera::Point{delta, 0}, modifiers()}, tessera::CommandSource::pointer); return 0;
-        }
-        case WM_KEYDOWN: if (keyboard(w, l)) return 0; break;
-        case WM_CHAR: character(static_cast<wchar_t>(w)); return 0;
-        case WM_CAPTURECHANGED:
-            send(tessera::PointerCancel{{1}}, tessera::CommandSource::pointer); return 0;
-        case WM_KILLFOCUS: case WM_CANCELMODE: cancel_pointer(); return 0;
-        case WM_SIZE: {
-            cancel_pointer();
-            RECT client{}; GetClientRect(handle, &client);
-            if (client.right > 0 && client.bottom > 0) {
-                const auto scale = mapping().scale;
-                resized({client.right / scale, client.bottom / scale});
+            case WM_SETCURSOR: {
+                if (LOWORD(l) != HTCLIENT) break;
+                POINT point{};
+                GetCursorPos(&point);
+                ScreenToClient(handle, &point);
+                const int cursor = resize_cursor(logical(point)) ? 32644 : 32512;
+                SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(cursor)));
+                return TRUE;
             }
-            InvalidateRect(handle, nullptr, FALSE); return 0;
-        }
-        case WM_DPICHANGED: {
-            const auto* rect = reinterpret_cast<const RECT*>(l);
-            SetWindowPos(handle, nullptr, rect->left, rect->top, rect->right - rect->left,
-                rect->bottom - rect->top, SWP_NOZORDER | SWP_NOACTIVATE); return 0;
-        }
-        case WM_CLOSE: DestroyWindow(handle); return 0;
-        case WM_DESTROY: PostQuitMessage(0); return 0;
-        case WM_NCDESTROY: {
-            const auto window = handle;
-            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
-            handle = nullptr;
-            return DefWindowProcW(window, type, w, l);
-        }
+            case WM_PAINT:
+                paint();
+                return 0;
+            case WM_ERASEBKGND:
+                return 1;
+            case WM_MOUSEMOVE:
+                send(tessera::PointerMove{{1}, logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}), modifiers()},
+                     tessera::CommandSource::pointer);
+                return 0;
+            case WM_LBUTTONDOWN:
+                high_surrogate = 0;
+                SetFocus(handle);
+                SetCapture(handle);
+                send(
+                    tessera::PointerDown{
+                        {1}, logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}), tessera::PointerButton::primary, modifiers()},
+                    tessera::CommandSource::pointer);
+                return 0;
+            case WM_LBUTTONUP:
+                send(
+                    tessera::PointerUp{
+                        {1}, logical({GET_X_LPARAM(l), GET_Y_LPARAM(l)}), tessera::PointerButton::primary, modifiers()},
+                    tessera::CommandSource::pointer);
+                if (GetCapture() == handle) ReleaseCapture();
+                return 0;
+            case WM_MOUSEWHEEL:
+            case WM_MOUSEHWHEEL: {
+                POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+                ScreenToClient(handle, &point);
+                const float delta = static_cast<float>(GET_WHEEL_DELTA_WPARAM(w)) / WHEEL_DELTA * 48;
+                send(tessera::Scroll{logical(point),
+                                     type == WM_MOUSEWHEEL ? tessera::Point{0, -delta} : tessera::Point{delta, 0},
+                                     modifiers()},
+                     tessera::CommandSource::pointer);
+                return 0;
+            }
+            case WM_KEYDOWN:
+                if (keyboard(w, l)) return 0;
+                break;
+            case WM_CHAR:
+                character(static_cast<wchar_t>(w));
+                return 0;
+            case WM_CAPTURECHANGED:
+                send(tessera::PointerCancel{{1}}, tessera::CommandSource::pointer);
+                return 0;
+            case WM_KILLFOCUS:
+            case WM_CANCELMODE:
+                cancel_pointer();
+                return 0;
+            case WM_SIZE: {
+                cancel_pointer();
+                RECT client{};
+                GetClientRect(handle, &client);
+                if (client.right > 0 && client.bottom > 0) {
+                    const auto scale = mapping().scale;
+                    resized({client.right / scale, client.bottom / scale});
+                }
+                InvalidateRect(handle, nullptr, FALSE);
+                return 0;
+            }
+            case WM_DPICHANGED: {
+                const auto* rect = reinterpret_cast<const RECT*>(l);
+                SetWindowPos(handle, nullptr, rect->left, rect->top, rect->right - rect->left, rect->bottom - rect->top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+                return 0;
+            }
+            case WM_CLOSE:
+                DestroyWindow(handle);
+                return 0;
+            case WM_DESTROY:
+                PostQuitMessage(0);
+                return 0;
+            case WM_NCDESTROY: {
+                const auto window = handle;
+                SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+                handle = nullptr;
+                return DefWindowProcW(window, type, w, l);
+            }
         }
         return DefWindowProcW(handle, type, w, l);
     }
@@ -313,8 +401,9 @@ private:
             SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
         }
         if (!self) return DefWindowProcW(window, type, w, l);
-        try { return self->dispatch(type, w, l); }
-        catch (...) {
+        try {
+            return self->dispatch(type, w, l);
+        } catch (...) {
             if (!self->failure) self->failure = std::current_exception();
             PostMessageW(window, WM_CLOSE, 0, 0);
             return 0;

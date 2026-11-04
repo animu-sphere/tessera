@@ -21,17 +21,21 @@ void normalized_events() {
     };
     for (const auto& event : valid) check(tessera::validate(event).empty(), "Valid event rejected");
 
-    check(has(tessera::validate({-1us, tessera::Cancel{}}), "out_of_range", "/timestamp"), "Negative timestamp accepted");
-    check(has(tessera::validate({0us, tessera::PointerMove{{}, {std::nanf(""), 0}, {}}}), "invalid_number", "/position/x"),
+    check(has(tessera::validate({-1us, tessera::Cancel{}}), "out_of_range", "/timestamp"),
+          "Negative timestamp accepted");
+    check(has(tessera::validate({0us, tessera::PointerMove{{}, {std::nanf(""), 0}, {}}}), "invalid_number",
+              "/position/x"),
           "Non-finite pointer position accepted");
     check(has(tessera::validate({0us, tessera::Scroll{{}, {0, INFINITY}, {}}}), "invalid_number", "/delta/y"),
           "Non-finite scroll delta accepted");
     check(has(tessera::validate({0us, tessera::KeyUp{static_cast<tessera::Key>(200), {}}}), "unknown_value", "/key"),
           "Unknown key accepted");
     check(has(tessera::validate({0us, tessera::PointerUp{{}, {}, static_cast<tessera::PointerButton>(9), {}}}),
-              "unknown_value", "/button"), "Unknown button accepted");
+              "unknown_value", "/button"),
+          "Unknown button accepted");
     check(has(tessera::validate({0us, tessera::TextInput{""}}), "empty_text", "/text"), "Empty text input accepted");
-    check(has(tessera::validate({0us, tessera::TextInput{"\xc0\xaf"}}), "invalid_utf8", "/text"), "Invalid UTF-8 accepted");
+    check(has(tessera::validate({0us, tessera::TextInput{"\xc0\xaf"}}), "invalid_utf8", "/text"),
+          "Invalid UTF-8 accepted");
 }
 
 } // namespace

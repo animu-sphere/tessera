@@ -14,10 +14,14 @@ namespace {
 
 std::string expected(PropertyType type) {
     switch (type) {
-    case PropertyType::boolean: return "a boolean";
-    case PropertyType::number: return "a finite number";
-    case PropertyType::string: return "a UTF-8 string";
-    case PropertyType::reference: return "an author-ID reference {\"ref\":\"id\"}";
+        case PropertyType::boolean:
+            return "a boolean";
+        case PropertyType::number:
+            return "a finite number";
+        case PropertyType::string:
+            return "a UTF-8 string";
+        case PropertyType::reference:
+            return "an author-ID reference {\"ref\":\"id\"}";
     }
     return "a supported value";
 }
@@ -25,16 +29,16 @@ std::string expected(PropertyType type) {
 } // namespace
 
 std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, const UiNode& root,
-    const JsonValue::Object& document_extensions, const ValidationContext& context) {
+                                                        const JsonValue::Object& document_extensions,
+                                                        const ValidationContext& context) {
     std::vector<Diagnostic> errors;
     auto error = [&](std::string code, std::string path, std::string message) {
         errors.push_back({std::move(code), Severity::error, std::move(path), std::move(message), {}});
     };
     auto check_string = [&](std::string_view value, const std::string& path, bool identifier) {
         if (!detail::valid_utf8(value)) error("invalid_utf8", path, "Use valid UTF-8 text.");
-        const bool controls = std::any_of(value.begin(), value.end(), [](unsigned char c) {
-            return c < 0x20 || c == 0x7f;
-        });
+        const bool controls =
+            std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; });
         if (identifier && (value.empty() || controls))
             error("invalid_identifier", path, "Identifiers must be nonempty and contain no control characters.");
     };
@@ -44,22 +48,24 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             error("depth_limit", path, "Extension metadata exceeds the JSON nesting limit (256).");
             return;
         }
-        std::visit([&](const auto& data) {
-            using T = std::decay_t<decltype(data)>;
-            if constexpr (std::is_same_v<T, double>) {
-                if (!std::isfinite(data)) error("invalid_number", path, "Numbers must be finite.");
-            } else if constexpr (std::is_same_v<T, std::string>) {
-                check_string(data, path, false);
-            } else if constexpr (std::is_same_v<T, JsonValue::Array>) {
-                for (std::size_t i = 0; i < data.size(); ++i)
-                    metadata(data[i], path + "/" + std::to_string(i), depth + 1);
-            } else if constexpr (std::is_same_v<T, JsonValue::Object>) {
-                for (const auto& [key, child] : data) {
-                    check_string(key, path, false);
-                    metadata(child, path + "/" + detail::pointer_token(key), depth + 1);
+        std::visit(
+            [&](const auto& data) {
+                using T = std::decay_t<decltype(data)>;
+                if constexpr (std::is_same_v<T, double>) {
+                    if (!std::isfinite(data)) error("invalid_number", path, "Numbers must be finite.");
+                } else if constexpr (std::is_same_v<T, std::string>) {
+                    check_string(data, path, false);
+                } else if constexpr (std::is_same_v<T, JsonValue::Array>) {
+                    for (std::size_t i = 0; i < data.size(); ++i)
+                        metadata(data[i], path + "/" + std::to_string(i), depth + 1);
+                } else if constexpr (std::is_same_v<T, JsonValue::Object>) {
+                    for (const auto& [key, child] : data) {
+                        check_string(key, path, false);
+                        metadata(child, path + "/" + detail::pointer_token(key), depth + 1);
+                    }
                 }
-            }
-        }, value.value);
+            },
+            value.value);
     };
     auto extensions = [&](const JsonValue::Object& values, const std::string& path, std::size_t depth) {
         for (const auto& [key, value] : values) {
@@ -78,7 +84,11 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
     std::vector<std::pair<std::string, std::string>> anchors;
     std::vector<std::string> popups;
     std::size_t modal_count = 0;
-    struct TreeEntry { const UiNode* node; const UiNode* owner; std::string path; };
+    struct TreeEntry {
+        const UiNode* node;
+        const UiNode* owner;
+        std::string path;
+    };
     std::vector<TreeEntry> tree_entries;
     std::map<const UiNode*, std::size_t> selected_counts;
     std::size_t count = 0;
@@ -109,7 +119,8 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             if (!descriptor || !contains(descriptor->accepted, node.kind))
                 error("unknown_property", location, "This property is not supported on this node kind.");
             else if (property_type(value) != descriptor->type)
-                error("property_type", location, "Expected " + expected(descriptor->type) + "; values are not coerced.");
+                error("property_type", location,
+                      "Expected " + expected(descriptor->type) + "; values are not coerced.");
             if (const auto* string = std::get_if<std::string>(&value)) check_string(*string, location, false);
             if (const auto* number = std::get_if<double>(&value); number && !std::isfinite(*number))
                 error("invalid_number", location, "Numbers must be finite.");
@@ -122,7 +133,7 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             if (contains(descriptor.required, node.kind) && !node.properties.contains(descriptor.name))
                 error("missing_property", path + "/properties/" + detail::pointer_token(descriptor.name),
                       std::string(node.kind == NodeKind::box ? "Box" : "Text") + " nodes require the '" +
-                      std::string(descriptor.name) + "' property: " + expected(descriptor.type) + ".");
+                          std::string(descriptor.name) + "' property: " + expected(descriptor.type) + ".");
         }
         if (node.kind == NodeKind::text && !node.children.empty())
             error("invalid_children", path + "/children", "Text is a leaf; place children in a Box.");
@@ -156,7 +167,8 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         if (const auto found = node.properties.find(property_names::popup_gap); found != node.properties.end()) {
             if (const auto* gap = std::get_if<double>(&found->second);
                 gap && (!std::isfinite(*gap) || *gap < 0 || *gap > std::numeric_limits<float>::max()))
-                error("popup_gap", path + "/properties/popup_gap", "Use a finite, nonnegative logical gap within float range.");
+                error("popup_gap", path + "/properties/popup_gap",
+                      "Use a finite, nonnegative logical gap within float range.");
         }
         const bool point_x = node.properties.contains(property_names::popup_x);
         const bool point_y = node.properties.contains(property_names::popup_y);
@@ -167,7 +179,7 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             const auto* number = value ? std::get_if<double>(value) : nullptr;
             if (number && (!std::isfinite(*number) || std::abs(*number) > std::numeric_limits<float>::max()))
                 error("popup_position", path + "/properties/" + std::string(coordinate),
-                    "Use a finite root-logical coordinate within float range.");
+                      "Use a finite root-logical coordinate within float range.");
         }
         const auto marked = [&](std::string_view name) {
             const auto* value = effective_property(node, name);
@@ -175,19 +187,20 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             return flag && *flag;
         };
         const auto role = detail::collection_role(node);
-        if (node.properties.contains(property_names::collection_role) &&
-            role != "list" && role != "tree" && role != "menu" && !detail::collection_item(role))
+        if (node.properties.contains(property_names::collection_role) && role != "list" && role != "tree" &&
+            role != "menu" && !detail::collection_item(role))
             error("collection_role", path + "/properties/collection_role",
-                "Choose list, tree, menu, list_item, tree_item, or menu_item.");
+                  "Choose list, tree, menu, list_item, tree_item, or menu_item.");
         const auto parent_role = parent ? detail::collection_role(*parent) : std::string_view{};
-        if ((role == "list_item" && parent_role != "list") ||
-            (role == "tree_item" && parent_role != "tree") || (role == "menu_item" && parent_role != "menu"))
+        if ((role == "list_item" && parent_role != "list") || (role == "tree_item" && parent_role != "tree") ||
+            (role == "menu_item" && parent_role != "menu"))
             error("collection_parent", path, "Place collection items directly under their matching collection.");
         if (role == "menu" && (!node.id || !node.properties.contains(property_names::popup_anchor)))
             error("menu_popup", path, "Give the root-sibling Menu a stable ID and popup_anchor.");
         if (((parent_role == "menu" && role != "menu_item") || parent_role == "menu_item") &&
             (node.kind != NodeKind::text || !node.events.empty() || marked(property_names::focusable)))
-            error("menu_child", path, "Menus contain command items and noninteractive Text, not nested controls or menus.");
+            error("menu_child", path,
+                  "Menus contain command items and noninteractive Text, not nested controls or menus.");
         if (role == "tree_item" || parent_role == "tree") tree_entries.push_back({&node, parent, path});
         if (node.properties.contains(property_names::tree_parent) && role != "tree_item")
             error("collection_state", path + "/properties/tree_parent", "Only tree items have a logical tree parent.");
@@ -204,7 +217,8 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         if (role == "menu_item" && !node.events.contains("activate"))
             error("menu_action", path + "/events/activate", "Give each menu item a registered command action.");
         if (!role.empty() && (marked(property_names::modal) || marked(property_names::separator)))
-            error("collection_role", path + "/properties/collection_role", "Do not combine a collection role with modal or separator markers.");
+            error("collection_role", path + "/properties/collection_role",
+                  "Do not combine a collection role with modal or separator markers.");
         for (const auto& [event, action] : node.events) {
             const auto location = path + "/events/" + detail::pointer_token(event);
             if (event != "activate" && event != "cancel" && event != "expand" && event != "collapse")
@@ -214,7 +228,8 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
                 error("collection_event", location, "Expansion bindings require a tree item with expanded state.");
             check_string(action, location, true);
             if (!context.actions.contains(action))
-                error("unknown_action", location, "Register host action '" + action + "' in ValidationContext before loading.");
+                error("unknown_action", location,
+                      "Register host action '" + action + "' in ValidationContext before loading.");
         }
         extensions(node.extensions, path + "/extensions", depth * 2);
         for (std::size_t i = 0; i < node.children.size() && count <= max_document_nodes; ++i)
@@ -233,15 +248,17 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         }
         const auto* value = effective_property(*entry.node, property_names::tree_parent);
         const auto* parent = value ? std::get_if<NodeReference>(value) : nullptr;
-        if (!parent) tree_ancestors.clear();
+        if (!parent)
+            tree_ancestors.clear();
         else {
             while (!tree_ancestors.empty() && tree_ancestors.back()->id != parent->id) tree_ancestors.pop_back();
             if (tree_ancestors.empty())
-                error("tree_parent", entry.path + "/properties/tree_parent",
+                error(
+                    "tree_parent", entry.path + "/properties/tree_parent",
                     "Reference an earlier ancestor item in the same tree; keep logical subtrees contiguous in preorder.");
             else if (!tree_ancestors.back()->properties.contains(property_names::expanded))
                 error("tree_parent", entry.path + "/properties/tree_parent",
-                    "A logical parent must declare expanded state.");
+                      "A logical parent must declare expanded state.");
         }
         tree_ancestors.push_back(entry.node);
         if (tree_ancestors.size() > max_document_depth)
@@ -258,9 +275,10 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         const bool popup = root.children[i].properties.contains(property_names::popup_anchor);
         const auto marker = root.children[i].properties.find(property_names::modal);
         const bool modal = marker != root.children[i].properties.end() && std::get_if<bool>(&marker->second) &&
-            std::get<bool>(marker->second);
+                           std::get<bool>(marker->second);
         if (modal && i + 1 != root.children.size())
-            error("modal_order", "/root/children/" + std::to_string(i), "Place the Modal after all content and popups.");
+            error("modal_order", "/root/children/" + std::to_string(i),
+                  "Place the Modal after all content and popups.");
         if (popup_seen && !popup && !modal)
             error("popup_order", "/root/children/" + std::to_string(i),
                   "Place ordinary content before all root popup children so paint and hit order agree.");

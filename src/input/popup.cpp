@@ -14,8 +14,7 @@ bool cancel(const InputEvent& event) {
 
 bool descendant(const HitTestInput& input, NodeHandle node, NodeHandle ancestor) {
     const auto& boxes = input.layout->boxes;
-    const auto found = std::find_if(boxes.begin(), boxes.end(),
-        [&](const LayoutBox& box) { return box.node == node; });
+    const auto found = std::find_if(boxes.begin(), boxes.end(), [&](const LayoutBox& box) { return box.node == node; });
     if (found == boxes.end()) return false;
     auto at = static_cast<std::uint32_t>(found - boxes.begin());
     while (at != no_layout_parent) {
@@ -26,13 +25,13 @@ bool descendant(const HitTestInput& input, NodeHandle node, NodeHandle ancestor)
 }
 
 std::vector<Diagnostic> event_errors(const HitTestInput& input, const InputEvent& event,
-    std::optional<std::chrono::microseconds> previous) {
+                                     std::optional<std::chrono::microseconds> previous) {
     auto errors = validate(input);
     auto next = validate(event);
     errors.insert(errors.end(), next.begin(), next.end());
     if (previous && event.timestamp < *previous)
         errors.push_back({"event_order", Severity::error, "/timestamp",
-            "Send non-decreasing timestamps within this dispatcher's stream."});
+                          "Send non-decreasing timestamps within this dispatcher's stream."});
     return errors;
 }
 
@@ -47,7 +46,7 @@ std::optional<NodeHandle> anchor_focus(const HitTestInput& input, const std::opt
 void check_focus(std::vector<Diagnostic>& errors, const HitTestInput& input, std::optional<NodeHandle> focused) {
     if (input.tree && focused && !input.tree->get(*focused))
         errors.push_back({"stale_target", Severity::error, "/focused",
-            "Pass the focus handle for the current snapshot, not an expired tree."});
+                          "Pass the focus handle for the current snapshot, not an expired tree."});
 }
 
 void check_id(std::vector<Diagnostic>& errors, const std::string& id) {
@@ -85,8 +84,8 @@ PopupDispatchResult PopupDispatcher::update(const HitTestInput& input) {
     const detail::Targeting targeting(input);
     const auto at = node ? targeting.box(*node) : no_layout_parent;
     const auto anchor_node = anchor ? input.tree->find(*anchor) : std::nullopt;
-    const bool shown = anchor && at != no_layout_parent && targeting.eligible(*node) &&
-        anchor_node && targeting.eligible(*anchor_node);
+    const bool shown = anchor && at != no_layout_parent && targeting.eligible(*node) && anchor_node &&
+                       targeting.eligible(*anchor_node);
     if (open_ && (!shown || !anchor_ || *anchor_ != *anchor)) {
         result.focus = anchor_focus(input, anchor_);
         open_ = false;
@@ -147,7 +146,7 @@ Result<MenuDispatchResult> MenuDispatcher::refresh(const HitTestInput& input) {
 }
 
 Result<MenuDispatchResult> MenuDispatcher::dispatch(const HitTestInput& input, const InputEvent& event,
-    std::optional<NodeHandle> focused) {
+                                                    std::optional<NodeHandle> focused) {
     auto errors = validate(input);
     check_menu(errors, input, id_);
     check_focus(errors, input, focused);
@@ -171,8 +170,8 @@ Result<MenuDispatchResult> MenuDispatcher::dispatch(const HitTestInput& input, c
                 if (hit && descendant(input, *hit, *anchor)) result.open_at = press->position;
             }
             if (const auto* key = std::get_if<KeyDown>(&event.data);
-                key && key->key == Key::f10 && key->modifiers == Modifiers{true} && !key->repeat &&
-                focused && targeting.eligible(*focused) && descendant(input, *focused, *anchor)) {
+                key && key->key == Key::f10 && key->modifiers == Modifiers{true} && !key->repeat && focused &&
+                targeting.eligible(*focused) && descendant(input, *focused, *anchor)) {
                 const auto visible = box->clip ? intersect(box->border_box, *box->clip) : box->border_box;
                 result.open_at = Point{visible.origin.x, visible.origin.y + visible.size.height};
             }
@@ -192,8 +191,8 @@ Result<MenuDispatchResult> MenuDispatcher::dispatch(const HitTestInput& input, c
     }
     if (!shown || result.dismiss) return {result, {}};
     const auto* key = std::get_if<KeyDown>(&event.data);
-    const bool tab = key && key->key == Key::tab && !key->modifiers.control &&
-        !key->modifiers.alt && !key->modifiers.super;
+    const bool tab =
+        key && key->key == Key::tab && !key->modifiers.control && !key->modifiers.alt && !key->modifiers.super;
     if (tab || std::holds_alternative<FocusNext>(event.data) || std::holds_alternative<FocusPrevious>(event.data)) {
         result.dismiss = true;
         result.focus = anchor_focus(input, anchor_id ? std::optional(*anchor_id) : std::nullopt);
@@ -203,7 +202,8 @@ Result<MenuDispatchResult> MenuDispatcher::dispatch(const HitTestInput& input, c
         const auto owner = targeting.binding_owner(targeting.hit(move->position));
         if (owner && descendant(input, *owner, *menu) &&
             detail::collection_role(*input.tree->get(*owner)) == "menu_item" &&
-            targeting.focusable(targeting.box(*owner))) result.focus = owner;
+            targeting.focusable(targeting.box(*owner)))
+            result.focus = owner;
     }
     return {result, {}};
 }
@@ -219,7 +219,7 @@ TooltipDispatchResult TooltipDispatcher::update(const HitTestInput& input, std::
         if (visible.size.width > 0 && visible.size.height > 0) {
             const auto hit = pointer_ ? targeting.hit(*pointer_) : std::nullopt;
             active = (hit && descendant(input, *hit, *anchor)) ||
-                (focused && targeting.eligible(*focused) && descendant(input, *focused, *anchor));
+                     (focused && targeting.eligible(*focused) && descendant(input, *focused, *anchor));
         }
     }
     if (!active) suppressed_ = false;
@@ -235,7 +235,7 @@ Result<TooltipDispatchResult> TooltipDispatcher::refresh(const HitTestInput& inp
 }
 
 Result<TooltipDispatchResult> TooltipDispatcher::dispatch(const HitTestInput& input, const InputEvent& event,
-    std::optional<NodeHandle> focused) {
+                                                          std::optional<NodeHandle> focused) {
     auto errors = event_errors(input, event, timestamp_);
     check_id(errors, anchor_);
     check_focus(errors, input, focused);
@@ -247,8 +247,7 @@ Result<TooltipDispatchResult> TooltipDispatcher::dispatch(const HitTestInput& in
         pointer_ = press->position;
         pointer_id_ = press->pointer;
         suppressed_ = true;
-    } else if (const auto* lost = std::get_if<PointerCancel>(&event.data);
-               lost && pointer_id_ == lost->pointer) {
+    } else if (const auto* lost = std::get_if<PointerCancel>(&event.data); lost && pointer_id_ == lost->pointer) {
         pointer_.reset();
         pointer_id_.reset();
     }

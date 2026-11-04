@@ -22,13 +22,16 @@ tessera::UiNode label(std::string id, std::string text) {
 int main() {
     // A centered menu panel: title above a row of two growing buttons.
     tessera::UiDocument document;
-    document.root = node(tessera::NodeKind::box, "screen", {node(tessera::NodeKind::box, "panel", {
-        label("title", "Tessera"),
-        node(tessera::NodeKind::box, "buttons", {
-            node(tessera::NodeKind::box, "start", {label("start-label", "Start")}),
-            node(tessera::NodeKind::box, "quit", {label("quit-label", "Quit")}),
-        }),
-    })});
+    document.root = node(tessera::NodeKind::box, "screen",
+                         {node(tessera::NodeKind::box, "panel",
+                               {
+                                   label("title", "Tessera"),
+                                   node(tessera::NodeKind::box, "buttons",
+                                        {
+                                            node(tessera::NodeKind::box, "start", {label("start-label", "Start")}),
+                                            node(tessera::NodeKind::box, "quit", {label("quit-label", "Quit")}),
+                                        }),
+                               })});
     auto created = tessera::UiTree::create(document);
     if (!created) return 1;
     const auto& tree = **created.value;
@@ -61,11 +64,10 @@ int main() {
     if (!result) return 2;
     for (const auto& box : result.value->boxes) {
         const auto& r = box.border_box;
-        std::cout << *tree.get(box.node)->id << ": x=" << r.origin.x << " y=" << r.origin.y
-                  << " w=" << r.size.width << " h=" << r.size.height << '\n';
+        std::cout << *tree.get(box.node)->id << ": x=" << r.origin.x << " y=" << r.origin.y << " w=" << r.size.width
+                  << " h=" << r.size.height << '\n';
     }
-    std::cout << "Laid out " << result.value->boxes.size()
-              << " boxes with placeholder text metrics.\n";
+    std::cout << "Laid out " << result.value->boxes.size() << " boxes with placeholder text metrics.\n";
     const auto paint = tessera::build_paint_list({&tree, styles, &*result.value, &text});
     if (!paint || !tessera::validate(*paint.value).empty()) return 3;
     std::cout << "Generated " << paint.value->commands.size()

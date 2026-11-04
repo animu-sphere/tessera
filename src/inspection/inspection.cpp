@@ -78,8 +78,8 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
         }
     }
     for (const auto& box : input.layout->boxes)
-        snapshot.elements[box.node.index].geometry = {box.border_box, box.padding_box(), box.content_box(), box.visible,
-                                                     box.clip, box.scroll};
+        snapshot.elements[box.node.index].geometry = {box.border_box, box.padding_box(), box.content_box(),
+                                                      box.visible,    box.clip,          box.scroll};
     const auto& entries = semantics.value->nodes;
     for (std::uint32_t i = 0; i < entries.size(); ++i) snapshot.elements[entries[i].node.index].semantic = i;
     snapshot.semantics = std::move(*semantics.value);
@@ -88,7 +88,8 @@ Result<InspectionSnapshot> capture_inspection(const InspectionInput& input) {
         snapshot.sources = SourceStatus::mapped;
         snapshot.source_file = input.sources->file;
         for (auto& diagnostic : snapshot.diagnostics) {
-            if (const auto index = node_index(diagnostic.path); index && *index < tree.size() && input.sources->nodes[*index].mapped)
+            if (const auto index = node_index(diagnostic.path);
+                index && *index < tree.size() && input.sources->nodes[*index].mapped)
                 diagnostic.byte_offset = input.sources->nodes[*index].span.begin;
         }
     }
@@ -119,8 +120,9 @@ Result<NodeHandle> resolve_target(const InspectionSnapshot& snapshot, const Insp
             if (included[i] && elements[i].id == id->id) matches.push_back(i);
     } else if (const auto* semantic = std::get_if<SemanticTarget>(&target)) {
         for (const auto& entry : snapshot.semantics.nodes)
-            if (entry.node.index < included.size() && included[entry.node.index] &&
-                entry.role == semantic->role && entry.name == semantic->name) matches.push_back(entry.node.index);
+            if (entry.node.index < included.size() && included[entry.node.index] && entry.role == semantic->role &&
+                entry.name == semantic->name)
+                matches.push_back(entry.node.index);
     } else if (const auto* path = std::get_if<PathTarget>(&target)) {
         if (!elements.empty()) {
             std::uint32_t current = scope ? scope->index : 0;

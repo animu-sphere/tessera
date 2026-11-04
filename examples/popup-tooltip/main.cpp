@@ -26,24 +26,35 @@ void require(bool condition, const char* message) {
 const ValidationContext actions{{"popup.toggle", "select.dark", "select.light", "scene.select"}};
 ui::Element Form(bool open, bool help, bool anchor, const std::string& selected) {
     std::vector<ui::Element> content;
-    if (anchor) content.push_back(ui::Button("Theme: " + selected, "popup.toggle",
-        {.node = {.id = "theme", .style = {.height = Dimension::points(28), .margin = Edges{32, 0, 0, 0},
-            .background = Color{0.7f, 0.8f, 1, 1}}}}));
+    if (anchor)
+        content.push_back(ui::Button("Theme: " + selected, "popup.toggle",
+                                     {.node = {.id = "theme",
+                                               .style = {.height = Dimension::points(28),
+                                                         .margin = Edges{32, 0, 0, 0},
+                                                         .background = Color{0.7f, 0.8f, 1, 1}}}}));
     content.push_back(ui::Column({}, {.style = {.height = Dimension::points(180)}}));
-    return ui::Column({
-        ui::ScrollView(std::move(content), {.id = "settings", .style = {
-            .width = Dimension::points(180), .height = Dimension::points(72)}}),
-        ui::Button("Select scene", "scene.select", {.node = {.id = "scene",
-            .style = {.height = Dimension::points(100), .background = Color{0.2f, 0.3f, 0.4f, 1}}}}),
-        ui::Popup("theme", {
-            ui::Button("Dark", "select.dark", {.node = {.id = "dark", .style = {.height = Dimension::points(28)}}}),
-            ui::Button("Light", "select.light", {.node = {.id = "light", .style = {.height = Dimension::points(28)}}})},
-            {.node = {.id = "theme-popup", .style = {.width = Dimension::points(160),
-                .padding = Edges{4, 4, 4, 4}, .background = Color{0.8f, 0.85f, 1, 1}}},
-             .open = open}),
-        ui::Tooltip("theme", "Choose the editor color theme",
-            {.node = {.id = "theme-help", .style = {.max_width = 180.f,
-                .padding = Edges{4, 4, 4, 4}, .background = Color{1, 1, 0.7f, 1}}}, .open = help})},
+    return ui::Column(
+        {ui::ScrollView(
+             std::move(content),
+             {.id = "settings", .style = {.width = Dimension::points(180), .height = Dimension::points(72)}}),
+         ui::Button("Select scene", "scene.select",
+                    {.node = {.id = "scene",
+                              .style = {.height = Dimension::points(100), .background = Color{0.2f, 0.3f, 0.4f, 1}}}}),
+         ui::Popup(
+             "theme",
+             {ui::Button("Dark", "select.dark", {.node = {.id = "dark", .style = {.height = Dimension::points(28)}}}),
+              ui::Button("Light", "select.light",
+                         {.node = {.id = "light", .style = {.height = Dimension::points(28)}}})},
+             {.node = {.id = "theme-popup",
+                       .style = {.width = Dimension::points(160),
+                                 .padding = Edges{4, 4, 4, 4},
+                                 .background = Color{0.8f, 0.85f, 1, 1}}},
+              .open = open}),
+         ui::Tooltip(
+             "theme", "Choose the editor color theme",
+             {.node = {.id = "theme-help",
+                       .style = {.max_width = 180.f, .padding = Edges{4, 4, 4, 4}, .background = Color{1, 1, 0.7f, 1}}},
+              .open = help})},
         {.id = "root", .style = {.overflow = Overflow::clip}});
 }
 struct View {
@@ -54,7 +65,8 @@ struct View {
     SemanticInput semantic() const { return {tree.get(), styles, &layout}; }
     std::optional<Rect> bounds(const char* id) const {
         const auto node = tree->find(id);
-        for (const auto& box : layout.boxes) if (node == box.node) return box.border_box;
+        for (const auto& box : layout.boxes)
+            if (node == box.node) return box.border_box;
         return {};
     }
 };
@@ -66,11 +78,20 @@ struct Host final : CommandHost {
     int scene_selections = 0;
     int selections = 0;
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
-        if (invocation.command == "popup.toggle") open = !open;
-        else if (invocation.command == "select.dark") { selected = "Dark"; open = false; ++selections; }
-        else if (invocation.command == "select.light") { selected = "Light"; open = false; ++selections; }
-        else if (invocation.command == "scene.select") ++scene_selections;
-        else throw std::runtime_error("Unexpected popup command");
+        if (invocation.command == "popup.toggle")
+            open = !open;
+        else if (invocation.command == "select.dark") {
+            selected = "Dark";
+            open = false;
+            ++selections;
+        } else if (invocation.command == "select.light") {
+            selected = "Light";
+            open = false;
+            ++selections;
+        } else if (invocation.command == "scene.select")
+            ++scene_selections;
+        else
+            throw std::runtime_error("Unexpected popup command");
         return {};
     }
 };
@@ -91,11 +112,16 @@ int tessera::examples::run_popup_tooltip(const FrameObserver& observer) {
         Size viewport{240, 180};
         float scroll_y = 0;
         View view;
-        const auto registry = take(CommandRegistry::create({
-            {"popup.toggle", "Choose theme"}, {"select.dark", "Dark"}, {"select.light", "Light"}, {"scene.select", "Select scene"}},
-            {{"popup.toggle", "popup.toggle"}, {"select.dark", "select.dark"},
-             {"select.light", "select.light"}, {"scene.select", "scene.select"}}));
-        const auto commands = take(CommandSnapshot::publish(registry, 1, CommandMode::production,
+        const auto registry = take(CommandRegistry::create({{"popup.toggle", "Choose theme"},
+                                                            {"select.dark", "Dark"},
+                                                            {"select.light", "Light"},
+                                                            {"scene.select", "Select scene"}},
+                                                           {{"popup.toggle", "popup.toggle"},
+                                                            {"select.dark", "select.dark"},
+                                                            {"select.light", "select.light"},
+                                                            {"scene.select", "scene.select"}}));
+        const auto commands = take(CommandSnapshot::publish(
+            registry, 1, CommandMode::production,
             {{"popup.toggle", {true}}, {"select.dark", {true}}, {"select.light", {true}}, {"scene.select", {true}}}));
         std::uint64_t sequence = 0;
         auto refresh = [&] {
@@ -126,14 +152,14 @@ int tessera::examples::run_popup_tooltip(const FrameObserver& observer) {
             throw std::runtime_error("Popup presentation did not settle");
         };
         auto capture = [&](std::string_view name) {
-            if (observer) observer(name, viewport,
-                take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
+            if (observer)
+                observer(name, viewport, take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
         };
         auto execute = [&](const std::vector<ActionRequest>& requests, CommandSource source) {
             for (const auto& request : requests) {
                 const auto semantic = view.semantic();
-                const auto invocation = take(commands.resolve_action(semantic, request,
-                    commands.generation(), {}, source, ++sequence));
+                const auto invocation =
+                    take(commands.resolve_action(semantic, request, commands.generation(), {}, source, ++sequence));
                 const auto result = take(executor.execute(commands, invocation, host, &semantic));
                 require(result.outcome.status == CommandOutcomeStatus::success, "Popup command failed");
             }
@@ -145,8 +171,10 @@ int tessera::examples::run_popup_tooltip(const FrameObserver& observer) {
             if (transition.consumed || transition.dismiss) {
                 host.open = false;
                 pointer.reset();
-            } else if (std::holds_alternative<PointerMove>(event.data) || std::holds_alternative<PointerDown>(event.data) ||
-                std::holds_alternative<PointerUp>(event.data) || std::holds_alternative<PointerCancel>(event.data)) {
+            } else if (std::holds_alternative<PointerMove>(event.data) ||
+                       std::holds_alternative<PointerDown>(event.data) ||
+                       std::holds_alternative<PointerUp>(event.data) ||
+                       std::holds_alternative<PointerCancel>(event.data)) {
                 const auto result = take(pointer.dispatch(view.hit(), event));
                 if (std::holds_alternative<PointerDown>(event.data))
                     for (const auto& state : result.pointers)
@@ -159,7 +187,8 @@ int tessera::examples::run_popup_tooltip(const FrameObserver& observer) {
             }
             // Preserve a pointer press until its release; recompose only on changes.
             if ((!std::holds_alternative<PointerDown>(event.data) || transition.dismiss) &&
-                (host.open != view.bounds("theme-popup").has_value() || host.help != view.bounds("theme-help").has_value()))
+                (host.open != view.bounds("theme-popup").has_value() ||
+                 host.help != view.bounds("theme-help").has_value()))
                 refresh();
         };
         auto click = [&](Point point, std::chrono::microseconds time) {
@@ -172,9 +201,10 @@ int tessera::examples::run_popup_tooltip(const FrameObserver& observer) {
         require(host.help && !host.open, "Hover must show the noninteractive tooltip");
         capture("popup-tooltip");
         click(center(*view.bounds("theme")), 2us);
-        require(host.open && !host.help && focused == view.tree->find("dark"), "Pointer opening must focus the first popup item");
+        require(host.open && !host.help && focused == view.tree->find("dark"),
+                "Pointer opening must focus the first popup item");
         require(view.bounds("theme-popup")->origin.y + view.bounds("theme-popup")->size.height > 72,
-            "Popup operation must escape the ordinary scroll clip");
+                "Popup operation must escape the ordinary scroll clip");
         capture("popup-open");
         // Explicit refresh verifies the popup does not steal focus on replacement.
         focused = take(focus.focus(view.hit(), *view.tree->find("light"))).focused;
@@ -182,13 +212,14 @@ int tessera::examples::run_popup_tooltip(const FrameObserver& observer) {
         require(focused == view.tree->find("light"), "Popup replacement must not steal focus from the selected option");
         click(center(*view.bounds("light")), 4us);
         require(host.selected == "Light" && host.selections == 1 && !host.open && focused == view.tree->find("theme"),
-            "Popup selection must execute once and restore the trigger");
+                "Popup selection must execute once and restore the trigger");
         dispatch({6us, Activate{}});
         require(host.open, "Keyboard activation must open the same popup");
         dispatch({7us, Navigate{Direction::down}}, CommandSource::gamepad);
         require(focused == view.tree->find("light"), "Gamepad navigation must reach the second option");
         dispatch({8us, Activate{}}, CommandSource::gamepad);
-        require(host.selected == "Light" && host.selections == 2 && !host.open, "Gamepad selection must use ordinary commands");
+        require(host.selected == "Light" && host.selections == 2 && !host.open,
+                "Gamepad selection must use ordinary commands");
         dispatch({9us, Activate{}});
         click({220, 150}, 10us);
         require(!host.open && host.scene_selections == 0, "Outside dismissal must not click through");
@@ -206,14 +237,15 @@ int tessera::examples::run_popup_tooltip(const FrameObserver& observer) {
         capture("popup-resized");
         host.anchor = false;
         refresh();
-        require(!host.open && !host.help && !view.bounds("theme-popup"), "Removing the trigger must dismiss all transient content");
-        std::cout << "Popup/Tooltip: hover, selection, keyboard/gamepad, outside dismissal, scrolling, resize and anchor removal passed.\n";
+        require(!host.open && !host.help && !view.bounds("theme-popup"),
+                "Removing the trigger must dismiss all transient content");
+        std::cout
+            << "Popup/Tooltip: hover, selection, keyboard/gamepad, outside dismissal, scrolling, resize and anchor removal passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
-
 }
 
 #ifndef TESSERA_EXAMPLE_LIBRARY

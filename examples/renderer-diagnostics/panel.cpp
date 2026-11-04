@@ -16,8 +16,8 @@ std::string number(double value) {
 }
 ui::Element row(std::string id, std::string label, std::string value) {
     return ui::Row({ui::Text(std::move(label), {.style = {.width = Dimension::points(200)}}),
-        ui::Text(std::move(value), {.id = "value-" + id, .style = {.width = Dimension::points(484)}})},
-        {.id = id, .style = {.gap = 12.f}});
+                    ui::Text(std::move(value), {.id = "value-" + id, .style = {.width = Dimension::points(484)}})},
+                   {.id = id, .style = {.gap = 12.f}});
 }
 std::string timing_text(const Timing& timing) {
     if (!timing.milliseconds) return timing.unavailable;
@@ -33,19 +33,26 @@ ui::Element history(const Snapshot& snapshot) {
         maximum = std::max(maximum, sample.milliseconds);
         // Online mean avoids overflowing the sum of finite nonnegative samples.
         mean += (sample.milliseconds - mean) / (bars.size() + 1);
-        bars.push_back(ui::Column({}, {.id = "history-frame-" + std::to_string(sample.frame),
-            .style = {.width = Dimension::points(6),
-                .height = Dimension::points(static_cast<float>(64 * (std::min(sample.milliseconds, 40.0) / 40))),
-                .background = Color{0.2f, 0.6f, 0.8f, 1}}}));
+        bars.push_back(ui::Column(
+            {},
+            {.id = "history-frame-" + std::to_string(sample.frame),
+             .style = {.width = Dimension::points(6),
+                       .height = Dimension::points(static_cast<float>(64 * (std::min(sample.milliseconds, 40.0) / 40))),
+                       .background = Color{0.2f, 0.6f, 0.8f, 1}}}));
     }
-    const auto caption = snapshot.history.empty() ? "History unavailable: no samples" :
-        std::to_string(snapshot.history.size()) + " samples; frames " + std::to_string(snapshot.history.front().frame) +
-        "-" + std::to_string(snapshot.history.back().frame) + "; min / max / mean " +
-        number(minimum) + " / " + number(maximum) + " / " + number(mean) + " ms";
+    const auto caption = snapshot.history.empty()
+                             ? "History unavailable: no samples"
+                             : std::to_string(snapshot.history.size()) + " samples; frames " +
+                                   std::to_string(snapshot.history.front().frame) + "-" +
+                                   std::to_string(snapshot.history.back().frame) + "; min / max / mean " +
+                                   number(minimum) + " / " + number(maximum) + " / " + number(mean) + " ms";
     return ui::Column({ui::Text(caption, {.id = "history-summary"}),
-        ui::Row(std::move(bars), {.id = "history-bars", .style = {.align = Align::end,
-            .width = Dimension::points(254), .height = Dimension::points(64), .gap = 2.f}})},
-        {.id = "history", .style = {.gap = 12.f}});
+                       ui::Row(std::move(bars), {.id = "history-bars",
+                                                 .style = {.align = Align::end,
+                                                           .width = Dimension::points(254),
+                                                           .height = Dimension::points(64),
+                                                           .gap = 2.f}})},
+                      {.id = "history", .style = {.gap = 12.f}});
 }
 }
 
@@ -57,17 +64,24 @@ std::vector<Diagnostic> validate(const Snapshot& snapshot) {
     auto text = [&](const std::string& value, const std::string& path, std::size_t bound, bool empty = false) {
         if ((!empty && value.empty()) || value.size() > bound || value.find_first_of("\r\n") != std::string::npos)
             reject(path, "Expected bounded single-line text (maximum " + std::to_string(bound) + " bytes)");
-        else if (!validate_text_input(value, {}).empty()) reject(path, "Expected valid UTF-8 text");
+        else if (!validate_text_input(value, {}).empty())
+            reject(path, "Expected valid UTF-8 text");
     };
     auto numeric = [&](double value, const std::string& path) {
         if (!std::isfinite(value) || value < 0) reject(path, "Expected a finite nonnegative measurement");
     };
-    text(snapshot.scene, "/scene", 64); text(snapshot.device, "/device", 64);
+    text(snapshot.scene, "/scene", 64);
+    text(snapshot.device, "/device", 64);
     text(snapshot.presentation, "/presentation", 48);
     if (!snapshot.width || !snapshot.height) reject("/extent", "Width and height must be nonzero");
-    numeric(snapshot.frame_ms, "/frame_ms"); numeric(snapshot.fps, "/fps"); numeric(snapshot.p99_ms, "/p99_ms");
+    numeric(snapshot.frame_ms, "/frame_ms");
+    numeric(snapshot.fps, "/fps");
+    numeric(snapshot.p99_ms, "/p99_ms");
     auto records = [&](const auto& rows, const std::string& group) {
-        if (rows.size() > 32) { reject("/" + group, "At most 32 rows are allowed"); return; }
+        if (rows.size() > 32) {
+            reject("/" + group, "At most 32 rows are allowed");
+            return;
+        }
         std::set<std::string> names;
         for (const auto& record : rows) {
             const auto path = "/" + group + "/" + record.id;
@@ -78,27 +92,35 @@ std::vector<Diagnostic> validate(const Snapshot& snapshot) {
             text(record.label, path + "/label", 25);
         }
     };
-    records(snapshot.cpu, "cpu"); records(snapshot.gpu, "gpu"); records(snapshot.counters, "counter");
+    records(snapshot.cpu, "cpu");
+    records(snapshot.gpu, "gpu");
+    records(snapshot.counters, "counter");
     for (const auto& [rows, group] : {std::pair{&snapshot.cpu, "cpu"}, std::pair{&snapshot.gpu, "gpu"}}) {
         if (rows->size() > 32) continue;
         for (const auto& timing : *rows) {
             const auto path = "/" + std::string(group) + "/" + timing.id;
             if (timing.milliseconds) {
                 const auto& v = *timing.milliseconds;
-                numeric(v.mean, path + "/mean_ms"); numeric(v.p95, path + "/p95_ms");
-                numeric(v.maximum, path + "/max_ms"); numeric(v.stddev, path + "/stddev_ms");
-                if (!timing.unavailable.empty()) reject(path + "/unavailable", "Available timing must not carry an unavailable reason");
-            } else text(timing.unavailable, path + "/unavailable", 48);
+                numeric(v.mean, path + "/mean_ms");
+                numeric(v.p95, path + "/p95_ms");
+                numeric(v.maximum, path + "/max_ms");
+                numeric(v.stddev, path + "/stddev_ms");
+                if (!timing.unavailable.empty())
+                    reject(path + "/unavailable", "Available timing must not carry an unavailable reason");
+            } else
+                text(timing.unavailable, path + "/unavailable", 48);
         }
     }
     if (snapshot.counters.size() <= 32)
         for (const auto& counter : snapshot.counters) text(counter.unit, "/counter/" + counter.id + "/unit", 16);
-    if (snapshot.history.size() > 32) reject("/history", "At most 32 history samples are allowed");
+    if (snapshot.history.size() > 32)
+        reject("/history", "At most 32 history samples are allowed");
     else {
         std::uint64_t previous = 0;
         for (const auto& sample : snapshot.history) {
             const auto path = "/history/" + std::to_string(sample.frame);
-            if (!sample.frame || sample.frame <= previous) reject(path + "/frame", "Frame IDs must be unique, nonzero and oldest first");
+            if (!sample.frame || sample.frame <= previous)
+                reject(path + "/frame", "Frame IDs must be unique, nonzero and oldest first");
             previous = sample.frame;
             numeric(sample.milliseconds, path + "/ms");
         }
@@ -108,11 +130,16 @@ std::vector<Diagnostic> validate(const Snapshot& snapshot) {
 
 std::string field_name(NumericField field) {
     switch (field) {
-    case NumericField::ambient: return "ambient";
-    case NumericField::key_x: return "key_x";
-    case NumericField::key_y: return "key_y";
-    case NumericField::key_z: return "key_z";
-    default: return "direct";
+        case NumericField::ambient:
+            return "ambient";
+        case NumericField::key_x:
+            return "key_x";
+        case NumericField::key_y:
+            return "key_y";
+        case NumericField::key_z:
+            return "key_z";
+        default:
+            return "direct";
     }
 }
 std::string field_id(NumericField field) {
@@ -122,11 +149,16 @@ std::string field_id(NumericField field) {
 }
 std::string field_label(NumericField field) {
     switch (field) {
-    case NumericField::ambient: return "Ambient strength";
-    case NumericField::key_x: return "Key direction X";
-    case NumericField::key_y: return "Key direction Y";
-    case NumericField::key_z: return "Key direction Z";
-    default: return "Direct strength";
+        case NumericField::ambient:
+            return "Ambient strength";
+        case NumericField::key_x:
+            return "Key direction X";
+        case NumericField::key_y:
+            return "Key direction Y";
+        case NumericField::key_z:
+            return "Key direction Z";
+        default:
+            return "Direct strength";
     }
 }
 NumericBounds field_bounds(NumericField field) {
@@ -151,13 +183,17 @@ std::string canonical(double value) {
 }
 Result<double> parse_numeric(std::string_view value, NumericField field) {
     const auto bounds = field_bounds(field);
-    auto invalid = [field, bounds]() -> Result<double> { return {std::nullopt, {{field_name(field) + "_value", Severity::error,
-        "/controls/" + field_name(field), "Expected decimal -?(0|[1-9][0-9]*)(.[0-9]+)? in inclusive [" +
-        canonical(bounds.minimum) + "," + canonical(bounds.maximum) + "]"}}}; };
+    auto invalid = [field, bounds]() -> Result<double> {
+        return {std::nullopt,
+                {{field_name(field) + "_value", Severity::error, "/controls/" + field_name(field),
+                  "Expected decimal -?(0|[1-9][0-9]*)(.[0-9]+)? in inclusive [" + canonical(bounds.minimum) + "," +
+                      canonical(bounds.maximum) + "]"}}};
+    };
     if (value.size() > 32) return invalid();
     std::size_t i = value.starts_with('-') ? 1 : 0;
     if (i == value.size()) return invalid();
-    if (value[i] == '0') ++i;
+    if (value[i] == '0')
+        ++i;
     else {
         if (value[i] < '1' || value[i] > '9') return invalid();
         while (i < value.size() && value[i] >= '0' && value[i] <= '9') ++i;
@@ -170,7 +206,8 @@ Result<double> parse_numeric(std::string_view value, NumericField field) {
     double parsed = 0;
     const auto converted = std::from_chars(value.data(), value.data() + value.size(), parsed);
     if (i != value.size() || converted.ec != std::errc{} || converted.ptr != value.data() + value.size() ||
-        !std::isfinite(parsed) || parsed < bounds.minimum || parsed > bounds.maximum) return invalid();
+        !std::isfinite(parsed) || parsed < bounds.minimum || parsed > bounds.maximum)
+        return invalid();
     return {parsed == 0 ? 0 : parsed, {}};
 }
 ui::Element NumericControl(const Numeric& value, NumericField field) {
@@ -179,73 +216,80 @@ ui::Element NumericControl(const Numeric& value, NumericField field) {
     const auto title = field_label(field);
     // Operation names keep the field's capitalized words, e.g. "Apply key direction X".
     const auto label = static_cast<char>(std::tolower(static_cast<unsigned char>(title.front()))) + title.substr(1);
-    return ui::Column({
-        ui::TextInput(title, value.draft, action + ".edit", {.node = {.id = id + "-input"}}),
-        ui::Row({ui::Button("Decrease " + label, action + ".decrease", {.node = {.id = id + "-decrease"}}),
-            ui::Button("Increase " + label, action + ".increase", {.node = {.id = id + "-increase"}})}, {.style = {.gap = 12.f}}),
-        ui::Row({ui::Button("Apply " + label, action + ".apply", {.node = {.id = id + "-apply"}}),
-            ui::Button("Cancel " + label, action + ".cancel", {.node = {.id = id + "-cancel"}})}, {.style = {.gap = 12.f}}),
-        ui::Text("Accepted " + label + ": " + canonical(value.accepted), {.id = id + "-accepted"})},
+    return ui::Column(
+        {ui::TextInput(title, value.draft, action + ".edit", {.node = {.id = id + "-input"}}),
+         ui::Row({ui::Button("Decrease " + label, action + ".decrease", {.node = {.id = id + "-decrease"}}),
+                  ui::Button("Increase " + label, action + ".increase", {.node = {.id = id + "-increase"}})},
+                 {.style = {.gap = 12.f}}),
+         ui::Row({ui::Button("Apply " + label, action + ".apply", {.node = {.id = id + "-apply"}}),
+                  ui::Button("Cancel " + label, action + ".cancel", {.node = {.id = id + "-cancel"}})},
+                 {.style = {.gap = 12.f}}),
+         ui::Text("Accepted " + label + ": " + canonical(value.accepted), {.id = id + "-accepted"})},
         {.id = id + "-control", .style = {.gap = 12.f}});
 }
 ui::Element KeyDirectionControl(const KeyDirection& value) {
     return ui::Column({ui::Text("Key direction", {.id = "key-direction-label"}),
-        NumericControl(value.x, NumericField::key_x), NumericControl(value.y, NumericField::key_y),
-        NumericControl(value.z, NumericField::key_z)}, {.id = "key-direction-control", .style = {.gap = 12.f}});
+                       NumericControl(value.x, NumericField::key_x), NumericControl(value.y, NumericField::key_y),
+                       NumericControl(value.z, NumericField::key_z)},
+                      {.id = "key-direction-control", .style = {.gap = 12.f}});
 }
 ui::Element MsaaControl(const Msaa& value) {
     std::vector<ui::Element> choices;
     for (std::size_t i = 0; i < sample_counts.size(); ++i) {
         const auto samples = std::to_string(sample_counts[i]);
         choices.push_back(ui::Button("MSAA " + samples + (value.accepted == sample_counts[i] ? " (selected)" : ""),
-            msaa_actions[i], {.node = {.id = "msaa-" + samples}}));
+                                     msaa_actions[i], {.node = {.id = "msaa-" + samples}}));
     }
-    return ui::Column({ui::Text("MSAA", {.id = "msaa-label"}),
-        ui::Row(std::move(choices), {.style = {.gap = 12.f}}),
-        ui::Text("Accepted MSAA: " + std::to_string(value.accepted), {.id = "msaa-accepted"})},
-        {.id = "msaa-control", .style = {.gap = 12.f}});
+    return ui::Column({ui::Text("MSAA", {.id = "msaa-label"}), ui::Row(std::move(choices), {.style = {.gap = 12.f}}),
+                       ui::Text("Accepted MSAA: " + std::to_string(value.accepted), {.id = "msaa-accepted"})},
+                      {.id = "msaa-control", .style = {.gap = 12.f}});
 }
 ui::Element MaterialViewControl(const MaterialView& value) {
     std::vector<ui::Element> choices;
     for (std::size_t i = 0; i < material_views.size(); ++i) {
         const std::string view = material_views[i];
         choices.push_back(ui::Button("Material view " + view + (value.accepted == view ? " (selected)" : ""),
-            material_view_actions[i], {.node = {.id = "material-view-" + view}}));
+                                     material_view_actions[i], {.node = {.id = "material-view-" + view}}));
     }
     return ui::Column({ui::Text("Material view", {.id = "material-view-label"}),
-        ui::Row(std::move(choices), {.style = {.gap = 12.f}}),
-        ui::Text("Accepted material view: " + value.accepted, {.id = "material-view-accepted"})},
-        {.id = "material-view-control", .style = {.gap = 12.f}});
+                       ui::Row(std::move(choices), {.style = {.gap = 12.f}}),
+                       ui::Text("Accepted material view: " + value.accepted, {.id = "material-view-accepted"})},
+                      {.id = "material-view-control", .style = {.gap = 12.f}});
 }
 ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const Numeric& numeric, const Msaa& msaa,
-    const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient, const MaterialView& material_view,
-    const KeyDirection& key_direction) {
+                  const Outlines& outlines, const SceneLights& scene_lights, const Numeric& ambient,
+                  const MaterialView& material_view, const KeyDirection& key_direction) {
     std::vector<ui::Element> rows{
         ui::Text("Renderer diagnostics", {.id = "heading"}),
-        row("scene", "Scene", snapshot.scene), row("device", "Device", snapshot.device),
+        row("scene", "Scene", snapshot.scene),
+        row("device", "Device", snapshot.device),
         row("extent", "Extent", std::to_string(snapshot.width) + " x " + std::to_string(snapshot.height)),
         row("presentation", "Presentation", snapshot.presentation),
-        row("frame-summary", "Frame / FPS / p99", number(snapshot.frame_ms) + " ms / " + number(snapshot.fps) +
-            " FPS / " + number(snapshot.p99_ms) + " ms"), history(snapshot)};
+        row("frame-summary", "Frame / FPS / p99",
+            number(snapshot.frame_ms) + " ms / " + number(snapshot.fps) + " FPS / " + number(snapshot.p99_ms) + " ms"),
+        history(snapshot)};
     for (std::size_t i = 0; i < groups.size(); ++i) {
-        rows.push_back(ui::Button(std::string(groups[i]) + (disclosure.expanded[i] ? " (expanded)" : " (collapsed)"), actions[i],
-            {.node = {.id = "disclosure-" + std::string(groups[i]), .classes = {"disclosure"}}}));
+        rows.push_back(ui::Button(std::string(groups[i]) + (disclosure.expanded[i] ? " (expanded)" : " (collapsed)"),
+                                  actions[i],
+                                  {.node = {.id = "disclosure-" + std::string(groups[i]), .classes = {"disclosure"}}}));
         if (!disclosure.expanded[i]) continue;
         if (i < 2) {
             rows.push_back(ui::Text("mean / p95 / max / stddev (ms)", {.id = "units-" + std::string(groups[i])}));
             for (const auto& timing : i == 0 ? snapshot.cpu : snapshot.gpu)
                 rows.push_back(row(std::string(groups[i]) + "-" + timing.id, timing.label, timing_text(timing)));
-        } else if (i == 2) for (const auto& counter : snapshot.counters)
-            rows.push_back(row("counter-" + counter.id, counter.label, std::to_string(counter.value) + " " + counter.unit));
+        } else if (i == 2)
+            for (const auto& counter : snapshot.counters)
+                rows.push_back(
+                    row("counter-" + counter.id, counter.label, std::to_string(counter.value) + " " + counter.unit));
         else {
             rows.push_back(NumericControl(numeric));
             rows.push_back(NumericControl(ambient, NumericField::ambient));
             rows.push_back(KeyDirectionControl(key_direction));
             rows.push_back(MsaaControl(msaa));
-            rows.push_back(ui::Checkbox("Outlines", outlines.accepted, "outlines.toggle",
-                {.node = {.id = "outlines-toggle"}}));
+            rows.push_back(
+                ui::Checkbox("Outlines", outlines.accepted, "outlines.toggle", {.node = {.id = "outlines-toggle"}}));
             rows.push_back(ui::Checkbox("Scene lights", scene_lights.accepted, "scene_lights.toggle",
-                {.node = {.id = "scene-lights-toggle"}}));
+                                        {.node = {.id = "scene-lights-toggle"}}));
             rows.push_back(MaterialViewControl(material_view));
             rows.push_back(ui::Button("Reset controls", "controls.reset", {.node = {.id = "controls-reset"}}));
         }
@@ -254,8 +298,12 @@ ui::Element Panel(const Snapshot& snapshot, const Disclosure& disclosure, const 
 }
 
 StyleSheet panel_styles() {
-    return {{{StyleSelector::of_class("panel"), {.overflow = Overflow::scroll,
-        .padding = Edges{12, 12, 12, 12}, .gap = 12.f, .background = Color{0.95f, 0.95f, 0.98f, 1}}},
-        {StyleSelector::of_class("disclosure"), {.padding = Edges{4, 8, 4, 8}, .background = Color{0.75f, 0.85f, 0.95f, 1}}}}};
+    return {{{StyleSelector::of_class("panel"),
+              {.overflow = Overflow::scroll,
+               .padding = Edges{12, 12, 12, 12},
+               .gap = 12.f,
+               .background = Color{0.95f, 0.95f, 0.98f, 1}}},
+             {StyleSelector::of_class("disclosure"),
+              {.padding = Edges{4, 8, 4, 8}, .background = Color{0.75f, 0.85f, 0.95f, 1}}}}};
 }
 } // namespace diagnostics

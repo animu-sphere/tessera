@@ -16,7 +16,8 @@ void check(bool condition, std::string_view message) {
 bool has(const std::vector<tessera::Diagnostic>& diagnostics, std::string_view code, std::string_view path) {
     for (const auto& diagnostic : diagnostics) {
         if (diagnostic.code == code && diagnostic.path == path && !diagnostic.message.empty() &&
-            diagnostic.severity == tessera::Severity::error) return true;
+            diagnostic.severity == tessera::Severity::error)
+            return true;
     }
     return false;
 }
@@ -41,7 +42,8 @@ void round_trip_and_handles() {
     check(tessera::save_document(*restored.value, context).value == saved.value, "Repeated serialization changed");
 
     // Object ordering, whitespace, and omitted defaults normalize to one representation.
-    const auto reordered = tessera::load_document(R"({"version":1,"root":{"type":"Box","properties":{},"events":{},"children":[],"classes":[],"extensions":{}}})");
+    const auto reordered = tessera::load_document(
+        R"({"version":1,"root":{"type":"Box","properties":{},"events":{},"children":[],"classes":[],"extensions":{}}})");
     check(static_cast<bool>(reordered), "Explicit defaults rejected");
     check(tessera::save_document(*reordered.value).value == tessera::save_document(tessera::UiDocument{}).value,
           "Equivalent empty documents differ");
@@ -85,18 +87,26 @@ void semantic_errors() {
     check(has(errors, "missing_property", "/root/children/0/properties/text"), "Text property error missing");
     check(!tessera::save_document(invalid) && !tessera::UiTree::create(invalid), "Invalid authoring data accepted");
 
-    rejected(R"({"version":1,"root":{"type":"Box","properties":{"focusable":0}}})", "property_type", "/root/properties/focusable");
-    const auto type_error = tessera::load_document(R"({"version":1,"root":{"type":"Box","properties":{"focusable":0}}})");
+    rejected(R"({"version":1,"root":{"type":"Box","properties":{"focusable":0}}})", "property_type",
+             "/root/properties/focusable");
+    const auto type_error =
+        tessera::load_document(R"({"version":1,"root":{"type":"Box","properties":{"focusable":0}}})");
     check(type_error.diagnostics.front().byte_offset == 60, "Property source offset differs");
-    rejected(R"({"version":1,"root":{"type":"Box","properties":{"text":"x"}}})", "unknown_property", "/root/properties/text");
-    rejected(R"({"version":1,"root":{"type":"Text","properties":{"text":"x"},"children":[{"type":"Box"}]}})", "invalid_children", "/root/children");
-    rejected(R"({"version":1,"root":{"type":"Box","properties":{"labelled_by":{"ref":"absent"}}}})", "invalid_reference", "/root/properties/labelled_by/ref");
-    rejected(R"({"version":1,"root":{"type":"Box","children":[{"type":"Box","id":"x"},{"type":"Box","id":"x"}]}})", "duplicate_id", "/root/children/1/id");
+    rejected(R"({"version":1,"root":{"type":"Box","properties":{"text":"x"}}})", "unknown_property",
+             "/root/properties/text");
+    rejected(R"({"version":1,"root":{"type":"Text","properties":{"text":"x"},"children":[{"type":"Box"}]}})",
+             "invalid_children", "/root/children");
+    rejected(R"({"version":1,"root":{"type":"Box","properties":{"labelled_by":{"ref":"absent"}}}})",
+             "invalid_reference", "/root/properties/labelled_by/ref");
+    rejected(R"({"version":1,"root":{"type":"Box","children":[{"type":"Box","id":"x"},{"type":"Box","id":"x"}]}})",
+             "duplicate_id", "/root/children/1/id");
     rejected(R"({"version":1,"root":{"type":"Box","events":{"click":"x"}}})", "unknown_event", "/root/events/click");
-    rejected(R"({"version":1,"root":{"type":"Box","extensions":{"editor":{}}}})", "invalid_extension", "/root/extensions/editor");
+    rejected(R"({"version":1,"root":{"type":"Box","extensions":{"editor":{}}}})", "invalid_extension",
+             "/root/extensions/editor");
     rejected(R"({"version":1,"root":{"type":"Box","id":""}})", "invalid_identifier", "/root/id");
     rejected(R"({"version":1,"root":{"type":"Box","classes":["x","x"]}})", "duplicate_class", "/root/classes/1");
-    rejected(R"({"version":1,"root":{"type":"Box","properties":{"bad/name~":true}}})", "unknown_property", "/root/properties/bad~1name~0");
+    rejected(R"({"version":1,"root":{"type":"Box","properties":{"bad/name~":true}}})", "unknown_property",
+             "/root/properties/bad~1name~0");
 }
 
 void syntax_and_schema() {
@@ -111,8 +121,10 @@ void syntax_and_schema() {
     rejected(R"({"version":1,"root":{"type":"Button"}})", "unknown_node_kind", "/root/type");
     rejected(R"({"version":1,"root":{"type":"Box","typo":1}})", "unknown_field", "/root/typo");
     rejected(R"({"version":1,"root":{"type":"Box","children":{}}})", "schema_type", "/root/children");
-    rejected(R"({"version":1,"root":{"type":"Box","properties":{"focusable":null}}})", "property_type", "/root/properties/focusable");
-    rejected(R"({"version":1,"root":{"type":"Box","properties":{"labelled_by":{"ref":3}}}})", "schema_type", "/root/properties/labelled_by/ref");
+    rejected(R"({"version":1,"root":{"type":"Box","properties":{"focusable":null}}})", "property_type",
+             "/root/properties/focusable");
+    rejected(R"({"version":1,"root":{"type":"Box","properties":{"labelled_by":{"ref":3}}}})", "schema_type",
+             "/root/properties/labelled_by/ref");
     rejected(R"({"version":1,"version":1})", "duplicate_member", "/version");
     rejected(R"({"version":1,"\u0076ersion":1})", "duplicate_member", "/version");
     rejected(R"({"version":01})", "json_syntax", "");
@@ -132,7 +144,8 @@ void syntax_and_schema() {
 }
 
 void metadata_and_limits() {
-    const auto unicode = tessera::load_document(R"({"version":1,"root":{"type":"Text","properties":{"text":"\u65e5\u672c\ud83d\ude00\u0000\n\t\"\\/"}}})");
+    const auto unicode = tessera::load_document(
+        R"({"version":1,"root":{"type":"Text","properties":{"text":"\u65e5\u672c\ud83d\ude00\u0000\n\t\"\\/"}}})");
     check(static_cast<bool>(unicode), "Unicode escapes rejected");
     const auto& text = std::get<std::string>(unicode.value->root.properties.at("text"));
     check(text.substr(0, 10) == "日本😀" && text[10] == '\0', "Unicode decoding differs");
@@ -141,11 +154,11 @@ void metadata_and_limits() {
 
     tessera::UiDocument numbers;
     numbers.extensions["test:values"] = tessera::JsonValue{tessera::JsonValue::Array{
-        tessera::JsonValue{-0.0}, tessera::JsonValue{0.1},
-        tessera::JsonValue{std::numeric_limits<double>::max()},
+        tessera::JsonValue{-0.0}, tessera::JsonValue{0.1}, tessera::JsonValue{std::numeric_limits<double>::max()},
         tessera::JsonValue{std::numeric_limits<double>::denorm_min()}}};
     auto saved = tessera::save_document(numbers);
-    check(static_cast<bool>(saved) && tessera::load_document(*saved.value).value == numbers, "Binary64 values lost precision");
+    check(static_cast<bool>(saved) && tessera::load_document(*saved.value).value == numbers,
+          "Binary64 values lost precision");
     numbers.extensions["test:bad"] = tessera::JsonValue{std::numeric_limits<double>::infinity()};
     check(!tessera::save_document(numbers), "Non-finite metadata accepted");
     numbers.extensions.erase("test:bad");
@@ -159,17 +172,20 @@ void metadata_and_limits() {
         nested = tessera::JsonValue{tessera::JsonValue::Array{std::move(nested)}};
     metadata_depth.root.extensions["test:deep"] = nested;
     saved = tessera::save_document(metadata_depth);
-    check(static_cast<bool>(saved) && static_cast<bool>(tessera::load_document(*saved.value)), "Allowed metadata depth rejected");
+    check(static_cast<bool>(saved) && static_cast<bool>(tessera::load_document(*saved.value)),
+          "Allowed metadata depth rejected");
     metadata_depth.root.extensions["test:deep"] = tessera::JsonValue{tessera::JsonValue::Array{std::move(nested)}};
     check(!tessera::save_document(metadata_depth), "Excessive metadata depth accepted");
 
     tessera::UiDocument deep;
     auto* node = &deep.root;
     for (std::size_t i = 1; i < tessera::max_document_depth; ++i) {
-        node->children.emplace_back(); node = &node->children.back();
+        node->children.emplace_back();
+        node = &node->children.back();
     }
     saved = tessera::save_document(deep);
-    check(static_cast<bool>(saved) && static_cast<bool>(tessera::load_document(*saved.value)), "Allowed depth rejected");
+    check(static_cast<bool>(saved) && static_cast<bool>(tessera::load_document(*saved.value)),
+          "Allowed depth rejected");
     node->children.emplace_back();
     check(!tessera::save_document(deep) && !tessera::UiTree::create(deep), "Excessive node depth accepted");
     std::string deep_source = R"({"version":1,"root":)";

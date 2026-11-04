@@ -9,30 +9,42 @@ using tessera::test::has;
 namespace {
 template<class T> void apply(TextEditState& state, T operation, TextEditPolicy policy = {}) {
     auto result = edit_text(state, {state.owner, state.revision, std::move(operation)}, policy);
-    check(bool(result), "Valid logical edit rejected"); state = std::move(*result.value);
+    check(bool(result), "Valid logical edit rejected");
+    state = std::move(*result.value);
 }
 void scalar_edits() {
     auto state = *make_text_edit_state(1, "A日本😀Z").value;
     check(state.caret == 12 && state.anchor == 12 && state.revision == 1, "Initial byte indices");
-    apply(state, TextEditMove{TextMove::left}); check(state.caret == 11, "Move past ASCII");
+    apply(state, TextEditMove{TextMove::left});
+    check(state.caret == 11, "Move past ASCII");
     apply(state, TextEditMove{TextMove::left, true});
     check(state.anchor == 11 && state.caret == 7, "Supplementary scalar selection");
-    apply(state, TextEditInsert{"語"}); check(state.text == "A日本語Z" && state.caret == 10, "Replace reverse selection");
-    apply(state, TextEditErase{}); check(state.text == "A日本Z" && state.caret == 7, "Backspace removes one scalar");
+    apply(state, TextEditInsert{"語"});
+    check(state.text == "A日本語Z" && state.caret == 10, "Replace reverse selection");
+    apply(state, TextEditErase{});
+    check(state.text == "A日本Z" && state.caret == 7, "Backspace removes one scalar");
     apply(state, TextEditMove{TextMove::home});
-    apply(state, TextEditErase{TextErase::forward}); check(state.text == "日本Z" && state.caret == 0, "Forward deletion");
-    apply(state, TextEditMove{TextMove::right, true}); check(state.caret == 3 && state.anchor == 0, "Extended scalar move");
-    apply(state, TextEditMove{TextMove::right}); check(state.caret == 3 && state.anchor == 3, "Right collapses selection");
-    apply(state, TextEditSelection{7, 0}); apply(state, TextEditMove{TextMove::left});
+    apply(state, TextEditErase{TextErase::forward});
+    check(state.text == "日本Z" && state.caret == 0, "Forward deletion");
+    apply(state, TextEditMove{TextMove::right, true});
+    check(state.caret == 3 && state.anchor == 0, "Extended scalar move");
+    apply(state, TextEditMove{TextMove::right});
+    check(state.caret == 3 && state.anchor == 3, "Right collapses selection");
+    apply(state, TextEditSelection{7, 0});
+    apply(state, TextEditMove{TextMove::left});
     check(state.anchor == 0 && state.caret == 0, "Left collapses reverse selection");
-    apply(state, TextEditMove{TextMove::end, true}); apply(state, TextEditErase{});
+    apply(state, TextEditMove{TextMove::end, true});
+    apply(state, TextEditErase{});
     check(state.text.empty() && state.anchor == 0 && state.caret == 0, "Erase selected buffer");
-    apply(state, TextEditErase{}); apply(state, TextEditErase{TextErase::forward});
-    apply(state, TextEditMove{TextMove::right}); check(state.text.empty(), "Empty boundaries are safe");
+    apply(state, TextEditErase{});
+    apply(state, TextEditErase{TextErase::forward});
+    apply(state, TextEditMove{TextMove::right});
+    check(state.text.empty(), "Empty boundaries are safe");
 }
 void rejected_requests() {
     const auto state = *make_text_edit_state(11, "é😀").value;
-    auto reject = [&](TextEditRequest request, std::string_view code, std::string_view path, TextEditPolicy policy = {}) {
+    auto reject = [&](TextEditRequest request, std::string_view code, std::string_view path,
+                      TextEditPolicy policy = {}) {
         auto result = edit_text(state, request, policy);
         check(!result && has(result.diagnostics, code, path), "Located rejection required");
         check(state == *make_text_edit_state(11, "é😀").value, "Pure rejection preserves observation");
@@ -54,9 +66,11 @@ void rejected_requests() {
     auto moved = *edit_text(state, {11, 1, TextEditMove{TextMove::home}}).value;
     check(!edit_text(moved, {11, 1, TextEditInsert{"x"}}), "Selection-only changes invalidate old requests");
     moved.revision = std::numeric_limits<std::uint64_t>::max();
-    check(has(edit_text(moved, {11, moved.revision, TextEditInsert{"x"}}).diagnostics,
-        "revision_exhausted", "/edit/revision"), "Revision cannot wrap");
-    moved.anchor = 1; check(!edit_text(moved, {11, moved.revision, TextEditMove{}}), "Malformed observations reject");
+    check(has(edit_text(moved, {11, moved.revision, TextEditInsert{"x"}}).diagnostics, "revision_exhausted",
+              "/edit/revision"),
+          "Revision cannot wrap");
+    moved.anchor = 1;
+    check(!edit_text(moved, {11, moved.revision, TextEditMove{}}), "Malformed observations reject");
     check(!make_text_edit_state(0, "x") && !make_text_edit_state(1, "x\n"), "Creation validation");
     auto full = *make_text_edit_state(1, std::string(max_text_edit_bytes, 'x')).value;
     apply(full, TextEditSelection{0, full.text.size()});
@@ -65,6 +79,11 @@ void rejected_requests() {
 }
 }
 int main() {
-    try { scalar_edits(); rejected_requests(); }
-    catch (const std::exception& failure) { std::cerr << failure.what() << '\n'; return 1; }
+    try {
+        scalar_edits();
+        rejected_requests();
+    } catch (const std::exception& failure) {
+        std::cerr << failure.what() << '\n';
+        return 1;
+    }
 }

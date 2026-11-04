@@ -23,10 +23,14 @@ std::vector<Diagnostic> validate(const OffscreenInput& input) {
     if (!input.text) missing("/text", "Supply the text service the recording's environment declares.");
     if (input.capture) {
         relocate(errors, validate(*input.capture), "/capture");
-        if (!input.frames) missing("/frames", "Supply the adapter for the declared capture backend; none is substituted.");
+        if (!input.frames)
+            missing("/frames", "Supply the adapter for the declared capture backend; none is substituted.");
         else if (input.frames->backend() != *input.capture)
-            errors.push_back({"capture_mismatch", Severity::error, "/capture",
-                              "The adapter's backend configuration differs from the declared one.", {}});
+            errors.push_back({"capture_mismatch",
+                              Severity::error,
+                              "/capture",
+                              "The adapter's backend configuration differs from the declared one.",
+                              {}});
     } else if (input.frames) {
         missing("/capture", "Declare the capture backend configuration of the supplied adapter.");
     }
@@ -60,25 +64,31 @@ Result<OffscreenRun> run_offscreen(const OffscreenInput& input) {
         if (input.capture) {
             const auto size = std::size_t(frame.extent.width) * frame.extent.height * 4;
             if (size > max_capture_bytes - bytes) {
-                errors.push_back({"out_of_range", Severity::error, at,
+                errors.push_back({"out_of_range",
+                                  Severity::error,
+                                  at,
                                   "Captured images would exceed " + std::to_string(max_capture_bytes) +
-                                      " bytes; capture fewer or smaller generations.", {}});
+                                      " bytes; capture fewer or smaller generations.",
+                                  {}});
                 return {std::nullopt, std::move(errors)};
             }
-            auto image = input.frames->capture({g, frame.logical_size, scale, frame.extent,
-                                                &generation.paint, generation.animation_time});
+            auto image = input.frames->capture(
+                {g, frame.logical_size, scale, frame.extent, &generation.paint, generation.animation_time});
             if (!image) {
                 if (image.diagnostics.empty())
-                    image.diagnostics.push_back({"capture_failed", Severity::error, "",
-                                                 "The capture adapter returned no image.", {}});
+                    image.diagnostics.push_back(
+                        {"capture_failed", Severity::error, "", "The capture adapter returned no image.", {}});
                 relocate(errors, std::move(image.diagnostics), at);
                 return {std::nullopt, std::move(errors)};
             }
             if (image.value->extent != frame.extent || image.value->format != input.capture->format ||
                 image.value->pixels.size() != size) {
-                errors.push_back({"capture_mismatch", Severity::error, at,
+                errors.push_back({"capture_mismatch",
+                                  Severity::error,
+                                  at,
                                   "The captured image must have the requested extent and declared format, with " +
-                                      std::to_string(size) + " pixel bytes.", {}});
+                                      std::to_string(size) + " pixel bytes.",
+                                  {}});
                 return {std::nullopt, std::move(errors)};
             }
             relocate(warnings, std::move(image.diagnostics), at);

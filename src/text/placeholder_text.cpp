@@ -63,15 +63,16 @@ Result<GlyphRun> PlaceholderTextShaper::shape(std::string_view utf8, const TextS
             ++lines;
             continue;
         }
-        if (constraints.max_width && column > 0 &&
-            static_cast<float>(column + 1) * advance > *constraints.max_width) {
+        if (constraints.max_width && column > 0 && static_cast<float>(column + 1) * advance > *constraints.max_width) {
             widest = std::max(widest, column);
             column = 0;
             ++lines;
         }
-        run.glyphs.push_back({scalar, start, {static_cast<float>(column) * advance,
-                                              run.metrics.baseline + static_cast<float>(lines - 1) * line},
-                              style.font});
+        run.glyphs.push_back(
+            {scalar,
+             start,
+             {static_cast<float>(column) * advance, run.metrics.baseline + static_cast<float>(lines - 1) * line},
+             style.font});
         ++column;
     }
     widest = std::max(widest, column);

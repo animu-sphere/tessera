@@ -24,8 +24,10 @@ struct ElementData {
 
 struct Lowerer {
     static Element split_pane(Element, Element, float, std::string, SplitPaneProps, FlexDirection);
-    static Element collection(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps, std::string_view);
-    static Element flat_collection(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps, std::string_view);
+    static Element collection(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps,
+                              std::string_view);
+    static Element flat_collection(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps,
+                                   std::string_view);
     Presentation result;
     std::vector<const ElementData*> elements;
     std::vector<Diagnostic> errors;
@@ -41,8 +43,9 @@ struct Lowerer {
             }
             return false;
         }
-        node.properties["text"] = data.selection ? "Selection " + std::to_string(state.anchor) + ":" +
-            std::to_string(state.caret) : state.text;
+        node.properties["text"] = data.selection
+                                      ? "Selection " + std::to_string(state.anchor) + ":" + std::to_string(state.caret)
+                                      : state.text;
         return true;
     }
 
@@ -53,8 +56,8 @@ struct Lowerer {
             return false;
         }
         if (depth > max_document_depth || elements.size() >= max_document_nodes) {
-            errors.push_back({"authoring_limit", Severity::error, path,
-                              "Keep the form within document depth and node bounds."});
+            errors.push_back(
+                {"authoring_limit", Severity::error, path, "Keep the form within document depth and node bounds."});
             return false;
         }
         const auto& data = *element.data_;
@@ -137,8 +140,8 @@ struct Lowerer {
             }
             if (data.editing) {
                 property = "text";
-                if (!editing_value(data, data.editing->snapshot(runtime), node,
-                    result.sources.nodes[current].pointer)) return false;
+                if (!editing_value(data, data.editing->snapshot(runtime), node, result.sources.nodes[current].pointer))
+                    return false;
             }
         } catch (const ReactiveError& failure) {
             auto error = failure.diagnostic();
@@ -147,7 +150,8 @@ struct Lowerer {
             errors.push_back(std::move(error));
             return false;
         }
-        for (auto& child : node.children) if (!values(runtime, child, index)) return false;
+        for (auto& child : node.children)
+            if (!values(runtime, child, index)) return false;
         return true;
     }
 };
@@ -170,10 +174,18 @@ Element Popup(std::string anchor, std::vector<Element> children, PopupProps prop
     data->properties["popup_gap"] = static_cast<double>(props.gap);
     std::string side;
     switch (props.side) {
-    case PopupSide::bottom: side = "bottom"; break;
-    case PopupSide::top: side = "top"; break;
-    case PopupSide::left: side = "left"; break;
-    case PopupSide::right: side = "right"; break;
+        case PopupSide::bottom:
+            side = "bottom";
+            break;
+        case PopupSide::top:
+            side = "top";
+            break;
+        case PopupSide::left:
+            side = "left";
+            break;
+        case PopupSide::right:
+            side = "right";
+            break;
     }
     data->properties["popup_side"] = std::move(side);
     data->children = std::move(children);
@@ -187,8 +199,8 @@ Element Tooltip(std::string anchor, Value<std::string> text, PopupProps props) {
     return Element(std::move(data));
 }
 Element Menu(std::string label, std::string anchor, std::vector<MenuItem> items, PopupProps props) {
-    auto content = detail::Lowerer::flat_collection(std::move(label), {}, std::move(items),
-        {.node = props.node}, "menu");
+    auto content =
+        detail::Lowerer::flat_collection(std::move(label), {}, std::move(items), {.node = props.node}, "menu");
     if (!props.node.style.overflow) props.node.style.overflow = Overflow::scroll;
     auto popup = Popup(std::move(anchor), content.data_->children, std::move(props));
     auto data = std::make_shared<detail::ElementData>(*popup.data_);
@@ -196,7 +208,8 @@ Element Menu(std::string label, std::string anchor, std::vector<MenuItem> items,
     data->diagnostics = content.data_->diagnostics;
     return Element(std::move(data));
 }
-Element ContextMenu(std::string label, std::string target, Point position, std::vector<MenuItem> items, PopupProps props) {
+Element ContextMenu(std::string label, std::string target, Point position, std::vector<MenuItem> items,
+                    PopupProps props) {
     auto menu = Menu(std::move(label), std::move(target), std::move(items), std::move(props));
     auto data = std::make_shared<detail::ElementData>(*menu.data_);
     data->properties["popup_x"] = static_cast<double>(position.x);
@@ -223,10 +236,9 @@ Element Dialog(Value<std::string> title, std::vector<Element> children, DialogPr
     if (!style.stack_vertical) style.stack_vertical = Align::center;
     if (!style.overflow) style.overflow = Overflow::scroll;
     if (!style.background) style.background = Color{1, 1, 1, 1};
-    children.insert(children.begin(), Text(std::move(title),
-        {.id = prefix + "-title", .source = props.node.source}));
+    children.insert(children.begin(), Text(std::move(title), {.id = prefix + "-title", .source = props.node.source}));
     auto layer = Modal({Column(std::move(children), std::move(props.panel))},
-        {.node = std::move(props.node), .open = props.open});
+                       {.node = std::move(props.node), .open = props.open});
     auto data = std::make_shared<detail::ElementData>(*layer.data_);
     data->properties["labelled_by"] = NodeReference{prefix + "-title"};
     return Element(std::move(data));
@@ -299,8 +311,8 @@ Element ScrollView(std::vector<Element> children, Props props) {
     return Column(std::move(children), std::move(props));
 }
 
-Element detail::Lowerer::collection(std::string label, std::optional<std::string> selected,
-    std::vector<TreeItem> items, CollectionProps props, std::string_view role) {
+Element detail::Lowerer::collection(std::string label, std::optional<std::string> selected, std::vector<TreeItem> items,
+                                    CollectionProps props, std::string_view role) {
     const bool tree = role == "tree";
     const bool menu = role == "menu";
     auto data = std::make_shared<ElementData>();
@@ -311,15 +323,12 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
     };
     if (prefix.empty()) error("collection_id", "Give the collection a stable nonempty author ID.");
     if (label.empty()) error("collection_label", "Give the collection a nonempty label.");
-    auto part = [&](std::string id) {
-        return Props{.id = std::move(id), .source = source};
-    };
+    auto part = [&](std::string id) { return Props{.id = std::move(id), .source = source}; };
     std::set<std::string> keys;
     bool found_selection = !selected;
     std::size_t count = 0;
     std::function<void(const TreeItem&, std::size_t, bool, bool, std::optional<std::string>)> item;
-    item = [&](const TreeItem& value, std::size_t depth, bool shown, bool disabled,
-        std::optional<std::string> parent) {
+    item = [&](const TreeItem& value, std::size_t depth, bool shown, bool disabled, std::optional<std::string> parent) {
         auto entry = std::make_shared<ElementData>();
         entry->props = part(prefix + "-item-" + value.key);
         entry->props.style.direction = FlexDirection::row;
@@ -342,13 +351,12 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
             return;
         }
         if (!value.children.empty()) {
-            if (value.toggle_action.empty())
-                error("tree_toggle", "Give each tree branch a host toggle action.");
+            if (value.toggle_action.empty()) error("tree_toggle", "Give each tree branch a host toggle action.");
             entry->properties["expanded"] = value.expanded;
             entry->events["expand"] = value.toggle_action;
             entry->events["collapse"] = value.toggle_action;
             auto toggle = Button(value.expanded ? "-" : "+", value.toggle_action,
-                {.node = part(prefix + "-toggle-" + value.key)});
+                                 {.node = part(prefix + "-toggle-" + value.key)});
             auto toggle_data = std::make_shared<ElementData>(*toggle.data_);
             toggle_data->properties["focusable"] = false;
             entry->children.push_back(Element(std::move(toggle_data)));
@@ -385,24 +393,27 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
 }
 
 Element detail::Lowerer::flat_collection(std::string label, std::optional<std::string> selected,
-    std::vector<ListItem> items, CollectionProps props, std::string_view role) {
+                                         std::vector<ListItem> items, CollectionProps props, std::string_view role) {
     std::vector<TreeItem> entries;
     entries.reserve(std::min(items.size(), max_document_nodes + 1));
     for (auto& item : items) {
         if (entries.size() > max_document_nodes) break;
-        entries.push_back({std::move(item.key), std::move(item.label), std::move(item.action), {}, false, item.disabled, {}});
+        entries.push_back(
+            {std::move(item.key), std::move(item.label), std::move(item.action), {}, false, item.disabled, {}});
     }
     return collection(std::move(label), std::move(selected), std::move(entries), std::move(props), role);
 }
 
 Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem> items,
-    CollectionProps props) {
-    return detail::Lowerer::flat_collection(std::move(label), std::move(selected), std::move(items), std::move(props), "list");
+                 CollectionProps props) {
+    return detail::Lowerer::flat_collection(std::move(label), std::move(selected), std::move(items), std::move(props),
+                                            "list");
 }
 
 Element TreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem> items,
-    CollectionProps props) {
-    return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(items), std::move(props), "tree");
+                 CollectionProps props) {
+    return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(items), std::move(props),
+                                       "tree");
 }
 
 Element Grid(std::vector<Element> children, Props props) {
@@ -414,7 +425,7 @@ Element Grid(std::vector<Element> children, Props props) {
 }
 
 Element Dropdown(std::string label, std::string selected, std::vector<DropdownOption> options,
-    std::string toggle_action, DropdownProps props) {
+                 std::string toggle_action, DropdownProps props) {
     std::vector<Diagnostic> errors;
     std::set<std::string> keys;
     const DropdownOption* chosen = nullptr;
@@ -432,14 +443,13 @@ Element Dropdown(std::string label, std::string selected, std::vector<DropdownOp
         return node;
     };
     std::vector<Element> children;
-    children.push_back(Button(label + ": " + (chosen ? chosen->label : selected) +
-        (props.expanded ? " [-]" : " [+]"), std::move(toggle_action),
-        {.node = control("-trigger"), .disabled = props.disabled}));
+    children.push_back(Button(label + ": " + (chosen ? chosen->label : selected) + (props.expanded ? " [-]" : " [+]"),
+                              std::move(toggle_action), {.node = control("-trigger"), .disabled = props.disabled}));
     if (props.expanded) {
         for (auto& option : options)
-            children.push_back(Button((option.key == selected ? "* " : "") + option.label,
-                std::move(option.action), {.node = control("-option-" + option.key),
-                    .disabled = props.disabled || option.disabled}));
+            children.push_back(
+                Button((option.key == selected ? "* " : "") + option.label, std::move(option.action),
+                       {.node = control("-option-" + option.key), .disabled = props.disabled || option.disabled}));
     }
     auto data = std::make_shared<detail::ElementData>();
     props.node.style.direction = FlexDirection::column;
@@ -454,8 +464,10 @@ namespace {
 std::vector<Diagnostic> slider_range_errors(SliderRange range) {
     const auto span = std::int64_t{range.maximum} - range.minimum;
     if (span <= 0 || range.step <= 0 || span % range.step != 0)
-        return {{"slider_range", Severity::error, {},
-            "Set minimum < maximum and a positive step that divides maximum - minimum exactly."}};
+        return {{"slider_range",
+                 Severity::error,
+                 {},
+                 "Set minimum < maximum and a positive step that divides maximum - minimum exactly."}};
     return {};
 }
 }
@@ -464,7 +476,8 @@ Result<int> slider_value_at(SliderRange range, double position) {
     auto errors = slider_range_errors(range);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     if (!std::isfinite(position))
-        return {std::nullopt, {{"slider_position", Severity::error, {}, "Supply a finite normalized Slider position."}}};
+        return {std::nullopt,
+                {{"slider_position", Severity::error, {}, "Supply a finite normalized Slider position."}}};
     const auto stops = (std::int64_t{range.maximum} - range.minimum) / range.step;
     const auto stop = static_cast<std::int64_t>(std::floor(std::clamp(position, 0., 1.) * stops + 0.5));
     return {static_cast<int>(std::int64_t{range.minimum} + stop * range.step), {}};
@@ -473,12 +486,15 @@ Result<int> slider_value_at(SliderRange range, double position) {
 Element Slider(std::string label, int value, SliderRange range, std::string action, SliderProps props) {
     auto data = std::make_shared<detail::ElementData>();
     data->diagnostics = slider_range_errors(range);
-    if (data->diagnostics.empty() && (value < range.minimum || value > range.maximum ||
-        (std::int64_t{value} - range.minimum) % range.step != 0))
-        data->diagnostics.push_back({"slider_value", Severity::error, {},
-            "Supply a Slider value within [minimum, maximum] at a minimum + n * step stop."});
-    const auto fraction = data->diagnostics.empty() ?
-        (static_cast<double>(value) - range.minimum) / (static_cast<double>(range.maximum) - range.minimum) : 0.;
+    if (data->diagnostics.empty() &&
+        (value < range.minimum || value > range.maximum || (std::int64_t{value} - range.minimum) % range.step != 0))
+        data->diagnostics.push_back({"slider_value",
+                                     Severity::error,
+                                     {},
+                                     "Supply a Slider value within [minimum, maximum] at a minimum + n * step stop."});
+    const auto fraction = data->diagnostics.empty() ? (static_cast<double>(value) - range.minimum) /
+                                                          (static_cast<double>(range.maximum) - range.minimum)
+                                                    : 0.;
     auto part = [&](const char* suffix, StyleDeclarations style) {
         Props node;
         if (props.node.id) node.id = *props.node.id + suffix;
@@ -487,13 +503,17 @@ Element Slider(std::string label, int value, SliderRange range, std::string acti
         return node;
     };
     data->children.push_back(Text(std::move(label) + ": " + std::to_string(value), {.source = props.node.source}));
-    data->children.push_back(Row({
-        Column({}, part("-fill", {.width = Dimension::points(static_cast<float>(192 * fraction)),
-            .height = Dimension::points(12), .background = Color{0.25f, 0.5f, 0.85f, 1}})),
-        Column({}, part("-thumb", {.width = Dimension::points(8), .height = Dimension::points(12),
-            .background = Color{0.1f, 0.2f, 0.4f, 1}}))},
-        part("-track", {.width = Dimension::points(200), .height = Dimension::points(12),
-            .gap = 0.f, .background = Color{0.75f, 0.78f, 0.82f, 1}})));
+    data->children.push_back(
+        Row({Column({}, part("-fill", {.width = Dimension::points(static_cast<float>(192 * fraction)),
+                                       .height = Dimension::points(12),
+                                       .background = Color{0.25f, 0.5f, 0.85f, 1}})),
+             Column({}, part("-thumb", {.width = Dimension::points(8),
+                                        .height = Dimension::points(12),
+                                        .background = Color{0.1f, 0.2f, 0.4f, 1}}))},
+            part("-track", {.width = Dimension::points(200),
+                            .height = Dimension::points(12),
+                            .gap = 0.f,
+                            .background = Color{0.75f, 0.78f, 0.82f, 1}})));
     data->props = std::move(props.node);
     data->props.style.direction = FlexDirection::column;
     if (!data->props.style.gap) data->props.style.gap = 4.f;
@@ -504,11 +524,12 @@ Element Slider(std::string label, int value, SliderRange range, std::string acti
 
 namespace {
 std::vector<Diagnostic> split_limits_errors(SplitPaneLimits limits) {
-    if (!std::isfinite(limits.minimum_first) || limits.minimum_first < 0 ||
-        !std::isfinite(limits.minimum_second) || limits.minimum_second < 0 ||
-        !std::isfinite(limits.handle_size) || limits.handle_size <= 0)
-        return {{"split_pane_limits", Severity::error, {},
-            "Supply finite nonnegative pane minima and a finite positive logical handle size."}};
+    if (!std::isfinite(limits.minimum_first) || limits.minimum_first < 0 || !std::isfinite(limits.minimum_second) ||
+        limits.minimum_second < 0 || !std::isfinite(limits.handle_size) || limits.handle_size <= 0)
+        return {{"split_pane_limits",
+                 Severity::error,
+                 {},
+                 "Supply finite nonnegative pane minima and a finite positive logical handle size."}};
     return {};
 }
 }
@@ -517,27 +538,32 @@ Result<float> split_pane_size_at(SplitPaneLimits limits, float available, float 
     auto errors = split_limits_errors(limits);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     if (!std::isfinite(available) || available < 0 || !std::isfinite(requested))
-        return {std::nullopt, {{"split_pane_size", Severity::error, {},
-            "Supply a finite nonnegative parent content size and a finite requested pane size."}}};
+        return {std::nullopt,
+                {{"split_pane_size",
+                  Severity::error,
+                  {},
+                  "Supply a finite nonnegative parent content size and a finite requested pane size."}}};
     const auto maximum = std::max(limits.minimum_first, available - limits.handle_size - limits.minimum_second);
     return {std::clamp(requested, limits.minimum_first, maximum), {}};
 }
 
-Element detail::Lowerer::split_pane(Element first, Element second, float size, std::string action,
-    SplitPaneProps props, FlexDirection direction) {
+Element detail::Lowerer::split_pane(Element first, Element second, float size, std::string action, SplitPaneProps props,
+                                    FlexDirection direction) {
     auto data = std::make_shared<detail::ElementData>();
     data->diagnostics = split_limits_errors(props.limits);
     if (!std::isfinite(size) || size < 0)
-        data->diagnostics.push_back({"split_pane_size", Severity::error, {},
-            "Supply a finite nonnegative first-pane logical size."});
+        data->diagnostics.push_back(
+            {"split_pane_size", Severity::error, {}, "Supply a finite nonnegative first-pane logical size."});
     if (!props.node.id || props.node.id->empty())
-        data->diagnostics.push_back({"split_pane_id", Severity::error, {},
-            "Give SplitPane a stable author ID for its handle and retained host state."});
+        data->diagnostics.push_back({"split_pane_id",
+                                     Severity::error,
+                                     {},
+                                     "Give SplitPane a stable author ID for its handle and retained host state."});
     const std::string id = props.node.id.value_or("");
     const bool horizontal = direction == FlexDirection::row;
     auto pane = [&](Element child, const char* suffix, bool leading) {
-        auto content = child.data_ ? std::make_shared<detail::ElementData>(*child.data_) :
-            std::shared_ptr<detail::ElementData>{};
+        auto content =
+            child.data_ ? std::make_shared<detail::ElementData>(*child.data_) : std::shared_ptr<detail::ElementData>{};
         if (content) {
             content->props.style.grow = 1.f;
             content->props.style.shrink = 1.f;
@@ -562,16 +588,19 @@ Element detail::Lowerer::split_pane(Element first, Element second, float size, s
     handle->props.id = id + "-handle";
     handle->props.source = props.node.source;
     handle->props.style.background = Color{0.45f, 0.5f, 0.6f, 1};
-    if (horizontal) handle->props.style.width = Dimension::points(props.limits.handle_size);
-    else handle->props.style.height = Dimension::points(props.limits.handle_size);
+    if (horizontal)
+        handle->props.style.width = Dimension::points(props.limits.handle_size);
+    else
+        handle->props.style.height = Dimension::points(props.limits.handle_size);
     handle->properties[std::string(property_names::separator)] = true;
     handle->properties["labelled_by"] = NodeReference{id + "-handle-label"};
     handle->disabled = props.disabled;
     handle->action = std::move(action);
-    handle->children.push_back(Text(props.label + ": " + std::to_string(size) + " logical units",
-        {.id = id + "-handle-label", .style = {.display = Display::none}, .source = props.node.source}));
+    handle->children.push_back(
+        Text(props.label + ": " + std::to_string(size) + " logical units",
+             {.id = id + "-handle-label", .style = {.display = Display::none}, .source = props.node.source}));
     data->children = {pane(std::move(first), "-first", true), Element(std::move(handle)),
-        pane(std::move(second), "-second", false)};
+                      pane(std::move(second), "-second", false)};
     data->props = std::move(props.node);
     data->props.style.direction = direction;
     data->props.style.justify = Justify::start;
@@ -581,10 +610,12 @@ Element detail::Lowerer::split_pane(Element first, Element second, float size, s
     return Element(std::move(data));
 }
 Element HorizontalSplitPane(Element first, Element second, float size, std::string action, SplitPaneProps props) {
-    return detail::Lowerer::split_pane(std::move(first), std::move(second), size, std::move(action), std::move(props), FlexDirection::row);
+    return detail::Lowerer::split_pane(std::move(first), std::move(second), size, std::move(action), std::move(props),
+                                       FlexDirection::row);
 }
 Element VerticalSplitPane(Element first, Element second, float size, std::string action, SplitPaneProps props) {
-    return detail::Lowerer::split_pane(std::move(first), std::move(second), size, std::move(action), std::move(props), FlexDirection::column);
+    return detail::Lowerer::split_pane(std::move(first), std::move(second), size, std::move(action), std::move(props),
+                                       FlexDirection::column);
 }
 
 Result<Presentation> Session::lower(const Element& element, const ValidationContext& context) {

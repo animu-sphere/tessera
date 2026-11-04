@@ -100,9 +100,9 @@ struct ComponentDescription {
     std::vector<ComponentAsync> async;
 };
 // Reactive alternatives are weak references to the host's instance owner.
-using ComponentValue = std::variant<Property,
-    Signal<bool>, Computed<bool>, Signal<double>, Computed<double>,
-    Signal<std::string>, Computed<std::string>, Signal<NodeReference>, Computed<NodeReference>>;
+using ComponentValue =
+    std::variant<Property, Signal<bool>, Computed<bool>, Signal<double>, Computed<double>, Signal<std::string>,
+                 Computed<std::string>, Signal<NodeReference>, Computed<NodeReference>>;
 using ComponentActionValue = std::variant<std::string, Signal<std::string>, Computed<std::string>>;
 using ComponentStyleValue = std::variant<StyleDeclarations, Signal<StyleDeclarations>, Computed<StyleDeclarations>>;
 struct BoundComponent : BoundDocument {
@@ -134,8 +134,8 @@ struct ComponentArguments {
 // Validates schema/arguments before reading settled values or copying subtrees.
 // Returns an ordinary, fully validated document; never creates/disposes owners,
 // evaluates calculations, publishes a generation, or invokes external code.
-Result<BoundComponent> lower_component(const ReactiveRuntime&, const ComponentDescription&,
-                                     const ComponentArguments&, const ValidationContext& = {});
+Result<BoundComponent> lower_component(const ReactiveRuntime&, const ComponentDescription&, const ComponentArguments&,
+                                       const ValidationContext& = {});
 
 // A flat, owned invocation tree: slot children are indices into the input span.
 // Indices are call-local identities, distinct from keys, author IDs and owners.
@@ -151,5 +151,5 @@ struct ComponentInvocation {
 // Topology and aggregate geometry bounds are checked before reactive reads or
 // subtree copies. Ordinary component validation applies to each invocation.
 Result<BoundComponent> lower_component_tree(const ReactiveRuntime&, std::span<const ComponentInvocation>,
-                                          std::size_t root = 0, const ValidationContext& = {});
+                                            std::size_t root = 0, const ValidationContext& = {});
 } // namespace tessera

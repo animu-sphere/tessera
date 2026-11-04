@@ -51,12 +51,14 @@ public:
     tessera::Result<bool> scene_lights_eligibility(bool, tessera::TextShaper&);
     tessera::Result<tessera::CommandInvocation> request_scene_lights(std::string field, bool, tessera::CommandSource);
     tessera::Result<bool> material_view_eligibility(bool, tessera::TextShaper&);
-    tessera::Result<tessera::CommandInvocation> request_material_view(std::string field, std::string value, tessera::CommandSource);
+    tessera::Result<tessera::CommandInvocation> request_material_view(std::string field, std::string value,
+                                                                      tessera::CommandSource);
     tessera::Result<bool> numeric_eligibility(bool, tessera::TextShaper&);
     tessera::Result<bool> numeric_eligibility(NumericField, bool, tessera::TextShaper&);
     tessera::Result<bool> msaa_capabilities(std::vector<unsigned> supported, bool enabled, tessera::TextShaper&);
     tessera::Result<tessera::CommandInvocation> request_edit(const tessera::TextEditRequest&, tessera::CommandSource);
-    tessera::Result<tessera::CommandInvocation> request_edit(NumericField, const tessera::TextEditRequest&, tessera::CommandSource);
+    tessera::Result<tessera::CommandInvocation> request_edit(NumericField, const tessera::TextEditRequest&,
+                                                             tessera::CommandSource);
     tessera::Result<tessera::CommandInvocation> request_value(std::string field, double, tessera::CommandSource);
 
     tessera::Result<bool> refresh(Snapshot, tessera::TextShaper&);
@@ -69,9 +71,12 @@ public:
 
 private:
     explicit Host(tessera::CommandRegistry registry) : registry_(std::move(registry)) {}
-    tessera::Result<View> stage(const Snapshot&, const Disclosure&, tessera::Point,
-        tessera::FocusDispatcher, bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, const Outlines&, const SceneLights&, const Numeric& ambient, const MaterialView&, const KeyDirection&, tessera::TextShaper&);
-    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa, Outlines, SceneLights, Numeric ambient, MaterialView, KeyDirection);
+    tessera::Result<View> stage(const Snapshot&, const Disclosure&, tessera::Point, tessera::FocusDispatcher,
+                                bool reveal, std::array<bool, 3>, const Numeric&, const Msaa&, const Outlines&,
+                                const SceneLights&, const Numeric& ambient, const MaterialView&, const KeyDirection&,
+                                tessera::TextShaper&);
+    void accept(View, Snapshot, Disclosure, tessera::FocusDispatcher, std::array<bool, 3>, Numeric, Msaa, Outlines,
+                SceneLights, Numeric ambient, MaterialView, KeyDirection);
     tessera::Result<bool> operate(const tessera::ActionRequest&, tessera::CommandSource, tessera::TextShaper&);
 
     tessera::authoring::Session session_;

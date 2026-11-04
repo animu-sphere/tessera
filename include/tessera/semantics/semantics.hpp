@@ -15,13 +15,17 @@ namespace tessera {
 // Prototype in-process projection; not a serialized schema or stable API. Roles are derived from the
 // existing vocabulary, including the Box separator/modal markers and bounded collection roles.
 enum class SemanticRole : std::uint8_t {
-    root,   // The document root when it has no other role.
-    button, // A node with an `activate` binding. Text descendants name it and get no entries.
-    text,   // A Text node outside a button.
+    root,      // The document root when it has no other role.
+    button,    // A node with an `activate` binding. Text descendants name it and get no entries.
+    text,      // A Text node outside a button.
     separator, // A Box with separator=true; its activate binding requests host adjustment.
-    dialog, // The root-sibling Modal; labelled_by supplies its title.
-    list, tree, list_item, tree_item,
-    menu, menu_item,
+    dialog,    // The root-sibling Modal; labelled_by supplies its title.
+    list,
+    tree,
+    list_item,
+    tree_item,
+    menu,
+    menu_item,
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 
@@ -36,7 +40,7 @@ struct SemanticAction {
 // One included node. Handles and the layout index belong to the input snapshot.
 struct SemanticNode {
     NodeHandle node;
-    std::optional<std::string> id; // Document-scoped author ID, when present.
+    std::optional<std::string> id;             // Document-scoped author ID, when present.
     std::uint32_t parent = no_semantic_parent; // Index into SemanticTree::nodes.
     std::uint32_t layout_box = 0;              // Index into LayoutResult::boxes for bounds.
     SemanticRole role = SemanticRole::root;

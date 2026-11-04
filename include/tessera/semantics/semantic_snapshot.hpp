@@ -44,8 +44,8 @@ struct SemanticIdentity {
 };
 // The host supplies its current update sequence, advancing it after every settled change. Rejects a
 // different generation before ordinary semantic eligibility. Loading a snapshot never invokes anything.
-Result<ActionRequest> request_semantic_action(const SemanticInput&, std::uint64_t current_generation,
-                                              SemanticIdentity, std::string_view binding = "activate");
+Result<ActionRequest> request_semantic_action(const SemanticInput&, std::uint64_t current_generation, SemanticIdentity,
+                                              std::string_view binding = "activate");
 
 std::vector<SemanticRecord> own_semantic_records(const SemanticTree&);
 Result<SemanticSnapshot> capture_semantics(const SemanticInput&, std::uint64_t generation);

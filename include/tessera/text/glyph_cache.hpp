@@ -42,7 +42,7 @@ public:
 
 struct GlyphCacheLimits {
     std::size_t bytes = 8 * 1024 * 1024; // Resident coverage only, excluding external owners.
-    std::size_t entries = 4096;         // Bounds metadata, including empty glyphs.
+    std::size_t entries = 4096;          // Bounds metadata, including empty glyphs.
 };
 struct GlyphCacheUsage {
     std::size_t bytes = 0;

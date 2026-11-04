@@ -94,8 +94,10 @@ void check_agreement(const Fixture& f, std::string_view what) {
             std::optional<Rect> clip;
             std::optional<Rect> painted;
             for (const auto& command : paint.value->commands) {
-                if (const auto* push = std::get_if<tessera::PushClip>(&command)) clip = push->rect;
-                else if (std::holds_alternative<tessera::PopClip>(command)) clip.reset();
+                if (const auto* push = std::get_if<tessera::PushClip>(&command))
+                    clip = push->rect;
+                else if (std::holds_alternative<tessera::PopClip>(command))
+                    clip.reset();
                 else if (const auto* rect = std::get_if<tessera::DrawRect>(&command);
                          rect && inside(rect->rect, point) && (!clip || inside(*clip, point)))
                     painted = rect->rect;
@@ -159,7 +161,8 @@ void routing_chains_per_axis() {
 void reveal_minimal_nested_and_oversized() {
     Fixture f;
     check(f.reveal(2).empty() && f.reveal(1).empty(), "Visible targets must not scroll");
-    check(f.reveal(8) == std::vector<tessera::ScrollUpdate>{{f.node(1), {0, 50}}}, "Reveal must align the trailing edge");
+    check(f.reveal(8) == std::vector<tessera::ScrollUpdate>{{f.node(1), {0, 50}}},
+          "Reveal must align the trailing edge");
     check(f.reveal(10) == std::vector<tessera::ScrollUpdate>{{f.node(0), {0, 20}}}, "Reveal must scroll the root");
 
     f.offsets[0] = {0, 20};
@@ -212,7 +215,8 @@ void invalid_input() {
 
     f.layout.boxes[1].scroll->offset.y = 51;
     const auto out = tessera::route_scroll(f.input(), {{30, 10}, {0, 1}});
-    check(!out && has(out.diagnostics, "layout_scroll", "/layout/boxes/1/scroll"), "Out-of-range offsets must be rejected");
+    check(!out && has(out.diagnostics, "layout_scroll", "/layout/boxes/1/scroll"),
+          "Out-of-range offsets must be rejected");
     f.layout.boxes[1].scroll.reset();
     check(has(tessera::validate(f.input()), "layout_scroll", "/layout/boxes/1/scroll"),
           "Missing scroll geometry must be rejected");

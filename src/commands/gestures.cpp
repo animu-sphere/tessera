@@ -19,7 +19,10 @@ std::optional<std::uint64_t> CommandGestures::active() const noexcept {
     return token_ && token_->active() ? std::optional{gesture_->id} : std::nullopt;
 }
 void CommandGestures::discard_closed() {
-    if (token_ && !token_->active()) { token_.reset(); gesture_.reset(); }
+    if (token_ && !token_->active()) {
+        token_.reset();
+        gesture_.reset();
+    }
 }
 std::vector<Diagnostic> CommandGestures::entry() const {
     if (std::this_thread::get_id() != thread_)
@@ -30,11 +33,13 @@ std::vector<Diagnostic> CommandGestures::entry() const {
 }
 std::vector<Diagnostic> CommandGestures::identity(std::uint64_t id) const {
     if (!active() || *active() != id)
-        return error("stale_gesture", "/gesture/id", "Use the active gesture identity; closed gestures cannot be reopened.");
+        return error("stale_gesture", "/gesture/id",
+                     "Use the active gesture identity; closed gestures cannot be reopened.");
     return {};
 }
 Result<CommandExecution> CommandGestures::edit(const EditGesture& gesture, const CommandSnapshot& snapshot,
-    const CommandInvocation& invocation, TransactionHost& host, const SemanticInput* ui) {
+                                               const CommandInvocation& invocation, TransactionHost& host,
+                                               const SemanticInput* ui) {
     auto errors = entry();
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     discard_closed();
@@ -44,9 +49,11 @@ Result<CommandExecution> CommandGestures::edit(const EditGesture& gesture, const
         return {std::nullopt, error("unknown_value", "/gesture/button", "Use a declared pointer button.")};
     if (active()) {
         if (gesture.id != gesture_->id)
-            return {std::nullopt, error("nested_gesture", "/gesture/id", "Finish the active gesture before starting another.")};
+            return {std::nullopt,
+                    error("nested_gesture", "/gesture/id", "Finish the active gesture before starting another.")};
         if (gesture != *gesture_)
-            return {std::nullopt, error("gesture_mismatch", "/gesture", "Keep the gesture's pointer, button and opening metadata unchanged.")};
+            return {std::nullopt, error("gesture_mismatch", "/gesture",
+                                        "Keep the gesture's pointer, button and opening metadata unchanged.")};
     } else if (gesture.id <= last_id_) {
         return {std::nullopt, error("stale_gesture", "/gesture/id", "Use a new increasing gesture identity.")};
     }
@@ -70,7 +77,7 @@ Result<CommandExecution> CommandGestures::edit(const EditGesture& gesture, const
     return result;
 }
 Result<CommandOutcome> CommandGestures::complete(std::uint64_t id, const CommandSnapshot& snapshot,
-    TransactionHost& host, const SemanticInput* ui) {
+                                                 TransactionHost& host, const SemanticInput* ui) {
     auto errors = entry();
     if (errors.empty()) errors = identity(id);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
@@ -99,7 +106,7 @@ Result<bool> CommandGestures::refresh(const CommandSnapshot& snapshot, Transacti
     return result;
 }
 Result<GestureInputResult> CommandGestures::handle_input(const CommandSnapshot& snapshot, const InputEvent& event,
-    TransactionHost& host, const SemanticInput* ui) {
+                                                         TransactionHost& host, const SemanticInput* ui) {
     auto errors = entry();
     if (errors.empty()) errors = validate(event);
     if (errors.empty() && timestamp_ && event.timestamp < *timestamp_)
@@ -114,10 +121,12 @@ Result<GestureInputResult> CommandGestures::handle_input(const CommandSnapshot& 
     const auto abandoned = std::get_if<PointerCancel>(&event.data);
     const bool user_cancel = std::holds_alternative<Cancel>(event.data) || (key && key->key == Key::escape);
     const bool pointer_cancel = abandoned && gesture_->pointer && abandoned->pointer == *gesture_->pointer;
-    const bool released = up && gesture_->pointer && up->pointer == *gesture_->pointer && up->button == gesture_->button;
+    const bool released =
+        up && gesture_->pointer && up->pointer == *gesture_->pointer && up->button == gesture_->button;
     if (!user_cancel && !pointer_cancel && !released) return {GestureInputResult{}, {}};
-    auto closed = released ? complete(gesture_->id, snapshot, host, ui) :
-        cancel(gesture_->id, pointer_cancel ? TransactionCancel::capture_lost : TransactionCancel::user, host);
+    auto closed = released ? complete(gesture_->id, snapshot, host, ui)
+                           : cancel(gesture_->id,
+                                    pointer_cancel ? TransactionCancel::capture_lost : TransactionCancel::user, host);
     if (!closed) return {std::nullopt, std::move(closed.diagnostics)};
     return {GestureInputResult{true, std::move(closed.value)}, {}};
 }

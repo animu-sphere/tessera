@@ -63,7 +63,8 @@ void test_selectors_and_order() {
     const auto tree = menu();
     using S = tessera::StyleSelector;
     // Without rules every node has primitive defaults.
-    for (const auto& style : resolve(*tree, {}).styles) check(style == tessera::ResolvedStyle{}, "Empty sheet changed a style");
+    for (const auto& style : resolve(*tree, {}).styles)
+        check(style == tessera::ResolvedStyle{}, "Empty sheet changed a style");
 
     tessera::StyleDeclarations text_rule;
     text_rule.text.size = 20.0f;
@@ -122,7 +123,8 @@ void test_inheritance() {
 void test_states() {
     const auto tree = menu();
     using S = tessera::StyleSelector;
-    const auto a = *tree->find("a"), b = *tree->find("b"), a_label = *tree->find("a-label"), b_label = *tree->find("b-label");
+    const auto a = *tree->find("a"), b = *tree->find("b"), a_label = *tree->find("a-label"),
+               b_label = *tree->find("b-label");
     const auto panel = *tree->find("panel");
     tessera::StyleDeclarations hover, active, focus, disabled, both;
     hover.background = green;
@@ -142,7 +144,8 @@ void test_states() {
     const auto styles = resolve(*tree, sheet, {{a_label}, {a}, a});
     check(styles["a"].background == green && styles["panel"].background == green && styles["root"].background == green,
           "Hover did not match the target's ancestors");
-    check(styles["a"].border_color == red && styles["panel"].border_color == red && styles["a-label"].border_color == tessera::Color{},
+    check(styles["a"].border_color == red && styles["panel"].border_color == red &&
+              styles["a-label"].border_color == tessera::Color{},
           "Active did not match the owner and its ancestors only");
     check(styles["a"].color == blue && styles["a-label"].color == blue && styles["panel"].color != blue,
           "Focus did not match only the focused node");
@@ -151,11 +154,14 @@ void test_states() {
     check(unfocused["a"].corner_radius == 0 && unfocused["a"].color != blue, "A partial state match applied");
 
     // Disabled is inherited from the node or an ancestor and suppresses every interaction state.
-    check(styles["b-label"].opacity == 0.5f && styles["a-label"].opacity == 1, "Disabled did not inherit to descendants");
+    check(styles["b-label"].opacity == 0.5f && styles["a-label"].opacity == 1,
+          "Disabled did not inherit to descendants");
     const auto stale = resolve(*tree, sheet, {{b_label}, {b}, b});
-    check(stale["b"].background == tessera::Color{} && stale["b"].border_color == tessera::Color{} && stale["b"].color != blue,
+    check(stale["b"].background == tessera::Color{} && stale["b"].border_color == tessera::Color{} &&
+              stale["b"].color != blue,
           "A disabled node matched an interaction state");
-    check(stale["panel"].background == green && stale["panel"].border_color == red, "An enabled ancestor lost its state");
+    check(stale["panel"].background == green && stale["panel"].border_color == red,
+          "An enabled ancestor lost its state");
 
     // Multiple pointers mark every hovered/active path; the result is deterministic.
     const auto two = resolve(*tree, sheet, {{a_label, panel}, {}, {}});
@@ -166,14 +172,16 @@ void test_states() {
 void test_overrides() {
     const auto tree = menu();
     using S = tessera::StyleSelector;
-    const tessera::StyleSheet sheet{{{S::of_id("a"), background(blue)}, {S::of_class("button", {.hover = true}), background(green)}}};
+    const tessera::StyleSheet sheet{
+        {{S::of_id("a"), background(blue)}, {S::of_class("button", {.hover = true}), background(green)}}};
     std::vector<tessera::StyleDeclarations> overrides(tree->size());
     overrides[tree->find("a")->index].background = red;
     overrides[tree->find("panel")->index].color = white;
     const auto styles = resolve(*tree, sheet, {{*tree->find("a")}}, overrides);
     check(styles["a"].background == red, "An ID or state rule outranked the instance override");
     check(styles["a-label"].color == white, "An override did not provide the inherited value");
-    check(styles["b"].background == tessera::Color{} && styles["root"].color != white, "An override reached an unrelated node");
+    check(styles["b"].background == tessera::Color{} && styles["root"].color != white,
+          "An override reached an unrelated node");
 }
 
 void test_diagnostics() {
@@ -205,12 +213,16 @@ void test_diagnostics() {
     }};
     std::vector<tessera::StyleDeclarations> short_overrides(1);
     short_overrides[0].gap = -1.0f;
-    auto result = tessera::resolve_styles({tree.get(), &sheet, {{*other->find("a")}, {{tree->root().tree, 99}}, *other->find("a")}, short_overrides});
+    auto result = tessera::resolve_styles(
+        {tree.get(), &sheet, {{*other->find("a")}, {{tree->root().tree, 99}}, *other->find("a")}, short_overrides});
     check(!result, "Invalid style input accepted");
     const auto& d = result.diagnostics;
-    check(has(d, "invalid_identifier", "/sheet/rules/0/selector/name") && has(d, "invalid_identifier", "/sheet/rules/1/selector/name") &&
-              has(d, "invalid_utf8", "/sheet/rules/2/selector/name") && has(d, "unknown_value", "/sheet/rules/3/selector/kind") &&
-              has(d, "unknown_value", "/sheet/rules/4/selector/type") && has(d, "out_of_range", "/sheet/rules/4/declarations/opacity") &&
+    check(has(d, "invalid_identifier", "/sheet/rules/0/selector/name") &&
+              has(d, "invalid_identifier", "/sheet/rules/1/selector/name") &&
+              has(d, "invalid_utf8", "/sheet/rules/2/selector/name") &&
+              has(d, "unknown_value", "/sheet/rules/3/selector/kind") &&
+              has(d, "unknown_value", "/sheet/rules/4/selector/type") &&
+              has(d, "out_of_range", "/sheet/rules/4/declarations/opacity") &&
               has(d, "stale_target", "/state/hovered/0") && has(d, "stale_target", "/state/active/0") &&
               has(d, "stale_target", "/state/focused") && has(d, "override_count", "/overrides") &&
               has(d, "out_of_range", "/overrides/0/gap"),
@@ -225,8 +237,9 @@ void test_diagnostics() {
     maximum.max_height = 20.0f;
     const tessera::StyleSheet conflict{{{S::of_class("button"), minimum}, {S::of_id("a"), maximum}}};
     auto conflicting = tessera::resolve_styles({tree.get(), &conflict, {}, {}});
-    check(!conflicting && has(conflicting.diagnostics, "conflicting_constraints",
-                              "/nodes/" + std::to_string(tree->find("a")->index) + "/min_height") &&
+    check(!conflicting &&
+              has(conflicting.diagnostics, "conflicting_constraints",
+                  "/nodes/" + std::to_string(tree->find("a")->index) + "/min_height") &&
               conflicting.diagnostics.size() == 1,
           "Resolved conflict was not located at its node");
 }

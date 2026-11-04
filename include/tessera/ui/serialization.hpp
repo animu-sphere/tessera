@@ -56,8 +56,7 @@ inline constexpr std::size_t max_source_diagnostics = 4096;
 // Atomically replaces tooling origins using document-local diagnostic pointers.
 // Validates metadata, not document semantics; accepts rejected document candidates.
 // Failure returns errors and leaves diagnostics unchanged. Opens no source file.
-std::vector<Diagnostic> locate_diagnostics(const UiDocument&, const DocumentSourceMap&,
-                                          std::span<Diagnostic>);
+std::vector<Diagnostic> locate_diagnostics(const UiDocument&, const DocumentSourceMap&, std::span<Diagnostic>);
 
 struct SourcedDocument {
     UiDocument document;

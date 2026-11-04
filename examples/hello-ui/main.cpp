@@ -25,7 +25,8 @@ int main() {
     if (!tree) return 3;
     const auto children = (*tree.value)->children((*tree.value)->root());
     if (children.size() != 2 || (*tree.value)->get(children[0])->id != "title" ||
-        (*tree.value)->get(children[1])->id != "start") return 4;
+        (*tree.value)->get(children[1])->id != "start")
+        return 4;
     std::cout << *saved.value << "Validated and restored " << (*tree.value)->size()
               << " ordered nodes. No rendering or text shaping is performed.\n";
 }

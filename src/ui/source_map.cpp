@@ -6,9 +6,7 @@ namespace {
 void error(std::vector<Diagnostic>& errors, std::string code, std::string path, std::string message) {
     errors.push_back({std::move(code), Severity::error, std::move(path), std::move(message), {}});
 }
-bool file_valid(std::string_view file) {
-    return file.size() <= max_source_file_bytes && detail::valid_utf8(file);
-}
+bool file_valid(std::string_view file) { return file.size() <= max_source_file_bytes && detail::valid_utf8(file); }
 bool count_nodes(const UiNode& node, std::size_t depth, std::size_t& count) {
     if (depth > max_document_depth || ++count > max_document_nodes) return false;
     for (const auto& child : node.children)
@@ -18,24 +16,27 @@ bool count_nodes(const UiNode& node, std::size_t depth, std::size_t& count) {
 bool check_node(const UiNode& node, const std::string& pointer, std::size_t depth, const DocumentSourceMap& map,
                 const std::string& path, std::size_t& index, std::vector<Diagnostic>& errors) {
     if (depth > max_document_depth || index >= max_document_nodes || index >= map.nodes.size()) {
-        error(errors, "source_map_mismatch", path + "/nodes", "Supply one source record per bounded document node in preorder.");
+        error(errors, "source_map_mismatch", path + "/nodes",
+              "Supply one source record per bounded document node in preorder.");
         return false;
     }
     const auto& source = map.nodes[index];
     const auto location = path + "/nodes/" + std::to_string(index++);
     bool shape = source.pointer == pointer && source.properties.size() <= node.properties.size() &&
-        source.unmapped_properties.size() == node.properties.size() - source.properties.size();
+                 source.unmapped_properties.size() == node.properties.size() - source.properties.size();
     for (const auto& [name, value] : node.properties) {
         (void)value;
         if (source.properties.contains(name) == source.unmapped_properties.contains(name)) shape = false;
     }
     if (!shape) {
-        error(errors, "source_map_mismatch", location,
-              "Match the node pointer and every present property exactly once, with a span or an explicit unmapped declaration.");
+        error(
+            errors, "source_map_mismatch", location,
+            "Match the node pointer and every present property exactly once, with a span or an explicit unmapped declaration.");
         return false;
     }
     // Bound containers before examining caller-controlled names/locations.
-    if (source.property_arguments.size() > node.properties.size() || source.event_arguments.size() > node.events.size()) {
+    if (source.property_arguments.size() > node.properties.size() ||
+        source.event_arguments.size() > node.events.size()) {
         error(errors, "source_map_mismatch", location, "Argument origins must name present properties or events.");
         return false;
     }
@@ -48,7 +49,8 @@ bool check_node(const UiNode& node, const std::string& pointer, std::size_t dept
     for (const auto& [key, value] : source.property_arguments) {
         const auto field = location + "/property_arguments/" + detail::pointer_token(key);
         if (!source.unmapped_properties.contains(key))
-            error(errors, "source_map_mismatch", field, "Argument origins name instance properties without template value spans.");
+            error(errors, "source_map_mismatch", field,
+                  "Argument origins name instance properties without template value spans.");
         origin(value, field);
     }
     for (const auto& [key, value] : source.event_arguments) {
@@ -59,12 +61,14 @@ bool check_node(const UiNode& node, const std::string& pointer, std::size_t dept
     }
     if (!errors.empty()) return false;
     if (source.file && !file_valid(*source.file)) {
-        error(errors, "source_map_file", location + "/file", "Use an opaque file identity of at most 4096 valid UTF-8 bytes.");
+        error(errors, "source_map_file", location + "/file",
+              "Use an opaque file identity of at most 4096 valid UTF-8 bytes.");
         return false;
     }
     if (!source.mapped) {
         if (source.span != SourceSpan{} || source.file || !source.properties.empty()) {
-            error(errors, "source_map_span", location, "An unmapped node has no span, file override or property spans.");
+            error(errors, "source_map_span", location,
+                  "An unmapped node has no span, file override or property spans.");
             return false;
         }
     } else {
@@ -81,7 +85,9 @@ bool check_node(const UiNode& node, const std::string& pointer, std::size_t dept
         }
     }
     for (std::size_t i = 0; i < node.children.size(); ++i)
-        if (!check_node(node.children[i], pointer + "/children/" + std::to_string(i), depth + 1, map, path, index, errors)) return false;
+        if (!check_node(node.children[i], pointer + "/children/" + std::to_string(i), depth + 1, map, path, index,
+                        errors))
+            return false;
     return true;
 }
 } // namespace
@@ -90,36 +96,42 @@ std::vector<Diagnostic> validate_source_location(const SourceLocation& source, s
     std::vector<Diagnostic> errors;
     const std::string base(path);
     if (!file_valid(source.file))
-        error(errors, "source_map_file", base + "/file", "Use an opaque file identity of at most 4096 valid UTF-8 bytes.");
+        error(errors, "source_map_file", base + "/file",
+              "Use an opaque file identity of at most 4096 valid UTF-8 bytes.");
     if (source.span.begin > source.span.end)
         error(errors, "source_map_span", base + "/span", "Use an ordered half-open UTF-8 byte range.");
     return errors;
 }
 
-std::vector<Diagnostic> validate_sources(const UiDocument& document, const DocumentSourceMap& map, std::string_view path) {
+std::vector<Diagnostic> validate_sources(const UiDocument& document, const DocumentSourceMap& map,
+                                         std::string_view path) {
     std::vector<Diagnostic> errors;
     const std::string base(path);
     if (map.nodes.size() > max_document_nodes || map.nodes.empty()) {
-        error(errors, "source_map_mismatch", base + "/nodes", "Supply one source record per bounded document node in preorder.");
+        error(errors, "source_map_mismatch", base + "/nodes",
+              "Supply one source record per bounded document node in preorder.");
         return errors;
     }
     std::size_t count = 0;
     if (!count_nodes(document.root, 1, count) || count != map.nodes.size()) {
-        error(errors, "source_map_mismatch", base + "/nodes", "Supply one source record per bounded document node in preorder.");
+        error(errors, "source_map_mismatch", base + "/nodes",
+              "Supply one source record per bounded document node in preorder.");
         return errors;
     }
     if (!file_valid(map.file)) {
-        error(errors, "source_map_file", base + "/file", "Use an opaque file identity of at most 4096 valid UTF-8 bytes.");
+        error(errors, "source_map_file", base + "/file",
+              "Use an opaque file identity of at most 4096 valid UTF-8 bytes.");
         return errors;
     }
     std::size_t index = 0;
     if (check_node(document.root, "/root", 1, map, base, index, errors) && index != map.nodes.size())
-        error(errors, "source_map_mismatch", base + "/nodes", "Supply one source record per bounded document node in preorder.");
+        error(errors, "source_map_mismatch", base + "/nodes",
+              "Supply one source record per bounded document node in preorder.");
     return errors;
 }
 
 std::vector<Diagnostic> locate_diagnostics(const UiDocument& document, const DocumentSourceMap& map,
-                                          std::span<Diagnostic> diagnostics) {
+                                           std::span<Diagnostic> diagnostics) {
     std::vector<Diagnostic> errors;
     std::size_t bytes = 0;
     if (diagnostics.size() > max_source_diagnostics) {
@@ -128,7 +140,8 @@ std::vector<Diagnostic> locate_diagnostics(const UiDocument& document, const Doc
     }
     for (const auto& diagnostic : diagnostics) {
         if (diagnostic.path.size() > max_serialized_bytes - bytes) {
-            error(errors, "diagnostic_limit", "/diagnostics", "Keep diagnostic pointers within a shared 4 MiB byte budget.");
+            error(errors, "diagnostic_limit", "/diagnostics",
+                  "Keep diagnostic pointers within a shared 4 MiB byte budget.");
             return errors;
         }
         bytes += diagnostic.path.size();
@@ -177,7 +190,7 @@ std::vector<Diagnostic> locate_diagnostics(const UiDocument& document, const Doc
                         }
                 }
                 const bool instance_field = field.starts_with("/properties/") || field.starts_with("/events/") ||
-                    field == "/style" || field.starts_with("/style/");
+                                            field == "/style" || field.starts_with("/style/");
                 if (!location && instance_field && node.invocation)
                     location = DiagnosticSource{*node.invocation, DiagnosticOrigin::invocation};
                 if (!location && node.mapped)

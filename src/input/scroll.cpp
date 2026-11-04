@@ -40,10 +40,13 @@ constexpr float reveal_rounding_steps = 4;
 // revealing an already revealed span requests no change.
 void reveal(float& offset, float& start, float size, float view_start, float view_size, float limit) {
     float delta = 0;
-    if (size > view_size || start < view_start) delta = start - view_start;
-    else if (start + size > view_start + view_size) delta = start + size - (view_start + view_size);
+    if (size > view_size || start < view_start)
+        delta = start - view_start;
+    else if (start + size > view_start + view_size)
+        delta = start + size - (view_start + view_size);
     const float magnitude = std::max({std::fabs(start), std::fabs(start + size), std::fabs(view_start),
-                                      std::fabs(view_start + view_size)}) + offset;
+                                      std::fabs(view_start + view_size)}) +
+                            offset;
     if (std::fabs(delta) <= reveal_rounding_steps * std::numeric_limits<float>::epsilon() * magnitude) return;
     const float next = std::min(std::max(offset + delta, 0.0f), limit);
     start -= next - offset;

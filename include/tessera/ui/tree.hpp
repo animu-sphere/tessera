@@ -15,8 +15,7 @@ struct NodeHandle {
 // Immutable owned snapshot. Handles belong to this instance and expire with it.
 class UiTree final {
 public:
-    static Result<std::unique_ptr<UiTree>> create(
-        const UiDocument& document, const ValidationContext& = {});
+    static Result<std::unique_ptr<UiTree>> create(const UiDocument& document, const ValidationContext& = {});
     UiTree(const UiTree&) = delete;
     UiTree& operator=(const UiTree&) = delete;
     UiTree(UiTree&&) = delete;

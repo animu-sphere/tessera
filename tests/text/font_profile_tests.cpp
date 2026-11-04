@@ -72,8 +72,10 @@ void owned_selection_and_rasters() {
           "Profile selection/wrapping differs from explicit registration");
     const auto measure = text.measure("Hello あい、う", style, {80.0f});
     check(measure && *measure.value == run.value->metrics, "Profile measurement and paint shaping differ");
-    check(std::any_of(run.value->glyphs.begin(), run.value->glyphs.end(), [](const auto& g) { return g.font == FontId{0}; }) &&
-          std::any_of(run.value->glyphs.begin(), run.value->glyphs.end(), [](const auto& g) { return g.font == FontId{1}; }),
+    check(std::any_of(run.value->glyphs.begin(), run.value->glyphs.end(),
+                      [](const auto& g) { return g.font == FontId{0}; }) &&
+              std::any_of(run.value->glyphs.begin(), run.value->glyphs.end(),
+                          [](const auto& g) { return g.font == FontId{1}; }),
           "Mixed fixture must use both concrete faces");
     check(text.face_revision({0}) != 0 && text.face_revision({1}) != 0 && text.face_revision({2}) == 0,
           "Aliases must not become raster faces");
@@ -126,7 +128,8 @@ void replay_and_capture() {
     const auto saved = save_font_profile(first.profile());
     check(saved && saved.diagnostics.empty(), "Replay font profile serialization failed");
     const auto loaded = load_font_profile(*saved.value);
-    check(loaded && loaded.diagnostics.empty() && *loaded.value == first.profile(), "Replay font profile round trip differs");
+    check(loaded && loaded.diagnostics.empty() && *loaded.value == first.profile(),
+          "Replay font profile round trip differs");
     auto second = service(*loaded.value);
     auto ref = reference();
     const auto recording = menu();
@@ -134,9 +137,11 @@ void replay_and_capture() {
     const auto actual = play_replay(recording, first);
     const auto repeated = play_replay(recording, second);
     check(expected && actual && repeated && actual.value == expected.value && actual.value == repeated.value &&
-          actual.diagnostics == repeated.diagnostics, "Fresh profile services must reproduce replay output");
+              actual.diagnostics == repeated.diagnostics,
+          "Fresh profile services must reproduce replay output");
     check(actual.value->actions.size() == 1 && actual.value->actions[0].action == "start" &&
-          actual.value->semantics[1].focused == 1u, "Profile replay must preserve semantic focus/actions");
+              actual.value->semantics[1].focused == 1u,
+          "Profile replay must preserve semantic focus/actions");
     auto session = ReplaySession::open(recording, first);
     check(session && session.value->capture() && session.value->output() == *actual.value,
           "Profile shaper must support coherent windowless session capture");
@@ -185,7 +190,8 @@ void serialized_replay_inputs() {
           "Restored replay and profile must reproduce playback");
     GlyphCache cache_a(original), cache_b(replayed);
     const auto scale = restored.value->environment.scale;
-    const auto atlas_a = prepare_glyph_atlas(expected.value->generations[0].paint, cache_a, recording.environment.scale, {10});
+    const auto atlas_a =
+        prepare_glyph_atlas(expected.value->generations[0].paint, cache_a, recording.environment.scale, {10});
     const auto atlas_b = prepare_glyph_atlas(actual.value->generations[0].paint, cache_b, scale, {10});
     check(atlas_a && atlas_b && !atlas_a.value->pages.empty() && atlas_a.value == atlas_b.value,
           "The declared scale must reproduce atlas outputs");
@@ -201,27 +207,29 @@ void serialized_replay_inputs() {
           "An invalid profile has no digest");
 }
 
-template<class Edit>
-void reject(Edit edit, std::string_view code, std::string_view path) {
+template<class Edit> void reject(Edit edit, std::string_view code, std::string_view path) {
     auto profile = fixture();
     edit(profile);
     const auto saved = save_font_profile(profile);
     check(!saved && has(saved.diagnostics, code, path), "Save accepted an invalid profile or lost its diagnostic");
     const auto result = ProfileFontShaper::create(std::move(profile));
-    check(!result && has(result.diagnostics, code, path), std::string("Missing located rejection: ") + std::string(path));
+    check(!result && has(result.diagnostics, code, path),
+          std::string("Missing located rejection: ") + std::string(path));
 }
 
 void serialized_profiles() {
     auto profile = fixture();
     // Unreferenced bytes are authoritative, even if they are not a parseable font.
-    profile.assets.push_back({"予備/asset~", "v\"1\\test", {std::byte{0}, std::byte{0xff}, std::byte{0x5a}, std::byte{0x80}}});
+    profile.assets.push_back(
+        {"予備/asset~", "v\"1\\test", {std::byte{0}, std::byte{0xff}, std::byte{0x5a}, std::byte{0x80}}});
     profile.families[1].faces.push_back({{1}, 700});
     profile.aliases.push_back({{4294967295u}, "日本語", {"cjk", "latin"}});
     const auto saved = save_font_profile(profile);
     check(saved && saved.diagnostics.empty(), "Serialization rejected valid Unicode/escaped identities");
     check(saved.value->back() == '\n' && saved.value->find("\"bytes\":\"00ff5a80\"") != std::string::npos &&
-          saved.value->find("\"faces\":[{\"asset\":\"noto-jp\",\"face_index\":0,\"font\":1},") != std::string::npos &&
-          saved.value->find("\"font\":4.294967295e+09") != std::string::npos,
+              saved.value->find("\"faces\":[{\"asset\":\"noto-jp\",\"face_index\":0,\"font\":1},") !=
+                  std::string::npos &&
+              saved.value->find("\"font\":4.294967295e+09") != std::string::npos,
           "Canonical byte encoding, object keys, declaration order or ID precision differs");
     auto loaded = load_font_profile(*saved.value);
     check(loaded && *loaded.value == profile, "Serialization lost owned bytes, weight, ordering or names");
@@ -233,12 +241,15 @@ void serialized_profiles() {
     check(loaded && *loaded.value == profile, "Uppercase hex must preserve bytes");
 
     // A small independently written malformed profile avoids tying schema checks to the encoder.
-    const std::string base = R"({"version":1,"assets":[{"id":"a","version":"v","bytes":"00"}],"faces":[{"font":0,"asset":"a","face_index":0}],"fallbacks":[],"families":[],"aliases":[]})";
+    const std::string base =
+        R"({"version":1,"assets":[{"id":"a","version":"v","bytes":"00"}],"faces":[{"font":0,"asset":"a","face_index":0}],"fallbacks":[],"families":[],"aliases":[]})";
     const auto rejection = [](const std::string& source, std::string_view code, std::string_view path) {
         const auto result = load_font_profile(source);
-        check(!result && has(result.diagnostics, code, path), "Serialized rejection code/path differs: " + std::string(path));
+        check(!result && has(result.diagnostics, code, path),
+              "Serialized rejection code/path differs: " + std::string(path));
         check(!result.diagnostics.empty() && result.diagnostics.front().byte_offset.has_value() &&
-              *result.diagnostics.front().byte_offset <= source.size(), "Load must report an in-source byte offset");
+                  *result.diagnostics.front().byte_offset <= source.size(),
+              "Load must report an in-source byte offset");
         return result.diagnostics.front();
     };
     const auto changed = [&](std::string_view from, std::string_view to) {
@@ -265,18 +276,20 @@ void serialized_profiles() {
     rejection(changed("\"font\":0", "\"font\":4294967296"), "schema_type", "/faces/0/font");
     rejection(changed("\"face_index\":0", "\"face_index\":0.5"), "schema_type", "/faces/0/face_index");
     rejection(changed("\"asset\":\"a\"", "\"asset\":\"missing\""), "unknown_font_asset", "/faces/0/asset");
-    rejection(changed("\"faces\":[{\"font\":0,\"asset\":\"a\",\"face_index\":0}]", "\"faces\":[]"), "out_of_range", "/faces");
+    rejection(changed("\"faces\":[{\"font\":0,\"asset\":\"a\",\"face_index\":0}]", "\"faces\":[]"), "out_of_range",
+              "/faces");
     rejection(changed("\"families\":[]", "\"families\":[{\"name\":\"a\",\"faces\":[{\"font\":0,\"weight\":65537}]}]"),
               "out_of_range", "/families/0/faces/0/weight");
-    rejection(changed("\"aliases\":[]", "\"aliases\":[{\"font\":1,\"name\":\"a\",\"families\":[0]}]"),
-              "schema_type", "/aliases/0/families/0");
-    rejection(changed("\"fallbacks\":[]", "\"fallbacks\":[{\"font\":0,\"faces\":[false]}]"),
-              "schema_type", "/fallbacks/0/faces/0");
+    rejection(changed("\"aliases\":[]", "\"aliases\":[{\"font\":1,\"name\":\"a\",\"families\":[0]}]"), "schema_type",
+              "/aliases/0/families/0");
+    rejection(changed("\"fallbacks\":[]", "\"fallbacks\":[{\"font\":0,\"faces\":[false]}]"), "schema_type",
+              "/fallbacks/0/faces/0");
     std::string many = "[";
     for (int i = 0; i < 65; ++i) many += (i ? ",0" : "0");
     many += "]";
     rejection(changed("\"aliases\":[]", "\"aliases\":" + many), "out_of_range", "/aliases");
-    rejection(changed("\"fallbacks\":[]", "\"fallbacks\":[{\"font\":0,\"faces\":" + many + "}]"), "out_of_range", "/fallbacks/0/faces");
+    rejection(changed("\"fallbacks\":[]", "\"fallbacks\":[{\"font\":0,\"faces\":" + many + "}]"), "out_of_range",
+              "/fallbacks/0/faces");
     rejection(base + " null", "json_syntax", "");
     rejection("\xef\xbb\xbf" + base, "json_syntax", "");
     rejection(std::string(1, '\xff'), "invalid_utf8", "");
@@ -314,10 +327,12 @@ void invalid_profiles() {
     reject([](auto& p) { p.faces[0].face_index = 100; }, "invalid_font", "/faces/0");
     reject([](auto& p) { p.faces[1].font = p.faces[0].font; }, "duplicate_font", "/faces/1/font");
     reject([](auto& p) { p.faces[0].asset = "missing"; }, "unknown_font_asset", "/faces/0/asset");
-    reject([](auto& p) {
-        p.faces.clear();
-        for (std::uint32_t i = 0; i < 64; ++i) p.faces.push_back({{i}, "noto-jp"});
-    }, "out_of_range", "/faces/59/asset");
+    reject(
+        [](auto& p) {
+            p.faces.clear();
+            for (std::uint32_t i = 0; i < 64; ++i) p.faces.push_back({{i}, "noto-jp"});
+        },
+        "out_of_range", "/faces/59/asset");
     reject([](auto& p) { p.fallbacks.push_back(p.fallbacks[0]); }, "duplicate_font", "/fallbacks/1/font");
     reject([](auto& p) { p.fallbacks[0].font = {7}; }, "unknown_font", "/fallbacks/0/font");
     reject([](auto& p) { p.fallbacks[0].faces = {{7}}; }, "unknown_font", "/fallbacks/0/faces/0");
@@ -328,8 +343,13 @@ void invalid_profiles() {
     reject([](auto& p) { p.aliases[0].font = {0}; }, "font_id_conflict", "/aliases/0/font");
     reject([](auto& p) { p.aliases[0].families = {"absent"}; }, "unknown_font_family", "/aliases/0/families/0");
     reject([](auto& p) { p.aliases.push_back(p.aliases[0]); }, "font_alias_conflict", "/aliases/1");
-    reject([](auto& p) { auto alias = p.aliases[0]; alias.font = {3}; p.aliases.push_back(alias); },
-           "font_alias_conflict", "/aliases/1");
+    reject(
+        [](auto& p) {
+            auto alias = p.aliases[0];
+            alias.font = {3};
+            p.aliases.push_back(alias);
+        },
+        "font_alias_conflict", "/aliases/1");
     // A failed independent creation cannot disturb an already borrowed service/session.
     check(session.value->capture() && session.value->output() == before,
           "Rejected independent profiles disturbed a borrowed service/session");
@@ -344,7 +364,8 @@ int main() {
         serialized_replay_inputs();
         invalid_profiles();
         serialized_profiles();
-        std::cout << "Owned font profile, sealed services, replay/capture, replay JSON identity, raster and rejection checks passed.\n";
+        std::cout
+            << "Owned font profile, sealed services, replay/capture, replay JSON identity, raster and rejection checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

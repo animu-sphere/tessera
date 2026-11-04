@@ -38,6 +38,7 @@ public:
     AsyncAttempt() = default;
     const std::string& request() const noexcept { return request_; }
     std::uint64_t sequence() const noexcept { return sequence_; }
+
 private:
     std::weak_ptr<const char> identity_;
     std::string request_;
@@ -70,6 +71,7 @@ public:
     Result<bool> complete(const AsyncAttempt&, Property) const;
     Result<bool> fail(const AsyncAttempt&, AsyncFailure) const;
     Result<bool> cancel(const AsyncAttempt&) const;
+
 private:
     AsyncAttempt token(const AsyncObservation&) const;
     Result<AsyncObservation> current(const AsyncAttempt&) const;

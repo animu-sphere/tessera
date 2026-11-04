@@ -41,20 +41,55 @@ struct Disclosure {
 };
 inline constexpr tessera::Size viewport{720, 160};
 inline constexpr std::array<const char*, 4> groups{"cpu", "gpu", "counters", "controls"};
-inline constexpr std::array<const char*, 4> actions{"diagnostics.cpu", "diagnostics.gpu", "diagnostics.counters", "diagnostics.controls"};
+inline constexpr std::array<const char*, 4> actions{"diagnostics.cpu", "diagnostics.gpu", "diagnostics.counters",
+                                                    "diagnostics.controls"};
 inline constexpr std::array<unsigned, 4> sample_counts{1, 2, 4, 8};
-inline constexpr std::array<const char*, 4> msaa_actions{"msaa.samples1", "msaa.samples2", "msaa.samples4", "msaa.samples8"};
+inline constexpr std::array<const char*, 4> msaa_actions{"msaa.samples1", "msaa.samples2", "msaa.samples4",
+                                                         "msaa.samples8"};
 inline constexpr std::array<const char*, 3> material_views{"shaded", "normals", "base-color"};
-inline constexpr std::array<const char*, 3> material_view_actions{"material_view.shaded", "material_view.normals", "material_view.base-color"};
-inline constexpr std::array<const char*, 3> material_view_commands{"material_view.shaded", "material_view.normals", "material_view.base_color"};
-inline const tessera::ValidationContext context{{actions[0], actions[1], actions[2], actions[3],
-    "direct.edit", "direct.decrease", "direct.increase", "direct.apply", "direct.cancel",
-    "ambient.edit", "ambient.decrease", "ambient.increase", "ambient.apply", "ambient.cancel",
-    "key_x.edit", "key_x.decrease", "key_x.increase", "key_x.apply", "key_x.cancel",
-    "key_y.edit", "key_y.decrease", "key_y.increase", "key_y.apply", "key_y.cancel",
-    "key_z.edit", "key_z.decrease", "key_z.increase", "key_z.apply", "key_z.cancel",
-    msaa_actions[0], msaa_actions[1], msaa_actions[2], msaa_actions[3], "outlines.toggle", "scene_lights.toggle",
-    material_view_actions[0], material_view_actions[1], material_view_actions[2], "controls.reset"}};
+inline constexpr std::array<const char*, 3> material_view_actions{"material_view.shaded", "material_view.normals",
+                                                                  "material_view.base-color"};
+inline constexpr std::array<const char*, 3> material_view_commands{"material_view.shaded", "material_view.normals",
+                                                                   "material_view.base_color"};
+inline const tessera::ValidationContext context{{actions[0],
+                                                 actions[1],
+                                                 actions[2],
+                                                 actions[3],
+                                                 "direct.edit",
+                                                 "direct.decrease",
+                                                 "direct.increase",
+                                                 "direct.apply",
+                                                 "direct.cancel",
+                                                 "ambient.edit",
+                                                 "ambient.decrease",
+                                                 "ambient.increase",
+                                                 "ambient.apply",
+                                                 "ambient.cancel",
+                                                 "key_x.edit",
+                                                 "key_x.decrease",
+                                                 "key_x.increase",
+                                                 "key_x.apply",
+                                                 "key_x.cancel",
+                                                 "key_y.edit",
+                                                 "key_y.decrease",
+                                                 "key_y.increase",
+                                                 "key_y.apply",
+                                                 "key_y.cancel",
+                                                 "key_z.edit",
+                                                 "key_z.decrease",
+                                                 "key_z.increase",
+                                                 "key_z.apply",
+                                                 "key_z.cancel",
+                                                 msaa_actions[0],
+                                                 msaa_actions[1],
+                                                 msaa_actions[2],
+                                                 msaa_actions[3],
+                                                 "outlines.toggle",
+                                                 "scene_lights.toggle",
+                                                 material_view_actions[0],
+                                                 material_view_actions[1],
+                                                 material_view_actions[2],
+                                                 "controls.reset"}};
 struct MaterialView {
     std::string accepted = "shaded";
     bool enabled = true;
@@ -91,8 +126,8 @@ enum class NumericField { direct, ambient, key_x, key_y, key_z };
 // Strength fields; key direction components are listed separately.
 inline constexpr std::array<NumericField, 2> numeric_fields{NumericField::direct, NumericField::ambient};
 inline constexpr std::array<NumericField, 3> key_fields{NumericField::key_x, NumericField::key_y, NumericField::key_z};
-inline constexpr std::array<NumericField, 5> all_numeric_fields{NumericField::direct, NumericField::ambient,
-    NumericField::key_x, NumericField::key_y, NumericField::key_z};
+inline constexpr std::array<NumericField, 5> all_numeric_fields{
+    NumericField::direct, NumericField::ambient, NumericField::key_x, NumericField::key_y, NumericField::key_z};
 struct NumericBounds {
     double minimum = 0, maximum = 4;
 };
@@ -116,6 +151,7 @@ tessera::authoring::Element MaterialViewControl(const MaterialView&);
 
 std::vector<tessera::Diagnostic> validate(const Snapshot&);
 // Call after validation. Pure ordinary composition; no callbacks, sampling or retained pointers.
-tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&, const Msaa&, const Outlines&, const SceneLights&, const Numeric& ambient, const MaterialView&, const KeyDirection&);
+tessera::authoring::Element Panel(const Snapshot&, const Disclosure&, const Numeric&, const Msaa&, const Outlines&,
+                                  const SceneLights&, const Numeric& ambient, const MaterialView&, const KeyDirection&);
 tessera::StyleSheet panel_styles();
 } // namespace diagnostics

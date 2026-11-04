@@ -31,7 +31,7 @@ struct GeometryObservation {
     Rect padding_box;
     Rect content_box;
     bool visible = true;
-    std::optional<Rect> clip; // Recorded ancestor clip; absent when unclipped.
+    std::optional<Rect> clip;             // Recorded ancestor clip; absent when unclipped.
     std::optional<ScrollGeometry> scroll; // Present for scroll boxes.
     bool operator==(const GeometryObservation&) const = default;
 };
@@ -39,7 +39,7 @@ struct GeometryObservation {
 // One authored node. Element i corresponds to tree preorder index i (NodeHandle::index).
 struct InspectionElement {
     std::uint32_t parent = no_inspection_parent; // Runtime hierarchy, including display-none nodes.
-    std::vector<std::uint32_t> children;          // Authored order.
+    std::vector<std::uint32_t> children;         // Authored order.
     NodeKind kind = NodeKind::box;
     std::optional<std::string> id; // Document-scoped author ID.
     std::vector<std::string> classes;
@@ -48,7 +48,8 @@ struct InspectionElement {
     ResolvedStyle style;
     std::optional<GeometryObservation> geometry; // Absent for display-none nodes and their subtrees.
     std::optional<std::uint32_t> semantic;       // Index into InspectionSnapshot::semantics.nodes.
-    std::optional<NodeSource> source; // Absent without template spans or instance provenance; mapped files are resolved.
+    std::optional<NodeSource>
+        source; // Absent without template spans or instance provenance; mapped files are resolved.
     bool operator==(const InspectionElement&) const = default;
 };
 
@@ -61,7 +62,7 @@ struct InspectionSnapshot {
     std::vector<InspectionElement> elements;
     SemanticTree semantics;
     SourceStatus sources = SourceStatus::not_supplied;
-    std::string source_file; // Map's default file; element source files can differ after composition.
+    std::string source_file;             // Map's default file; element source files can differ after composition.
     std::vector<Diagnostic> diagnostics; // Warnings from the captured generation.
     bool operator==(const InspectionSnapshot&) const = default;
 };

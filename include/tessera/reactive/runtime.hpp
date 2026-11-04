@@ -27,6 +27,7 @@ class ReactiveError final : public std::runtime_error {
 public:
     explicit ReactiveError(Diagnostic);
     const Diagnostic& diagnostic() const noexcept { return diagnostic_; }
+
 private:
     Diagnostic diagnostic_;
 };
@@ -43,8 +44,7 @@ std::any reactive_snapshot_read(const ReactiveRef&, const std::shared_ptr<Reacti
 std::uint64_t reactive_revision(const ReactiveRef&);
 bool reactive_write(const ReactiveRef&, std::any);
 void reactive_dispose(const ReactiveRef&);
-template<class T, class Equal>
-ReactiveEqual reactive_equal(Equal equal) {
+template<class T, class Equal> ReactiveEqual reactive_equal(Equal equal) {
     return [equal = std::move(equal)](const std::any& a, const std::any& b) mutable {
         return std::invoke(equal, std::any_cast<const T&>(a), std::any_cast<const T&>(b));
     };
@@ -56,30 +56,31 @@ class ReactiveOwner final {
 public:
     ReactiveOwner() = default;
     void dispose() const { detail::reactive_dispose(ref_); }
+
 private:
     explicit ReactiveOwner(detail::ReactiveRef ref) : ref_(std::move(ref)) {}
     detail::ReactiveRef ref_;
     friend class ReactiveRuntime;
 };
-template<class T>
-class Signal final {
+template<class T> class Signal final {
 public:
     Signal() = default;
     T read() const { return std::any_cast<T>(detail::reactive_read(ref_)); }
     bool write(T value) const { return detail::reactive_write(ref_, std::any(std::move(value))); }
     std::uint64_t revision() const { return detail::reactive_revision(ref_); }
+
 private:
     explicit Signal(detail::ReactiveRef ref) : ref_(std::move(ref)) {}
     detail::ReactiveRef ref_;
     friend class ReactiveRuntime;
 };
-template<class T>
-class Computed final {
+template<class T> class Computed final {
 public:
     Computed() = default;
     T read() const { return std::any_cast<T>(detail::reactive_read(ref_)); }
     // Refreshes the value without adding a dependency.
     std::uint64_t revision() const { return detail::reactive_revision(ref_); }
+
 private:
     explicit Computed(detail::ReactiveRef ref) : ref_(std::move(ref)) {}
     detail::ReactiveRef ref_;
@@ -112,13 +113,14 @@ public:
     template<class T, class Equal = std::equal_to<T>>
     Signal<T> signal(const ReactiveOwner& owner, std::string name, T value, Equal equal = {}) {
         static_assert(std::is_copy_constructible_v<T>, "Reactive values must be copyable owned values.");
-        return Signal<T>(add(owner, std::move(name), std::any(std::move(value)), {},
-                             detail::reactive_equal<T>(std::move(equal))));
+        return Signal<T>(
+            add(owner, std::move(name), std::any(std::move(value)), {}, detail::reactive_equal<T>(std::move(equal))));
     }
     template<class T, class Calculate, class Equal = std::equal_to<T>>
     Computed<T> computed(const ReactiveOwner& owner, std::string name, Calculate calculate, Equal equal = {}) {
         static_assert(std::is_copy_constructible_v<T>, "Reactive values must be copyable owned values.");
-        return Computed<T>(add(owner, std::move(name), {},
+        return Computed<T>(add(
+            owner, std::move(name), {},
             [calculate = std::move(calculate)]() mutable -> std::any { return T(std::invoke(calculate)); },
             detail::reactive_equal<T>(std::move(equal))));
     }
@@ -126,10 +128,11 @@ public:
     // change applies on its phase after running the prior returned cleanup once;
     // owner disposal queues the latest cleanup for deliver_cleanups.
     template<class T, class Calculate, class Apply, class Equal = std::equal_to<T>>
-    void effect(const ReactiveOwner& owner, std::string name, EffectPhase phase,
-                Calculate calculate, Apply apply, Equal equal = {}) {
+    void effect(const ReactiveOwner& owner, std::string name, EffectPhase phase, Calculate calculate, Apply apply,
+                Equal equal = {}) {
         static_assert(std::is_copy_constructible_v<T>, "Reactive values must be copyable owned values.");
-        add_effect(owner, std::move(name), phase,
+        add_effect(
+            owner, std::move(name), phase,
             [calculate = std::move(calculate)]() mutable -> std::any { return T(std::invoke(calculate)); },
             detail::reactive_equal<T>(std::move(equal)),
             [apply = std::move(apply)](const std::any& value) mutable -> std::function<void()> {
@@ -144,11 +147,14 @@ public:
     }
     void begin_batch();
     void end_batch(); // Closes only; the host calls flush after the outer batch.
-    template<class Update>
-    void batch(Update update) {
+    template<class Update> void batch(Update update) {
         begin_batch();
-        try { std::invoke(update); }
-        catch (...) { end_batch(); throw; }
+        try {
+            std::invoke(update);
+        } catch (...) {
+            end_batch();
+            throw;
+        }
         end_batch();
     }
     // Demand reads are allowed within batches; flush is not. Returns each distinct
@@ -161,12 +167,10 @@ public:
     void check_settled() const;
     // Copies an already settled value from this runtime without tracking or
     // demand evaluation. Faulted subtrees must be mapped to fallback by the host.
-    template<class T>
-    T snapshot(const Signal<T>& value) const {
+    template<class T> T snapshot(const Signal<T>& value) const {
         return std::any_cast<T>(detail::reactive_snapshot_read(value.ref_, state_));
     }
-    template<class T>
-    T snapshot(const Computed<T>& value) const {
+    template<class T> T snapshot(const Computed<T>& value) const {
         return std::any_cast<T>(detail::reactive_snapshot_read(value.ref_, state_));
     }
     // Accepts the settled graph as the published candidate after the host has
@@ -176,12 +180,13 @@ public:
     // Host boundary, outside batches/calculations. Effects may read and write
     // sources; writes wait for a later flush/publication.
     std::vector<Diagnostic> deliver_effects(EffectPhase);
+
 private:
     ReactiveOwner add_owner(const ReactiveOwner&, std::string, bool boundary);
-    detail::ReactiveRef add(const ReactiveOwner&, std::string, std::any,
-                            std::function<std::any()>, detail::ReactiveEqual);
-    void add_effect(const ReactiveOwner&, std::string, EffectPhase, std::function<std::any()>,
-                    detail::ReactiveEqual, detail::ReactiveApply);
+    detail::ReactiveRef add(const ReactiveOwner&, std::string, std::any, std::function<std::any()>,
+                            detail::ReactiveEqual);
+    void add_effect(const ReactiveOwner&, std::string, EffectPhase, std::function<std::any()>, detail::ReactiveEqual,
+                    detail::ReactiveApply);
     std::shared_ptr<detail::ReactiveState> state_;
 };
 } // namespace tessera

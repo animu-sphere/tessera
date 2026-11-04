@@ -41,20 +41,28 @@ std::uint64_t next_session() {
     } while (!next.compare_exchange_weak(value, value + 1, std::memory_order_relaxed));
     return value;
 }
-template<class Callable>
-CommandOutcome boundary(std::string_view phase, Callable&& call) {
+template<class Callable> CommandOutcome boundary(std::string_view phase, Callable&& call) {
     CommandOutcome outcome;
     bool threw = false;
-    try { outcome = call(); }
-    catch (const std::bad_alloc&) { throw; }
-    catch (const std::exception& e) { threw = true; outcome = detail::command_host_exception(e.what()); }
-    catch (...) { threw = true; outcome = detail::command_host_exception({}); }
+    try {
+        outcome = call();
+    } catch (const std::bad_alloc&) {
+        throw;
+    } catch (const std::exception& e) {
+        threw = true;
+        outcome = detail::command_host_exception(e.what());
+    } catch (...) {
+        threw = true;
+        outcome = detail::command_host_exception({});
+    }
     auto errors = detail::validate_command_outcome(outcome);
     if (errors.empty() && outcome.status == CommandOutcomeStatus::success && !outcome.values.empty())
         errors = error("invalid_outcome", "/result/values", "Transaction boundaries require void success.");
-    if (!errors.empty()) outcome = failure(std::move(errors));
+    if (!errors.empty())
+        outcome = failure(std::move(errors));
     else if (outcome.status == CommandOutcomeStatus::cancelled)
-        outcome = failure(error("transaction_cancelled", "/result/host", "The host cancelled the transaction boundary."));
+        outcome =
+            failure(error("transaction_cancelled", "/result/host", "The host cancelled the transaction boundary."));
     else if (outcome.status == CommandOutcomeStatus::error) {
         for (auto& d : outcome.diagnostics) {
             // Exceptions already carry this location; ordinary host diagnostics
@@ -68,17 +76,22 @@ CommandOutcome boundary(std::string_view phase, Callable&& call) {
 }
 std::vector<Diagnostic> metadata_errors(const TransactionMetadata& metadata, const CommandSnapshot& snapshot) {
     auto errors = std::vector<Diagnostic>{};
-    if (metadata.label.empty() || metadata.label.size() > max_command_string_bytes || !detail::valid_utf8(metadata.label))
-        append(errors, error("invalid_metadata", "/transaction/metadata/label", "Supply a nonempty UTF-8 label within 4096 bytes."));
+    if (metadata.label.empty() || metadata.label.size() > max_command_string_bytes ||
+        !detail::valid_utf8(metadata.label))
+        append(errors, error("invalid_metadata", "/transaction/metadata/label",
+                             "Supply a nonempty UTF-8 label within 4096 bytes."));
     if (metadata.merge_hint.size() > max_command_string_bytes || !detail::valid_utf8(metadata.merge_hint))
-        append(errors, error("invalid_metadata", "/transaction/metadata/merge_hint", "Supply a UTF-8 merge hint within 4096 bytes."));
+        append(errors, error("invalid_metadata", "/transaction/metadata/merge_hint",
+                             "Supply a UTF-8 merge hint within 4096 bytes."));
     if (metadata.affected_objects.size() > max_transaction_objects)
-        append(errors, error("out_of_range", "/transaction/metadata/affected_objects", "Supply at most 64 affected object IDs."));
+        append(errors, error("out_of_range", "/transaction/metadata/affected_objects",
+                             "Supply at most 64 affected object IDs."));
     if (!errors.empty()) return errors;
     for (const auto& id : metadata.affected_objects) {
         if (id.empty() || id.size() > max_command_string_bytes || !detail::valid_utf8(id) ||
             !snapshot.permits_object(id)) {
-            append(errors, error("invalid_reference", "/transaction/metadata/affected_objects", "Use bounded UTF-8 IDs permitted in this generation."));
+            append(errors, error("invalid_reference", "/transaction/metadata/affected_objects",
+                                 "Use bounded UTF-8 IDs permitted in this generation."));
             break;
         }
     }
@@ -90,6 +103,7 @@ public:
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         return host_.execute_edit(invocation, record_);
     }
+
 private:
     TransactionHost& host_;
     const TransactionRecord& record_;
@@ -110,7 +124,8 @@ std::vector<Diagnostic> CommandTransactions::entry() const {
         return error("reentrant_transaction", "/transaction", "Queue operations until the host boundary returns.");
     return {};
 }
-std::vector<Diagnostic> CommandTransactions::token_check(const TransactionToken& token, const TransactionHost& host) const {
+std::vector<Diagnostic> CommandTransactions::token_check(const TransactionToken& token,
+                                                         const TransactionHost& host) const {
     const auto state = token.state_.lock();
     if (!state || !state->open.load(std::memory_order_relaxed))
         return error("closed_transaction", "/transaction/token", "Begin a new edit; closed tokens cannot be reused.");
@@ -128,9 +143,10 @@ std::vector<Diagnostic> CommandTransactions::refresh(const CommandSnapshot& snap
     if (!errors.empty()) return errors;
     if (record.owner && !ui)
         return error("missing_snapshot", "/owner", "Supply the current coherent UI snapshot for this edit.");
-    const auto resolved = record.owner ?
-        snapshot.resolve_action(*ui, *record.owner, snapshot.generation(), record.arguments, record.source, record.sequence) :
-        snapshot.resolve({snapshot.generation(), record.command, record.arguments, record.source, record.sequence});
+    const auto resolved = record.owner ? snapshot.resolve_action(*ui, *record.owner, snapshot.generation(),
+                                                                 record.arguments, record.source, record.sequence)
+                                       : snapshot.resolve({snapshot.generation(), record.command, record.arguments,
+                                                           record.source, record.sequence});
     if (!resolved) return resolved.diagnostics;
     if (resolved.value->record().command != record.command)
         return error("stale_binding", "/owner/action", "Roll back the edit after action remapping.");
@@ -140,16 +156,21 @@ CommandOutcome CommandTransactions::close(TransactionHost& host, bool commit, Tr
     // Close before callback entry, even on exceptions or malformed host output.
     const auto state = std::move(active_);
     state->open.store(false, std::memory_order_relaxed);
-    return commit ? boundary("commit", [&] { return host.commit(state->record); }) :
-        boundary("rollback", [&] { return host.rollback(state->record, reason); });
+    return commit ? boundary("commit", [&] { return host.commit(state->record); })
+                  : boundary("rollback", [&] { return host.rollback(state->record, reason); });
 }
-Result<TransactionToken> CommandTransactions::begin(const CommandSnapshot& snapshot, const CommandInvocation& invocation,
-    const TransactionMetadata& metadata, TransactionHost& host, const SemanticInput* ui) {
+Result<TransactionToken> CommandTransactions::begin(const CommandSnapshot& snapshot,
+                                                    const CommandInvocation& invocation,
+                                                    const TransactionMetadata& metadata, TransactionHost& host,
+                                                    const SemanticInput* ui) {
     auto errors = entry();
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
-    if (active_) return {std::nullopt, error("nested_transaction", "/transaction", "Finish the active edit before beginning another.")};
+    if (active_)
+        return {std::nullopt,
+                error("nested_transaction", "/transaction", "Finish the active edit before beginning another.")};
     if (invocation.record().sequence <= last_begin_ || invocation.record().sequence <= executor_.last_sequence_)
-        return {std::nullopt, error("consumed_sequence", "/sequence", "Begin with a new request sequence before executing its command.")};
+        return {std::nullopt, error("consumed_sequence", "/sequence",
+                                    "Begin with a new request sequence before executing its command.")};
     errors = snapshot.recheck(invocation, ui);
     if (errors.empty()) errors = metadata_errors(metadata, snapshot);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
@@ -163,27 +184,36 @@ Result<TransactionToken> CommandTransactions::begin(const CommandSnapshot& snaps
     active_ = std::move(state);
     return {TransactionToken(active_), {}};
 }
-Result<CommandExecution> CommandTransactions::execute(const CommandSnapshot& snapshot, const CommandInvocation& invocation,
-    CommandHost& host, const SemanticInput* ui) {
+Result<CommandExecution> CommandTransactions::execute(const CommandSnapshot& snapshot,
+                                                      const CommandInvocation& invocation, CommandHost& host,
+                                                      const SemanticInput* ui) {
     auto errors = entry();
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     if (invocation.record().sequence <= last_begin_)
-        return {std::nullopt, error("consumed_sequence", "/sequence", "Use a new non-editing request sequence; begin reserves its opening request for an explicit edit.")};
+        return {
+            std::nullopt,
+            error("consumed_sequence", "/sequence",
+                  "Use a new non-editing request sequence; begin reserves its opening request for an explicit edit.")};
     EntryGuard guard(entering_);
     return executor_.execute(snapshot, invocation, host, ui);
 }
-Result<CommandExecution> CommandTransactions::execute_edit(const CommandSnapshot& snapshot, const CommandInvocation& invocation,
-    const TransactionToken& token, TransactionHost& host, const SemanticInput* ui) {
+Result<CommandExecution> CommandTransactions::execute_edit(const CommandSnapshot& snapshot,
+                                                           const CommandInvocation& invocation,
+                                                           const TransactionToken& token, TransactionHost& host,
+                                                           const SemanticInput* ui) {
     auto errors = entry();
     if (errors.empty()) errors = token_check(token, host);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     EntryGuard guard(entering_);
     errors = refresh(snapshot, ui);
     const auto& opening = active_->record.opening;
-    if (errors.empty() && (invocation.record().command != opening.command || invocation.record().owner != opening.owner ||
-        invocation.record().sequence < opening.sequence ||
-        (invocation.record().sequence == opening.sequence && invocation.record() != opening)))
-        errors = error("transaction_owner_mismatch", "/transaction/token", "Join this token only with its command and live action owner, at or after its opening sequence.");
+    if (errors.empty() &&
+        (invocation.record().command != opening.command || invocation.record().owner != opening.owner ||
+         invocation.record().sequence < opening.sequence ||
+         (invocation.record().sequence == opening.sequence && invocation.record() != opening)))
+        errors =
+            error("transaction_owner_mismatch", "/transaction/token",
+                  "Join this token only with its command and live action owner, at or after its opening sequence.");
     if (!errors.empty()) {
         const auto rolled_back = close(host, false, TransactionCancel::owner_changed);
         append(errors, rolled_back.diagnostics);
@@ -200,11 +230,12 @@ Result<CommandExecution> CommandTransactions::execute_edit(const CommandSnapshot
         result.value->outcome.status = CommandOutcomeStatus::error;
         result.value->outcome.values.clear();
         append(result.value->outcome.diagnostics, rolled_back.diagnostics);
-    } else if (!result) append(result.diagnostics, rolled_back.diagnostics);
+    } else if (!result)
+        append(result.diagnostics, rolled_back.diagnostics);
     return result;
 }
 Result<CommandOutcome> CommandTransactions::commit(const CommandSnapshot& snapshot, const TransactionToken& token,
-    TransactionHost& host, const SemanticInput* ui) {
+                                                   TransactionHost& host, const SemanticInput* ui) {
     auto errors = entry();
     if (errors.empty()) errors = token_check(token, host);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
@@ -219,7 +250,8 @@ Result<CommandOutcome> CommandTransactions::commit(const CommandSnapshot& snapsh
     }
     return {close(host, true, TransactionCancel::user), {}};
 }
-Result<CommandOutcome> CommandTransactions::rollback(const TransactionToken& token, TransactionCancel reason, TransactionHost& host) {
+Result<CommandOutcome> CommandTransactions::rollback(const TransactionToken& token, TransactionCancel reason,
+                                                     TransactionHost& host) {
     auto errors = entry();
     if (errors.empty()) errors = token_check(token, host);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
@@ -229,7 +261,7 @@ Result<CommandOutcome> CommandTransactions::rollback(const TransactionToken& tok
     return {close(host, false, reason), {}};
 }
 Result<bool> CommandTransactions::recheck(const CommandSnapshot& snapshot, const TransactionToken& token,
-    TransactionHost& host, const SemanticInput* ui) {
+                                          TransactionHost& host, const SemanticInput* ui) {
     auto errors = entry();
     if (errors.empty()) errors = token_check(token, host);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};

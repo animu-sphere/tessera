@@ -12,7 +12,10 @@ public:
         : vendor_(vendor), product_(product), axes_(axes), name_(name) {}
     DirectInputDevice(const DirectInputDevice&) = delete;
     DirectInputDevice& operator=(const DirectInputDevice&) = delete;
-    ~DirectInputDevice() { release_device(); if (input_) input_->Release(); }
+    ~DirectInputDevice() {
+        release_device();
+        if (input_) input_->Release();
+    }
 
     std::optional<DIJOYSTATE2> read(HWND window, std::chrono::microseconds time) {
         if (GetForegroundWindow() != window) {
@@ -23,8 +26,11 @@ public:
             next_scan_ = time + std::chrono::seconds(1);
             if (!input_) {
                 const auto result = DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION,
-                    IID_IDirectInput8W, reinterpret_cast<void**>(&input_), nullptr);
-                if (FAILED(result)) { report("create interface", result); return std::nullopt; }
+                                                       IID_IDirectInput8W, reinterpret_cast<void**>(&input_), nullptr);
+                if (FAILED(result)) {
+                    report("create interface", result);
+                    return std::nullopt;
+                }
             }
             window_ = window;
             const auto result = input_->EnumDevices(DI8DEVCLASS_GAMECTRL, enumerate, this, DIEDFL_ATTACHEDONLY);
@@ -59,34 +65,47 @@ private:
             return DIENUM_CONTINUE;
         IDirectInputDevice8W* device = nullptr;
         auto result = self.input_->CreateDevice(instance->guidInstance, &device, nullptr);
-        if (FAILED(result)) { self.report("create device", result); return DIENUM_CONTINUE; }
+        if (FAILED(result)) {
+            self.report("create device", result);
+            return DIENUM_CONTINUE;
+        }
         result = device->SetDataFormat(&c_dfDIJoystick2);
-        if (SUCCEEDED(result)) result = device->SetCooperativeLevel(self.window_, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE);
+        if (SUCCEEDED(result))
+            result = device->SetCooperativeLevel(self.window_, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE);
         bool valid = SUCCEEDED(result);
         if (!valid) self.report("configure device", result);
         for (const DWORD axis : {DWORD(DIJOFS_X), DWORD(DIJOFS_Y)}) {
             DIPROPRANGE range{};
             range.diph = {sizeof(range), sizeof(range.diph), axis, DIPH_BYOFFSET};
-            range.lMin = -32768; range.lMax = 32767;
+            range.lMin = -32768;
+            range.lMax = 32767;
             if (valid && self.axes_) {
                 result = device->SetProperty(DIPROP_RANGE, &range.diph);
                 valid = SUCCEEDED(result);
                 if (!valid) self.report("axis range", result);
             }
         }
-        if (!valid) { device->Release(); return DIENUM_CONTINUE; }
+        if (!valid) {
+            device->Release();
+            return DIENUM_CONTINUE;
+        }
         self.device_ = device;
         std::cout << "DirectInput " << self.name_ << " connected; VID=" << std::hex << self.vendor_
                   << " PID=" << self.product_ << std::dec << std::endl;
         return DIENUM_STOP;
     }
     void release_device() {
-        if (device_) { device_->Unacquire(); device_->Release(); device_ = nullptr; }
+        if (device_) {
+            device_->Unacquire();
+            device_->Release();
+            device_ = nullptr;
+        }
     }
     void report(const char* stage, HRESULT result) {
         if (result == last_error_) return;
         last_error_ = result;
-        std::cerr << "DirectInput " << name_ << ' ' << stage << " HRESULT=" << std::hex << static_cast<unsigned long>(result) << std::dec << std::endl;
+        std::cerr << "DirectInput " << name_ << ' ' << stage << " HRESULT=" << std::hex
+                  << static_cast<unsigned long>(result) << std::dec << std::endl;
     }
     IDirectInput8W* input_ = nullptr;
     IDirectInputDevice8W* device_ = nullptr;
@@ -106,6 +125,7 @@ public:
         return dualsense_sample((state->rgbButtons[1] & 0x80) != 0, (state->rgbButtons[2] & 0x80) != 0,
                                 state->rgdwPOV[0], state->lX, state->lY);
     }
+
 private:
     DirectInputDevice device_{0x054c, 0x0ce6, true, "DualSense"};
 };
@@ -119,11 +139,13 @@ public:
         if (!left || !right) return std::nullopt;
         const auto bits = [](const DIJOYSTATE2& state) {
             std::uint16_t buttons = 0;
-            for (unsigned i = 0; i < 4; ++i) if (state.rgbButtons[i] & 0x80) buttons |= std::uint16_t(1u << i);
+            for (unsigned i = 0; i < 4; ++i)
+                if (state.rgbButtons[i] & 0x80) buttons |= std::uint16_t(1u << i);
             return buttons;
         };
         return joycon_pair_sample(bits(*left), bits(*right), left->rgdwPOV[0]);
     }
+
 private:
     DirectInputDevice left_{0x057e, 0x2006, false, "Joy-Con (L)"};
     DirectInputDevice right_{0x057e, 0x2007, false, "Joy-Con (R)"};

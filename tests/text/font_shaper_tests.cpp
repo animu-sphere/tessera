@@ -37,7 +37,9 @@ tessera::FontShaper fixture_shaper() {
 }
 
 bool near(float actual, float expected) { return std::fabs(actual - expected) <= 1e-4f; }
-bool near(tessera::Point actual, tessera::Point expected) { return near(actual.x, expected.x) && near(actual.y, expected.y); }
+bool near(tessera::Point actual, tessera::Point expected) {
+    return near(actual.x, expected.x) && near(actual.y, expected.y);
+}
 bool near(const tessera::TextMetrics& actual, const tessera::TextMetrics& expected) {
     return near(actual.size.width, expected.size.width) && near(actual.size.height, expected.size.height) &&
            near(actual.baseline, expected.baseline) && near(actual.line_height, expected.line_height) &&
@@ -62,7 +64,8 @@ tessera::GlyphRun shaped(tessera::FontShaper& shaper, std::string_view text, con
     return std::move(*run.value);
 }
 
-void check_glyphs(const tessera::GlyphRun& run, std::initializer_list<Expected> expected, float y, std::string_view what) {
+void check_glyphs(const tessera::GlyphRun& run, std::initializer_list<Expected> expected, float y,
+                  std::string_view what) {
     check(run.glyphs.size() == expected.size(), std::string(what) + ": glyph count differs");
     std::size_t i = 0;
     for (const auto& glyph : expected) {
@@ -87,60 +90,76 @@ void family_alias_selection() {
           "Logical names must resolve exactly without implicit defaults");
     check(!shaper.has_face(ui) && shaper.face_revision(ui) == 0, "Alias must not masquerade as a raster face");
     tessera::TextStyle style;
-    style.font = ui; style.size = 20;
-    auto expected_style = style; expected_style.font = latin;
+    style.font = ui;
+    style.size = 20;
+    auto expected_style = style;
+    expected_style.font = latin;
     check(shaper.set_fallback(latin, {japanese}).empty(), "Reference fallback rejected");
     const auto expected = shaped(shaper, "Start スタート", expected_style);
     const auto regular = shaped(shaper, "Start スタート", style);
-    auto compared = regular; compared.font = latin;
+    auto compared = regular;
+    compared.font = latin;
     check(compared == expected && regular.font == ui && fonts_are(regular, 6, latin, japanese),
           "Alias must preserve concrete-face glyphs, primary metrics and fallback geometry");
     const auto wrapped = shaper.shape("Start スタート", style, {70.1f});
     const auto measured = shaper.measure("Start スタート", style, {70.1f});
     check(wrapped && measured && *measured.value == wrapped.value->metrics && wrapped.value->metrics.lines == 2 &&
-          fonts_are(*wrapped.value, 6, latin, japanese), "Alias wrapping must preserve measurement and fallback faces");
+              fonts_are(*wrapped.value, 6, latin, japanese),
+          "Alias wrapping must preserve measurement and fallback faces");
 
     for (const auto weight : {1, 400, 549, 550, 551, 700, 1000}) {
         style.weight = static_cast<std::uint16_t>(weight);
         const auto chosen = weight <= 550 ? latin : japanese;
-        expected_style = style; expected_style.font = chosen;
-        auto actual = shaped(shaper, "Hello", style); actual.font = chosen;
+        expected_style = style;
+        expected_style.font = chosen;
+        auto actual = shaped(shaper, "Hello", style);
+        actual.font = chosen;
         check(actual == shaped(shaper, "Hello", expected_style), "Nearest declared weight or lower-weight tie differs");
     }
     style.weight = 700;
     const auto missing_weighted = shaper.shape("\xf4\x8f\xbf\xbf", style); // U+10FFFF is absent from both fixtures.
     check(missing_weighted && missing_weighted.value->glyphs.size() == 1 &&
-          missing_weighted.value->glyphs.front().font == extra && missing_weighted.value->glyphs.front().id == 0 &&
-          missing_weighted.diagnostics.size() == 1 && missing_weighted.diagnostics.front().severity == tessera::Severity::warning,
+              missing_weighted.value->glyphs.front().font == extra && missing_weighted.value->glyphs.front().id == 0 &&
+              missing_weighted.diagnostics.size() == 1 &&
+              missing_weighted.diagnostics.front().severity == tessera::Severity::warning,
           "Fallback families must select the requested weight and retain one missing-glyph warning");
     style.weight = 400;
     const auto revision = shaper.face_revision(latin);
-    const auto preserved = [&] { check(shaped(shaper, "Start スタート", style) == regular, "Rejected update changed selection"); };
+    const auto preserved = [&] {
+        check(shaped(shaper, "Start スタート", style) == regular, "Rejected update changed selection");
+    };
     check(has(shaper.set_family("Latin", {}), "out_of_range", "/faces"), "Empty family accepted");
     check(has(shaper.set_family("Latin", {{latin, 400}, {japanese, 400}}), "duplicate_font_weight", "/faces/1/weight"),
           "Duplicate family weights accepted");
-    check(has(shaper.set_family("Latin", {{{999}, 400}}), "unknown_font", "/faces/0/font"), "Unknown family face accepted");
-    check(has(shaper.set_family("Latin", {{ui, 400}}), "unknown_font", "/faces/0/font"), "Recursive alias face accepted");
+    check(has(shaper.set_family("Latin", {{{999}, 400}}), "unknown_font", "/faces/0/font"),
+          "Unknown family face accepted");
+    check(has(shaper.set_family("Latin", {{ui, 400}}), "unknown_font", "/faces/0/font"),
+          "Recursive alias face accepted");
     check(has(shaper.set_family("Latin", {{latin, 0}}), "out_of_range", "/faces/0/weight") &&
-          has(shaper.set_family("Latin", {{latin, 1001}}), "out_of_range", "/faces/0/weight"), "Invalid weights accepted");
+              has(shaper.set_family("Latin", {{latin, 1001}}), "out_of_range", "/faces/0/weight"),
+          "Invalid weights accepted");
     check(has(shaper.set_family("", {{latin, 400}}), "invalid_font_name", "/name") &&
-          has(shaper.set_family(std::string(257, 'x'), {{latin, 400}}), "invalid_font_name", "/name") &&
-          has(shaper.set_family(std::string("a\0b", 3), {{latin, 400}}), "invalid_font_name", "/name") &&
-          has(shaper.set_family("\xff", {{latin, 400}}), "invalid_utf8", "/name"), "Invalid family names accepted");
-    check(has(shaper.set_family("Latin", std::vector<tessera::FontFamilyFace>(65, {latin, 400})), "out_of_range", "/faces"),
+              has(shaper.set_family(std::string(257, 'x'), {{latin, 400}}), "invalid_font_name", "/name") &&
+              has(shaper.set_family(std::string("a\0b", 3), {{latin, 400}}), "invalid_font_name", "/name") &&
+              has(shaper.set_family("\xff", {{latin, 400}}), "invalid_utf8", "/name"),
+          "Invalid family names accepted");
+    check(has(shaper.set_family("Latin", std::vector<tessera::FontFamilyFace>(65, {latin, 400})), "out_of_range",
+              "/faces"),
           "Oversized family accepted");
     check(has(shaper.set_alias(ui, "ui-sans", {}), "out_of_range", "/families") &&
-          has(shaper.set_alias(ui, "ui-sans", std::vector<std::string>(65, "Latin")), "out_of_range", "/families"),
+              has(shaper.set_alias(ui, "ui-sans", std::vector<std::string>(65, "Latin")), "out_of_range", "/families"),
           "Alias stack bounds ignored");
     check(has(shaper.set_alias(ui, "ui-sans", {"Latin", "missing"}), "unknown_font_family", "/families/1") &&
-          has(shaper.set_alias(ui, "ui-sans", {"Latin", "Latin"}), "duplicate_font_family", "/families/1"),
+              has(shaper.set_alias(ui, "ui-sans", {"Latin", "Latin"}), "duplicate_font_family", "/families/1"),
           "Invalid family stack accepted");
     check(has(shaper.set_alias(ui, "ui-sans", {"\xff"}), "invalid_utf8", "/families/0") &&
-          has(shaper.set_alias(heading, "bad\nname", {"Latin"}), "invalid_font_name", "/name"), "Invalid alias names accepted");
+              has(shaper.set_alias(heading, "bad\nname", {"Latin"}), "invalid_font_name", "/name"),
+          "Invalid alias names accepted");
     check(has(shaper.set_alias(latin, "body", {"Latin"}), "font_id_conflict", "/font") &&
-          has(shaper.set_alias(heading, "ui-sans", {"Latin"}), "font_alias_conflict", "/name") &&
-          has(shaper.set_alias(ui, "body", {"Latin"}), "font_alias_conflict", "/name") &&
-          has(shaper.set_face(ui, read_font("NotoSans-Regular.ttf")), "font_id_conflict", "/font"), "Identity conflict accepted");
+              has(shaper.set_alias(heading, "ui-sans", {"Latin"}), "font_alias_conflict", "/name") &&
+              has(shaper.set_alias(ui, "body", {"Latin"}), "font_alias_conflict", "/name") &&
+              has(shaper.set_face(ui, read_font("NotoSans-Regular.ttf")), "font_id_conflict", "/font"),
+          "Identity conflict accepted");
     preserved();
     check(shaper.face_revision(latin) == revision && shaper.find_alias("ui-sans") == ui && !shaper.find_alias("body"),
           "Selection registration must preserve face revisions and stable logical names");
@@ -149,37 +168,47 @@ void family_alias_selection() {
     const auto glyph = regular.glyphs.front();
     const auto bitmap = cache.get({glyph.font, glyph.id, 20 * 64});
     check(static_cast<bool>(bitmap), "Selected concrete face cannot rasterize");
-    check(has(shaper.rasterize({ui, glyph.id, 20 * 64}).diagnostics, "unknown_font", "/font"), "Logical alias rasterized directly");
+    check(has(shaper.rasterize({ui, glyph.id, 20 * 64}).diagnostics, "unknown_font", "/font"),
+          "Logical alias rasterized directly");
     // Explicit alias stacks do not borrow the fallback policy of a shared primary face.
     check(shaper.set_alias(heading, "heading", {"Latin"}).empty(), "Second alias rejected");
-    auto heading_style = style; heading_style.font = heading;
+    auto heading_style = style;
+    heading_style.font = heading;
     check(shaped(shaper, "メ", heading_style, 1).glyphs.front().id == 0, "Alias inherited a concrete fallback stack");
     check(shaper.set_family("Shared", {{latin, 400}}).empty() &&
-          shaper.set_alias(heading, "heading", {"Latin", "Shared"}).empty(), "Shared face stack rejected");
+              shaper.set_alias(heading, "heading", {"Latin", "Shared"}).empty(),
+          "Shared face stack rejected");
     const auto missing = shaper.shape("メ", heading_style);
     check(missing && missing.value->glyphs.front().font == latin && near(missing.value->metrics.size.width, 12) &&
-          missing.diagnostics.size() == 1, "Selected duplicate faces must be tried once");
+              missing.diagnostics.size() == 1,
+          "Selected duplicate faces must be tried once");
     check(shaper.set_alias(ui, "ui-sans", {"日本語", "Latin"}).empty(), "Alias rebind rejected");
-    expected_style = style; expected_style.font = japanese;
-    auto rebound = shaped(shaper, "Hello", style); rebound.font = japanese;
+    expected_style = style;
+    expected_style.font = japanese;
+    auto rebound = shaped(shaper, "Hello", style);
+    rebound.font = japanese;
     check(rebound == shaped(shaper, "Hello", expected_style) && shaper.find_alias("ui-sans") == ui,
           "Rebinding must change primary metrics while preserving logical identity");
     check(shaper.face_revision(latin) == revision && cache.get({glyph.font, glyph.id, 20 * 64}).value == bitmap.value,
           "Alias rebind invalidated an unchanged raster face");
     check(shaper.set_family("日本語", {{latin, 400}}).empty(), "Family replacement rejected");
-    auto updated = shaped(shaper, "Hello", style); updated.font = latin;
+    auto updated = shaped(shaper, "Hello", style);
+    updated.font = latin;
     expected_style.font = latin;
     check(updated == shaped(shaper, "Hello", expected_style), "Family replacement not visible to existing alias");
     check(shaper.set_face(latin, read_font("NotoSansJP-Regular.otf")).empty(), "Selected face replacement rejected");
     const auto replaced = shaped(shaper, "メ", style);
     check(replaced.glyphs.front().font == latin && replaced.glyphs.front().id == 1362 &&
-          shaper.face_revision(latin) != revision, "Existing family must use replaced face and new revision");
+              shaper.face_revision(latin) != revision,
+          "Existing family must use replaced face and new revision");
     auto moved = std::move(shaper);
-    check(moved.find_alias("ui-sans") == ui && shaped(moved, "メ", style) == replaced, "Move lost family/alias bindings");
+    check(moved.find_alias("ui-sans") == ui && shaped(moved, "メ", style) == replaced,
+          "Move lost family/alias bindings");
     tessera::FontShaper default_alias;
     check(default_alias.set_face(extra, read_font("NotoSans-Regular.ttf")).empty() &&
-          default_alias.set_family("default", {{extra, 400}}).empty() &&
-          default_alias.set_alias({0}, "body", {"default"}).empty(), "Default FontId alias rejected");
+              default_alias.set_family("default", {{extra, 400}}).empty() &&
+              default_alias.set_alias({0}, "body", {"default"}).empty(),
+          "Default FontId alias rejected");
     style.font = {};
     const auto default_run = shaped(default_alias, "Hello", style);
     check(default_run.font == tessera::FontId{} && default_run.glyphs.front().font == extra,
@@ -193,7 +222,8 @@ void latin_shaping() {
     const auto hello = shaped(shaper, "Hello", style);
     check(hello.font == latin && hello.size == 20, "Run identity differs");
     check(near(hello.metrics, {{48.52f, 27.24f}, 21.38f, 27.24f, 1}), "Latin metrics differ");
-    check_glyphs(hello, {{43, 0, 0}, {72, 1, 14.82f}, {79, 2, 26.1f}, {79, 3, 31.26f}, {82, 4, 36.42f}}, 21.38f, "Hello");
+    check_glyphs(hello, {{43, 0, 0}, {72, 1, 14.82f}, {79, 2, 26.1f}, {79, 3, 31.26f}, {82, 4, 36.42f}}, 21.38f,
+                 "Hello");
 
     // GPOS kerning moves V left by 40 units relative to the hmtx advance of A (639).
     const auto kerned = shaped(shaper, "AV", style);
@@ -202,15 +232,17 @@ void latin_shaping() {
 
     // Default ligatures: "fi" and "ffi" each become one glyph clustered at their first byte.
     const auto ligatures = shaped(shaper, "fi office", style);
-    check_glyphs(ligatures, {{1654, 0, 0}, {3, 2, 12.04f}, {82, 3, 17.24f}, {1656, 4, 29.34f}, {70, 7, 48.26f},
-                             {72, 8, 57.86f}}, 21.38f, "fi office");
+    check_glyphs(ligatures,
+                 {{1654, 0, 0}, {3, 2, 12.04f}, {82, 3, 17.24f}, {1656, 4, 29.34f}, {70, 7, 48.26f}, {72, 8, 57.86f}},
+                 21.38f, "fi office");
     check(near(ligatures.metrics.size.width, 69.14f), "Ligature width differs");
 
     // GPOS mark attachment: the zero-advance acute is offset (-118, +178 up) from the pen after Q,
     // and shares the grapheme's cluster.
     const auto mark = shaped(shaper, "Q\xcc\x81", style);
     check(mark.glyphs.size() == 2 && mark.glyphs[0].id == 52 && mark.glyphs[1].id == 2665 &&
-          mark.glyphs[1].cluster == 0 && near(mark.glyphs[1].position, {13.26f, 17.82f}), "Mark position differs");
+              mark.glyphs[1].cluster == 0 && near(mark.glyphs[1].position, {13.26f, 17.82f}),
+          "Mark position differs");
     check(near(mark.metrics.size.width, 15.62f), "Mark width differs");
 }
 
@@ -224,8 +256,17 @@ void japanese_shaping() {
     check_glyphs(menu, {{1362, 0, 0}, {1340, 3, 20}, {1366, 6, 40}, {1389, 9, 60}}, 23.2f, "メニュー");
 
     const auto mixed = shaped(shaper, "Start スタート", style);
-    check_glyphs(mixed, {{52, 0, 0}, {85, 1, 11.38f}, {66, 2, 18.44f}, {83, 3, 29.7f}, {85, 4, 37.46f},
-                         {1, 5, 45}, {1322, 6, 49.48f}, {1328, 9, 69.48f}, {1389, 12, 89.48f}, {1337, 15, 109.48f}},
+    check_glyphs(mixed,
+                 {{52, 0, 0},
+                  {85, 1, 11.38f},
+                  {66, 2, 18.44f},
+                  {83, 3, 29.7f},
+                  {85, 4, 37.46f},
+                  {1, 5, 45},
+                  {1322, 6, 49.48f},
+                  {1328, 9, 69.48f},
+                  {1389, 12, 89.48f},
+                  {1337, 15, 109.48f}},
                  23.2f, "Start スタート");
     check(near(mixed.metrics.size.width, 129.48f), "Mixed width differs");
 
@@ -259,8 +300,8 @@ void missing_glyphs() {
           "Missing glyph differs");
     check(near(run.value->metrics.size.width, 35.98f), "Missing glyph width differs");
     check(run.diagnostics.size() == 1 && run.diagnostics[0].code == "missing_glyph" &&
-          run.diagnostics[0].severity == tessera::Severity::warning && run.diagnostics[0].path == "/text" &&
-          run.diagnostics[0].message.find("byte 2") != std::string::npos && !run.diagnostics[0].byte_offset,
+              run.diagnostics[0].severity == tessera::Severity::warning && run.diagnostics[0].path == "/text" &&
+              run.diagnostics[0].message.find("byte 2") != std::string::npos && !run.diagnostics[0].byte_offset,
           "Missing glyph warning differs");
     const auto measured = shaper.measure("AVメ", style);
     check(measured && measured.diagnostics == run.diagnostics, "Measurement must report missing glyphs");
@@ -279,16 +320,26 @@ void fallback_stacks() {
     check(shaper.set_fallback(latin, {japanese}).empty(), "Fallback stack rejected");
     const auto mixed = shaped(shaper, "Start スタート", style);
     check(mixed.font == latin && near(mixed.metrics, {{130.1f, 27.24f}, 21.38f, 27.24f, 1}), "Fallback metrics differ");
-    check_glyphs(mixed, {{54, 0, 0}, {87, 1, 10.98f}, {68, 2, 18.2f}, {85, 3, 29.42f}, {87, 4, 37.68f}, {3, 5, 44.9f},
-                         {1322, 6, 50.1f}, {1328, 9, 70.1f}, {1389, 12, 90.1f}, {1337, 15, 110.1f}},
+    check_glyphs(mixed,
+                 {{54, 0, 0},
+                  {87, 1, 10.98f},
+                  {68, 2, 18.2f},
+                  {85, 3, 29.42f},
+                  {87, 4, 37.68f},
+                  {3, 5, 44.9f},
+                  {1322, 6, 50.1f},
+                  {1328, 9, 70.1f},
+                  {1389, 12, 90.1f},
+                  {1337, 15, 110.1f}},
                  21.38f, "Start スタート with fallback");
     check(fonts_are(mixed, 6, latin, japanese), "Glyphs must name the face that supplied them");
 
     const auto lines = shaped(shaper, "Quit\nメニュー", style);
     check(near(lines.metrics, {{80, 54.48f}, 21.38f, 27.24f, 2}), "Fallback multiline metrics differ");
     check(lines.glyphs.size() == 8 && fonts_are(lines, 4, latin, japanese) && lines.glyphs[4].id == 1362 &&
-          lines.glyphs[4].cluster == 5 && near(lines.glyphs[4].position, {0, 48.62f}) &&
-          near(lines.glyphs[7].position, {60, 48.62f}), "Fallback second line differs");
+              lines.glyphs[4].cluster == 5 && near(lines.glyphs[4].position, {0, 48.62f}) &&
+              near(lines.glyphs[7].position, {60, 48.62f}),
+          "Fallback second line differs");
 
     // A face that maps nothing in a range passes it on; a cluster no face maps keeps the last
     // face's glyph 0 and advance, and is reported once.
@@ -300,16 +351,18 @@ void fallback_stacks() {
     check(fonts_are(chain, 1, latin, japanese) && near(chain.metrics.size.width, 52.78f), "Chain faces differ");
     const auto warning = shaper.shape(unmapped, style).diagnostics;
     check(warning.size() == 1 && warning[0].code == "missing_glyph" && warning[0].path == "/text" &&
-          warning[0].message.find("1 glyph") != std::string::npos &&
-          warning[0].message.find("byte 4") != std::string::npos &&
-          warning[0].message.find("fallback") != std::string::npos, "Fallback missing-glyph warning differs");
+              warning[0].message.find("1 glyph") != std::string::npos &&
+              warning[0].message.find("byte 4") != std::string::npos &&
+              warning[0].message.find("fallback") != std::string::npos,
+          "Fallback missing-glyph warning differs");
 
     // Stacks are not transitive: FontId 2's own stack is not consulted for FontId 0.
     check(shaper.set_fallback(latin, {{2}}).empty() && shaper.set_fallback({2}, {japanese}).empty(),
           "Non-transitive stacks rejected");
     const auto direct = shaper.shape("メ", style);
     check(direct && direct.value->glyphs.size() == 1 && direct.value->glyphs[0].id == 0 &&
-          direct.value->glyphs[0].font == tessera::FontId{2}, "Fallback stacks must not chain");
+              direct.value->glyphs[0].font == tessera::FontId{2},
+          "Fallback stacks must not chain");
 
     // Rejected stacks leave the previous one in place; an empty stack clears it.
     check(has(shaper.set_fallback({7}, {japanese}), "unknown_font", "/font"), "Unknown primary accepted");
@@ -317,13 +370,15 @@ void fallback_stacks() {
     check(has(shaper.set_fallback(latin, {latin}), "duplicate_font", "/fallback/0"), "Self fallback accepted");
     check(has(shaper.set_fallback(latin, {japanese, japanese}), "duplicate_font", "/fallback/1"),
           "Duplicate fallback accepted");
-    check(shaper.shape("メ", style).value->glyphs[0].font == tessera::FontId{2}, "Rejected stack replaced the previous one");
+    check(shaper.shape("メ", style).value->glyphs[0].font == tessera::FontId{2},
+          "Rejected stack replaced the previous one");
     check(shaper.set_fallback(latin, {}).empty(), "Clearing rejected");
     check(shaper.shape("メ", style).value->glyphs[0].font == latin, "Cleared stack still used");
 
     // Replacing a fallback face changes later results.
     check(shaper.set_fallback(latin, {japanese}).empty() &&
-          shaper.set_face(japanese, read_font("NotoSans-Regular.ttf")).empty(), "Fallback replacement rejected");
+              shaper.set_face(japanese, read_font("NotoSans-Regular.ttf")).empty(),
+          "Fallback replacement rejected");
     check(shaper.shape("メ", style).value->glyphs[0].id == 0, "Replaced fallback face not used");
 }
 
@@ -353,7 +408,8 @@ void faces_and_failures() {
     style.weight = 0;
     const auto errors = moved.measure("x", style);
     check(!errors && has(errors.diagnostics, "out_of_range", "/style/size") &&
-          has(errors.diagnostics, "out_of_range", "/style/weight"), "Invalid text style accepted");
+              has(errors.diagnostics, "out_of_range", "/style/weight"),
+          "Invalid text style accepted");
 }
 
 void wrapping() {
@@ -363,39 +419,46 @@ void wrapping() {
     style.size = 20;
     const std::string mixed = "Start スタート";
     const auto run = shaper.shape(mixed, style, {70.1f});
-    check(run && run.diagnostics.empty() &&
-          near(run.value->metrics, {{70.1f, 54.48f}, 21.38f, 27.24f, 2}), "Mixed wrapped metrics differ");
+    check(run && run.diagnostics.empty() && near(run.value->metrics, {{70.1f, 54.48f}, 21.38f, 27.24f, 2}),
+          "Mixed wrapped metrics differ");
     check(run.value->glyphs.size() == 10 && fonts_are(*run.value, 6, latin, japanese) &&
-          run.value->glyphs[6].cluster == 6 && near(run.value->glyphs[6].position, {50.1f, 21.38f}) &&
-          run.value->glyphs[7].cluster == 9 && near(run.value->glyphs[7].position, {0, 48.62f}) &&
-          near(run.value->glyphs[9].position, {40, 48.62f}), "Wrapped glyph offsets/faces differ");
+              run.value->glyphs[6].cluster == 6 && near(run.value->glyphs[6].position, {50.1f, 21.38f}) &&
+              run.value->glyphs[7].cluster == 9 && near(run.value->glyphs[7].position, {0, 48.62f}) &&
+              near(run.value->glyphs[9].position, {40, 48.62f}),
+          "Wrapped glyph offsets/faces differ");
     check(shaper.measure(mixed, style, {70.1f}).value == run.value->metrics &&
-          shaper.shape(mixed, style, {70.1f}).value == run.value, "Constrained shaping must be repeatable");
+              shaper.shape(mixed, style, {70.1f}).value == run.value,
+          "Constrained shaping must be repeatable");
     check(shaper.shape(mixed, style, {130.1f}).value == shaper.shape(mixed, style).value,
           "Exact natural float width must preserve the line");
 
     const auto kern = shaper.shape("AVA", style, {14.0f});
     check(kern && kern.value->metrics.lines == 3 && near(kern.value->metrics.size.width, 12.78f) &&
-          near(kern.value->glyphs[1].position, {0, 48.62f}), "Kerning must stop at a wrap boundary");
+              near(kern.value->glyphs[1].position, {0, 48.62f}),
+          "Kerning must stop at a wrap boundary");
     const auto ligature = shaper.shape("ffiA", style, {0.0f});
     check(ligature && ligature.value->glyphs.size() == 2 && ligature.value->glyphs[0].id == 1656 &&
-          ligature.value->glyphs[1].cluster == 3 && ligature.value->metrics.lines == 2 &&
-          near(ligature.value->metrics.size.width, 18.92f), "Oversized ligature must stay intact");
-    const auto mark = shaper.shape("Q\xcc\x81" "A", style, {1.0f});
+              ligature.value->glyphs[1].cluster == 3 && ligature.value->metrics.lines == 2 &&
+              near(ligature.value->metrics.size.width, 18.92f),
+          "Oversized ligature must stay intact");
+    const auto mark = shaper.shape("Q\xcc\x81"
+                                   "A",
+                                   style, {1.0f});
     check(mark && mark.value->glyphs.size() == 3 && mark.value->glyphs[1].cluster == 0 &&
-          near(mark.value->glyphs[1].position, {13.26f, 17.82f}) &&
-          mark.value->glyphs[2].cluster == 3 && near(mark.value->glyphs[2].position, {0, 48.62f}),
+              near(mark.value->glyphs[1].position, {13.26f, 17.82f}) && mark.value->glyphs[2].cluster == 3 &&
+              near(mark.value->glyphs[2].position, {0, 48.62f}),
           "Wrap must keep a combining mark with its base");
 
     style.line_height = 40.0f;
     const auto explicit_lines = shaper.shape("メニュー\n\nA\n", style, {40.0f});
     check(explicit_lines && explicit_lines.value->metrics.lines == 5 &&
-          near(explicit_lines.value->metrics.size.width, 60) && near(explicit_lines.value->metrics.size.height, 200),
+              near(explicit_lines.value->metrics.size.width, 60) &&
+              near(explicit_lines.value->metrics.size.height, 200),
           "Wrapped LF/empty-line accounting differs");
     const auto missing = shaper.shape("Aメ\xee\x80\x80", style, {20.0f});
     check(missing && missing.value->metrics.lines == 3 && missing.diagnostics.size() == 1 &&
-          missing.diagnostics[0].message.find("byte 4") != std::string::npos &&
-          shaper.measure("Aメ\xee\x80\x80", style, {20.0f}).diagnostics == missing.diagnostics,
+              missing.diagnostics[0].message.find("byte 4") != std::string::npos &&
+              shaper.measure("Aメ\xee\x80\x80", style, {20.0f}).diagnostics == missing.diagnostics,
           "Provisional line candidates must not duplicate missing-glyph warnings");
     check(shaper.measure("", style, {0.0f}).value->lines == 1, "Empty constrained text differs");
     check(has(shaper.shape("x", style, {-1.0f}).diagnostics, "out_of_range", "/constraints/max_width"),
@@ -412,8 +475,7 @@ void menu_line_breaks() {
     // Each expected line is shaped independently: compare IDs, faces, source byte
     // clusters and positions as well as metrics. No predicate from the implementation
     // is used to decide the expected breaks.
-    const auto expect = [&](std::string_view source, float width,
-                            std::initializer_list<std::string_view> lines) {
+    const auto expect = [&](std::string_view source, float width, std::initializer_list<std::string_view> lines) {
         tessera::GlyphRun expected{style.font, style.size, {}, {}};
         std::uint32_t offset = 0;
         std::uint32_t row = 0;
@@ -435,7 +497,8 @@ void menu_line_breaks() {
         check(offset == source.size(), "Expected lines must retain every source byte");
         const auto actual = shaper.shape(source, style, {width});
         check(actual && actual.diagnostics.empty() && near(actual.value->metrics, expected.metrics) &&
-              actual.value->glyphs.size() == expected.glyphs.size(), "Menu wrap metrics differ: " + std::string(source));
+                  actual.value->glyphs.size() == expected.glyphs.size(),
+              "Menu wrap metrics differ: " + std::string(source));
         for (std::size_t i = 0; i < expected.glyphs.size(); ++i) {
             const auto& a = actual.value->glyphs[i];
             const auto& e = expected.glyphs[i];
@@ -443,7 +506,8 @@ void menu_line_breaks() {
                   "Menu wrap glyph differs: " + std::string(source));
         }
         check(shaper.measure(source, style, {width}).value == actual.value->metrics &&
-              shaper.shape(source, style, {width}).value == actual.value, "Menu wrap is not repeatable");
+                  shaper.shape(source, style, {width}).value == actual.value,
+              "Menu wrap is not repeatable");
     };
     expect("Hello world", 80, {"Hello ", "world"});
     expect("a bcd", 35, {"a ", "bcd"});
@@ -457,14 +521,32 @@ void menu_line_breaks() {
     expect("あきゃく", 40, {"あ", "きゃ", "く"});
     expect("あカーい", 40, {"あ", "カー", "い"});
     expect("「  あい", 40, {"「  あ", "い"}); // Opening prohibition spans spaces.
-    expect("A\xc2\xa0" "B", 0, {"A\xc2\xa0" "B"});
-    expect("A\xe2\x80\xaf" "B", 0, {"A\xe2\x80\xaf" "B"});
-    expect("A\xe2\x81\xa0" "B", 0, {"A\xe2\x81\xa0" "B"});
-    expect("A\xef\xbb\xbf" "B", 0, {"A\xef\xbb\xbf" "B"});
+    expect("A\xc2\xa0"
+           "B",
+           0,
+           {"A\xc2\xa0"
+            "B"});
+    expect("A\xe2\x80\xaf"
+           "B",
+           0,
+           {"A\xe2\x80\xaf"
+            "B"});
+    expect("A\xe2\x81\xa0"
+           "B",
+           0,
+           {"A\xe2\x81\xa0"
+            "B"});
+    expect("A\xef\xbb\xbf"
+           "B",
+           0,
+           {"A\xef\xbb\xbf"
+            "B"});
     expect("あ、", 0, {"あ、"});
     expect("（あ", 0, {"（あ"});
     expect("Hello!A", 0, {"H", "e", "l", "l", "o!", "A"});
-    expect("Q\xcc\x81" "AB", 20, {"Q\xcc\x81", "A", "B"});
+    expect("Q\xcc\x81"
+           "AB",
+           20, {"Q\xcc\x81", "A", "B"});
     expect("ffiABC", 20, {"ffi", "A", "B", "C"});
 }
 
@@ -481,8 +563,9 @@ void layout_and_paint_agree(bool use_alias = false) {
     tessera::FontId font = latin;
     if (use_alias) {
         check(shaper.set_family("Latin", {{latin, 400}}).empty() &&
-              shaper.set_family("CJK", {{japanese, 400}}).empty() &&
-              shaper.set_alias({20}, "ui-sans", {"Latin", "CJK"}).empty(), "Layout alias rejected");
+                  shaper.set_family("CJK", {{japanese, 400}}).empty() &&
+                  shaper.set_alias({20}, "ui-sans", {"Latin", "CJK"}).empty(),
+              "Layout alias rejected");
         font = *shaper.find_alias("ui-sans");
     }
     tessera::UiDocument document;
@@ -491,7 +574,10 @@ void layout_and_paint_agree(bool use_alias = false) {
     check(static_cast<bool>(created), "Fixture tree rejected");
     const auto tree = std::move(*created.value);
     std::vector<tessera::ResolvedStyle> styles(tree->size());
-    for (auto& style : styles) { style.text.size = 20; style.text.font = font; }
+    for (auto& style : styles) {
+        style.text.size = 20;
+        style.text.font = font;
+    }
     styles[0].align = tessera::Align::start; // Text boxes keep their measured width.
     const auto layout = tessera::compute_layout({tree.get(), styles, {400, 300}, &shaper});
     check(static_cast<bool>(layout), "Layout rejected");
@@ -522,15 +608,16 @@ void layout_and_paint_agree(bool use_alias = false) {
     styles[1].border = {1, 1, 1, 1};
     const auto wrapped = tessera::compute_layout({tree.get(), styles, {80.1f, 300}, &shaper});
     check(wrapped && near(wrapped.value->boxes[1].content_box().size.width, 70.1f) &&
-          near(wrapped.value->boxes[1].content_box().size.height, 54.48f) &&
-          near(wrapped.value->boxes[2].border_box.origin.y, 62.48f), "Wrapped height did not move the sibling");
+              near(wrapped.value->boxes[1].content_box().size.height, 54.48f) &&
+              near(wrapped.value->boxes[2].border_box.origin.y, 62.48f),
+          "Wrapped height did not move the sibling");
     const auto painted = tessera::build_paint_list({tree.get(), styles, &*wrapped.value, &shaper});
     check(static_cast<bool>(painted), "Wrapped paint rejected");
     for (const auto& box : wrapped.value->boxes) {
         const auto& node = *tree->get(box.node);
         if (node.kind != tessera::NodeKind::text) continue;
         const auto expected = shaper.shape(std::get<std::string>(node.properties.at("text")),
-                                            styles[box.node.index].text, {box.content_box().size.width});
+                                           styles[box.node.index].text, {box.content_box().size.width});
         check(expected && near(box.content_box().size.height, expected.value->metrics.size.height),
               "Wrapped measurement height disagrees");
         bool found = false;
@@ -547,21 +634,25 @@ void layout_and_paint_agree(bool use_alias = false) {
     const auto grouped_tree = tessera::UiTree::create(document);
     check(static_cast<bool>(grouped_tree), "Grouped fixture tree rejected");
     std::vector<tessera::ResolvedStyle> grouped_styles((*grouped_tree.value)->size());
-    for (auto& s : grouped_styles) { s.text.size = 20; s.text.font = font; }
-    const auto grouped_layout = tessera::compute_layout({grouped_tree.value->get(), grouped_styles, {40, 300}, &shaper});
+    for (auto& s : grouped_styles) {
+        s.text.size = 20;
+        s.text.font = font;
+    }
+    const auto grouped_layout =
+        tessera::compute_layout({grouped_tree.value->get(), grouped_styles, {40, 300}, &shaper});
     check(grouped_layout && near(grouped_layout.value->boxes[1].content_box().size.height, 81.72f) &&
-          near(grouped_layout.value->boxes[2].border_box.origin.y, 81.72f),
+              near(grouped_layout.value->boxes[2].border_box.origin.y, 81.72f),
           "Oversized kinsoku group height must place the sibling");
     const auto grouped_run = shaper.shape("あ（い）う", grouped_styles[1].text, {40.0f});
     check(grouped_run && near(grouped_run.value->metrics.size.width, 60), "Kinsoku group must overflow intact");
-    const auto grouped_paint = tessera::build_paint_list({grouped_tree.value->get(), grouped_styles,
-                                                        &*grouped_layout.value, &shaper});
+    const auto grouped_paint =
+        tessera::build_paint_list({grouped_tree.value->get(), grouped_styles, &*grouped_layout.value, &shaper});
     check(static_cast<bool>(grouped_paint), "Grouped paint rejected");
     bool found_group = false;
     for (const auto& command : grouped_paint.value->commands) {
         const auto* draw = std::get_if<tessera::DrawGlyphRun>(&command);
         found_group = found_group || (draw && draw->run == *grouped_run.value &&
-                                     draw->origin == grouped_layout.value->boxes[1].content_box().origin);
+                                      draw->origin == grouped_layout.value->boxes[1].content_box().origin);
     }
     check(found_group, "Paint must preserve the overflowing measured kinsoku group");
 }
@@ -580,7 +671,8 @@ int main() {
         menu_line_breaks();
         layout_and_paint_agree();
         layout_and_paint_agree(true);
-        std::cout << "Font shaping, metrics, missing-glyph, fallback, failure, and layout/paint agreement checks passed.\n";
+        std::cout
+            << "Font shaping, metrics, missing-glyph, fallback, failure, and layout/paint agreement checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

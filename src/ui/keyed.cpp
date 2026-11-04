@@ -8,22 +8,28 @@ namespace tessera {
 namespace {
 enum class Match { reuse, fresh, replace };
 
-void check_name(std::vector<Diagnostic>& errors, std::string_view value, std::string path,
-                std::string code, std::string_view what) {
-    const bool controls = std::any_of(value.begin(), value.end(), [](unsigned char c) {
-        return c < 0x20 || c == 0x7f;
-    });
+void check_name(std::vector<Diagnostic>& errors, std::string_view value, std::string path, std::string code,
+                std::string_view what) {
+    const bool controls =
+        std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 0x20 || c == 0x7f; });
     if (value.empty() || value.size() > 256 || controls || !detail::valid_utf8(value))
-        errors.push_back({std::move(code), Severity::error, std::move(path),
-            "Supply a nonempty UTF-8 " + std::string(what) + " of at most 256 bytes without control characters.", {}});
+        errors.push_back(
+            {std::move(code),
+             Severity::error,
+             std::move(path),
+             "Supply a nonempty UTF-8 " + std::string(what) + " of at most 256 bytes without control characters.",
+             {}});
 }
 } // namespace
 
 Result<KeyedUpdate> KeyedCollection::reconcile(ReactiveRuntime& runtime, const std::vector<KeyedChild>& children) {
     std::vector<Diagnostic> errors;
     if (children.size() > max_keyed_children) {
-        errors.push_back({"keyed_child_limit", Severity::error, "/children",
-                          "Supply at most 4096 keyed children in one collection.", {}});
+        errors.push_back({"keyed_child_limit",
+                          Severity::error,
+                          "/children",
+                          "Supply at most 4096 keyed children in one collection.",
+                          {}});
         return {{}, std::move(errors)};
     }
     std::map<std::string_view, std::size_t, std::less<>> seen;
@@ -34,9 +40,12 @@ Result<KeyedUpdate> KeyedCollection::reconcile(ReactiveRuntime& runtime, const s
         check_name(errors, children[i].kind, path + "/kind", "invalid_kind", "kind");
         if (errors.size() != before) continue;
         if (const auto [it, inserted] = seen.emplace(children[i].key, i); !inserted)
-            errors.push_back({"duplicate_key", Severity::error, path + "/key",
-                "Key '" + children[i].key + "' already names child " + std::to_string(it->second) +
-                "; keys must be unique within one collection.", {}});
+            errors.push_back({"duplicate_key",
+                              Severity::error,
+                              path + "/key",
+                              "Key '" + children[i].key + "' already names child " + std::to_string(it->second) +
+                                  "; keys must be unique within one collection.",
+                              {}});
     }
     if (!errors.empty()) return {{}, std::move(errors)};
 
@@ -62,8 +71,11 @@ Result<KeyedUpdate> KeyedCollection::reconcile(ReactiveRuntime& runtime, const s
         next.push_back({children[i].key, children[i].kind, 0, {}});
     }
     if (next_lifetime_ - 1 > std::numeric_limits<std::uint64_t>::max() - creations) {
-        errors.push_back({"keyed_lifetime_exhausted", Severity::error, "/children",
-                          "Create a new collection before instance lifetimes exhaust.", {}});
+        errors.push_back({"keyed_lifetime_exhausted",
+                          Severity::error,
+                          "/children",
+                          "Create a new collection before instance lifetimes exhaust.",
+                          {}});
         return {{}, std::move(errors)};
     }
     KeyedUpdate update;

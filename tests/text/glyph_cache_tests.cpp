@@ -21,8 +21,10 @@ struct Rasterizer final : GlyphRasterizer {
         if (mode == 3) return {GlyphBitmap{2, 2, 0, 0, {1}}, {}};
         if (mode == 4) return {GlyphBitmap{0, 1, 0, 0, {}}, {}};
         if (mode == 5) return {GlyphBitmap{std::numeric_limits<std::uint32_t>::max(), 2, 0, 0, {}}, {}};
-        if (mode == 6) return {GlyphBitmap{}, {{"fixture_failure", Severity::error, "/glyph", "Value with error.", {}}}};
-        auto diagnostics = std::vector<Diagnostic>{{"fixture_warning", Severity::warning, "/glyph", "Coverage warning.", {}}};
+        if (mode == 6)
+            return {GlyphBitmap{}, {{"fixture_failure", Severity::error, "/glyph", "Value with error.", {}}}};
+        auto diagnostics =
+            std::vector<Diagnostic>{{"fixture_warning", Severity::warning, "/glyph", "Coverage warning.", {}}};
         if (request.glyph == 0) return {GlyphBitmap{}, diagnostics};
         return {GlyphBitmap{2, 2, -1, 2, {static_cast<std::uint8_t>(request.glyph), 64, 128, 255}}, diagnostics};
     }
@@ -40,7 +42,8 @@ void cache_and_lifetime() {
           "Hit rerasterized or lost warning/identity");
     check(bool(cache.get(b)), "Second glyph failed");
     check(bool(cache.get(a)), "Touch failed");
-    check(bool(cache.get(c)) && raster.calls == 3 && cache.usage() == GlyphCacheUsage{8, 2}, "Budget/LRU insertion failed");
+    check(bool(cache.get(c)) && raster.calls == 3 && cache.usage() == GlyphCacheUsage{8, 2},
+          "Budget/LRU insertion failed");
     check(bool(cache.get(a)) && raster.calls == 3, "Most recently used glyph was evicted");
     check(bool(cache.get(b)) && raster.calls == 4, "Least recently used glyph was retained");
     cache.clear();
@@ -106,13 +109,17 @@ void failures() {
               "Invalid request called rasterizer");
     }
     const auto unknown = cache.get({{2}, 1, 64});
-    check(!unknown && has(unknown.diagnostics, "unknown_font", "/font") && raster.calls == 0, "Unknown face called rasterizer");
+    check(!unknown && has(unknown.diagnostics, "unknown_font", "/font") && raster.calls == 0,
+          "Unknown face called rasterizer");
     for (int mode = 1; mode <= 6; ++mode) {
         raster.mode = mode;
         const auto result = cache.get({{0}, 1, 64});
-        const auto code = mode == 1 ? "glyph_raster_failed" : mode == 2 || mode == 6 ? "fixture_failure" : "invalid_glyph_bitmap";
+        const auto code = mode == 1                ? "glyph_raster_failed"
+                          : mode == 2 || mode == 6 ? "fixture_failure"
+                                                   : "invalid_glyph_bitmap";
         check(!result && has(result.diagnostics, code, mode >= 3 && mode <= 5 ? "/bitmap" : "/glyph") &&
-              cache.usage() == GlyphCacheUsage{}, "Failed or malformed raster was stored");
+                  cache.usage() == GlyphCacheUsage{},
+              "Failed or malformed raster was stored");
     }
     raster.mode = 0;
     check(bool(cache.get({{0}, 1, 64})) && raster.calls == 7, "Failures prevented later retry");
@@ -123,9 +130,13 @@ void failures() {
 
 int main() {
     try {
-        cache_and_lifetime(); keys_and_revisions(); budgets(); failures();
+        cache_and_lifetime();
+        keys_and_revisions();
+        budgets();
+        failures();
         std::cout << "Glyph cache checks passed\n";
     } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n'; return 1;
+        std::cerr << error.what() << '\n';
+        return 1;
     }
 }

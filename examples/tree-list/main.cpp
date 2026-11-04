@@ -25,8 +25,8 @@ template<class T> T take(Result<T> result) {
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
-const ValidationContext actions{{"folder.all", "folder.models", "folder.materials", "workspace.toggle",
-    "asset.cube", "asset.sphere", "asset.paint"}};
+const ValidationContext actions{{"folder.all", "folder.models", "folder.materials", "workspace.toggle", "asset.cube",
+                                 "asset.sphere", "asset.paint"}};
 struct Host final : CommandHost {
     bool expanded = false;
     std::string folder = "models";
@@ -43,8 +43,10 @@ struct Host final : CommandHost {
         return result;
     }
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
-        if (invocation.command == "workspace.toggle") { expanded = !expanded; ++toggles; }
-        else if (invocation.command.starts_with("folder.")) {
+        if (invocation.command == "workspace.toggle") {
+            expanded = !expanded;
+            ++toggles;
+        } else if (invocation.command.starts_with("folder.")) {
             folder = invocation.command.substr(7);
             const auto items = assets();
             if (std::none_of(items.begin(), items.end(), [&](const ui::ListItem& item) { return item.key == asset; }))
@@ -52,19 +54,25 @@ struct Host final : CommandHost {
         } else if (invocation.command.starts_with("asset.")) {
             asset = invocation.command.substr(6);
             ++selections;
-        } else throw std::runtime_error("Unexpected browser command");
+        } else
+            throw std::runtime_error("Unexpected browser command");
         return {};
     }
 };
 ui::Element Browser(const Host& host) {
-    return ui::Column({
-        ui::TreeView("Folders", host.folder == "all" ? "workspace" : host.folder,
-            {{"workspace", "Workspace", "folder.all", "workspace.toggle", host.expanded, false, {
-                {"models", "Models", "folder.models"}, {"materials", "Materials", "folder.materials"}}}},
-            {.node = {.id = "folders", .style = {.height = Dimension::points(90)}}}),
-        ui::ListView("Assets", host.asset, host.assets(),
-            {.node = {.id = "assets", .style = {.height = Dimension::points(60)}}}),
-        ui::Text("Details: " + host.asset, {.id = "details"})},
+    return ui::Column(
+        {ui::TreeView("Folders", host.folder == "all" ? "workspace" : host.folder,
+                      {{"workspace",
+                        "Workspace",
+                        "folder.all",
+                        "workspace.toggle",
+                        host.expanded,
+                        false,
+                        {{"models", "Models", "folder.models"}, {"materials", "Materials", "folder.materials"}}}},
+                      {.node = {.id = "folders", .style = {.height = Dimension::points(90)}}}),
+         ui::ListView("Assets", host.asset, host.assets(),
+                      {.node = {.id = "assets", .style = {.height = Dimension::points(60)}}}),
+         ui::Text("Details: " + host.asset, {.id = "details"})},
         {.id = "root", .style = {.overflow = Overflow::clip}});
 }
 struct View {
@@ -76,7 +84,7 @@ struct View {
     const LayoutBox& box(std::string_view id) const {
         const auto node = tree->find(id);
         const auto found = std::find_if(layout.boxes.begin(), layout.boxes.end(),
-            [&](const LayoutBox& box) { return box.node == node; });
+                                        [&](const LayoutBox& box) { return box.node == node; });
         require(found != layout.boxes.end(), "Missing browser control");
         return *found;
     }
@@ -145,14 +153,14 @@ int tessera::examples::run_tree_list(const FrameObserver& observer) {
             session.publish();
         };
         auto capture = [&](std::string_view name) {
-            if (observer) observer(name, viewport,
-                take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
+            if (observer)
+                observer(name, viewport, take(build_paint_list({view.tree.get(), view.styles, &view.layout, &text})));
         };
         auto execute = [&](const std::vector<ActionRequest>& requests, CommandSource source) {
             for (const auto& request : requests) {
                 const auto semantic = view.semantic();
-                const auto invocation = take(commands->resolve_action(semantic, request,
-                    commands->generation(), {}, source, ++sequence));
+                const auto invocation =
+                    take(commands->resolve_action(semantic, request, commands->generation(), {}, source, ++sequence));
                 const auto result = take(executor.execute(*commands, invocation, host, &semantic));
                 require(result.outcome.status == CommandOutcomeStatus::success, "Browser command failed");
             }
@@ -185,7 +193,8 @@ int tessera::examples::run_tree_list(const FrameObserver& observer) {
         refresh();
         capture("tree-initial");
         click("folders-toggle-workspace");
-        require(host.expanded && host.toggles == 1 && host.asset == "cube", "Expansion must preserve selection/details");
+        require(host.expanded && host.toggles == 1 && host.asset == "cube",
+                "Expansion must preserve selection/details");
         capture("tree-expanded");
         click("assets-label-sphere");
         require(host.asset == "sphere" && host.selections == 1, "Pointer selection must update details once");
@@ -197,11 +206,12 @@ int tessera::examples::run_tree_list(const FrameObserver& observer) {
         navigate({time += 1us, Navigate{Direction::down}}, CommandSource::gamepad);
         require(host.folder == "models", "Navigation must not change controlled selection");
         navigate({time += 1us, Activate{}}, CommandSource::gamepad);
-        require(host.folder == "materials" && host.asset == "paint", "Gamepad selection must update the dependent list/details");
+        require(host.folder == "materials" && host.asset == "paint",
+                "Gamepad selection must update the dependent list/details");
         navigate({time += 1us, Navigate{Direction::left}}, CommandSource::gamepad);
         navigate({time += 1us, Navigate{Direction::left}}, CommandSource::gamepad);
         require(!host.expanded && host.folder == "materials" && host.asset == "paint",
-            "Collapsing a selected descendant must retain selection/details");
+                "Collapsing a selected descendant must retain selection/details");
         capture("tree-collapsed");
         navigate({time += 1us, Navigate{Direction::right}}, CommandSource::gamepad);
         click("folders-label-workspace");
@@ -211,22 +221,24 @@ int tessera::examples::run_tree_list(const FrameObserver& observer) {
         focused = *view.tree->find("assets-item-cube");
         navigate({time += 1us, KeyDown{Key::end}});
         navigate({time += 1us, Activate{}});
-        require(host.asset == "paint" && host.selections == 3, "Narrow resize/focus reveal must preserve a reachable last item");
+        require(host.asset == "paint" && host.selections == 3,
+                "Narrow resize/focus reveal must preserve a reachable last item");
         store_scroll(take(route_scroll(view.hit(), {view.center("assets"), {0, -20}})).updates);
         refresh();
         require(host.asset == "paint" && host.folder == "all", "Wheel scrolling must not mutate browser state");
         capture("tree-narrow-scrolled");
         const auto semantics = take(build_semantic_tree(view.semantic()));
-        require(std::any_of(semantics.nodes.begin(), semantics.nodes.end(), [](const SemanticNode& node) {
-            return node.id == "assets-item-paint" && node.selected == true;
-        }), "Inspection must observe the selected asset");
-        std::cout << "TreeView/ListView browser: pointer, keyboard/gamepad, details, collapse, resize and scroll passed.\n";
+        require(std::any_of(
+                    semantics.nodes.begin(), semantics.nodes.end(),
+                    [](const SemanticNode& node) { return node.id == "assets-item-paint" && node.selected == true; }),
+                "Inspection must observe the selected asset");
+        std::cout
+            << "TreeView/ListView browser: pointer, keyboard/gamepad, details, collapse, resize and scroll passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
     }
-
 }
 
 #ifndef TESSERA_EXAMPLE_LIBRARY

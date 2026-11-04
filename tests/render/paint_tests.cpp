@@ -78,9 +78,11 @@ void order_geometry_opacity_and_ownership() {
     auto list = f.paint();
     check(list.commands.size() == 6, "Expected parent background/border, text background/border/glyphs, sibling");
     check(std::get<tessera::DrawRect>(list.commands[0]) ==
-          tessera::DrawRect{f.layout.boxes[0].border_box, {1, 0, 0, 0.25f}, 6}, "Root paint differs");
+              tessera::DrawRect{f.layout.boxes[0].border_box, {1, 0, 0, 0.25f}, 6},
+          "Root paint differs");
     check(std::get<tessera::DrawBorder>(list.commands[1]) ==
-          tessera::DrawBorder{f.layout.boxes[0].border_box, root.border, {0, 1, 0, 0.5f}, 6}, "Border paint differs");
+              tessera::DrawBorder{f.layout.boxes[0].border_box, root.border, {0, 1, 0, 0.5f}, 6},
+          "Border paint differs");
     check(std::get<tessera::DrawRect>(list.commands[2]).color == tessera::Color{0, 0, 1, 0.25f},
           "Ancestor opacity must multiply child alpha without changing RGB");
     check(std::holds_alternative<tessera::DrawBorder>(list.commands[3]), "Text border must precede glyphs");
@@ -143,11 +145,14 @@ void clip_runs() {
     const tessera::UiDrawList expected{{
         tessera::DrawRect{boxes[0].border_box, {1, 1, 1, 1}},
         tessera::PushClip{*boxes[2].clip},
-        tessera::DrawRect{boxes[2].border_box, {1, 1, 1, 1}}, tessera::PopClip{},
+        tessera::DrawRect{boxes[2].border_box, {1, 1, 1, 1}},
+        tessera::PopClip{},
         tessera::PushClip{*boxes[3].clip},
-        tessera::DrawRect{boxes[3].border_box, {1, 1, 1, 1}}, tessera::PopClip{},
+        tessera::DrawRect{boxes[3].border_box, {1, 1, 1, 1}},
+        tessera::PopClip{},
         tessera::PushClip{*boxes[4].clip},
-        tessera::DrawRect{boxes[4].border_box, {1, 1, 1, 1}}, tessera::PopClip{},
+        tessera::DrawRect{boxes[4].border_box, {1, 1, 1, 1}},
+        tessera::PopClip{},
     }};
     check(list == expected, "Each emitting box must paint inside its own recorded clip");
     check(*boxes[3].clip == tessera::intersect(*boxes[2].clip, boxes[2].padding_box()), "Nested clip differs");
@@ -163,7 +168,8 @@ void clip_runs() {
     f.layout.boxes[1].clip->size.width = std::numeric_limits<float>::infinity();
     const auto invalid = tessera::validate(f.input());
     check(has(invalid, "invalid_number", "/layout/boxes/1/clip/size/width") &&
-              has(invalid, "layout_clip", "/layout/boxes/1/clip"), "Non-finite clip accepted");
+              has(invalid, "layout_clip", "/layout/boxes/1/clip"),
+          "Non-finite clip accepted");
 }
 
 void invalid_input_and_topology() {
@@ -224,7 +230,7 @@ public:
         return placeholder.measure(text, style, constraints);
     }
     tessera::Result<tessera::GlyphRun> shape(std::string_view text, const tessera::TextStyle& style,
-                                            const tessera::TextConstraints& constraints) override {
+                                             const tessera::TextConstraints& constraints) override {
         ++calls;
         if (mode == Mode::failure)
             return {std::nullopt, {{"font_missing", tessera::Severity::error, "/style/font", "Font unavailable.", {}}}};
@@ -232,8 +238,11 @@ public:
         auto result = placeholder.shape(text, style, constraints);
         if (mode == Mode::malformed) result.value->glyphs[0].position.x = std::numeric_limits<float>::quiet_NaN();
         if (mode == Mode::warning || mode == Mode::error_with_value)
-            result.diagnostics.push_back({"font_fallback", mode == Mode::warning ? tessera::Severity::warning :
-                                          tessera::Severity::error, "/style/font", "Fallback font used.", {}});
+            result.diagnostics.push_back({"font_fallback",
+                                          mode == Mode::warning ? tessera::Severity::warning : tessera::Severity::error,
+                                          "/style/font",
+                                          "Fallback font used.",
+                                          {}});
         return result;
     }
 };
@@ -258,7 +267,8 @@ void shaping_failures_and_warnings() {
     injected.mode = InjectedShaper::Mode::warning;
     result = tessera::build_paint_list(input);
     check(result && result.diagnostics.size() == 1 && result.diagnostics[0].path == "/nodes/1/style/font" &&
-          result.diagnostics[0].severity == tessera::Severity::warning, "Successful shaping warning lost");
+              result.diagnostics[0].severity == tessera::Severity::warning,
+          "Successful shaping warning lost");
     injected.mode = InjectedShaper::Mode::error_with_value;
     check(!tessera::build_paint_list(input), "Error diagnostic accompanied by a glyph run must still fail");
     const int before = injected.calls;

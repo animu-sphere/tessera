@@ -76,8 +76,8 @@ struct PopTransform {
     bool operator==(const PopTransform&) const = default;
 };
 
-using DrawCommand = std::variant<DrawRect, DrawBorder, DrawImage, DrawGlyphRun,
-                                 PushClip, PopClip, PushTransform, PopTransform>;
+using DrawCommand =
+    std::variant<DrawRect, DrawBorder, DrawImage, DrawGlyphRun, PushClip, PopClip, PushTransform, PopTransform>;
 
 // Commands paint in order; later commands appear above earlier ones.
 // Clips and transforms share one LIFO stack that must be balanced.
