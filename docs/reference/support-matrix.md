@@ -1,6 +1,6 @@
 # Support matrix
 
-Current capability scope and validation limits. Detailed historical checks remain in the [dated evidence record](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md); links into that revision preserve the original environments, results and caveats. This consolidation does not rerun or broaden those claims. Routine new results belong in PR/CI.
+Current capability scope and validation limits. Detailed historical checks remain in the [dated evidence record](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md); links into that revision preserve the original environments, results and caveats. Fresh v0.6.0 core Debug/Release, GPU, font and injected native-smoke validation is recorded in [release PR #152](https://github.com/animu-sphere/tessera/pull/152). Routine new results belong in PR/CI.
 
 ## Evidence vocabulary
 
@@ -17,7 +17,7 @@ Missing evidence means unvalidated, not failed. Capabilities without a row have 
 
 | Configuration | Validated scope and limits |
 | --- | --- |
-| Core | Windows x64/MSVC Debug/Release, no external runtime dependencies; newer widget owner checks have narrower scope below |
+| Core | Windows x64/MSVC Debug/Release, including widget owner checks and four independent add_subdirectory imports; no external runtime dependencies |
 | Vulkan | One Windows x64 RTX A5000 configuration, offscreen fixtures and Win32 menu smokes; no hosted GPU CI or other-driver/platform claim |
 | Fonts | HarfBuzz 10.2.0 / FreeType 2.13.3, vcpkg classic `x64-windows`, committed Noto fixtures; other acquisitions/triplets unvalidated |
 | Native input | Win32 menu: one mouse, USB DualSense and original Bluetooth Joy-Con L/R pair; Settings host uses injected window-message smokes |
@@ -31,17 +31,17 @@ Core rows refer to the Windows configuration above. A Debug-only owner check is 
 | Area | Scope and limits | Details |
 | --- | --- | --- |
 | Latest UI GPU regression | Validated Debug/Release: seven applications, 31 states at four scales; full GPU reference/batch/repeat, CPU comparison within 2/255 outside bounded raster edges (>95% retained). Placeholder text, no latest-widget native/real-font or performance claim | [PR #148](https://github.com/animu-sphere/tessera/pull/148), [workflow](../guides/development.md#latest-ui-gpu-regression) |
-| Menu / ContextMenu | Validated core Debug, single-level controlled command menus; no submenu/menu bar, richer items, Portal or native input; owner-suite Release unvalidated | [PR #147](https://github.com/animu-sphere/tessera/pull/147), [guide](../guides/menu-context.md) |
-| TreeView / ListView | Validated core Debug, controlled single selection and disclosure; no multiple selection, virtualization or native input; owner-suite Release unvalidated | [PR #146](https://github.com/animu-sphere/tessera/pull/146), [guide](../guides/tree-list.md) |
-| Modal / Dialog | Validated core Debug, one root-modal confirmation; no nested/stacked modals, modal-anchored Popups, Portal or native input; owner-suite Release unvalidated | [PR #145](https://github.com/animu-sphere/tessera/pull/145), [guide](../guides/modal-dialog.md) |
-| Popup / Tooltip | Validated core Debug, root-sibling anchors and hover/focus help; no generalized Portal, modal scope or native input; owner-suite Release unvalidated | [PR #144](https://github.com/animu-sphere/tessera/pull/144), [guide](../guides/popup-tooltip.md) |
-| Grid | Validated core Debug, explicit row-major tracks and Inspector edits; no spanning/implicit tracks or native input; owner-suite Release unvalidated | [guide](../guides/grid.md), [contract](../architecture/layout.md#implemented-grid-placement) |
-| Stack | Validated core Debug, in-parent overlay toolbar; no Portal or native input; owner-suite Release unvalidated | [guide](../guides/stack.md), [contract](../architecture/layout.md#implemented-stack-placement) |
+| Menu / ContextMenu | Validated core Debug/Release, single-level controlled command menus; no submenu/menu bar, richer items, Portal or native input | [PR #147](https://github.com/animu-sphere/tessera/pull/147), [guide](../guides/menu-context.md) |
+| TreeView / ListView | Validated core Debug/Release, controlled single selection and disclosure; no multiple selection, virtualization or native input | [PR #146](https://github.com/animu-sphere/tessera/pull/146), [guide](../guides/tree-list.md) |
+| Modal / Dialog | Validated core Debug/Release, one root-modal confirmation; no nested/stacked modals, modal-anchored Popups, Portal or native input | [PR #145](https://github.com/animu-sphere/tessera/pull/145), [guide](../guides/modal-dialog.md) |
+| Popup / Tooltip | Validated core Debug/Release, root-sibling anchors and hover/focus help; no generalized Portal, modal scope or native input | [PR #144](https://github.com/animu-sphere/tessera/pull/144), [guide](../guides/popup-tooltip.md) |
+| Grid | Validated core Debug/Release, explicit row-major tracks and Inspector edits; no spanning/implicit tracks or native input | [guide](../guides/grid.md), [contract](../architecture/layout.md#implemented-grid-placement) |
+| Stack | Validated core Debug/Release, in-parent overlay toolbar; no Portal or native input | [guide](../guides/stack.md), [contract](../architecture/layout.md#implemented-stack-placement) |
 | SplitPane | Validated core Debug/Release, scripted/native Settings resizing; no numeric accessibility range/orientation, screen-reader adapter or docking | [guide](../guides/split-pane.md) |
 | Slider / Dropdown | Validated core Debug/Release, controlled preferences and both local-source imports; inline Dropdown choices, discrete integer Slider | [starter](../guides/settings-starter.md) |
 | Settings starter | Validated Debug/Release, copied three-file app, drafts/sections/scrolling/Apply/Cancel and optional Windows CPU host; no persistence, IME/clipboard or native editable accessibility | [guide](../guides/settings-starter.md) |
 | First app | Validated core Debug/Release and both local imports; synthetic CPU capture, no window, real font or device session | [guide](../guides/first-app.md) |
-| Renderer telemetry / settings | Validated core Debug/Release synthetic panel and both local imports; material-view, key-direction and reset extensions are Debug-only; no native renderer/device integration | [guide](../guides/renderer-diagnostics.md) |
+| Renderer telemetry / settings | Validated core Debug/Release synthetic panel, including material-view, key-direction and reset extensions, and both local imports; no native renderer/device integration | [guide](../guides/renderer-diagnostics.md) |
 | C++ form authoring / Settings form | Validated core Debug/Release, controlled form, reusable styles and interaction feedback; one session, no persistence, dynamic mounting, editable semantics, native host or real-font capture | [authoring](../architecture/ui-model.md#implemented-c-form-authoring) |
 | UI tree / serialization | Validated Box/Text documents, JSON v1, metadata and handles | [UI model](../architecture/ui-model.md), [format](../../formats/tessera-ui/README.md) |
 | Reactive graph / cleanup / effects | Validated core, explicit host flush/publication/delivery and contained calculation faults; no presentation fallback | [reactive runtime](../architecture/reactive-runtime.md) |
