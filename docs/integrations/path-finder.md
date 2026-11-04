@@ -10,6 +10,8 @@ Path-finder owns hierarchy/property editing, visual authoring, drag/drop, previe
 
 The foundation uses namespaced document/node `extensions` objects for design metadata; [JSON v1](../../formats/tessera-ui/README.md) defines their semantic preservation policy. A sidecar remains an optional later editor choice. Runtime behavior does not interpret editor-only fields. This storage boundary does not implement an editor bridge or reload.
 
+For the engine-free select/edit operation, the [Hierarchy / Inspector reference application](../guides/inspector-hierarchy.md) composes TreeView, a Grid Inspector, SplitPane and item command menus with optional Windows CPU hosting. Its scene-like item data remains host-owned; it does not edit a UI document or implement the source-reload fixture below.
+
 ## Implemented source-consumption boundary
 
 [CMakeLists.txt](../../CMakeLists.txt) exposes `tessera::core` for an existing source checkout consumed with `add_subdirectory` or `FetchContent`. The target propagates public headers and the C++20 requirement; consumers link the alias without duplicating include paths or language settings. Optional `tessera::vulkan` propagates core and Vulkan SDK requirements when the host explicitly enables the backend. Source acquisition and SDK installation belong to the host; Tessera configuration downloads nothing.

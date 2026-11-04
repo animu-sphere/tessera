@@ -3,6 +3,7 @@
 ## Where to start
 
 - `docs/roadmap/current.md` names the active milestone and what the reference application must do. Build whatever that application needs, including new widgets, host integration and runtime changes.
+- Keep only unfinished selected work in `docs/roadmap/current.md`. Remove implemented or completed items instead of retaining progress entries; record capability scope in the support matrix and delivery history in the changelog.
 - `docs/architecture/overview.md` states the dependency boundaries to keep (core free of GPU/platform/browser/USD/editor SDKs; layout independent of rendering).
 - `docs/guides/development.md` has the build and test commands; `docs/guides/testing.md` lists the existing owner tests per subsystem.
 
