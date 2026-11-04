@@ -73,7 +73,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 16, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 17, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");

@@ -24,6 +24,7 @@ add_library(tessera_core
     src/input/pointer.cpp
     src/input/focus.cpp
     src/input/scroll.cpp
+    src/input/scrollbar.cpp
     src/input/split_pane.cpp
     src/input/popup.cpp
     src/input/modal.cpp

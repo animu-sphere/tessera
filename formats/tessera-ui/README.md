@@ -41,6 +41,8 @@ Identifiers reject U+0000–U+001F and U+007F; no other normalization is perform
 
 The optional Box-only boolean `properties.separator` defaults to false without being materialized. When true it projects a separator role through [semantics](../../docs/architecture/semantics.md); its registered `activate` action, when eligible, requests host adjustment. This additive vocabulary introduces no widget node kind or callback. Older builds that do not recognize the marker reject it as an unknown property; migrate explicitly when exchanging documents with those builds.
 
+The Box-only boolean `properties.scrollbar` is likewise additive v1 vocabulary, absent meaning false without materialization. A true marker cannot combine with `separator`, `modal` or a collection role. It projects the [controlled scrollbar](../../docs/guides/scrollbar.md) role and ordinary eligible activate action; it does not encode or mutate host scroll state. Existing documents retain their encoding, and older readers reject the unknown marker.
+
 The additive popup vocabulary also remains version 1:
 
 - Box-only `popup_anchor` is a nonempty UTF-8 author-ID **string**, not a strict reference. Missing targets are legal lifecycle state and suppress the popup's layout. Popup nodes must be direct root children after all ordinary content; no popup or its descendants may be an anchor.
