@@ -26,6 +26,7 @@ inline constexpr std::string_view popup_side = "popup_side";
 inline constexpr std::string_view popup_x = "popup_x";
 inline constexpr std::string_view popup_y = "popup_y";
 inline constexpr std::string_view separator = "separator";
+inline constexpr std::string_view scrollbar = "scrollbar";
 } // namespace property_names
 
 // Mirrors the `Property` alternatives; no coercion between types.

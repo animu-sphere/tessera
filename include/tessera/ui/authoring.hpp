@@ -4,6 +4,7 @@
 #include <tessera/input/text_edit.hpp>
 #include <tessera/style/style_sheet.hpp>
 #include <tessera/ui/serialization.hpp>
+#include <tessera/layout/layout_box.hpp>
 
 namespace tessera::authoring {
 namespace detail {
@@ -91,6 +92,13 @@ struct SplitPaneProps {
     std::string label = "Resize panes";
     bool disabled = false;
 };
+struct ScrollbarProps {
+    Props node; // Required stable ID; reserve <id>-before, <id>-thumb and <id>-label.
+    float minimum_thumb = 18;
+    bool disabled = false;
+    bool hovered = false;
+    bool focused = false;
+};
 enum class PopupSide { bottom, top, left, right };
 struct PopupProps {
     Props node;
@@ -160,6 +168,7 @@ private:
     friend Element TreeView(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
+    friend Element VerticalScrollbar(std::string, float, ScrollGeometry, std::string, ScrollbarProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
     friend Element VerticalSplitPane(Element, Element, float, std::string, SplitPaneProps);
 };
@@ -199,6 +208,9 @@ Element Dialog(Value<std::string> title, std::vector<Element> children, DialogPr
 // A Column with scroll overflow. Constrain its size through Props::style;
 // the host owns offsets and routes wheel input/focus reveal through input/scroll.
 Element ScrollView(std::vector<Element> children, Props = {});
+// Compose beside a ScrollView using its accepted padding-box height and scroll
+// geometry. Recompose after wheel/reveal/resize; no second scroll state is kept.
+Element VerticalScrollbar(std::string label, float viewport, ScrollGeometry, std::string action, ScrollbarProps = {});
 // Controlled single selection; nullopt means no selection. Branch expansion never
 // changes selection. IDs: <id>-item-<key>, -label-<key>, -toggle-<key>, and <id>-title.
 // Both are scrollable Columns; constrain their size and retain host scroll offsets.

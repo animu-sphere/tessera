@@ -37,6 +37,7 @@ foreach(contract IN ITEMS reactive/reactive ui/keyed ui/bindings ui/component ui
 endforeach()
 set_tests_properties(async_allocation PROPERTIES TIMEOUT 30)
 tessera_add_contract_test(split_pane tests/input/split_pane_tests.cpp)
+tessera_add_contract_test(scrollbar tests/input/scrollbar_tests.cpp)
 tessera_add_contract_test(popup tests/input/popup_tests.cpp)
 tessera_add_contract_test(modal tests/input/modal_tests.cpp)
 tessera_add_contract_test(collection tests/input/collection_tests.cpp)

@@ -216,6 +216,10 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             error("collection_action", path + "/events/activate", "Put actions on collection items.");
         if (role == "menu_item" && !node.events.contains("activate"))
             error("menu_action", path + "/events/activate", "Give each menu item a registered command action.");
+        if (marked(property_names::scrollbar) &&
+            (marked(property_names::modal) || marked(property_names::separator) || !role.empty()))
+            error("scrollbar_role", path + "/properties/scrollbar",
+                  "Do not combine a scrollbar with another semantic role marker.");
         if (!role.empty() && (marked(property_names::modal) || marked(property_names::separator)))
             error("collection_role", path + "/properties/collection_role",
                   "Do not combine a collection role with modal or separator markers.");

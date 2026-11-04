@@ -534,6 +534,72 @@ std::vector<Diagnostic> split_limits_errors(SplitPaneLimits limits) {
 }
 }
 
+Element VerticalScrollbar(std::string label, float viewport, ScrollGeometry scroll, std::string action,
+                          ScrollbarProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    if (!props.node.id || props.node.id->empty())
+        data->diagnostics.push_back(
+            {"scrollbar_id", Severity::error, {}, "Give VerticalScrollbar a stable author ID."});
+    if (!std::isfinite(viewport) || viewport < 0 || !std::isfinite(scroll.extent.height) ||
+        scroll.extent.height < viewport || !std::isfinite(scroll.offset.y) || scroll.offset.y < 0 ||
+        scroll.offset.y > scroll.extent.height - viewport)
+        data->diagnostics.push_back(
+            {"scrollbar_geometry",
+             Severity::error,
+             {},
+             "Supply the accepted scroll viewport height, content extent and clamped vertical offset."});
+    if (!std::isfinite(props.minimum_thumb) || props.minimum_thumb <= 0)
+        data->diagnostics.push_back(
+            {"scrollbar_minimum_thumb", Severity::error, {}, "Supply a finite positive minimum thumb size."});
+    const bool valid = data->diagnostics.empty();
+    const float height = valid ? viewport : 0;
+    const float maximum = valid ? scroll.extent.height - viewport : 0;
+    const float thumb_size =
+        valid && maximum > 0
+            ? std::min(height, std::max(props.minimum_thumb,
+                                        static_cast<float>(double(height) * height / scroll.extent.height)))
+            : 0;
+    const float travel = height - thumb_size;
+    const float before = maximum > 0 ? static_cast<float>(double(travel) * scroll.offset.y / maximum) : 0;
+    const std::string id = props.node.id.value_or("");
+    auto spacer = std::make_shared<detail::ElementData>();
+    spacer->props = {.id = id + "-before", .style = {.height = Dimension::points(before)}, .source = props.node.source};
+    spacer->properties["pointer_events"] = false;
+    auto thumb = std::make_shared<detail::ElementData>();
+    thumb->props = {.id = id + "-thumb",
+                    .style = {.display = maximum > 0 && height > 0 ? Display::flex : Display::none,
+                              .height = Dimension::points(thumb_size),
+                              .min_height = valid ? std::min(height, props.minimum_thumb) : 0,
+                              .background = props.focused   ? Color{0.15f, 0.35f, 0.8f, 1}
+                                            : props.hovered ? Color{0.3f, 0.5f, 0.75f, 1}
+                                                            : Color{0.45f, 0.5f, 0.6f, 1},
+                              .corner_radius = 3.f},
+                    .source = props.node.source};
+    thumb->properties["scrollbar"] = true;
+    thumb->properties["labelled_by"] = NodeReference{id + "-label"};
+    thumb->disabled = props.disabled || maximum <= 0 || travel <= 0;
+    thumb->action = std::move(action);
+    thumb->children.push_back(
+        Text(std::move(label) + ": " + std::to_string(valid ? scroll.offset.y : 0) + " / " + std::to_string(maximum),
+             {.id = id + "-label", .style = {.display = Display::none}, .source = props.node.source}));
+    data->children = {Element(std::move(spacer)), Element(std::move(thumb))};
+    data->props = std::move(props.node);
+    auto& style = data->props.style;
+    style.direction = FlexDirection::column;
+    style.justify = Justify::start;
+    style.align = Align::stretch;
+    style.overflow = Overflow::clip;
+    if (!style.width) style.width = Dimension::points(12);
+    style.height = Dimension::points(height);
+    style.border = Edges{};
+    style.padding = Edges{};
+    style.gap = 0.f;
+    style.grow = 0.f;
+    style.shrink = 0.f;
+    if (!style.background) style.background = Color{0.85f, 0.87f, 0.9f, 1};
+    return Element(std::move(data));
+}
+
 Result<float> split_pane_size_at(SplitPaneLimits limits, float available, float requested) {
     auto errors = split_limits_errors(limits);
     if (!errors.empty()) return {std::nullopt, std::move(errors)};

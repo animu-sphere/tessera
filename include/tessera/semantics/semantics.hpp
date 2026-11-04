@@ -13,7 +13,7 @@
 namespace tessera {
 
 // Prototype in-process projection; not a serialized schema or stable API. Roles are derived from the
-// existing vocabulary, including the Box separator/modal markers and bounded collection roles.
+// existing vocabulary, including Box control markers and bounded collection roles.
 enum class SemanticRole : std::uint8_t {
     root,      // The document root when it has no other role.
     button,    // A node with an `activate` binding. Text descendants name it and get no entries.
@@ -26,6 +26,7 @@ enum class SemanticRole : std::uint8_t {
     tree_item,
     menu,
     menu_item,
+    scrollbar, // A Box with scrollbar=true; activation requests host-owned scrolling.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 

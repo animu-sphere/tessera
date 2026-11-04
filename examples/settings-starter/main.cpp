@@ -2,6 +2,7 @@
 #include <tessera/commands/execution.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/input/scroll.hpp>
+#include <tessera/input/scrollbar.hpp>
 #include <tessera/input/split_pane.hpp>
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/cpu_renderer.hpp>
@@ -52,9 +53,14 @@ ui::Element Field(FieldProps props, std::vector<ui::Element> children) {
 const std::vector<std::string> sections{"account", "feature", "about"};
 constexpr ui::SliderRange volume_range{0, 100, 5};
 constexpr ui::SplitPaneLimits pane_limits{96, 240, 8};
+struct ScrollbarView {
+    float viewport = 144;
+    ScrollGeometry scroll{{0, 144}, {}};
+    bool hovered = false, focused = false;
+};
 ui::Element Settings(const std::string& selected, ui::Value<TextEditState> username, ui::Value<bool> enabled,
                      ui::Value<std::string> summary, ui::Value<std::string> saved, const std::string& theme,
-                     bool theme_open, int volume, float sidebar_size) {
+                     bool theme_open, int volume, float sidebar_size, const ScrollbarView& scrollbar) {
     std::vector<ui::Element> choices;
     for (const auto& id : sections)
         choices.push_back(ui::Button((selected == id ? "* " : "") + id, "settings.section." + id,
@@ -89,8 +95,15 @@ ui::Element Settings(const std::string& selected, ui::Value<TextEditState> usern
          ui::HorizontalSplitPane(
              ui::ScrollView(std::move(choices),
                             {.id = "categories", .style = {.height = Dimension::points(64), .gap = 12.f}}),
-             ui::ScrollView(std::move(rows),
-                            {.id = "settings-form", .style = {.height = Dimension::points(144), .gap = 12.f}}),
+             ui::Row({ui::ScrollView(std::move(rows), {.id = "settings-form",
+                                                       .style = {.width = Dimension::points(0),
+                                                                 .height = Dimension::points(144),
+                                                                 .gap = 12.f,
+                                                                 .grow = 1.f}}),
+                      ui::VerticalScrollbar("Settings scroll", scrollbar.viewport, scrollbar.scroll, "settings.scroll",
+                                            {.node = {.id = "settings-scrollbar"},
+                                             .hovered = scrollbar.hovered,
+                                             .focused = scrollbar.focused})}),
              sidebar_size, "settings.split",
              {.node = {.id = "settings-panes", .style = {.height = Dimension::points(144)}},
               .limits = pane_limits,
@@ -127,6 +140,7 @@ struct Host final : CommandHost {
     std::optional<int> volume_request;
     float sidebar_size = 140, next_sidebar_size = 140;
     std::optional<float> split_request;
+    std::optional<Point> scroll_request;
 
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         next_username = username;
@@ -155,6 +169,8 @@ struct Host final : CommandHost {
         } else if (invocation.command == "settings.split") {
             require(split_request.has_value(), "Split adjustment requires an owned size request");
             next_sidebar_size = *split_request;
+        } else if (invocation.command == "settings.scroll") {
+            require(scroll_request.has_value(), "Scrollbar adjustment requires an owned offset request");
         } else if (invocation.command == "settings.volume") {
             next_draft.volume =
                 volume_request.value_or(std::min(volume_range.maximum, draft.volume + volume_range.step));
@@ -187,9 +203,9 @@ void update_offsets(ScrollOffsets& offsets, const UiTree& tree, const std::vecto
     }
 }
 const ValidationContext actions{{"settings.edit", "settings.toggle", "settings.apply", "settings.cancel",
-                                 "settings.volume", "settings.split", "settings.theme.toggle", "settings.theme.system",
-                                 "settings.theme.light", "settings.theme.dark", "settings.section.account",
-                                 "settings.section.feature", "settings.section.about"}};
+                                 "settings.volume", "settings.split", "settings.scroll", "settings.theme.toggle",
+                                 "settings.theme.system", "settings.theme.light", "settings.theme.dark",
+                                 "settings.section.account", "settings.section.feature", "settings.section.about"}};
 struct Presentation {
     CommandSnapshot commands;
     std::unique_ptr<UiTree> tree;
@@ -276,8 +292,8 @@ int main(int argc, char** argv) {
             return "User " + username.read().text + (enabled.read() ? "; feature enabled" : "; feature disabled");
         });
         auto form = [&](const std::string& selected, const std::string& theme, bool open, int volume,
-                        float sidebar_size) {
-            return Settings(selected, username, enabled, summary, saved, theme, open, volume, sidebar_size);
+                        float sidebar_size, const ScrollbarView& scrollbar) {
+            return Settings(selected, username, enabled, summary, saved, theme, open, volume, sidebar_size, scrollbar);
         };
         const auto sheet = application_styles();
         const auto registry = take(CommandRegistry::create({{"settings.edit", "Edit username"},
@@ -286,6 +302,7 @@ int main(int argc, char** argv) {
                                                             {"settings.cancel", "Cancel pending settings"},
                                                             {"settings.volume", "Adjust volume"},
                                                             {"settings.split", "Resize sidebar"},
+                                                            {"settings.scroll", "Scroll settings"},
                                                             {"settings.theme.toggle", "Open or close theme choices"},
                                                             {"settings.theme.system", "Use system theme"},
                                                             {"settings.theme.light", "Use light theme"},
@@ -299,6 +316,7 @@ int main(int argc, char** argv) {
                                                             {"settings.cancel", "settings.cancel"},
                                                             {"settings.volume", "settings.volume"},
                                                             {"settings.split", "settings.split"},
+                                                            {"settings.scroll", "settings.scroll"},
                                                             {"settings.theme.toggle", "settings.theme.toggle"},
                                                             {"settings.theme.system", "settings.theme.system"},
                                                             {"settings.theme.light", "settings.theme.light"},
@@ -315,6 +333,7 @@ int main(int argc, char** argv) {
                                                   {"settings.cancel", {true}},
                                                   {"settings.volume", {true}},
                                                   {"settings.split", {true}},
+                                                  {"settings.scroll", {true}},
                                                   {"settings.theme.toggle", {true}},
                                                   {"settings.theme.system", {true}},
                                                   {"settings.theme.light", {true}},
@@ -328,33 +347,55 @@ int main(int argc, char** argv) {
         FocusDispatcher focus;
         PointerDispatcher pointer;
         SplitPaneDispatcher splitter("settings-panes");
+        ScrollbarDispatcher scrollbar("settings-scrollbar", "settings-form");
+        ScrollbarView scrollbar_view;
+        std::optional<Point> scrollbar_pointer;
         Size canvas = viewport;
         auto stage = [&](const std::string& selected, ScrollOffsets requested, FocusDispatcher candidate_focus,
                          bool reveal, const std::string& theme, bool open, int volume) -> Result<Presentation> {
             const auto snapshot = commands();
-            auto element = form(selected, theme, open, volume, host.next_sidebar_size);
+            auto bar = scrollbar_view;
+            auto element = form(selected, theme, open, volume, host.next_sidebar_size, bar);
             auto candidate = prepare(session, element, snapshot, sheet, text, requested, canvas);
             if (!candidate) return candidate;
             const auto geometry = take(split_pane_geometry(candidate.value->hit(), "settings-panes"));
             require(geometry.has_value(), "Missing Settings splitter");
             if (geometry->size != host.next_sidebar_size) {
-                element = form(selected, theme, open, volume, geometry->size);
+                element = form(selected, theme, open, volume, geometry->size, bar);
                 candidate = prepare(session, element, snapshot, sheet, text, requested, canvas);
                 if (!candidate) return candidate;
             }
             const auto target = take(candidate_focus.refresh(candidate.value->hit())).focused;
+            bar.focused = target && target == candidate.value->tree->find("settings-scrollbar-thumb");
             if (reveal && target) {
                 const auto updates = take(scroll_into_view(candidate.value->hit(), *target));
                 if (!updates.empty()) {
                     update_offsets(requested, *candidate.value->tree, updates);
                     candidate = prepare(session, element, snapshot, sheet, text, requested, canvas);
+                    if (!candidate) return candidate;
                 }
+            }
+            const auto& scroll = box_for(*candidate.value, *candidate.value->tree->find("settings-form"));
+            bar.viewport = scroll.padding_box().size.height;
+            bar.scroll = *scroll.scroll;
+            // Both the offset and thumb are staged before this presentation can be accepted.
+            element = form(selected, theme, open, volume, geometry->size, bar);
+            candidate = prepare(session, element, snapshot, sheet, text, requested, canvas);
+            if (!candidate) return candidate;
+            const bool hovered =
+                scrollbar_pointer && take(hit_test(candidate.value->hit(), *scrollbar_pointer)).target ==
+                                         candidate.value->tree->find("settings-scrollbar-thumb");
+            if (bar.hovered != hovered) {
+                bar.hovered = hovered;
+                element = form(selected, theme, open, volume, geometry->size, bar);
+                candidate = prepare(session, element, snapshot, sheet, text, requested, canvas);
             }
             return candidate;
         };
         auto accepted =
             take(stage(host.selected, offsets, focus, false, host.draft.theme, host.theme_open, host.draft.volume));
         session.publish();
+        scrollbar_view.scroll = *box_for(accepted, *accepted.tree->find("settings-form")).scroll;
         auto accept = [&](Presentation candidate) {
             for (const auto& box : candidate.layout.boxes)
                 if (box.scroll) offsets[*candidate.tree->get(box.node)->id] = box.scroll->offset;
@@ -364,6 +405,14 @@ int main(int argc, char** argv) {
             const auto split = take(splitter.refresh(accepted.hit()));
             require(split.size.has_value(), "Settings splitter lost its size");
             host.sidebar_size = host.next_sidebar_size = *split.size;
+            (void)take(scrollbar.refresh(accepted.hit()));
+            const auto& scroll = box_for(accepted, *accepted.tree->find("settings-form"));
+            scrollbar_view.viewport = scroll.padding_box().size.height;
+            scrollbar_view.scroll = *scroll.scroll;
+            scrollbar_view.focused =
+                take(focus.refresh(accepted.hit())).focused == accepted.tree->find("settings-scrollbar-thumb");
+            scrollbar_view.hovered = scrollbar_pointer && take(hit_test(accepted.hit(), *scrollbar_pointer)).target ==
+                                                              accepted.tree->find("settings-scrollbar-thumb");
         };
         CommandExecutor executor;
         auto focused = [&](const char* id) {
@@ -376,6 +425,7 @@ int main(int argc, char** argv) {
             // A TextInput click/activation focuses it; only committed edits carry a request.
             if (action.action == "settings.edit" && !edit) return;
             if (action.action == "settings.split" && !host.split_request) return;
+            if (action.action == "settings.scroll" && !host.scroll_request) return;
             const auto current = accepted.semantic();
             const auto invocation = take(accepted.commands.resolve_action(
                 current, action, accepted.commands.generation(), {}, source, ++sequence));
@@ -394,8 +444,10 @@ int main(int argc, char** argv) {
             // Closing choices returns keyboard focus to their stable trigger.
             if (host.theme_open && !host.next_theme_open)
                 (void)take(candidate_focus.focus(accepted.hit(), *accepted.tree->find("theme-trigger")));
-            auto candidate = stage(host.next_selected, offsets, candidate_focus, true, host.next_draft.theme,
-                                   host.next_theme_open, host.next_draft.volume);
+            auto requested = offsets;
+            if (host.scroll_request) requested["settings-form"] = *host.scroll_request;
+            auto candidate = stage(host.next_selected, requested, candidate_focus, !host.scroll_request,
+                                   host.next_draft.theme, host.next_theme_open, host.next_draft.volume);
             if (!candidate) {
                 // Returned stage failure: restore observations, retain host values,
                 // save records and presentation, then exit with diagnostics.
@@ -435,8 +487,39 @@ int main(int argc, char** argv) {
             require(track.size.width > 8, "Slider track has no travel");
             return take(ui::slider_value_at(volume_range, (position.x - track.origin.x - 4) / (track.size.width - 8)));
         };
+        auto scrollbar_feedback = [&] {
+            const bool hovered = scrollbar_pointer && take(hit_test(accepted.hit(), *scrollbar_pointer)).target ==
+                                                          accepted.tree->find("settings-scrollbar-thumb");
+            const bool focused =
+                take(focus.refresh(accepted.hit())).focused == accepted.tree->find("settings-scrollbar-thumb");
+            if (hovered == scrollbar_view.hovered && focused == scrollbar_view.focused) return;
+            auto candidate =
+                take(stage(host.selected, offsets, focus, false, host.draft.theme, host.theme_open, host.draft.volume));
+            session.publish();
+            accept(std::move(candidate));
+        };
         auto input = [&](InputEvent event, CommandSource source = CommandSource::keyboard) {
             require(validate(event).empty(), "Invalid normalized input");
+            if (const auto* move = std::get_if<PointerMove>(&event.data)) scrollbar_pointer = move->position;
+            if (const auto* down = std::get_if<PointerDown>(&event.data)) scrollbar_pointer = down->position;
+            if (const auto* up = std::get_if<PointerUp>(&event.data)) scrollbar_pointer = up->position;
+            if (const auto* scroll = std::get_if<Scroll>(&event.data)) scrollbar_pointer = scroll->position;
+            if (std::holds_alternative<PointerCancel>(event.data) || std::holds_alternative<Cancel>(event.data))
+                scrollbar_pointer.reset();
+            const auto scrolled =
+                take(scrollbar.dispatch(accepted.hit(), event, take(focus.refresh(accepted.hit())).focused));
+            if (scrolled.handled) {
+                volume_pointer.reset();
+                pointer.reset();
+                if (scrolled.focus) (void)take(focus.focus(accepted.hit(), *scrolled.focus));
+                if (scrolled.action) {
+                    host.scroll_request = scrolled.update->offset;
+                    operate(*scrolled.action, source);
+                    host.scroll_request.reset();
+                }
+                scrollbar_feedback();
+                return;
+            }
             const auto split =
                 take(splitter.dispatch(accepted.hit(), event, take(focus.refresh(accepted.hit())).focused));
             if (split.handled) {
@@ -448,6 +531,7 @@ int main(int argc, char** argv) {
                     operate(*split.action, source);
                     host.split_request.reset();
                 }
+                scrollbar_feedback();
                 return;
             }
             if (const auto* cancel = std::get_if<PointerCancel>(&event.data);
@@ -508,6 +592,7 @@ int main(int argc, char** argv) {
                         if (state.pointer == down->pointer && state.pressed)
                             (void)take(focus.focus(accepted.hit(), *state.pressed));
                 for (const auto& action : dispatched.actions) operate(action, source);
+                scrollbar_feedback();
                 return;
             }
             volume_pointer.reset();
@@ -597,6 +682,7 @@ int main(int argc, char** argv) {
                 session.publish();
                 accept(std::move(candidate));
             }
+            scrollbar_feedback();
         };
 
 #ifdef _WIN32
@@ -858,13 +944,14 @@ int main(int argc, char** argv) {
                     "Collapsed Dropdown retained options");
             // Offscreen content retains geometry; focus must be revealed in its pane.
             for (const auto& element : accepted.inspection.elements) {
-                if (element.id == "settings-panes-handle-label") continue;
+                if (element.id == "settings-panes-handle-label" || element.id == "settings-scrollbar-label") continue;
                 require(element.geometry.has_value() && element.geometry->visible, "Missing visible geometry");
                 const auto& box = element.geometry->border_box;
-                require((box.size.width > 0 ||
-                         (element.id == "volume-fill" && host.draft.volume == volume_range.minimum)) &&
-                            box.size.height > 0,
-                        "Empty element geometry");
+                require(
+                    (box.size.width > 0 ||
+                     (element.id == "volume-fill" && host.draft.volume == volume_range.minimum)) &&
+                        (box.size.height > 0 || (element.id == "settings-scrollbar-before" && box.size.height == 0)),
+                    "Empty element geometry");
             }
             if (const auto target = take(focus.refresh(accepted.hit())).focused)
                 require(take(scroll_into_view(accepted.hit(), *target)).empty(), "Focused control is clipped");
@@ -1402,6 +1489,30 @@ int main(int argc, char** argv) {
         send(Activate{});
         require(host.draft == before_split_apply && host.sidebar_size == 148, "Cancel restored a stale split");
         frame_observer("settings-restored", canvas, accepted.paint);
+        (void)observe();
+        seek("settings-scrollbar-thumb");
+        send(KeyDown{Key::home});
+        const auto scroll_retained =
+            std::tuple{host.username, host.draft, host.applied, host.saves, host.result, host.selected};
+        const auto scroll_commands = sequence;
+        auto scroll_point =
+            center(take(scrollbar_geometry(accepted.hit(), "settings-scrollbar", "settings-form"))->bounds);
+        send(PointerMove{{10}, scroll_point}, CommandSource::pointer);
+        send(PointerDown{{10}, scroll_point}, CommandSource::pointer);
+        scroll_point.y += 24;
+        send(PointerMove{{10}, scroll_point}, CommandSource::pointer);
+        require(scrollbar.dragging() && offsets["settings-form"].y > 0 && sequence == scroll_commands + 1,
+                "Settings scrollbar did not use the ordinary host command exactly once");
+        send(PointerUp{{10}, scroll_point}, CommandSource::pointer);
+        require(!scrollbar.dragging() && sequence == scroll_commands + 1,
+                "Settings scrollbar release duplicated the accepted command");
+        const auto dragged = offsets["settings-form"];
+        send(KeyDown{Key::end});
+        require(offsets["settings-form"] == box("settings-form").scroll_limit() &&
+                    offsets["settings-form"].y > dragged.y &&
+                    scroll_retained ==
+                        std::tuple{host.username, host.draft, host.applied, host.saves, host.result, host.selected},
+                "Settings scrollbar keyboard operation lost independent application state");
         (void)observe();
         std::cout << host.saves.size() << " owned saves; " << sequence << " host commands; " << extent.width << 'x'
                   << extent.height << " RGBA8 capture in memory (placeholder text, synthetic glyphs; no window)\n";

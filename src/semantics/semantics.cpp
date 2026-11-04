@@ -61,6 +61,7 @@ public:
             const auto* text = text_of(node);
             std::optional<SemanticRole> role;
             const auto* separator = effective_property(node, property_names::separator);
+            const auto* scrollbar = effective_property(node, property_names::scrollbar);
             const auto collection = detail::collection_role(node);
             if (detail::modal(node))
                 role = SemanticRole::dialog;
@@ -78,11 +79,14 @@ public:
                 role = SemanticRole::menu_item;
             else if (separator && std::get<bool>(*separator))
                 role = SemanticRole::separator;
+            else if (scrollbar && std::get<bool>(*scrollbar))
+                role = SemanticRole::scrollbar;
             else if (activate)
                 role = SemanticRole::button;
             else if (text &&
                      !(inherited != no_semantic_parent && (tree_.nodes[inherited].role == SemanticRole::button ||
                                                            tree_.nodes[inherited].role == SemanticRole::separator ||
+                                                           tree_.nodes[inherited].role == SemanticRole::scrollbar ||
                                                            tree_.nodes[inherited].role == SemanticRole::list_item ||
                                                            tree_.nodes[inherited].role == SemanticRole::tree_item ||
                                                            tree_.nodes[inherited].role == SemanticRole::menu_item)))
@@ -165,10 +169,10 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
     std::vector<Diagnostic> warnings;
     for (const auto& entry : tree.nodes) {
         if ((entry.role == SemanticRole::button || entry.role == SemanticRole::separator ||
-             entry.role == SemanticRole::dialog || entry.role == SemanticRole::list ||
-             entry.role == SemanticRole::tree || entry.role == SemanticRole::list_item ||
-             entry.role == SemanticRole::tree_item || entry.role == SemanticRole::menu ||
-             entry.role == SemanticRole::menu_item) &&
+             entry.role == SemanticRole::scrollbar || entry.role == SemanticRole::dialog ||
+             entry.role == SemanticRole::list || entry.role == SemanticRole::tree ||
+             entry.role == SemanticRole::list_item || entry.role == SemanticRole::tree_item ||
+             entry.role == SemanticRole::menu || entry.role == SemanticRole::menu_item) &&
             entry.name.empty())
             warnings.push_back({"missing_name",
                                 Severity::warning,
@@ -177,12 +181,11 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
                                 {}});
     }
     if (const auto focused = projection.unexposed_focus(tree))
-        warnings.push_back(
-            {"focus_not_exposed",
-             Severity::warning,
-             "/nodes/" + std::to_string(focused->index),
-             "Expose the focusable control as a button or separator, or move focusable to its control owner.",
-             {}});
+        warnings.push_back({"focus_not_exposed",
+                            Severity::warning,
+                            "/nodes/" + std::to_string(focused->index),
+                            "Expose the focusable control with a control role, or move focusable to its control owner.",
+                            {}});
     return {std::move(tree), std::move(warnings)};
 }
 
