@@ -25,5 +25,7 @@ Start with existing widgets and public C++ APIs. Add widget, host or runtime cha
 
 Clipboard, basic Windows IME and development tools follow demonstrated editing/observation needs; completing all of them is not a v0.7.0 release gate. Further candidates: [backlog](backlog.md).
 
+The [Look / visual rendering proposal](../proposals/look.md) is a separate extension direction, not an additional completion gate for this operation. Useful visual work can proceed independently; selected slices are scheduled here without making the whole visual roadmap a prerequisite.
+
 Implemented capabilities and limits: [support matrix](../reference/support-matrix.md).
 Delivered work: [changelog](../../CHANGELOG.md).

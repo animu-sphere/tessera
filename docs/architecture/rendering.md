@@ -158,18 +158,22 @@ Possible mechanisms: [incremental evaluation](../proposals/incremental-evaluatio
 
 ## Proposed primitive semantics
 
-Tessera is a hybrid renderer, not an SDF renderer. Each class of content uses a technique suited to it:
+The [Look proposal](../proposals/look.md) separates shape/coverage, paint/material, effects, motion and composition. It explores gradients, shadows, analytic/SDF shapes and Slang procedural fills through resolved draw data, without changing the implemented command set above. Shader compilation and resource execution remain below the backend/host boundary; time comes from the host under [animation](../proposals/animation.md).
+
+Use a hybrid renderer with techniques suited to the content. SDF is a useful shape implementation, not a required representation for the entire UI. Starting choices are:
 
 | Content | Technique |
 | --- | --- |
 | Rectangles, rounded rectangles, borders; later circles, ellipses, capsules, focus rings, simple shadows | Analytic distance/coverage functions over one quad per primitive |
 | Text | [Glyph raster strategies](text.md#proposed-glyph-raster-strategy): grayscale, MSDF, color glyphs |
-| Vector paths | A path rasterizer; complex paths are not converted to distance-field textures |
+| Vector paths | Path rasterization; distance-field representations remain an option where their quality and cost fit |
 | Images | Texture/bitmap sampling |
 
-Each primitive has one mathematical definition shared by every backend: shader code, a scalar CPU implementation, and any SIMD CPU variant implement the same formula, such as the rounded-rectangle distance and the unequal-border inner-radius rule above. The goal is semantic identity, not bit identity; agreement is checked by tests with declared tolerances. Generating shader and CPU code from one shared description is a later option, not a prerequisite.
+Built-in primitives share defined visual semantics, including coverage and stroke rules. GPU, scalar CPU and optimized CPU implementations may use different algorithms while preserving those semantics under declared tolerances. A shared mathematical definition is useful where appropriate, such as the rounded-rectangle and unequal-border rules above; generating code from one description is optional. Backend-specific capabilities such as procedural fills declare support, diagnostics and an explicit fallback rather than requiring arbitrary Slang execution on CPU. A fallback is not evidence that the requested effect ran.
 
-The current pixel-center rule (hard edges, no antialiasing) is authoritative until replaced. Analytic coverage antialiasing (distance threshold with derivative width on GPUs, area coverage on CPUs) is one explicit contract change applied to all backends together, with reference images re-derived. Clip edges keep the pixel-center scissor rule so paint and [hit testing](input.md#implemented-rectangular-hit-testing) agree. New primitive commands, shadows, and paths extend the draw-list vocabulary only with evidence and a consumer. Subpixel LCD rendering depends on OS, display orientation, and compositor, so it is never the portable default; it may be added later as a platform-specific option.
+The current pixel-center rule (hard edges, no antialiasing) remains the implemented baseline. Analytic coverage antialiasing is an explicit contract extension/change with declared support and updated reference cases; possible methods include derivative-width distance coverage on GPUs and area coverage on CPUs. Existing draw lists retain their documented behavior unless an explicit contract change says otherwise, and unsupported paths must be observable. Clip-edge changes also need a declared relationship to [hit testing](input.md#implemented-rectangular-hit-testing). Shape-aware input is opt-in with an independent CPU geometry contract; a custom shader does not silently replace layout-box input geometry.
+
+New commands, shadows and paths follow useful consumer outcomes, without requiring every backend or later Look slice to land together. Nonrectangular clipping, group opacity, masks, blend modes and offscreen effects need their own composition/resource contracts when selected; they are not excluded by today's vocabulary. Subpixel LCD rendering depends on OS, display orientation and compositor and is a possible platform-specific option rather than the portable default.
 
 ## Implemented scalar CPU reference backend
 
