@@ -51,6 +51,8 @@ These are ordinary typed properties; defaults are never materialized by serializ
 
 Unknown fields fail at every schema level. Unknown properties and bindings fail rather than being silently preserved. Extension keys must have a nonempty namespace and suffix separated by `:`. Extension values may contain nested objects/arrays, strings, finite numbers, booleans, or null. Metadata has no runtime behavior. It is semantically preserved; whitespace, object member order, numeric spelling, and escape spelling are normalized.
 
+Box-only boolean `modal` is another additive v1 property (absent: false). At most one true marker is allowed; it requires a stable ID and must be the last direct root child, after Popup/Tooltip siblings. It cannot also carry `popup_anchor` or a layer-level `activate` binding. Popups cannot anchor to it or its descendants. Closure uses ordinary `display: none` styles, not a serialized host callback/open-state mechanism. [Layout](../../docs/architecture/layout.md#implemented-modal-placement), [input](../../docs/architecture/input.md#implemented-modal-interaction) and [semantics](../../docs/architecture/semantics.md#implemented-prototype-projection) own its bounded placement, eligibility and `dialog` role. Older readers reject the unknown marker; ordinary Box/Text identity and canonical encoding remain unchanged.
+
 ## Canonical output
 
 - UTF-8 without BOM, compact JSON, exactly one trailing LF.

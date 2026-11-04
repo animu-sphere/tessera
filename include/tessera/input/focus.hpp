@@ -14,7 +14,8 @@ struct FocusDispatchResult {
 
 // Host-owned, single-stream focus state for logical commands. Stores the focused handle, its author ID,
 // and the author IDs of the other focusable nodes around it, never callbacks or borrowed inputs. A node can take focus when it is displayed, locally
-// visible, not disabled by itself or an ancestor, and its `focusable` property is true.
+// visible, not disabled by itself or an ancestor, inside any active Modal scope,
+// and its `focusable` property is true.
 class FocusDispatcher final {
 public:
     // Accepts only FocusNext/FocusPrevious/Navigate/Activate/Cancel; hosts translate keys and gamepad

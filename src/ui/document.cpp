@@ -76,6 +76,7 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
     std::vector<std::pair<std::string, std::string>> references;
     std::vector<std::pair<std::string, std::string>> anchors;
     std::vector<std::string> popups;
+    std::size_t modal_count = 0;
     std::size_t count = 0;
     std::function<void(const UiNode&, const std::string&, std::size_t)> visit;
     visit = [&](const UiNode& node, const std::string& path, std::size_t depth) {
@@ -121,6 +122,19 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         }
         if (node.kind == NodeKind::text && !node.children.empty())
             error("invalid_children", path + "/children", "Text is a leaf; place children in a Box.");
+        const auto marker = node.properties.find(property_names::modal);
+        if (marker != node.properties.end() && std::get_if<bool>(&marker->second) && std::get<bool>(marker->second)) {
+            ++modal_count;
+            if (depth != 2)
+                error("modal_parent", path, "Place the single Modal directly under the document root, last.");
+            if (!node.id)
+                error("modal_id", path + "/id", "Give the Modal a stable author ID for dismissal and focus recovery.");
+            if (node.properties.contains(property_names::popup_anchor))
+                error("modal_popup", path, "A Modal cannot also be an anchored Popup.");
+            if (node.events.contains("activate"))
+                error("modal_action", path + "/events/activate", "Put activate bindings on controls inside the Modal.");
+            popups.push_back(path);
+        }
         if (const auto found = node.properties.find(property_names::popup_anchor); found != node.properties.end()) {
             if (const auto* anchor = std::get_if<std::string>(&found->second)) {
                 check_string(*anchor, path + "/properties/popup_anchor", true);
@@ -158,10 +172,17 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
     for (const auto& [id, path] : references) {
         if (!ids.contains(id)) error("invalid_reference", path, "No node has author ID '" + id + "'.");
     }
+    if (modal_count > 1)
+        error("modal_count", "/root", "Compose at most one Modal; nested or stacked Modal lifetimes are unsupported.");
     bool popup_seen = false;
     for (std::size_t i = 0; i < root.children.size(); ++i) {
         const bool popup = root.children[i].properties.contains(property_names::popup_anchor);
-        if (popup_seen && !popup)
+        const auto marker = root.children[i].properties.find(property_names::modal);
+        const bool modal = marker != root.children[i].properties.end() && std::get_if<bool>(&marker->second) &&
+            std::get<bool>(marker->second);
+        if (modal && i + 1 != root.children.size())
+            error("modal_order", "/root/children/" + std::to_string(i), "Place the Modal after all content and popups.");
+        if (popup_seen && !popup && !modal)
             error("popup_order", "/root/children/" + std::to_string(i),
                   "Place ordinary content before all root popup children so paint and hit order agree.");
         popup_seen = popup_seen || popup;
@@ -172,7 +193,7 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         for (const auto& popup : popups) {
             if (target->second == popup || target->second.starts_with(popup + "/"))
                 error("popup_anchor", path + "/properties/popup_anchor",
-                      "Anchor to ordinary content, not a popup or its descendants.");
+                      "Anchor to ordinary content, not a popup/modal layer or its descendants.");
         }
     }
     return errors;

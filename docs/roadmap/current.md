@@ -18,4 +18,8 @@ The [Grid Inspector operation](../guides/grid.md) is delivered: shared label/val
 
 The [dedicated theme-selection example](../guides/popup-tooltip.md) delivers a root-sibling Popup and hover/focus Tooltip: anchor placement follows scrolling and resize, with outside-press/Cancel dismissal, focus recovery and pointer-transparent help. [Support](../reference/support-matrix.md#popup-and-tooltip-evidence--2026-11-04) owns validation evidence and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No Popup/Tooltip work items remain.
 
-Choose another application operation from the [layout follow-ups](backlog.md#layout-follow-ups) before promoting further scope. Absolute positioning, advanced Grid placement, generalized Portal and modal behavior remain inactive.
+## Modal and Dialog
+
+The dedicated [settings-reset confirmation](../guides/modal-dialog.md) delivers a single root Modal and title-labelled Dialog: background input/semantic actions are blocked, keyboard/gamepad focus stays inside, Cancel/Escape closes without resetting, confirmation uses an ordinary command, and closure restores a surviving eligible opener. [Support](../reference/support-matrix.md#modal-and-dialog-evidence--2026-11-04) owns validation evidence and the [changelog](../../CHANGELOG.md#unreleased) owns delivery history. No Modal/Dialog work items remain.
+
+Choose another application operation from the [layout follow-ups](backlog.md#layout-follow-ups) before promoting further scope. Absolute positioning, advanced Grid placement, generalized Portal and nested/stacked modal lifetimes remain inactive.

@@ -1,7 +1,7 @@
 #include <tessera/layout/layout_box.hpp>
 #include <tessera/ui/property_metadata.hpp>
 #include "../detail/layout_snapshot.hpp"
-#include "../detail/popup.hpp"
+#include "../detail/modal.hpp"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -81,7 +81,7 @@ private:
     std::vector<std::uint32_t> displayed_children(std::uint32_t index) const {
         std::vector<std::uint32_t> result;
         for (const auto child : tree_.children(handle(index)))
-            if (styles_[child.index].display != Display::none && !detail::popup_anchor(*tree_.get(child)))
+            if (styles_[child.index].display != Display::none && !detail::root_layer(*tree_.get(child)))
                 result.push_back(child.index);
         return result;
     }
@@ -90,6 +90,10 @@ private:
         const auto boundary = intersect({{}, viewport}, result_.boxes.front().content_box());
         for (const auto child : tree_.children(tree_.root())) {
             const auto& node = *tree_.get(child);
+            if (detail::modal(node)) {
+                if (styles_[child.index].display != Display::none) place(child.index, 0, boundary);
+                continue;
+            }
             if (!detail::popup_anchor(node) || styles_[child.index].display == Display::none) continue;
             const auto* anchor_box = detail::popup_anchor_box(tree_, result_, node);
             if (!anchor_box) continue;
@@ -333,11 +337,17 @@ private:
             for (const auto child : children) {
                 const auto& child_style = styles_[child];
                 Rect box{{}, {aligned_width(child_style.stack_horizontal, child, content.size.width), 0}};
+                const bool bounded = detail::modal(*tree_.get(handle(index)));
+                if (bounded && child_style.width.kind == Dimension::Kind::automatic)
+                    box.size.width = limits(child_style, true).clamp(std::min(box.size.width,
+                        std::max(0.f, content.size.width - total(child_style.margin, true))));
                 const float room = content.size.height - total(child_style.margin, false);
                 box.size.height = child_style.stack_vertical == Align::stretch &&
                     child_style.height.kind == Dimension::Kind::automatic
                     ? limits(child_style, false).clamp(room)
                     : limits(child_style, false).clamp(basis(child, box.size.width).height);
+                if (bounded && child_style.height.kind == Dimension::Kind::automatic)
+                    box.size.height = limits(child_style, false).clamp(std::min(box.size.height, std::max(0.f, room)));
                 for (bool horizontal : {true, false}) {
                     const auto align = horizontal ? child_style.stack_horizontal : child_style.stack_vertical;
                     const float free = std::max(0.0f, along(content.size, horizontal) -

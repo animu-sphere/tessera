@@ -118,6 +118,8 @@ Result<FocusDispatchResult> FocusDispatcher::focus(const HitTestInput& input, No
     const auto box = targeting.box(target);
     if (box == no_layout_parent || !input.layout->boxes[box].visible)
         check.error("hidden_target", "/target", "The target is display-none or hidden and cannot take focus.");
+    else if (!targeting.in_scope(box))
+        check.error("modal_target", "/target", "Focus a control inside the active Modal, or close it first.");
     else if (!targeting.eligible(target))
         check.error("disabled_target", "/target", "The target or an ancestor is disabled.");
     else if (!targeting.focusable(box))

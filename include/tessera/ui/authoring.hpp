@@ -89,6 +89,15 @@ struct PopupProps {
     PopupSide side = PopupSide::bottom;
     float gap = 4;
 };
+struct ModalProps {
+    Props node; // Required stable ID; compose one Modal directly under the root, last.
+    bool open = false;
+};
+struct DialogProps {
+    Props node;
+    Props panel; // Defaults to centered, width-bounded, scrollable content.
+    bool open = false;
+};
 // If the parent cannot hold both minima, keep them and clip the overflow.
 Result<float> split_pane_size_at(SplitPaneLimits, float available, float requested);
 
@@ -113,6 +122,8 @@ private:
     friend Element Grid(std::vector<Element>, Props);
     friend Element Popup(std::string, std::vector<Element>, PopupProps);
     friend Element Tooltip(std::string, Value<std::string>, PopupProps);
+    friend Element Modal(std::vector<Element>, ModalProps);
+    friend Element Dialog(Value<std::string>, std::vector<Element>, DialogProps);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -141,6 +152,11 @@ Element Grid(std::vector<Element> children, Props = {});
 Element Popup(std::string anchor, std::vector<Element> children, PopupProps = {});
 // Noninteractive text popup; the host controls visibility from hover/focus.
 Element Tooltip(std::string anchor, Value<std::string> text, PopupProps = {});
+// Controlled root-content layer. Background input/semantic actions are ineligible
+// while shown; ordinary focus traversal stays inside. No Portal or nested modals.
+Element Modal(std::vector<Element> children, ModalProps = {});
+// Title-labelled Modal; generated IDs are <id>-panel and <id>-title.
+Element Dialog(Value<std::string> title, std::vector<Element> children, DialogProps = {});
 // A Column with scroll overflow. Constrain its size through Props::style;
 // the host owns offsets and routes wheel input/focus reveal through input/scroll.
 Element ScrollView(std::vector<Element> children, Props = {});

@@ -26,6 +26,7 @@ add_library(tessera_core
     src/input/scroll.cpp
     src/input/split_pane.cpp
     src/input/popup.cpp
+    src/input/modal.cpp
     src/commands/commands.cpp
     src/commands/execution.cpp
     src/commands/transactions.cpp

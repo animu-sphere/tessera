@@ -14,6 +14,7 @@ inline constexpr std::string_view text = "text";
 inline constexpr std::string_view focusable = "focusable";
 inline constexpr std::string_view disabled = "disabled";
 inline constexpr std::string_view labelled_by = "labelled_by";
+inline constexpr std::string_view modal = "modal";
 inline constexpr std::string_view pointer_events = "pointer_events";
 inline constexpr std::string_view popup_anchor = "popup_anchor";
 inline constexpr std::string_view popup_gap = "popup_gap";

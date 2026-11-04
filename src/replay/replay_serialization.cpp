@@ -95,7 +95,7 @@ constexpr std::array<std::string_view, 3> overflow_names{"visible", "clip", "scr
 constexpr std::array<std::string_view, 2> visibility_names{"visible", "hidden"};
 constexpr std::array<std::string_view, 3> button_names{"primary", "secondary", "middle"};
 constexpr std::array<std::string_view, 4> direction_key_names{"up", "down", "left", "right"};
-constexpr std::array<std::string_view, 4> role_names{"root", "button", "text", "separator"};
+constexpr std::array<std::string_view, 5> role_names{"root", "button", "text", "separator", "dialog"};
 constexpr std::array<std::string_view, 5> readiness_names{"idle", "loading", "ready", "failed", "cancelled"};
 
 ReplayHostSlot host_slot(const JsonValue& value, const std::string& path) {
@@ -391,7 +391,7 @@ void check_target(const InspectionTarget& value, const std::string& path, detail
     if (const auto* id = std::get_if<AuthorIdTarget>(&value)) {
         if (!detail::valid_utf8(id->id)) check.error("invalid_utf8", path + "/id", "Use valid UTF-8.");
     } else if (const auto* semantic = std::get_if<SemanticTarget>(&value)) {
-        check.enumeration(semantic->role, SemanticRole::separator, path + "/role");
+        check.enumeration(semantic->role, SemanticRole::dialog, path + "/role");
         if (!detail::valid_utf8(semantic->name)) check.error("invalid_utf8", path + "/name", "Use valid UTF-8.");
     } else if (const auto* position = std::get_if<PointTarget>(&value)) {
         check.point(position->position, path + "/position");

@@ -84,6 +84,7 @@ void capture_joins_one_generation() {
         {"disabled", tessera::Property{false}, false},
         {"focusable", tessera::Property{true}, true},
         {"labelled_by", std::nullopt, false},
+        {"modal", tessera::Property{false}, false},
         {"pointer_events", tessera::Property{true}, false},
         {"popup_anchor", std::nullopt, false},
         {"popup_gap", tessera::Property{4.0}, false},
