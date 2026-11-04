@@ -52,7 +52,9 @@ class ReplayPlayer {
 public:
     ReplayPlayer(ReplayRecording recording, TextShaper& text)
         : recording_(std::move(recording)), text_(text), viewport_(recording_.viewport),
-          scale_(recording_.environment.scale), host_(recording_.environment.host) {}
+          scale_(recording_.environment.scale), host_(recording_.environment.host),
+          input_(recording_.policy.compatible_pointer ? PointerSnapshotPolicy::compatible_author_ids
+                                                      : PointerSnapshotPolicy::tree_identity) {}
 
     // Settles the initial snapshot and then applies every recorded step.
     bool run() {
@@ -313,11 +315,6 @@ private:
         }
         committed_ = true;
         current_.layout = std::move(*layout.value);
-        auto refreshed = input_.refresh(current_.input());
-        if (!refreshed) {
-            relocate(errors_, std::move(refreshed.diagnostics), at);
-            return false;
-        }
         auto recovered = focus_.refresh(current_.input());
         if (!recovered) {
             relocate(errors_, std::move(recovered.diagnostics), at);
@@ -334,6 +331,11 @@ private:
                 for (const auto& update : *revealed.value) offsets_[update.container.index] = update.offset;
                 return settle(step, at);
             }
+        }
+        auto refreshed = input_.refresh(current_.input());
+        if (!refreshed) {
+            relocate(errors_, std::move(refreshed.diagnostics), at);
+            return false;
         }
         ReplayGeneration generation{step, {}, std::move(*paint.value)};
         generation.viewport = viewport_;

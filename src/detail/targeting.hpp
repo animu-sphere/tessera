@@ -57,6 +57,14 @@ public:
         return input_.tree->get(node) && by_node_[node.index] != no_layout_parent && eligible(by_node_[node.index]);
     }
     bool eligible(std::size_t box) const { return input_.layout->boxes[box].visible && !disabled_[box] && scope_[box]; }
+    bool pointer_eligible(NodeHandle node) const {
+        if (!eligible(node)) return false;
+        const auto index = by_node_[node.index];
+        if (!pointer_events_[index]) return false;
+        const auto& box = input_.layout->boxes[index];
+        const auto visible = box.clip ? intersect(box.border_box, *box.clip) : box.border_box;
+        return visible.size.width > 0 && visible.size.height > 0;
+    }
     bool in_scope(std::size_t box) const { return scope_[box]; }
     // Disabled by the node or an ancestor, regardless of visibility.
     bool disabled(std::size_t box) const { return disabled_[box]; }

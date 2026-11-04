@@ -52,7 +52,7 @@ struct ReplayTick {
     bool operator==(const ReplayTick&) const = default;
 };
 // Replaces the document at an update point. styles[i] belongs to the new tree's preorder node i.
-// The new tree has a new identity, so pointer state is cleared as by snapshot replacement.
+// Pointer state follows the recording's compatible_pointer policy (off by default).
 struct ReplayReload {
     UiDocument document;
     std::vector<ResolvedStyle> styles;
@@ -86,10 +86,11 @@ struct ReplaySemanticAction {
 using ReplayStep = std::variant<InputEvent, ReplayResize, ReplayReload, ReplayFocus, ReplaySemanticAction, ReplayScale,
                                 ReplayTick, ReplayHostUpdate>;
 
-// Host focus policies that playback applies on the host's behalf; both are off by default.
+// Host input policies that playback applies on the host's behalf; all are off by default.
 struct ReplayFocusPolicy {
-    bool press_focus = false;  // A primary press that records a focusable press owner also focuses it.
-    bool reveal_focus = false; // Focus moved to another node by a command or focus step is scrolled into view.
+    bool press_focus = false;        // A primary press that records a focusable press owner also focuses it.
+    bool reveal_focus = false;       // Focus moved to another node by a command or focus step is scrolled into view.
+    bool compatible_pointer = false; // Preserve compatible author-ID presses and stationary hover on replacement.
     bool operator==(const ReplayFocusPolicy&) const = default;
 };
 

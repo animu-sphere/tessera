@@ -35,11 +35,16 @@ struct Fixture {
     tessera::PointerDispatcher dispatcher;
     std::chrono::microseconds time{0};
 
-    explicit Fixture(tessera::UiNode root = box({button("start"), button("quit")})) {
+    explicit Fixture(tessera::UiNode root = box({button("start"), button("quit")}),
+                     tessera::PointerSnapshotPolicy policy = tessera::PointerSnapshotPolicy::tree_identity)
+        : dispatcher(policy) {
         tessera::UiDocument document;
         document.root = std::move(root);
         auto created = tessera::UiTree::create(document, {{"start", "quit", "root"}});
-        check(static_cast<bool>(created), "Fixture tree rejected");
+        check(static_cast<bool>(created), created.diagnostics.empty()
+                                              ? "Fixture tree rejected"
+                                              : "Fixture tree rejected: " + created.diagnostics.front().code + " at " +
+                                                    created.diagnostics.front().path);
         tree = std::move(*created.value);
         styles.resize(tree->size());
         for (auto& style : styles) style.align = tessera::Align::start;
@@ -52,6 +57,12 @@ struct Fixture {
     }
     tessera::NodeHandle node(std::uint32_t index) const { return {tree->root().tree, index}; }
     tessera::HitTestInput input() const { return {tree.get(), styles, &layout}; }
+    void replace(tessera::UiNode root) {
+        Fixture next(std::move(root));
+        tree = std::move(next.tree);
+        styles = std::move(next.styles);
+        layout = std::move(next.layout);
+    }
     tessera::HitTestResult hit(tessera::Point point) const {
         const auto result = tessera::hit_test(input(), point);
         check(result && result.diagnostics.empty(), "Valid hit query rejected");
@@ -265,6 +276,195 @@ void refresh_replacement_and_invalid_input() {
           "Foreign layout handle accepted by hit test");
 }
 
+tessera::UiNode stable_buttons() {
+    auto start = button("start");
+    start.id = "start-button";
+    auto quit = button("quit");
+    quit.id = "quit-button";
+    return box({std::move(start), std::move(quit)});
+}
+
+void compatible_replacements_retarget_owned_identities() {
+    Fixture f(stable_buttons(), tessera::PointerSnapshotPolicy::compatible_author_ids);
+    f.send(tessera::PointerDown{{1}, {1, 1}});
+    const auto original = f.node(1);
+    for (int i = 0; i < 4; ++i) {
+        auto root = stable_buttons();
+        root.children.insert(root.children.begin(), box());
+        root.children[1].children[0].properties["text"] = std::string("telemetry ") + std::to_string(i);
+        f.replace(std::move(root));
+        const auto refreshed = f.dispatcher.refresh(f.input());
+        check(refreshed && refreshed.value->actions.empty() && !refreshed.value->target &&
+                  refreshed.value->pointers.size() == 1,
+              "Replacement refresh must retain one pointer without producing actions");
+        const auto& state = refreshed.value->pointers[0];
+        check(!f.tree->get(original) && state.primary_down && state.pressed == f.node(2) && state.active == f.node(2) &&
+                  state.hovered == f.node(3),
+              "Compatible replacements must resolve the author ID and hit in the current tree, not reuse indices");
+    }
+    check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions ==
+              std::vector<tessera::ActionRequest>{{"activate", "start", f.node(2)}},
+          "Multiple replacements must activate exactly once on the current owner");
+    check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.empty(), "Replacement must not duplicate activation");
+
+    f.send(tessera::PointerDown{{1}, {1, 1}});
+    f.send(tessera::PointerMove{{1}, {-1, -1}});
+    f.replace(stable_buttons());
+    const auto outside = f.dispatcher.refresh(f.input());
+    check(outside && outside.value->pointers[0].pressed == f.node(1) && !outside.value->pointers[0].active &&
+              !outside.value->pointers[0].hovered,
+          "Replacement outside must retain capture without active or hover feedback");
+    check(f.send(tessera::PointerUp{{1}, {-1, -1}}).actions.empty(),
+          "Release outside after replacement must remain inert");
+    f.send(tessera::PointerDown{{1}, {1, 1}});
+    f.send(tessera::PointerMove{{1}, {-1, -1}});
+    f.replace(stable_buttons());
+    check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.size() == 1,
+          "Dispatch without an explicit refresh must reconcile a returning press");
+
+    f.send(tessera::PointerMove{{2}, {1, 1}});
+    f.replace(stable_buttons());
+    f.styles[1].display = tessera::Display::none;
+    f.compute();
+    const auto shifted = f.dispatcher.refresh(f.input());
+    check(shifted && shifted.value->pointers.size() == 2 && shifted.value->pointers[1].hovered == f.node(4) &&
+              !shifted.value->pointers[1].primary_down,
+          "Stationary hover without a press must follow accepted replacement geometry");
+
+    f.dispatcher.reset();
+    f.time = 0us;
+    f.replace(stable_buttons());
+    f.send(tessera::PointerDown{{1}, {1, 1}});
+    f.replace(stable_buttons());
+    check(f.send(tessera::PointerUp{{1}, {1, 21}}).actions.empty(),
+          "Another owner's release after replacement must not activate");
+}
+
+void incompatible_replacements_cancel_permanently() {
+    for (const std::string_view failure :
+         {"removed", "missing_id", "changed_action", "missing_binding", "kind", "hidden", "display_none", "disabled",
+          "ancestor_disabled", "pointer_events", "ancestor_pointer_events", "clipped", "zero_area", "modal"}) {
+        Fixture f(stable_buttons(), tessera::PointerSnapshotPolicy::compatible_author_ids);
+        f.send(tessera::PointerDown{{1}, {1, 1}});
+        auto root = stable_buttons();
+        if (failure == "removed") root.children.erase(root.children.begin());
+        if (failure == "missing_id") root.children[0].id.reset();
+        if (failure == "changed_action") root.children[0].events["activate"] = "quit";
+        if (failure == "missing_binding") root.children[0].events.clear();
+        if (failure == "kind") {
+            root.children[0].kind = tessera::NodeKind::text;
+            root.children[0].properties["text"] = std::string("changed kind");
+            root.children[0].children.clear();
+        }
+        if (failure == "disabled") root.children[0].properties["disabled"] = true;
+        if (failure == "ancestor_disabled") root.properties["disabled"] = true;
+        if (failure == "pointer_events") root.children[0].properties["pointer_events"] = false;
+        if (failure == "ancestor_pointer_events") root.properties["pointer_events"] = false;
+        if (failure == "modal") {
+            root.children[1].properties["modal"] = true;
+            root.children[1].events.clear();
+        }
+        f.replace(std::move(root));
+        if (failure == "hidden") f.styles[1].visibility = tessera::Visibility::hidden;
+        if (failure == "display_none") f.styles[1].display = tessera::Display::none;
+        if (failure == "clipped") {
+            f.styles[0].overflow = tessera::Overflow::clip;
+            f.styles[1].margin.top = 100;
+        }
+        if (failure == "zero_area") f.styles[1].width = tessera::Dimension::points(0);
+        f.compute();
+        const auto refreshed = f.dispatcher.refresh(f.input());
+        check(refreshed && refreshed.value->actions.empty() && refreshed.value->pointers.size() == 1 &&
+                  refreshed.value->pointers[0].primary_down && !refreshed.value->pointers[0].pressed &&
+                  !refreshed.value->pointers[0].active,
+              "Unsafe replacement must cancel its capture: " + std::string(failure));
+        f.replace(stable_buttons());
+        f.send(tessera::PointerDown{{1}, {1, 1}});
+        check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.empty(),
+              "Restoration or repeated down must not revive a cancelled capture: " + std::string(failure));
+        f.send(tessera::PointerDown{{1}, {1, 1}});
+        check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.size() == 1,
+              "A fresh press must work after safe cancellation");
+    }
+
+    Fixture anonymous(box({button("start")}), tessera::PointerSnapshotPolicy::compatible_author_ids);
+    anonymous.send(tessera::PointerDown{{1}, {1, 1}});
+    check(anonymous.send(tessera::PointerUp{{1}, {1, 1}}).actions.size() == 1,
+          "Anonymous same-snapshot buttons must retain ordinary click behavior");
+    anonymous.send(tessera::PointerDown{{1}, {1, 1}});
+    anonymous.replace(stable_buttons());
+    check(anonymous.send(tessera::PointerUp{{1}, {1, 1}}).actions.empty(),
+          "A press without a stable original author ID must not migrate");
+
+    auto duplicate = stable_buttons();
+    duplicate.children[1].id = duplicate.children[0].id;
+    tessera::UiDocument document;
+    document.root = std::move(duplicate);
+    check(
+        has(tessera::UiTree::create(document, {{"start", "quit"}}).diagnostics, "duplicate_id", "/root/children/1/id"),
+        "Ambiguous author IDs must be rejected before publication");
+}
+
+void compatible_cancellation_and_rejection_are_safe() {
+    Fixture f(stable_buttons(), tessera::PointerSnapshotPolicy::compatible_author_ids);
+    f.send(tessera::PointerDown{{9}, {1, 1}});
+    f.send(tessera::PointerDown{{2}, {1, 21}});
+    f.replace(stable_buttons());
+    auto before = f.dispatcher.refresh(f.input());
+    check(before && before.value->pointers[0].pressed == f.node(3) && before.value->pointers[1].pressed == f.node(1),
+          "Each pointer must independently resolve its replacement owner");
+    f.send(tessera::PointerCancel{{9}});
+    f.replace(stable_buttons());
+    check(f.send(tessera::PointerUp{{9}, {1, 1}}).actions.empty(),
+          "Capture/focus-loss cancellation must survive later compatible replacements");
+    check(f.send(tessera::PointerUp{{2}, {1, 21}}).actions ==
+              std::vector<tessera::ActionRequest>{{"activate", "quit", f.node(3)}},
+          "Cancellation must not affect another pointer");
+    f.send(tessera::PointerDown{{2}, {1, 21}});
+    f.dispatcher.reset();
+    f.time = 0us;
+    f.replace(stable_buttons());
+    check(f.send(tessera::PointerUp{{2}, {1, 21}}).actions.empty(),
+          "Reset must discard compatible captures as well as the stream clock");
+
+    f.send(tessera::PointerDown{{1}, {1, 1}});
+    before = f.dispatcher.refresh(f.input());
+    Fixture next(stable_buttons());
+    auto invalid = next.input();
+    invalid.styles = invalid.styles.first(1);
+    check(!f.dispatcher.refresh(invalid) &&
+              !f.dispatcher.dispatch(invalid, {f.time + 1us, tessera::PointerCancel{{1}}}) &&
+              !f.dispatcher.dispatch(next.input(), {0us, tessera::PointerUp{{1}, {1, 1}}}),
+          "Invalid replacement input or time must be rejected before remapping");
+    check(f.dispatcher.refresh(f.input()).value == before.value,
+          "Rejected replacement must leave the accepted pointer snapshot unchanged");
+    const auto up = f.dispatcher.dispatch(next.input(), {f.time + 1us, tessera::PointerUp{{1}, {1, 1}}});
+    check(up && up.value->actions == std::vector<tessera::ActionRequest>{{"activate", "start", next.node(1)}},
+          "A valid retry must retain the original compatible capture");
+
+    f.dispatcher.reset();
+    f.time = 0us;
+    f.send(tessera::PointerDown{{1}, {1, 1}});
+    f.styles[1].visibility = tessera::Visibility::hidden;
+    f.compute();
+    check(!f.dispatcher.refresh(f.input()).value->pointers[0].pressed,
+          "Same-tree ineligibility must still cancel an opted-in capture");
+    f.replace(stable_buttons());
+    check(f.send(tessera::PointerUp{{1}, {1, 1}}).actions.empty(),
+          "Replacement must not resurrect a press cancelled in the same tree");
+
+    Fixture defaults(stable_buttons());
+    defaults.send(tessera::PointerDown{{1}, {1, 1}});
+    defaults.replace(stable_buttons());
+    check(defaults.dispatcher.refresh(defaults.input()).value->pointers.empty(),
+          "The default must still clear all pointers even with compatible stable IDs");
+    tessera::PointerDispatcher invalid_policy(static_cast<tessera::PointerSnapshotPolicy>(255));
+    check(has(invalid_policy.refresh(defaults.input()).diagnostics, "unknown_value", "/policy") &&
+              has(invalid_policy.dispatch(defaults.input(), {0us, tessera::PointerCancel{{1}}}).diagnostics,
+                  "unknown_value", "/policy"),
+          "Invalid replacement policy must fail explicitly on refresh and dispatch");
+}
+
 } // namespace
 
 int main() {
@@ -274,6 +474,9 @@ int main() {
         click_binding_lookup_and_drag();
         cancellation_buttons_and_multiple_pointers();
         refresh_replacement_and_invalid_input();
+        compatible_replacements_retarget_owned_identities();
+        incompatible_replacements_cancel_permanently();
+        compatible_cancellation_and_rejection_are_safe();
         std::cout << "Pointer targeting/binding/cancellation, multi-pointer, refresh, and validation checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

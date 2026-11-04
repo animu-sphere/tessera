@@ -66,6 +66,25 @@ int main() {
     const auto help = tooltip.refresh(popup_hit, (*popup_tree.value)->find("anchor"));
     if (!opened || opened.value->focus != (*popup_tree.value)->find("choice") || !help || !help.value->visible)
         return 49;
+    tessera::PointerDispatcher pointer(tessera::PointerSnapshotPolicy::compatible_author_ids);
+    const auto pressed = pointer.dispatch(popup_hit, {std::chrono::microseconds{1}, tessera::PointerDown{{1}, {1, 1}}});
+    if (!pressed || pressed.value->pointers.size() != 1 ||
+        pressed.value->pointers[0].pressed != (*popup_tree.value)->find("anchor"))
+        return 56;
+    const auto replacement = tessera::UiTree::create(popup_form.value->document, popup_actions);
+    if (!replacement) return 57;
+    const auto replacement_layout =
+        tessera::compute_layout({replacement.value->get(), *popup_styles.value, {200, 120}, &popup_text});
+    if (!replacement_layout) return 58;
+    const tessera::HitTestInput replacement_hit{replacement.value->get(), *popup_styles.value,
+                                                &*replacement_layout.value};
+    const auto retained = pointer.refresh(replacement_hit);
+    const auto released =
+        pointer.dispatch(replacement_hit, {std::chrono::microseconds{2}, tessera::PointerUp{{1}, {1, 1}}});
+    if (!retained || !released ||
+        released.value->actions !=
+            std::vector<tessera::ActionRequest>{{"activate", "open", *(*replacement.value)->find("anchor")}})
+        return 59;
     const auto collections = form.lower(
         ui::Column({ui::TreeView("Folders", "child",
                                  {{"folder", "Folder", "choose", "open", true, false, {{"child", "Child", "choose"}}}},

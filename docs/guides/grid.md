@@ -44,8 +44,10 @@ The window-free [Inspector](../../examples/grid-inspector/main.cpp) verifies:
 1. Two properties share label and editable-value columns at a 320-unit viewport width.
 2. Keyboard focus and normalized committed text edit the display name without changing Category.
 3. Resizing to 168 units preserves edits/focus, increases wrapped row height and keeps input content within its field bounds.
-4. Pointer activation and directional gamepad navigation reach the same ordinary command owners.
+4. Pointer activation survives three fresh immutable presentations while held, emits one current-snapshot command, and directional gamepad navigation reaches the same ordinary command owners.
 5. An injected measurement rejection retains accepted fields and presentation with diagnostics; a fresh edit succeeds without the rejected text.
 6. Growing back to 320 units keeps Category focus and both accepted edits.
+
+The host opts into `PointerSnapshotPolicy::compatible_author_ids` and refreshes pointer/focus dispatchers after every accepted presentation; stable field IDs and unchanged activation bindings preserve an ordinary click while updates continue. The [pointer contract](../architecture/input.md#implemented-pointer-dispatch) owns eligibility, cancellation and lifetime rules.
 
 The host stages session observations, style resolution and layout before accepting an edit; a returned layout failure restores the observation and retains its prior view. Allocation failures propagate; this is not generalized exception rollback. The fixture uses placeholder text metrics and no native window, physical device, real font, IME or persistence. It does not implement caret drawing or hit-to-caret placement. Selective CPU/clip/hit and Replay coverage belongs to the [owner checks](../../tests/layout/grid_tests.cpp) and [codec checks](../../tests/replay/replay_serialization_tests.cpp); tested configurations are recorded in [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#grid-evidence--2026-11-04).
