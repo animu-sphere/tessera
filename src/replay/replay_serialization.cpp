@@ -355,9 +355,11 @@ ReplayRecording read(const JsonValue& value) {
         if (!result.context.actions.insert(action).second)
             fail("duplicate_action", location, "Declare each host action once.");
     }
-    const auto& policy = object(root.at("policy"), "/policy", {"press_focus", "reveal_focus"});
+    const auto& policy = object(root.at("policy"), "/policy", {"press_focus", "reveal_focus"}, {"compatible_pointer"});
     result.policy = {boolean(policy.at("press_focus"), "/policy/press_focus"),
                      boolean(policy.at("reveal_focus"), "/policy/reveal_focus")};
+    if (policy.contains("compatible_pointer"))
+        result.policy.compatible_pointer = boolean(policy.at("compatible_pointer"), "/policy/compatible_pointer");
     const auto& environment = result.version == replay_host_version
                                   ? object(root.at("environment"), "/environment", {"scale", "locale", "text", "host"})
                                   : object(root.at("environment"), "/environment", {"scale", "locale", "text"});
@@ -684,10 +686,12 @@ JsonValue write(const ReplayRecording& recording) {
         for (const auto& slot : recording.environment.host) slots.push_back(host_json(slot));
         environment["host"] = JsonValue{std::move(slots)};
     }
+    Object policy{{"press_focus", JsonValue{recording.policy.press_focus}},
+                  {"reveal_focus", JsonValue{recording.policy.reveal_focus}}};
+    if (recording.policy.compatible_pointer) policy["compatible_pointer"] = JsonValue{true};
     return JsonValue{Object{{"version", number(recording.version)},
                             {"actions", JsonValue{std::move(actions)}},
-                            {"policy", JsonValue{Object{{"press_focus", JsonValue{recording.policy.press_focus}},
-                                                        {"reveal_focus", JsonValue{recording.policy.reveal_focus}}}}},
+                            {"policy", JsonValue{std::move(policy)}},
                             {"environment", JsonValue{std::move(environment)}},
                             {"viewport", size_json(recording.viewport)},
                             {"document", detail::write_document_json(recording.document)},

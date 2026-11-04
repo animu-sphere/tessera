@@ -106,7 +106,7 @@ public:
     Size viewport{320, 400};
     View view = take(prepare(session, form, viewport, text));
     FocusDispatcher focus;
-    PointerDispatcher pointer;
+    PointerDispatcher pointer{PointerSnapshotPolicy::compatible_author_ids};
 
     Host() { session.publish(); }
 
@@ -175,10 +175,20 @@ public:
         require(down.actions.empty() && down.pointers.size() == 1 && down.pointers[0].pressed,
                 "Pointer press must find an input without activating it");
         (void)take(focus.focus(view.hit(), *down.pointers[0].pressed));
+        const auto previous_tree = view.tree->root().tree;
+        for (int i = 0; i < 3; ++i) accept(take(prepare(session, form, viewport, text)));
+        const auto refreshed = take(pointer.refresh(view.hit()));
+        require(view.tree->root().tree != previous_tree && refreshed.actions.empty() &&
+                    refreshed.pointers.size() == 1 && refreshed.pointers[0].pressed == view.tree->find("name") &&
+                    refreshed.pointers[0].active == view.tree->find("name") &&
+                    take(focus.refresh(view.hit())).focused == view.tree->find("name"),
+                "Inspector publication while held must preserve the current-snapshot press, hover and focus");
         const auto up = take(pointer.dispatch(view.hit(), {2us, PointerUp{{1}, point}}));
         require(up.actions.size() == 1, "Pointer release must route one Inspector action");
         require(run(up.actions[0], CommandSource::pointer).status == CommandOutcomeStatus::success,
                 "Inspector pointer activation failed");
+        require(take(pointer.dispatch(view.hit(), {2us, PointerUp{{1}, point}})).actions.empty(),
+                "Inspector replacement must not duplicate activation");
     }
 
 private:

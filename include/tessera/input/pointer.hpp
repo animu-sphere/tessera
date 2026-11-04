@@ -5,8 +5,13 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <string>
 
 namespace tessera {
+
+namespace detail {
+class Targeting;
+}
 
 // Borrowed for a query/dispatch; use a coherent tree/styles/layout snapshot.
 struct HitTestInput {
@@ -44,19 +49,39 @@ struct PointerDispatchResult {
     bool operator==(const PointerDispatchResult&) const = default;
 };
 
-// Host-owned, single-stream state. Stores values/handles only, never callbacks or borrowed inputs.
+enum class PointerSnapshotPolicy : std::uint8_t { tree_identity, compatible_author_ids };
+
+// Host-owned, single-stream state. Stores owned values only, never callbacks or borrowed inputs.
 class PointerDispatcher final {
 public:
+    PointerDispatcher() = default;
+    explicit PointerDispatcher(PointerSnapshotPolicy policy) : policy_(policy) {}
+
     // Accepts only PointerMove/Down/Up/Cancel. Invalid input leaves state unchanged.
     // Primary release activates only the original binding owner when it still matches the hit.
     Result<PointerDispatchResult> dispatch(const HitTestInput&, const InputEvent&);
     // Re-target stationary pointers and cancel ineligible presses after snapshot changes.
-    // A different tree identity clears all pointer state. No action is requested by refresh.
+    // By default a different tree identity clears all pointer state. compatible_author_ids
+    // re-resolves eligible press owners with the same author ID, kind and activation binding.
+    // No action is requested by refresh.
     Result<PointerDispatchResult> refresh(const HitTestInput&);
     void reset() noexcept;
 
 private:
-    std::map<std::uint32_t, PointerState> pointers_;
+    struct Press {
+        std::optional<std::string> id;
+        std::string action;
+        NodeKind kind;
+    };
+    struct StoredPointer {
+        PointerState state;
+        std::optional<Press> press;
+    };
+    void reconcile(const HitTestInput&, const detail::Targeting&);
+    PointerDispatchResult snapshot() const;
+
+    PointerSnapshotPolicy policy_ = PointerSnapshotPolicy::tree_identity;
+    std::map<std::uint32_t, StoredPointer> pointers_;
     std::uint64_t tree_ = 0;
     std::optional<std::chrono::microseconds> timestamp_;
 };

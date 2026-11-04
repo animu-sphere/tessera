@@ -252,6 +252,33 @@ void grid_styles_round_trip() {
           "Default Grid fields must not change legacy canonical recordings");
 }
 
+void compatible_pointer_policy_round_trips() {
+    for (const auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        auto source = recording();
+        source.version = version;
+        const auto legacy = save(source);
+        check(legacy.find("compatible_pointer") == std::string::npos && load(legacy) == source,
+              "Default pointer policy must not change legacy canonical JSON");
+        source.policy.compatible_pointer = true;
+        const auto point = play(source).generations[0].boxes[1].border_box.origin;
+        source.steps = {tessera::InputEvent{1us, tessera::PointerDown{{1}, point}},
+                        tessera::ReplayReload{source.document, source.styles},
+                        tessera::InputEvent{2us, tessera::PointerUp{{1}, point}}};
+        const auto json = save(source);
+        check(json.find("\"compatible_pointer\":true") != std::string::npos && load(json) == source &&
+                  save(load(json)) == json && play(load(json)) == play(source) && play(source).actions.size() == 1,
+              "The opt-in must round-trip and reproduce replacement activation in replay v1 and v2");
+        auto invalid = tessera::load_replay(changed(json, "\"compatible_pointer\":true", "\"compatible_pointer\":0"));
+        check(!invalid && has(invalid.diagnostics, "schema_type", "/policy/compatible_pointer") &&
+                  invalid.diagnostics[0].byte_offset.has_value(),
+              "A malformed pointer policy needs a located diagnostic");
+        const auto explicit_false = load(changed(json, "\"compatible_pointer\":true", "\"compatible_pointer\":false"));
+        check(!explicit_false.policy.compatible_pointer && play(explicit_false).actions.empty() &&
+                  save(explicit_false).find("compatible_pointer") == std::string::npos,
+              "Explicit false must retain tree-identity behavior and canonical omission");
+    }
+}
+
 void loading_rejects_malformed_input() {
     auto base_recording = recording();
     base_recording.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
@@ -465,6 +492,7 @@ int main() {
         stack_styles_round_trip();
         grid_styles_round_trip();
         loading_rejects_malformed_input();
+        compatible_pointer_policy_round_trips();
         saving_rejects_invalid_recordings();
         playback_checks_the_environment();
         sha256_matches_fips_vectors();

@@ -13,17 +13,40 @@ bool is_pointer(const InputEvent& event) {
            std::holds_alternative<PointerUp>(event.data) || std::holds_alternative<PointerCancel>(event.data);
 }
 
-PointerDispatchResult snapshot(const std::map<std::uint32_t, PointerState>& pointers) {
+} // namespace
+
+PointerDispatchResult PointerDispatcher::snapshot() const {
     PointerDispatchResult result;
-    result.pointers.reserve(pointers.size());
-    for (const auto& [id, pointer] : pointers) {
+    result.pointers.reserve(pointers_.size());
+    for (const auto& [id, pointer] : pointers_) {
         (void)id;
-        result.pointers.push_back(pointer);
+        result.pointers.push_back(pointer.state);
     }
     return result;
 }
 
-} // namespace
+void PointerDispatcher::reconcile(const HitTestInput& input, const detail::Targeting& targeting) {
+    const bool replacement = tree_ != input.tree->root().tree;
+    if (replacement && policy_ == PointerSnapshotPolicy::tree_identity) pointers_.clear();
+    tree_ = input.tree->root().tree;
+    for (auto& [id, stored] : pointers_) {
+        (void)id;
+        auto& pointer = stored.state;
+        if (replacement) {
+            pointer.hovered.reset();
+            pointer.active.reset();
+            pointer.pressed = stored.press && stored.press->id ? input.tree->find(*stored.press->id) : std::nullopt;
+        }
+        if (policy_ == PointerSnapshotPolicy::compatible_author_ids && pointer.pressed) {
+            const auto* node = input.tree->get(*pointer.pressed);
+            if (!stored.press || !node || node->kind != stored.press->kind || !node->events.contains("activate") ||
+                node->events.at("activate") != stored.press->action || !targeting.pointer_eligible(*pointer.pressed))
+                pointer.pressed.reset();
+        }
+        targeting.refresh(pointer);
+        if (!pointer.pressed) stored.press.reset();
+    }
+}
 
 std::vector<Diagnostic> validate(const HitTestInput& input) {
     return detail::validate_layout_snapshot(input.tree, input.styles, input.layout);
@@ -38,15 +61,11 @@ Result<HitTestResult> hit_test(const HitTestInput& input, Point position) {
 
 Result<PointerDispatchResult> PointerDispatcher::refresh(const HitTestInput& input) {
     auto errors = validate(input);
+    detail::Checker(errors).enumeration(policy_, PointerSnapshotPolicy::compatible_author_ids, "/policy");
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     const detail::Targeting targeting(input);
-    if (tree_ != input.tree->root().tree) pointers_.clear();
-    tree_ = input.tree->root().tree;
-    for (auto& [id, pointer] : pointers_) {
-        (void)id;
-        targeting.refresh(pointer);
-    }
-    return {snapshot(pointers_), {}};
+    reconcile(input, targeting);
+    return {snapshot(), {}};
 }
 
 Result<PointerDispatchResult> PointerDispatcher::dispatch(const HitTestInput& input, const InputEvent& event) {
@@ -54,6 +73,7 @@ Result<PointerDispatchResult> PointerDispatcher::dispatch(const HitTestInput& in
     auto event_errors = validate(event);
     errors.insert(errors.end(), event_errors.begin(), event_errors.end());
     detail::Checker check(errors);
+    check.enumeration(policy_, PointerSnapshotPolicy::compatible_author_ids, "/policy");
     if (!is_pointer(event))
         check.error("unsupported_event", "/event", "PointerDispatcher accepts only pointer move/down/up/cancel.");
     if (timestamp_ && event.timestamp < *timestamp_)
@@ -61,12 +81,7 @@ Result<PointerDispatchResult> PointerDispatcher::dispatch(const HitTestInput& in
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
 
     const detail::Targeting targeting(input);
-    if (tree_ != input.tree->root().tree) pointers_.clear();
-    tree_ = input.tree->root().tree;
-    for (auto& [id, pointer] : pointers_) {
-        (void)id;
-        targeting.refresh(pointer);
-    }
+    reconcile(input, targeting);
     std::optional<NodeHandle> target;
     std::vector<ActionRequest> actions;
     std::visit(
@@ -76,7 +91,8 @@ Result<PointerDispatchResult> PointerDispatcher::dispatch(const HitTestInput& in
                 pointers_.erase(data.pointer.value);
             } else if constexpr (std::is_same_v<T, PointerMove> || std::is_same_v<T, PointerDown> ||
                                  std::is_same_v<T, PointerUp>) {
-                auto& pointer = pointers_[data.pointer.value];
+                auto& stored = pointers_[data.pointer.value];
+                auto& pointer = stored.state;
                 pointer.pointer = data.pointer;
                 pointer.position = data.position;
                 targeting.refresh(pointer);
@@ -86,6 +102,10 @@ Result<PointerDispatchResult> PointerDispatcher::dispatch(const HitTestInput& in
                         pointer.primary_down = true;
                         pointer.pressed = targeting.binding_owner(target);
                         pointer.active = pointer.pressed;
+                        if (policy_ == PointerSnapshotPolicy::compatible_author_ids && pointer.pressed) {
+                            const auto& owner = *input.tree->get(*pointer.pressed);
+                            stored.press = Press{owner.id, owner.events.at("activate"), owner.kind};
+                        }
                     }
                 } else if constexpr (std::is_same_v<T, PointerUp>) {
                     if (data.button == PointerButton::primary) {
@@ -96,13 +116,14 @@ Result<PointerDispatchResult> PointerDispatcher::dispatch(const HitTestInput& in
                         pointer.primary_down = false;
                         pointer.pressed.reset();
                         pointer.active.reset();
+                        stored.press.reset();
                     }
                 }
             }
         },
         event.data);
     timestamp_ = event.timestamp;
-    auto result = snapshot(pointers_);
+    auto result = snapshot();
     result.target = target;
     result.actions = std::move(actions);
     return {std::move(result), {}};

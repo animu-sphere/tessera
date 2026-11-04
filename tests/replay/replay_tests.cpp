@@ -140,6 +140,69 @@ void playback_observes_geometry_paint_and_actions() {
     check(tessera::compare_replay(output, play(recording)).empty(), "Identical playback must compare clean");
 }
 
+void compatible_pointer_policy_replays_replacements() {
+    auto source = recording();
+    source.document.root.children[0].properties["focusable"] = true;
+    const auto point = center(play(source).generations[0].boxes[1]);
+    source.steps = {tessera::InputEvent{1us, tessera::PointerDown{{1}, point}}};
+    for (int i = 0; i < 3; ++i) {
+        auto view = source.document;
+        view.root.children[0].children[0].properties["text"] = std::string("Frame ") + std::to_string(i);
+        source.steps.push_back(tessera::ReplayReload{std::move(view), source.styles});
+    }
+    source.steps.push_back(tessera::InputEvent{2us, tessera::PointerUp{{1}, point}});
+    source.steps.push_back(tessera::InputEvent{3us, tessera::PointerUp{{1}, point}});
+    check(play(source).actions.empty(), "Legacy replay must cancel held presses on compatible reloads");
+    source.policy.compatible_pointer = true;
+    auto output = play(source);
+    check(output.generations.size() == 4 &&
+              output.actions == std::vector<tessera::ReplayAction>{{4, 3, "activate", "start-game", 1, "start"}} &&
+              output == play(source),
+          "Opted-in replay must preserve a compatible press exactly once in the current generation");
+
+    auto keyboard = source;
+    keyboard.steps.resize(4);
+    keyboard.steps.push_back(tessera::ReplayFocus{tessera::AuthorIdTarget{"start"}});
+    keyboard.steps.push_back(tessera::InputEvent{2us, tessera::Activate{}});
+    const auto command = play(keyboard).actions;
+    check(command.size() == 1 && command[0].action == output.actions[0].action &&
+              command[0].binding == output.actions[0].binding && command[0].id == output.actions[0].id &&
+              command[0].node == output.actions[0].node && command[0].generation == output.actions[0].generation,
+          "Compatible pointer and keyboard activation must target the same ordinary command and generation");
+
+    source.steps.insert(source.steps.begin() + 2, tessera::InputEvent{1us, tessera::PointerCancel{{1}}});
+    check(play(source).actions.empty(), "Replayed capture loss must not revive after later reloads");
+    source.steps.erase(source.steps.begin() + 2);
+    auto& incompatible = std::get<tessera::ReplayReload>(source.steps[2]);
+    incompatible.document.root.children[0].events["activate"] = "quit-game";
+    check(play(source).actions.empty(), "An incompatible binding must cancel even if a later reload restores it");
+    source.version = tessera::replay_host_version;
+    check(play(source).actions.empty(), "The pointer policy must have the same cancellation behavior in replay v2");
+
+    source = recording();
+    source.version = tessera::replay_host_version;
+    source.policy.compatible_pointer = true;
+    source.environment.host = {{"telemetry", "menu"}};
+    source.steps = {tessera::InputEvent{1us, tessera::PointerDown{{1}, point}},
+                    tessera::ReplayHostUpdate{{"telemetry", "menu", 1, tessera::ReplayReadiness::loading, false},
+                                              {source.document, source.styles}},
+                    tessera::ReplayHostUpdate{{"telemetry", "menu", 1, tessera::ReplayReadiness::ready, true},
+                                              {source.document, source.styles}},
+                    tessera::InputEvent{2us, tessera::PointerUp{{1}, point}}};
+    output = play(source);
+    check(output.actions == std::vector<tessera::ReplayAction>{{3, 2, "activate", "start-game", 1, "start"}},
+          "V2 host telemetry replacements must preserve capture in the same ordinary dispatcher");
+    auto initial = source;
+    initial.steps.clear();
+    tessera::PlaceholderTextShaper text;
+    auto session = tessera::ReplaySession::open(initial, text);
+    check(static_cast<bool>(session), "Compatible pointer replay session must open");
+    for (const auto& step : source.steps)
+        check(static_cast<bool>(session.value->apply(step)), "Compatible pointer replay session must accept each step");
+    check(session.value->output() == output && session.value->recording() == source,
+          "Incremental host replacements must reproduce whole-recording capture and observations");
+}
+
 // A scroll step routes against the current snapshot and settles a generation at the new offset; a click
 // then targets the moved button.
 void scroll_steps_relayout_before_clicks() {
@@ -401,6 +464,21 @@ void reload_reveals_recovered_focus() {
               offset(unrevealed.generations[2]) == 0 && unrevealed.semantics[2].focused == 5u &&
               unrevealed.semantics[3].focused == 3u,
           "Without the policy, a reload recovers focus without scrolling");
+}
+
+void compatible_capture_observes_only_settled_reveal() {
+    auto source = scrolled_menu();
+    source.policy = {true, true, true};
+    source.steps = {tessera::InputEvent{1us, tessera::FocusPrevious{}}};
+    const auto point = center(play(source).generations.back().boxes[5]);
+    source.steps.push_back(tessera::InputEvent{2us, tessera::PointerDown{{1}, point}});
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::InputEvent{3us, tessera::PointerUp{{1}, point}});
+    const auto output = play(source);
+    check(output.generations.size() == 3 && offset(output.generations.back()) > 0 &&
+              output.actions == std::vector<tessera::ReplayAction>{{3, 2, "activate", "quit-game", 5, "quit"}},
+          "Capture must see the final revealed presentation, not a fully clipped intermediate reload layout");
+    check(output == play(source), "Compatible capture with focus reveal must replay deterministically");
 }
 
 // Under the reveal policy a resize keeps focus that was in view in view, in the resize's one generation,
@@ -782,11 +860,13 @@ void scale_and_time_settle_without_changing_logical_interaction() {
 int main() {
     try {
         playback_observes_geometry_paint_and_actions();
+        compatible_pointer_policy_replays_replacements();
         scale_and_time_settle_without_changing_logical_interaction();
         scroll_steps_relayout_before_clicks();
         logical_commands_match_clicks_and_semantics();
         reveal_policy_scrolls_focus_into_view();
         reload_reveals_recovered_focus();
+        compatible_capture_observes_only_settled_reveal();
         resize_keeps_visible_focus_in_view();
         semantic_action_steps_match_clicks();
         press_policy_focuses_without_reveal();
