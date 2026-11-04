@@ -19,7 +19,7 @@ struct FocusDispatchResult {
 class FocusDispatcher final {
 public:
     // Accepts FocusNext/FocusPrevious/Navigate/Activate/Cancel and unmodified Home/End.
-    // Collection arrows use visible item order; tree Left/Right request collapse/expand
+    // Collection arrows use visible item order (Menu Up/Down wrap); tree Left/Right request collapse/expand
     // or move to parent/child. Home/End move to the first/last item, otherwise do nothing.
     // Hosts translate other keys and gamepad
     // input. Invalid input leaves state unchanged. When the focused node has become ineligible, the

@@ -104,6 +104,7 @@ struct ListItem {
     std::string action;
     bool disabled = false;
 };
+using MenuItem = ListItem;
 struct TreeItem {
     std::string key;
     std::string label;
@@ -141,6 +142,8 @@ private:
     friend Element Grid(std::vector<Element>, Props);
     friend Element Popup(std::string, std::vector<Element>, PopupProps);
     friend Element Tooltip(std::string, Value<std::string>, PopupProps);
+    friend Element Menu(std::string, std::string, std::vector<MenuItem>, PopupProps);
+    friend Element ContextMenu(std::string, std::string, Point, std::vector<MenuItem>, PopupProps);
     friend Element Modal(std::vector<Element>, ModalProps);
     friend Element Dialog(Value<std::string>, std::vector<Element>, DialogProps);
     friend Element ListView(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps);
@@ -173,6 +176,11 @@ Element Grid(std::vector<Element> children, Props = {});
 Element Popup(std::string anchor, std::vector<Element> children, PopupProps = {});
 // Noninteractive text popup; the host controls visibility from hover/focus.
 Element Tooltip(std::string anchor, Value<std::string> text, PopupProps = {});
+// Single-level command menus. Require a stable node ID; item IDs are <id>-item-<key>.
+// ContextMenu uses a root-logical position, clamped to the viewport, while target
+// remains its visibility/focus-recovery anchor. The host owns open/close state.
+Element Menu(std::string label, std::string anchor, std::vector<MenuItem>, PopupProps = {});
+Element ContextMenu(std::string label, std::string target, Point position, std::vector<MenuItem>, PopupProps = {});
 // Controlled root-content layer. Background input/semantic actions are ineligible
 // while shown; ordinary focus traversal stays inside. No Portal or nested modals.
 Element Modal(std::vector<Element> children, ModalProps = {});

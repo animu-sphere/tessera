@@ -67,6 +67,27 @@ int main() {
         collections.value->document.root.children[0].children[2].properties.at("selected") != tessera::Property{true} ||
         collections.value->document.root.children[1].children[1].properties.at("selected") != tessera::Property{true})
         return 50;
+    const auto menus = form.lower(ui::Column({
+        ui::Button("Actions", "open", {.node = {.id = "menu-anchor"}}),
+        ui::Menu("Actions", "menu-anchor", {{"choose", "Choose", "choose"}}, {.node = {.id = "menu"}}),
+        ui::ContextMenu("Actions", "menu-anchor", {40, 50}, {{"choose", "Choose", "choose"}},
+            {.node = {.id = "context"}})}), popup_actions);
+    if (!menus || menus.value->document.root.children[1].properties.at("collection_role") !=
+        tessera::Property{std::string("menu")} ||
+        menus.value->document.root.children[2].properties.at("popup_x") != tessera::Property{40.0})
+        return 51;
+    const auto menus_tree = tessera::UiTree::create(menus.value->document, popup_actions);
+    if (!menus_tree) return 52;
+    const auto menus_styles = tessera::resolve_styles({menus_tree.value->get(), &popup_sheet, {}, menus.value->styles});
+    if (!menus_styles) return 53;
+    const auto menus_layout = tessera::compute_layout({menus_tree.value->get(), *menus_styles.value, {200, 120}, &popup_text});
+    if (!menus_layout) return 54;
+    tessera::MenuDispatcher context_menu("context");
+    const auto context_open = context_menu.dispatch(
+        {menus_tree.value->get(), *menus_styles.value, &*menus_layout.value},
+        {std::chrono::microseconds{1}, tessera::KeyDown{tessera::Key::f10, {true}}},
+        (*menus_tree.value)->find("menu-anchor"));
+    if (!context_open || !context_open.value->open_at || !context_open.value->consumed) return 55;
     tessera::UiDocument document;
     document.root.id = "panel";
     tessera::UiNode title;

@@ -12,7 +12,7 @@ inline std::string_view collection_role(const UiNode& node) {
 }
 
 inline bool collection_item(std::string_view role) {
-    return role == "list_item" || role == "tree_item";
+    return role == "list_item" || role == "tree_item" || role == "menu_item";
 }
 
 // Flat layout rows retain logical ancestry for disabled state as well as semantics.

@@ -24,7 +24,8 @@ struct ElementData {
 
 struct Lowerer {
     static Element split_pane(Element, Element, float, std::string, SplitPaneProps, FlexDirection);
-    static Element collection(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps, bool);
+    static Element collection(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps, std::string_view);
+    static Element flat_collection(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps, std::string_view);
     Presentation result;
     std::vector<const ElementData*> elements;
     std::vector<Diagnostic> errors;
@@ -185,6 +186,23 @@ Element Tooltip(std::string anchor, Value<std::string> text, PopupProps props) {
     data->properties["pointer_events"] = false;
     return Element(std::move(data));
 }
+Element Menu(std::string label, std::string anchor, std::vector<MenuItem> items, PopupProps props) {
+    auto content = detail::Lowerer::flat_collection(std::move(label), {}, std::move(items),
+        {.node = props.node}, "menu");
+    if (!props.node.style.overflow) props.node.style.overflow = Overflow::scroll;
+    auto popup = Popup(std::move(anchor), content.data_->children, std::move(props));
+    auto data = std::make_shared<detail::ElementData>(*popup.data_);
+    data->properties.insert(content.data_->properties.begin(), content.data_->properties.end());
+    data->diagnostics = content.data_->diagnostics;
+    return Element(std::move(data));
+}
+Element ContextMenu(std::string label, std::string target, Point position, std::vector<MenuItem> items, PopupProps props) {
+    auto menu = Menu(std::move(label), std::move(target), std::move(items), std::move(props));
+    auto data = std::make_shared<detail::ElementData>(*menu.data_);
+    data->properties["popup_x"] = static_cast<double>(position.x);
+    data->properties["popup_y"] = static_cast<double>(position.y);
+    return Element(std::move(data));
+}
 Element Modal(std::vector<Element> children, ModalProps props) {
     auto data = std::make_shared<detail::ElementData>();
     data->props = std::move(props.node);
@@ -282,7 +300,9 @@ Element ScrollView(std::vector<Element> children, Props props) {
 }
 
 Element detail::Lowerer::collection(std::string label, std::optional<std::string> selected,
-    std::vector<TreeItem> items, CollectionProps props, bool tree) {
+    std::vector<TreeItem> items, CollectionProps props, std::string_view role) {
+    const bool tree = role == "tree";
+    const bool menu = role == "menu";
     auto data = std::make_shared<ElementData>();
     const auto prefix = props.node.id.value_or("");
     const auto source = props.node.source;
@@ -309,12 +329,13 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
         entry->action = value.action;
         disabled = disabled || value.disabled;
         entry->disabled = disabled;
-        entry->properties["collection_role"] = std::string(tree ? "tree_item" : "list_item");
-        entry->properties["selected"] = selected == value.key;
+        entry->properties["collection_role"] = std::string(menu ? "menu_item" : tree ? "tree_item" : "list_item");
+        if (!menu) entry->properties["selected"] = selected == value.key;
         entry->properties["labelled_by"] = NodeReference{prefix + "-label-" + value.key};
         if (parent) entry->properties["tree_parent"] = NodeReference{*parent};
         if (value.key.empty() || !keys.insert(value.key).second)
             error("collection_keys", "Supply unique nonempty item keys across the collection.");
+        if (menu && value.label.empty()) error("menu_label", "Give each menu command a nonempty label.");
         if (selected == value.key) found_selection = true;
         if (++count > max_document_nodes || depth > max_document_depth) {
             error("collection_limit", "Keep collection items within document depth and node limits.");
@@ -334,7 +355,7 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
         } else if (value.expanded || !value.toggle_action.empty()) {
             error("tree_leaf", "Leaves cannot be expanded or declare a toggle action.");
         }
-        entry->children.push_back(Text(selected == value.key ? "*" : " ", {.source = source}));
+        if (!menu) entry->children.push_back(Text(selected == value.key ? "*" : " ", {.source = source}));
         entry->children.push_back(Text(value.label, part(prefix + "-label-" + value.key)));
         data->children.push_back(Element(std::move(entry)));
         for (const auto& child : value.children) {
@@ -358,25 +379,30 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
     data->props.style.direction = FlexDirection::column;
     data->props.style.overflow = Overflow::scroll;
     data->disabled = props.disabled;
-    data->properties["collection_role"] = std::string(tree ? "tree" : "list");
+    data->properties["collection_role"] = std::string(role);
     data->properties["labelled_by"] = NodeReference{prefix + "-title"};
     return Element(std::move(data));
 }
 
-Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem> items,
-    CollectionProps props) {
+Element detail::Lowerer::flat_collection(std::string label, std::optional<std::string> selected,
+    std::vector<ListItem> items, CollectionProps props, std::string_view role) {
     std::vector<TreeItem> entries;
     entries.reserve(std::min(items.size(), max_document_nodes + 1));
     for (auto& item : items) {
         if (entries.size() > max_document_nodes) break;
         entries.push_back({std::move(item.key), std::move(item.label), std::move(item.action), {}, false, item.disabled, {}});
     }
-    return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(entries), std::move(props), false);
+    return collection(std::move(label), std::move(selected), std::move(entries), std::move(props), role);
+}
+
+Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem> items,
+    CollectionProps props) {
+    return detail::Lowerer::flat_collection(std::move(label), std::move(selected), std::move(items), std::move(props), "list");
 }
 
 Element TreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem> items,
     CollectionProps props) {
-    return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(items), std::move(props), true);
+    return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(items), std::move(props), "tree");
 }
 
 Element Grid(std::vector<Element> children, Props props) {

@@ -49,4 +49,4 @@ ctest --test-dir build -C Debug -R '^(popup|popup_tooltip)$' --output-on-failure
 
 The example checks pointer selection, keyboard opening, gamepad navigation/selection/Cancel, outside-click consumption, scroll/resize placement and anchor removal. The owner fixture additionally checks four sides, flip/shift, CPU background pixels against hit order, Tooltip transparency, suppression, stale input and serialized property validation.
 
-No native window/device, real-font capture, automatic Tooltip timer, context-menu trigger, modal, Portal, nested popup anchoring or controller-specific replay event format is included.
+No native window/device, real-font capture, automatic Tooltip timer, modal, Portal, nested popup anchoring or controller-specific replay event format is included. Dedicated [Menu/ContextMenu compositions](menu-context.md) add menu roles, ordered navigation and context triggers separately; ordinary Popup buttons do not acquire that policy implicitly.

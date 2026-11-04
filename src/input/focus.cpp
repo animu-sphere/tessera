@@ -23,7 +23,7 @@ bool is_command(const InputEvent& event) {
 std::uint32_t collection_owner(const HitTestInput& input, std::uint32_t box) {
     while (box != no_layout_parent) {
         const auto role = detail::collection_role(*input.tree->get(input.layout->boxes[box].node));
-        if (role == "tree" || role == "list") return box;
+        if (role == "tree" || role == "list" || role == "menu") return box;
         box = input.layout->boxes[box].parent;
     }
     return no_layout_parent;
@@ -54,6 +54,10 @@ bool navigate_collection(const HitTestInput& input, const detail::Targeting& tar
     if (direction == Direction::up || direction == Direction::down) {
         if (direction == Direction::up && at != items.begin()) focused = boxes[*std::prev(at)].node;
         if (direction == Direction::down && std::next(at) != items.end()) focused = boxes[*std::next(at)].node;
+        if (role == "menu_item") {
+            if (direction == Direction::up && at == items.begin()) focused = boxes[items.back()].node;
+            if (direction == Direction::down && std::next(at) == items.end()) focused = boxes[items.front()].node;
+        }
     } else if (role == "tree_item") {
         const auto* expanded = effective_property(node, property_names::expanded);
         const bool open = expanded && std::get<bool>(*expanded);

@@ -29,9 +29,10 @@ The implemented semantic property vocabulary is deliberately small:
 | `modal` | Box only | Boolean, absent means false | Single last root-child layer, bounded placement and modal input/semantic eligibility |
 | `popup_gap` | Box only | Finite nonnegative number within float range, absent means 4 | Logical gap used by anchored placement |
 | `popup_side` | Box only | `bottom`, `top`, `left` or `right`, absent means `bottom` | Preferred placement side |
+| `popup_x`, `popup_y` | Anchored popup Box only | Paired finite numbers within float range | Root-logical point placement, overriding side/gap and shifted inside the boundary |
 | `separator` | Box only | Boolean, absent means false | Projects a separator role; an eligible `activate` binding requests host adjustment |
-| `collection_role` | Box only | `list`, `tree`, `list_item`, `tree_item`; absent means none | Bounded collection semantics and collection-order navigation |
-| `selected` | Collection item Box | Optional boolean | Controlled selection observation, independent of focus |
+| `collection_role` | Box only | `list`, `tree`, `menu`, `list_item`, `tree_item`, `menu_item`; absent means none | Bounded collection/menu semantics and collection-order navigation |
+| `selected` | List/tree item Box | Optional boolean | Controlled selection observation, independent of focus |
 | `expanded` | Tree item Box | Optional boolean; absence means leaf | Controlled branch observation and applicable expansion action |
 | `tree_parent` | Tree item Box | Optional `NodeReference` | Earlier logical ancestor in the same flat tree; preserves semantic hierarchy, disabled ancestry and parent/child navigation |
 
@@ -40,6 +41,8 @@ The implemented semantic property vocabulary is deliberately small:
 `events` stores `activate`/`cancel` action names and tree-branch `expand`/`collapse` names (requiring `tree_item` and an `expanded` property). Every bound action must exist in the caller's `ValidationContext.actions`; the default empty context rejects all bound actions. Validation snapshots the names for the call only. Dispatch returns host action requests as defined in [input](input.md). The document stores no callback, and the host remains responsible for action implementations.
 
 Collection items are direct children of their matching collection. Logical tree subtrees must remain contiguous in preorder; parent references cannot point forward, cross collections or form cycles, and logical depth is bounded to 64. `TreeView` lowers nested application items to flat rows, preserving single-row focus/hit/scroll geometry; it explicitly hides collapsed descendants and propagates controlled disabled ancestry. [The collection guide](../guides/tree-list.md) owns public composition, generated IDs and host state/command wiring.
+
+`Menu`/`ContextMenu` use the same command-item descriptions and root-sibling popup placement. A menu requires a stable ID and `popup_anchor`; each direct `menu_item` requires a registered activate action and contains only noninteractive Text. Other menu children are noninteractive Text labels. Nested controls/menus and selected/expanded state are rejected. [The menu guide](../guides/menu-context.md) owns public composition and host routing.
 
 Document/node `extensions` preserve namespaced backend-neutral JSON metadata. Validation and runtime behavior do not interpret its contents. Names, strings, and metadata must be valid UTF-8; numeric metadata must be finite. Diagnostics and bounded recursion are described by the encoding page.
 

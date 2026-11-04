@@ -158,32 +158,51 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
                 gap && (!std::isfinite(*gap) || *gap < 0 || *gap > std::numeric_limits<float>::max()))
                 error("popup_gap", path + "/properties/popup_gap", "Use a finite, nonnegative logical gap within float range.");
         }
+        const bool point_x = node.properties.contains(property_names::popup_x);
+        const bool point_y = node.properties.contains(property_names::popup_y);
+        if ((point_x || point_y) && (!point_x || !point_y || !node.properties.contains(property_names::popup_anchor)))
+            error("popup_position", path + "/properties", "Supply popup_x and popup_y together on an anchored popup.");
+        for (const auto coordinate : {property_names::popup_x, property_names::popup_y}) {
+            const auto* value = effective_property(node, coordinate);
+            const auto* number = value ? std::get_if<double>(value) : nullptr;
+            if (number && (!std::isfinite(*number) || std::abs(*number) > std::numeric_limits<float>::max()))
+                error("popup_position", path + "/properties/" + std::string(coordinate),
+                    "Use a finite root-logical coordinate within float range.");
+        }
+        const auto marked = [&](std::string_view name) {
+            const auto* value = effective_property(node, name);
+            const auto* flag = value ? std::get_if<bool>(value) : nullptr;
+            return flag && *flag;
+        };
         const auto role = detail::collection_role(node);
         if (node.properties.contains(property_names::collection_role) &&
-            role != "list" && role != "tree" && !detail::collection_item(role))
-            error("collection_role", path + "/properties/collection_role", "Choose list, tree, list_item, or tree_item.");
+            role != "list" && role != "tree" && role != "menu" && !detail::collection_item(role))
+            error("collection_role", path + "/properties/collection_role",
+                "Choose list, tree, menu, list_item, tree_item, or menu_item.");
         const auto parent_role = parent ? detail::collection_role(*parent) : std::string_view{};
         if ((role == "list_item" && parent_role != "list") ||
-            (role == "tree_item" && parent_role != "tree"))
-            error("collection_parent", path, "Place list items directly under a list and tree items directly under a tree.");
+            (role == "tree_item" && parent_role != "tree") || (role == "menu_item" && parent_role != "menu"))
+            error("collection_parent", path, "Place collection items directly under their matching collection.");
+        if (role == "menu" && (!node.id || !node.properties.contains(property_names::popup_anchor)))
+            error("menu_popup", path, "Give the root-sibling Menu a stable ID and popup_anchor.");
+        if (((parent_role == "menu" && role != "menu_item") || parent_role == "menu_item") &&
+            (node.kind != NodeKind::text || !node.events.empty() || marked(property_names::focusable)))
+            error("menu_child", path, "Menus contain command items and noninteractive Text, not nested controls or menus.");
         if (role == "tree_item" || parent_role == "tree") tree_entries.push_back({&node, parent, path});
         if (node.properties.contains(property_names::tree_parent) && role != "tree_item")
             error("collection_state", path + "/properties/tree_parent", "Only tree items have a logical tree parent.");
-        if (node.properties.contains(property_names::selected) && !detail::collection_item(role))
-            error("collection_state", path + "/properties/selected", "Only collection items have selection state.");
+        if (node.properties.contains(property_names::selected) && role != "list_item" && role != "tree_item")
+            error("collection_state", path + "/properties/selected", "Only list/tree items have selection state.");
         if (node.properties.contains(property_names::expanded) && role != "tree_item")
             error("collection_state", path + "/properties/expanded", "Only tree items have expansion state.");
         if (const auto* selected = effective_property(node, property_names::selected);
             selected && std::get_if<bool>(selected) && std::get<bool>(*selected) && detail::collection_item(role) &&
             ++selected_counts[parent] > 1)
             error("collection_selection", path + "/properties/selected", "Select at most one item in each collection.");
-        if ((role == "tree" || role == "list") && node.events.contains("activate"))
-            error("collection_action", path + "/events/activate", "Put selection actions on collection items.");
-        const auto marked = [&](std::string_view name) {
-            const auto* value = effective_property(node, name);
-            const auto* flag = value ? std::get_if<bool>(value) : nullptr;
-            return flag && *flag;
-        };
+        if ((role == "tree" || role == "list" || role == "menu") && node.events.contains("activate"))
+            error("collection_action", path + "/events/activate", "Put actions on collection items.");
+        if (role == "menu_item" && !node.events.contains("activate"))
+            error("menu_action", path + "/events/activate", "Give each menu item a registered command action.");
         if (!role.empty() && (marked(property_names::modal) || marked(property_names::separator)))
             error("collection_role", path + "/properties/collection_role", "Do not combine a collection role with modal or separator markers.");
         for (const auto& [event, action] : node.events) {

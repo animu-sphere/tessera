@@ -63,6 +63,18 @@ void check_popup(std::vector<Diagnostic>& errors, const HitTestInput& input, con
         errors.push_back({"popup_target", Severity::error, "/id", "Identify a Popup, not an ordinary content node."});
 }
 
+void check_menu(std::vector<Diagnostic>& errors, const HitTestInput& input, const std::string& id) {
+    check_popup(errors, input, id);
+    if (!input.tree) return;
+    const auto node = input.tree->find(id);
+    if (node && detail::collection_role(*input.tree->get(*node)) != "menu")
+        errors.push_back({"menu_target", Severity::error, "/id", "Identify a Menu or ContextMenu."});
+}
+
+MenuDispatchResult menu_result(const PopupDispatchResult& result) {
+    return {result.dismiss, result.consumed, result.focus, {}};
+}
+
 } // namespace
 
 PopupDispatchResult PopupDispatcher::update(const HitTestInput& input) {
@@ -121,6 +133,77 @@ Result<PopupDispatchResult> PopupDispatcher::dispatch(const HitTestInput& input,
         result.dismiss = result.consumed = true;
         result.focus = anchor_focus(input, anchor_);
         // Keep the open transition until the host publishes the closed view.
+    }
+    return {result, {}};
+}
+
+Result<MenuDispatchResult> MenuDispatcher::refresh(const HitTestInput& input) {
+    auto errors = validate(input);
+    check_menu(errors, input, id_);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    auto result = popup_.refresh(input);
+    if (!result) return {std::nullopt, std::move(result.diagnostics)};
+    return {menu_result(*result.value), {}};
+}
+
+Result<MenuDispatchResult> MenuDispatcher::dispatch(const HitTestInput& input, const InputEvent& event,
+    std::optional<NodeHandle> focused) {
+    auto errors = validate(input);
+    check_menu(errors, input, id_);
+    check_focus(errors, input, focused);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    auto popup = popup_.dispatch(input, event);
+    if (!popup) return {std::nullopt, std::move(popup.diagnostics)};
+    auto result = menu_result(*popup.value);
+    const auto menu = input.tree->find(id_);
+    if (!menu) return {result, {}};
+    const auto& node = *input.tree->get(*menu);
+    const auto* anchor_id = detail::popup_anchor(node);
+    const auto anchor = anchor_id ? input.tree->find(*anchor_id) : std::nullopt;
+    const detail::Targeting targeting(input);
+    const bool shown = targeting.eligible(*menu);
+    if (node.properties.contains(property_names::popup_x) && anchor && targeting.eligible(*anchor)) {
+        const auto* box = detail::popup_anchor_box(*input.tree, *input.layout, node);
+        if (box) {
+            if (const auto* press = std::get_if<PointerDown>(&event.data);
+                press && press->button == PointerButton::secondary) {
+                const auto hit = targeting.hit(press->position);
+                if (hit && descendant(input, *hit, *anchor)) result.open_at = press->position;
+            }
+            if (const auto* key = std::get_if<KeyDown>(&event.data);
+                key && key->key == Key::f10 && key->modifiers == Modifiers{true} && !key->repeat &&
+                focused && targeting.eligible(*focused) && descendant(input, *focused, *anchor)) {
+                const auto visible = box->clip ? intersect(box->border_box, *box->clip) : box->border_box;
+                result.open_at = Point{visible.origin.x, visible.origin.y + visible.size.height};
+            }
+        }
+    }
+    if (result.open_at) {
+        result.dismiss = false;
+        result.consumed = true;
+        for (std::size_t i = 0; i < input.layout->boxes.size(); ++i) {
+            const auto candidate = input.layout->boxes[i].node;
+            if (targeting.focusable(i) && descendant(input, candidate, *menu)) {
+                result.focus = candidate;
+                break;
+            }
+        }
+        return {result, {}};
+    }
+    if (!shown || result.dismiss) return {result, {}};
+    const auto* key = std::get_if<KeyDown>(&event.data);
+    const bool tab = key && key->key == Key::tab && !key->modifiers.control &&
+        !key->modifiers.alt && !key->modifiers.super;
+    if (tab || std::holds_alternative<FocusNext>(event.data) || std::holds_alternative<FocusPrevious>(event.data)) {
+        result.dismiss = true;
+        result.focus = anchor_focus(input, anchor_id ? std::optional(*anchor_id) : std::nullopt);
+        // Publish the closed view before forwarding the sequential focus command.
+        result.consumed = false;
+    } else if (const auto* move = std::get_if<PointerMove>(&event.data)) {
+        const auto owner = targeting.binding_owner(targeting.hit(move->position));
+        if (owner && descendant(input, *owner, *menu) &&
+            detail::collection_role(*input.tree->get(*owner)) == "menu_item" &&
+            targeting.focusable(targeting.box(*owner))) result.focus = owner;
     }
     return {result, {}};
 }
