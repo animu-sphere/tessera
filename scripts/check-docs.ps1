@@ -60,7 +60,9 @@ foreach ($file in $documents) {
     }
 }
 $linkCount = 0
+$documentLinks = @{}
 foreach ($file in $documents) {
+    $documentLinks[$file.FullName] = New-Object 'System.Collections.Generic.List[string]'
     $relative = $file.FullName.Substring($repoRoot.Length + 1).Replace('\', '/')
     $body = [regex]::Replace($plain[$file.FullName], '`+[^`\r\n]*`+', '')
     $links = [regex]::Matches($body, '\[[^\]\r\n]*\]\((?<target><[^>]+>|[^\s)]+)(?:\s+"[^"]*")?\)')
@@ -88,6 +90,7 @@ foreach ($file in $documents) {
             $issues.Add("${relative}: missing link '$target'")
             continue
         }
+        if ($plain.ContainsKey($resolved)) { $documentLinks[$file.FullName].Add($resolved) }
         if ($parts.Length -eq 2 -and $parts[1] -ne '') {
             $fragment = [Uri]::UnescapeDataString($parts[1])
             if (-not $anchors.ContainsKey($resolved) -or -not $anchors[$resolved].Contains($fragment)) {
@@ -96,12 +99,19 @@ foreach ($file in $documents) {
         }
     }
 }
-$index = $plain[(Join-Path $repoRoot 'docs/README.md')]
+$reachable = New-Object 'System.Collections.Generic.HashSet[string]'
+$pending = New-Object 'System.Collections.Generic.Queue[string]'
+$pending.Enqueue((Join-Path $repoRoot 'docs/README.md'))
+while ($pending.Count -gt 0) {
+    $path = $pending.Dequeue()
+    if (-not $reachable.Add($path)) { continue }
+    foreach ($target in $documentLinks[$path]) { $pending.Enqueue($target) }
+}
 foreach ($file in $documents) {
     if ($file.FullName.StartsWith((Join-Path $repoRoot 'docs') + [IO.Path]::DirectorySeparatorChar) -and
         $file.FullName -ne (Join-Path $repoRoot 'docs/README.md')) {
         $owner = $file.FullName.Substring((Join-Path $repoRoot 'docs').Length + 1).Replace('\', '/')
-        if (-not $index.Contains('](' + $owner + ')')) { $issues.Add("docs/README.md: missing canonical owner '$owner'") }
+        if (-not $reachable.Contains($file.FullName)) { $issues.Add("docs/README.md: unreachable document '$owner'") }
     }
 }
 $requiredLinks = @{

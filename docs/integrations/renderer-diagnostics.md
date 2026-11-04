@@ -6,7 +6,7 @@ The Proposed sections define a consumer workload: express an interactive rendere
 
 Use the hydra-toon viewport's Telemetry overlay as a concrete authoring reference. A developer composes named timing rows, counters, a bounded frame-history plot, disclosure sections, choices, toggles and numeric controls without importing ImGui or assembling component/runtime internals in ordinary panel code. Matching information and operations matters more than reproducing ImGui's appearance or API.
 
-The reference separates frame observations from requested controls in `OverlayFrame` and `OverlayControls`. Preserve that separation with application-owned snapshots and ordinary command requests; those external structs are source references, not new Tessera public types. The source-review provenance and inventory are recorded in [support](../reference/support-matrix.md#renderer-diagnostics-source-review--2026-10-17).
+The reference separates frame observations from requested controls in `OverlayFrame` and `OverlayControls`. Preserve that separation with application-owned snapshots and ordinary command requests; those external structs are source references, not new Tessera public types. The source-review provenance and inventory are recorded in [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#renderer-diagnostics-source-review--2026-10-17).
 
 | Consumer group | UI expression | Host-owned information or operation |
 | --- | --- | --- |
