@@ -218,6 +218,12 @@ private:
             case 'A':
                 mapped = tessera::Key::a;
                 break;
+            case 'C':
+                mapped = tessera::Key::c;
+                break;
+            case 'V':
+                mapped = tessera::Key::v;
+                break;
             case VK_LEFT:
                 mapped = tessera::Key::left;
                 break;
