@@ -25,6 +25,10 @@ struct Primitive {
     std::array<float, 4> transform0, transform1, rect, color, widths, source, params;
 };
 static_assert(sizeof(Primitive) == 112);
+struct GradientStopData {
+    std::array<float, 4> color, position;
+};
+static_assert(sizeof(GradientStopData) == 32);
 struct State {
     Affine2D transform;
     // Physical, continuously valued clip edges; rounding happens after intersection.
@@ -96,6 +100,7 @@ struct VulkanRenderer::Impl {
     VkDevice device = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout image_layout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout gradient_layout = VK_NULL_HANDLE;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     VkPipeline solid = VK_NULL_HANDLE, textured = VK_NULL_HANDLE;
     VkPipeline batch_solid = VK_NULL_HANDLE, batch_textured = VK_NULL_HANDLE;
@@ -116,13 +121,18 @@ struct VulkanRenderer::Impl {
         VkDevice device;
         VkBuffer buffer = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        VkDescriptorSet gradients = VK_NULL_HANDLE;
+        VkDeviceSize bytes = 0;
         explicit Upload(VkDevice value) : device(value) {}
         ~Upload() {
+            if (pool) vkDestroyDescriptorPool(device, pool, nullptr);
             if (buffer) vkDestroyBuffer(device, buffer, nullptr);
             if (memory) vkFreeMemory(device, memory, nullptr);
         }
     };
     std::map<std::uint64_t, std::unique_ptr<Upload>> uploads;
+    std::unique_ptr<Upload> empty_gradients;
     VulkanSubmissionStats stats;
 
     ~Impl() {
@@ -135,6 +145,7 @@ struct VulkanRenderer::Impl {
         if (layout) vkDestroyPipelineLayout(device, layout, nullptr);
         if (pool) vkDestroyDescriptorPool(device, pool, nullptr);
         if (image_layout) vkDestroyDescriptorSetLayout(device, image_layout, nullptr);
+        if (gradient_layout) vkDestroyDescriptorSetLayout(device, gradient_layout, nullptr);
     }
     VkShaderModule shader(std::span<const std::uint32_t> code) {
         if (code.size() < 5 || code[0] != 0x07230203)
@@ -147,12 +158,17 @@ struct VulkanRenderer::Impl {
         require(vkCreateShaderModule(device, &info, nullptr, &module), "vkCreateShaderModule");
         return module;
     }
-    std::unique_ptr<Upload> upload(const std::vector<Packet>& packets) {
+    std::unique_ptr<Upload> upload(const std::vector<Packet>& packets, const std::vector<GradientStopData>& stops,
+                                   bool batch) {
         auto result = std::make_unique<Upload>(device);
+        const VkDeviceSize vertices = batch ? VkDeviceSize(packets.size()) * sizeof(Primitive) : 0;
+        const auto alignment = limits.minStorageBufferOffsetAlignment;
+        const VkDeviceSize stop_offset = stops.empty() ? vertices : (vertices + alignment - 1) / alignment * alignment;
+        result->bytes = stop_offset + VkDeviceSize(stops.size()) * sizeof(GradientStopData);
         VkBufferCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        info.size = VkDeviceSize(packets.size()) * sizeof(Primitive);
-        info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        info.size = result->bytes;
+        info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         require(vkCreateBuffer(device, &info, nullptr, &result->buffer), "vkCreateBuffer");
         VkMemoryRequirements requirements;
         vkGetBufferMemoryRequirements(device, result->buffer, &requirements);
@@ -164,7 +180,7 @@ struct VulkanRenderer::Impl {
             type = i;
             if (memory.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) break;
         }
-        if (type == UINT32_MAX) throw std::runtime_error("Batch uploads require host-visible vertex buffer memory.");
+        if (type == UINT32_MAX) throw std::runtime_error("Frame uploads require host-visible buffer memory.");
         VkMemoryAllocateInfo allocation{};
         allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocation.allocationSize = requirements.size;
@@ -174,10 +190,15 @@ struct VulkanRenderer::Impl {
         void* mapped;
         require(vkMapMemory(device, result->memory, 0, VK_WHOLE_SIZE, 0, &mapped), "vkMapMemory");
         auto* destination = static_cast<unsigned char*>(mapped);
-        for (const auto& packet : packets) {
-            std::memcpy(destination, &packet.primitive, sizeof(Primitive));
-            destination += sizeof(Primitive);
+        if (batch) {
+            for (const auto& packet : packets) {
+                std::memcpy(destination, &packet.primitive, sizeof(Primitive));
+                destination += sizeof(Primitive);
+            }
         }
+        if (!stops.empty())
+            std::memcpy(static_cast<unsigned char*>(mapped) + stop_offset, stops.data(),
+                        stops.size() * sizeof(GradientStopData));
         VkResult flushed = VK_SUCCESS;
         if (!(memory.memoryTypes[type].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
             VkMappedMemoryRange range{};
@@ -188,6 +209,29 @@ struct VulkanRenderer::Impl {
         }
         vkUnmapMemory(device, result->memory);
         require(flushed, "vkFlushMappedMemoryRanges");
+        if (!stops.empty()) {
+            const VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1};
+            VkDescriptorPoolCreateInfo pool_info{};
+            pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            pool_info.maxSets = pool_info.poolSizeCount = 1;
+            pool_info.pPoolSizes = &size;
+            require(vkCreateDescriptorPool(device, &pool_info, nullptr, &result->pool), "vkCreateDescriptorPool");
+            VkDescriptorSetAllocateInfo sets{};
+            sets.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            sets.descriptorPool = result->pool;
+            sets.descriptorSetCount = 1;
+            sets.pSetLayouts = &gradient_layout;
+            require(vkAllocateDescriptorSets(device, &sets, &result->gradients), "vkAllocateDescriptorSets");
+            const VkDescriptorBufferInfo buffer{result->buffer, stop_offset,
+                                                VkDeviceSize(stops.size()) * sizeof(GradientStopData)};
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = result->gradients;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write.pBufferInfo = &buffer;
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
         return result;
     }
     VkPipeline pipeline(VkRenderPass pass, VkShaderModule vertex, VkShaderModule fragment, const char* entry,
@@ -288,6 +332,12 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
     descriptors.pBindings = bindings;
     require(vkCreateDescriptorSetLayout(p.device, &descriptors, nullptr, &p.image_layout),
             "vkCreateDescriptorSetLayout");
+    const VkDescriptorSetLayoutBinding gradient_binding{0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                                                        VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    descriptors.bindingCount = 1;
+    descriptors.pBindings = &gradient_binding;
+    require(vkCreateDescriptorSetLayout(p.device, &descriptors, nullptr, &p.gradient_layout),
+            "vkCreateDescriptorSetLayout");
     const VkDescriptorPoolSize sizes[]{{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, context.max_images},
                                        {VK_DESCRIPTOR_TYPE_SAMPLER, context.max_images}};
     VkDescriptorPoolCreateInfo pool{};
@@ -300,11 +350,14 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
     VkPushConstantRange constants{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Primitive)};
     VkPipelineLayoutCreateInfo layout{};
     layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout.setLayoutCount = 1;
-    layout.pSetLayouts = &p.image_layout;
+    const VkDescriptorSetLayout layouts[]{p.image_layout, p.gradient_layout};
+    layout.setLayoutCount = 2;
+    layout.pSetLayouts = layouts;
     layout.pushConstantRangeCount = 1;
     layout.pPushConstantRanges = &constants;
     require(vkCreatePipelineLayout(p.device, &layout, nullptr, &p.layout), "vkCreatePipelineLayout");
+    // The solid fragment shader statically declares the stop buffer even for nongradient draws.
+    p.empty_gradients = p.upload({}, {GradientStopData{}}, false);
     // Clean up shader modules even when a later pipeline creation fails.
     VkShaderModule vertex = VK_NULL_HANDLE, fragment = VK_NULL_HANDLE, image = VK_NULL_HANDLE, batch = VK_NULL_HANDLE;
     try {
@@ -424,6 +477,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
     State state{{}, 0, 0, double(extent.width), double(extent.height)};
     std::vector<State> stack;
     std::vector<Packet> packets;
+    std::vector<GradientStopData> gradient_stops;
     std::vector<std::uint64_t> referenced_images;
     for (std::size_t i = 0; i < list.commands.size(); ++i) {
         const auto path = "/commands/" + std::to_string(i);
@@ -593,6 +647,32 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                             data.widths = premultiply(g.end_color);
                             data.source = {float(x), float(y), float(offset), 0};
                             data.params[1] = 5;
+                            if (!g.stops.empty()) {
+                                const auto capacity = std::min<VkDeviceSize>(
+                                    p.limits.maxStorageBufferRange / sizeof(GradientStopData), 1u << 24);
+                                if (g.stops.size() > capacity - gradient_stops.size()) {
+                                    errors.push_back(error(
+                                        "gradient_stop_limit", path + "/gradient/stops",
+                                        "Frame stop data exceeds the device storage-buffer or exact-index limit."));
+                                    return;
+                                }
+                                data.widths = {float(gradient_stops.size()), float(g.stops.size()), 0, 0};
+                                for (std::size_t stop_index = 0; stop_index < g.stops.size(); ++stop_index) {
+                                    const auto& stop = g.stops[stop_index];
+                                    const double gap =
+                                        stop_index ? double(stop.offset) - g.stops[stop_index - 1].offset : 0;
+                                    if ((stop.offset > 0 && stop.offset < std::numeric_limits<float>::min()) ||
+                                        (gap > 0 && gap < std::numeric_limits<float>::min())) {
+                                        errors.push_back(error(
+                                            "gradient_stop_precision",
+                                            path + "/gradient/stops/" + std::to_string(stop_index) + "/offset",
+                                            "Stop offsets and nonzero gaps must not require subnormal shader arithmetic."));
+                                        return;
+                                    }
+                                    gradient_stops.push_back({premultiply(stop.color), {stop.offset, 0, 0, 0}});
+                                }
+                                data.params[1] = 6;
+                            }
                         }
                     }
                     packets.push_back(packet);
@@ -605,19 +685,24 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         return {error("primitive_limit", "/commands", "Use at most UINT32_MAX emitted primitives per submission.")};
     const bool batch = p.batch_solid != VK_NULL_HANDLE;
     Impl::Upload* upload = nullptr;
-    if (batch && !packets.empty()) {
-        auto owned = p.upload(packets);
+    if (!packets.empty() && (batch || !gradient_stops.empty())) {
+        auto owned = p.upload(packets, gradient_stops, batch);
         upload = owned.get();
         p.uploads.emplace(frame.frame, std::move(owned));
     }
-    VulkanSubmissionStats stats{packets.size(), 0, upload ? packets.size() * sizeof(Primitive) : 0};
+    VulkanSubmissionStats stats{packets.size(), 0, upload ? upload->bytes : 0};
     // All diagnostics and allocations precede command recording and resource-use changes.
     const VkViewport viewport{0, 0, float(extent.width), float(extent.height), 0, 1};
     vkCmdSetViewport(p.target.commands, 0, 1, &viewport);
     VkPipeline bound = VK_NULL_HANDLE;
-    if (upload) {
+    if (upload && batch) {
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(p.target.commands, 0, 1, &upload->buffer, &offset);
+    }
+    if (!packets.empty()) {
+        const auto gradients = upload && upload->gradients ? upload->gradients : p.empty_gradients->gradients;
+        vkCmdBindDescriptorSets(p.target.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 1, 1, &gradients, 0,
+                                nullptr);
     }
     for (std::size_t first = 0; first < packets.size();) {
         const auto& packet = packets[first];

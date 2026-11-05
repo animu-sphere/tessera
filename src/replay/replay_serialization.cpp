@@ -203,10 +203,19 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
     s.background = color(o.at("background"), path + "/background");
     if (const auto field = o.find("background_gradient"); field != o.end()) {
         const auto at = path + "/background_gradient";
-        const auto& g = object(field->second, at, {"start", "end", "start_color", "end_color"});
+        const auto& g = object(field->second, at, {"start", "end", "start_color", "end_color"}, {"stops"});
         s.background_gradient = LinearGradient{point(g.at("start"), at + "/start"), point(g.at("end"), at + "/end"),
                                                color(g.at("start_color"), at + "/start_color"),
                                                color(g.at("end_color"), at + "/end_color")};
+        if (const auto stops = g.find("stops"); stops != g.end()) {
+            const auto& values = array(stops->second, at + "/stops");
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                const auto where = at + "/stops/" + std::to_string(i);
+                const auto& stop = object(values[i], where, {"offset", "color"});
+                s.background_gradient->stops.push_back(
+                    {real(stop.at("offset"), where + "/offset"), color(stop.at("color"), where + "/color")});
+            }
+        }
     }
     s.border_color = color(o.at("border_color"), path + "/border_color");
     s.corner_radius = real(o.at("corner_radius"), path + "/corner_radius");
@@ -573,10 +582,18 @@ JsonValue style_json(const ResolvedStyle& s) {
     if (s.grid_vertical != Align::stretch) result["grid_vertical"] = name(s.grid_vertical, align_names);
     if (s.background_gradient) {
         const auto& g = *s.background_gradient;
-        result["background_gradient"] = JsonValue{Object{{"start", point_json(g.start)},
-                                                         {"end", point_json(g.end)},
-                                                         {"start_color", color_json(g.start_color)},
-                                                         {"end_color", color_json(g.end_color)}}};
+        Object gradient{{"start", point_json(g.start)},
+                        {"end", point_json(g.end)},
+                        {"start_color", color_json(g.start_color)},
+                        {"end_color", color_json(g.end_color)}};
+        if (!g.stops.empty()) {
+            Array stops;
+            for (const auto& stop : g.stops)
+                stops.push_back(
+                    JsonValue{Object{{"offset", real_json(stop.offset)}, {"color", color_json(stop.color)}}});
+            gradient["stops"] = JsonValue{std::move(stops)};
+        }
+        result["background_gradient"] = JsonValue{std::move(gradient)};
     }
     return JsonValue{std::move(result)};
 }

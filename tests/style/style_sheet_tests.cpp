@@ -93,7 +93,7 @@ void test_selectors_and_order() {
 
 void test_gradients() {
     const auto tree = menu();
-    const tessera::LinearGradient gradient{{0, 0}, {1, 1}, red, blue};
+    const tessera::LinearGradient gradient{{0, 0}, {1, 1}, red, blue, {{.1f, red}, {.4f, white}, {.9f, blue}}};
     tessera::StyleDeclarations fill;
     fill.background_gradient = gradient;
     const tessera::StyleSheet sheet{

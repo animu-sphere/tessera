@@ -141,8 +141,11 @@ ui::Element Form(const State& state, Size viewport) {
                                  .gap = 12.f,
                                  .border_color = Color{.72f, .8f, .92f, 1},
                                  .corner_radius = 12.f,
-                                 .background_gradient =
-                                     LinearGradient{{0, 0}, {1, 1}, {.84f, .9f, 1, 1}, {.98f, .99f, 1, 1}}}}),
+                                 .background_gradient = LinearGradient{.start = {0, 0},
+                                                                       .end = {1, 1},
+                                                                       .stops = {{0, {.84f, .9f, 1, 1}},
+                                                                                 {.42f, {.9f, .96f, 1, 1}},
+                                                                                 {1, {.98f, .95f, 1, 1}}}}}}),
                   ui::Text("Edits are kept per item.", {.id = "help"}),
                   ui::Text("Name: Ctrl+A/C/X/V, text, arrows, Home/End, Backspace/Delete.")},
                  {.id = "inspector", .style = {.height = Dimension::points(height), .gap = 12.f}}),
@@ -1022,6 +1025,8 @@ void gradient_card_smoke() {
         });
     require(fill != app.view.paint.commands.end(), "Inspector card must paint a gradient through ordinary styles");
     auto rect = std::get<DrawRect>(*fill);
+    require(rect.gradient->stops.size() == 3 && rect.gradient->stops[1].offset == .42f,
+            "Inspector card must retain its authored nonuniform interior stop");
     rect.rect.origin = {};
     CpuFrameCapture frames;
     for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
@@ -1034,6 +1039,14 @@ void gradient_card_smoke() {
         require(image.pixels[left] < image.pixels[right] && image.pixels[left + 3] == 255 &&
                     image.pixels[right + 3] == 255,
                 "Inspector gradient must visibly change color across the card at every scale");
+        auto shorthand = rect;
+        shorthand.gradient->start_color = rect.gradient->stops.front().color;
+        shorthand.gradient->end_color = rect.gradient->stops.back().color;
+        shorthand.gradient->stops.clear();
+        const UiDrawList two_colors{{shorthand}};
+        const auto two_color_image =
+            take(frames.capture({0, card.size, scale, take(capture_extent(card.size, scale)), &two_colors}));
+        require(image != two_color_image, "Inspector's interior stop must change actual pixels, not only style data");
     }
 }
 

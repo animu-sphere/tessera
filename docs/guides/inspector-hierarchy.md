@@ -31,7 +31,7 @@ The context target is the selected-item button, not arbitrary unselected hierarc
 
 ## Gradient property card
 
-The selected-item button and property Grid share a padded, rounded card with a pale-blue-to-white diagonal background and an inside border. The form uses the ordinary optional `StyleDeclarations::background_gradient`:
+The selected-item button and property Grid share a padded, rounded card with a pale-blue-to-cyan-to-lilac diagonal background and an inside border. The form uses the ordinary optional `StyleDeclarations::background_gradient` with a nonuniform interior stop:
 
 ```cpp
 ui::Column(children, {
@@ -39,12 +39,17 @@ ui::Column(children, {
     .style = {
         .corner_radius = 12.f,
         .background_gradient = LinearGradient{
-            {0, 0}, {1, 1}, {.84f, .9f, 1, 1}, {.98f, .99f, 1, 1}}
+            .start = {0, 0}, .end = {1, 1},
+            .stops = {{0, {.84f, .9f, 1, 1}},
+                      {.42f, {.9f, .96f, 1, 1}},
+                      {1, {.98f, .95f, 1, 1}}}}
     }
 });
 ```
 
-Endpoints are normalized to the card's border box. The two fixed stops interpolate in premultiplied linear light, keep rounded corners and precede the existing inside border; CPU and Vulkan implement the same [fill contract](../architecture/rendering.md#implemented-linear-gradients). The native app uses the CPU implementation. This adds no special widget, image resource or interaction path. The window-free smoke checks that the authored card produces an actual gradient and changing pixels with rounded coverage at scales 1, 1.25, 1.5 and 2; ordinary application Replay preserves the resolved gradient while edits, scrolling and resizing retain their existing behavior.
+Endpoints are normalized to the card's border box. The stops interpolate in premultiplied linear light, keep rounded corners and precede the existing inside border; CPU and Vulkan implement the same [fill contract](../architecture/rendering.md#implemented-linear-gradients). An empty `stops` vector preserves the original `LinearGradient{start, end, start_color, end_color}` shorthand. Explicit positions must be nondecreasing in [0, 1]; duplicate positions make hard color transitions.
+
+The native app uses the CPU implementation. This adds no special widget, authored image resource or interaction path. The window-free smoke checks that the authored card's interior stop changes actual pixels compared with its two-color endpoints, with rounded coverage at scales 1, 1.25, 1.5 and 2; ordinary application Replay preserves the resolved stops while edits, scrolling and resizing retain their existing behavior.
 
 ## Host and observation boundary
 

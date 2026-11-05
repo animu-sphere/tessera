@@ -139,6 +139,16 @@ int main() {
     const tessera::UiDrawList paint{{tessera::DrawRect{{{0, 0}, {1, 1}}, {1, 0, 0, 1}}}};
     const auto capture = frames.capture({0, {1, 1}, 1, {1, 1}, &paint});
     if (!capture || capture.value->pixels != std::vector<std::uint8_t>{255, 0, 0, 255}) return 5;
+    const tessera::UiDrawList gradient{{tessera::DrawRect{
+        {{0, 0}, {1, 1}},
+        {},
+        0,
+        tessera::LinearGradient{
+            .start = {0, 0},
+            .end = {1, 0},
+            .stops = {{.1f, {1, 0, 0, 1}}, {.5f, {1, 0, 0, 1}}, {.5f, {0, 0, 1, 1}}, {.9f, {0, 0, 1, 1}}}}}}};
+    const auto gradient_capture = frames.capture({0, {1, 1}, 1, {1, 1}, &gradient});
+    if (!gradient_capture || gradient_capture.value->pixels != std::vector<std::uint8_t>{0, 0, 255, 255}) return 60;
     tessera::ReactiveRuntime runtime;
     tessera::AsyncValue asset(runtime, runtime.root(), "asset", tessera::PropertyType::string);
     const auto attempt = asset.begin("host-request");

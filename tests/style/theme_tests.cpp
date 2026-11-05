@@ -170,6 +170,16 @@ void exact_types_and_destinations() {
     theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
     check(result && !result.value->at(1).background_gradient, "Empty gradient token must clear the fill");
+    const LinearGradient multi{{0, 0}, {1, 1}, {}, {}, {{0, red}, {.3f, green}, {1, blue}}};
+    theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{multi}};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).background_gradient == multi, "Theme tokens must preserve owned stop lists");
+    auto invalid_stops = multi;
+    invalid_stops.stops[1].offset = -1;
+    theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{invalid_stops}};
+    check(has(validate(theme), "out_of_range",
+              "/theme/variables/" + std::to_string(fields.size() - 1) + "/value/stops/1/offset"),
+          "Theme stop errors must retain the token and stop location");
     theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{LinearGradient{{0, 0}, {0, 0}, red, blue}}};
     check(has(validate(theme), "degenerate_gradient",
               "/theme/variables/" + std::to_string(fields.size() - 1) + "/value/end"),

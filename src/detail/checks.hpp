@@ -71,6 +71,16 @@ public:
         if (value.start == value.end) error("degenerate_gradient", path + "/end", "Use distinct gradient endpoints.");
         color(value.start_color, path + "/start_color");
         color(value.end_color, path + "/end_color");
+        if (value.stops.size() == 1)
+            error("invalid_gradient_stops", path + "/stops",
+                  "Supply at least two stops, or use the two-color shorthand.");
+        for (std::size_t i = 0; i < value.stops.size(); ++i) {
+            const auto at = path + "/stops/" + std::to_string(i);
+            range(value.stops[i].offset, at + "/offset", 0, 1, "an offset in [0, 1]");
+            color(value.stops[i].color, at + "/color");
+            if (i && value.stops[i].offset < value.stops[i - 1].offset)
+                error("invalid_gradient_stops", at + "/offset", "Keep stops in nondecreasing offset order.");
+        }
     }
 
 private:
