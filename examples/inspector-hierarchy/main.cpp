@@ -133,7 +133,7 @@ ui::Element Form(const State& state, Size viewport) {
                                  .column_gap = 8.f,
                                  .row_gap = 12.f}}),
                   ui::Text("Edits are kept per item.", {.id = "help"}),
-                  ui::Text("Name: Ctrl+A/C/V, text, arrows, Home/End, Backspace/Delete.")},
+                  ui::Text("Name: Ctrl+A/C/X/V, text, arrows, Home/End, Backspace/Delete.")},
                  {.id = "inspector", .style = {.height = Dimension::points(height), .gap = 12.f}}),
              state.split, "panes.resize",
              {.node = {.id = "panes", .style = {.height = Dimension::points(height)}},
@@ -203,6 +203,11 @@ public:
     std::function<Result<std::string>()> clipboard_read;
     std::function<std::vector<Diagnostic>(std::string_view)> clipboard_write;
     std::vector<Diagnostic> clipboard_diagnostics;
+    std::vector<Diagnostic> edit_diagnostics;
+    // Host feedback must not depend on successfully laying out the rejected edit.
+    std::string feedback;
+    // Optional host resource preparation, before a command publishes its candidate.
+    std::function<std::vector<Diagnostic>(const UiDrawList&)> prepare_paint;
 
     App() { refresh(); }
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
@@ -232,6 +237,10 @@ public:
         auto candidate_focus = focus;
         if (command == "item.rename") (void)take(candidate_focus.focus(view.hit(), *view.tree->find("name")));
         auto prepared = stage(candidate, viewport, offsets, candidate_focus, true);
+        if (prepared && prepare_paint) {
+            auto diagnostics = prepare_paint(prepared.value->paint);
+            if (!diagnostics.empty()) prepared = {std::nullopt, std::move(diagnostics)};
+        }
         if (!prepared) {
             if (prepared.diagnostics.size() > max_command_result_diagnostics) {
                 prepared.diagnostics.resize(max_command_result_diagnostics);
@@ -410,12 +419,12 @@ public:
             }
         }
         if (operation) {
-            const auto& name = state.item().name;
-            edit = TextEditRequest{name.owner, name.revision, std::move(*operation)};
-            const auto outcome =
-                operate(take(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate")), source);
-            edit.reset();
-            checked(outcome);
+            const auto name = state.item().name;
+            const auto outcome = try_edit({name.owner, name.revision, std::move(*operation)}, source);
+            edit_diagnostics = outcome.diagnostics;
+            if (outcome.status != CommandOutcomeStatus::success)
+                require(!edit_diagnostics.empty(), "Rejected name edit needs diagnostics");
+            report("Name edit", state.selected, edit_diagnostics);
             return;
         }
         if (focused && focused == view.tree->find("amount")) {
@@ -534,9 +543,25 @@ private:
                 }
             }
         }
-        for (const auto& diagnostic : clipboard_diagnostics)
-            std::cerr << diagnostic.code << " at " << diagnostic.path << ": " << diagnostic.message << '\n';
+        report(key.key == Key::c ? "Copy" : key.key == Key::x ? "Cut" : "Paste", selected, clipboard_diagnostics);
         return true;
+    }
+    void report(std::string_view operation, std::string_view item, const std::vector<Diagnostic>& diagnostics) {
+        feedback.clear();
+        if (diagnostics.empty()) return;
+        feedback = std::string(operation) + " could not finish. ";
+        const auto& code = diagnostics.front().code;
+        if (code == "text_too_long")
+            feedback += "Names must fit within 4096 UTF-8 bytes.";
+        else if (code == "multiline_text")
+            feedback += "Use a single line for the name.";
+        else if (code == "invalid_utf8" || code == "invalid_utf16" || code == "clipboard_nul")
+            feedback += "Use valid Unicode text.";
+        else
+            feedback += "Try again.";
+        for (const auto& diagnostic : diagnostics)
+            std::cerr << operation << " for " << item << ": " << diagnostic.code << " at " << diagnostic.path << ": "
+                      << diagnostic.message << '\n';
     }
     void clipboard_error(std::string code, std::string message) {
         clipboard_diagnostics = {{std::move(code), Severity::error, "/clipboard", std::move(message)}};
@@ -663,6 +688,57 @@ private:
         checked(outcome);
     }
 };
+
+void edit_rejection_smoke() {
+    App app;
+    app.focus_id("name");
+    app.input({0us, KeyDown{Key::a, {.control = true}}});
+    app.input({0us, tessera::TextInput{"A\xe3\x81\x82\xf0\x9f\x98\x80Z"}});
+    app.input({0us, KeyDown{Key::left}});
+    app.input({0us, KeyDown{Key::left, {.shift = true}}});
+    app.input({0us, KeyDown{Key::left, {.shift = true}}});
+    const auto accepted = app.state.items;
+    const auto name = app.state.item().name;
+    require(name.anchor == 8 && name.caret == 1, "Rejection fixture needs a reversed Unicode selection");
+    const auto generation = app.view.commands.generation(), executions = app.executions;
+    const auto inspection_generation = app.view.inspection.generation;
+    const auto* tree = app.view.tree.get();
+    const auto focused = take(app.focus.refresh(app.view.hit())).focused;
+    const auto unchanged = [&] {
+        require(app.state.items == accepted && app.state.selected == "cube" && app.view.tree.get() == tree &&
+                    app.view.commands.generation() == generation && app.executions == executions &&
+                    app.view.inspection.generation == inspection_generation &&
+                    take(app.focus.refresh(app.view.hit())).focused == focused &&
+                    app.observed_name("hierarchy-item-cube") == name.text,
+                "Rejected input must retain items, selection, focus and the accepted presentation");
+    };
+    for (const auto& text : {std::string("two\nlines"), std::string("two\rlines"), std::string(4097, 'x')}) {
+        app.input({0us, tessera::TextInput{text}});
+        require(!app.edit_diagnostics.empty() && app.feedback.starts_with("Name edit could not finish."),
+                "Rejected committed text needs recoverable host feedback");
+        unchanged();
+    }
+    app.text.reject = true;
+    for (const auto& event : std::vector<InputEvent>{
+             {0us, tessera::TextInput{"retry"}}, {0us, KeyDown{Key::backspace}}, {0us, KeyDown{Key::right}}}) {
+        app.input(event);
+        require(app.edit_diagnostics.front().code == "inspector_measurement" && !app.feedback.empty(),
+                "Rejected text, deletion and selection staging must preserve the original diagnostic");
+        unchanged();
+    }
+    app.text.reject = false;
+    app.input({0us, tessera::TextInput{"retry"}});
+    require(app.state.item().name.text == "AretryZ" && app.state.item().name.revision == name.revision + 1 &&
+                app.executions == executions + 1 && app.edit_diagnostics.empty() && app.feedback.empty(),
+            "A successful retry must replace the retained selection once and clear feedback");
+    const auto cube = app.state.item();
+    app.action("hierarchy-item-sphere");
+    app.focus_id("name");
+    app.input({0us, tessera::TextInput{"!"}});
+    app.action("hierarchy-item-cube");
+    require(app.state.item() == cube && app.state.items[2].name.text == "Sphere!",
+            "Recovered editing must retain independent items across selection changes");
+}
 
 void clipboard_smoke() {
     App app;
@@ -926,6 +1002,7 @@ void cut_smoke() {
 }
 
 void smoke() {
+    edit_rejection_smoke();
     clipboard_smoke();
     cut_smoke();
     App app;
@@ -1087,11 +1164,21 @@ int native(bool smoke) {
     settings_native::Glyphs glyphs;
     GlyphCache cache(glyphs);
     CpuFrameCapture frames(&cache);
+    app.prepare_paint = [&](const UiDrawList& paint) { return prepare_glyph_atlas(paint, cache, 1, {1}).diagnostics; };
     settings_native::Window window;
     app.clipboard_read = [&] { return inspector_clipboard::read(window.handle); };
     app.clipboard_write = [&](std::string_view text) { return inspector_clipboard::write(window.handle, text); };
     window.title = L"Tessera Hierarchy / Inspector - select an item, edit its properties";
-    window.input = [&](InputEvent event, CommandSource source) { app.input(std::move(event), source); };
+    window.input = [&](InputEvent event, CommandSource source) {
+        const auto previous_feedback = app.feedback;
+        app.input(std::move(event), source);
+        if (app.feedback == previous_feedback) return;
+        // Feedback uses fixed ASCII phrases and remains available if text measurement failed.
+        const auto title = app.feedback.empty() ? std::wstring(window.title)
+                                                : L"Tessera Hierarchy / Inspector - " +
+                                                      std::wstring(app.feedback.begin(), app.feedback.end());
+        SetWindowTextW(window.handle, title.c_str());
+    };
     window.capture = [&] {
         return take(frames.capture({app.view.commands.generation(), app.viewport, 1,
                                     take(capture_extent(app.viewport, 1)), &app.view.paint, 0us}));
@@ -1151,6 +1238,11 @@ int native(bool smoke) {
             }
             throw std::runtime_error("Native Tab cannot reach Inspector control");
         };
+        const auto caption = [&] {
+            wchar_t title[256]{};
+            require(GetWindowTextW(host.handle, title, 256) > 0, "Cannot read Inspector feedback");
+            return std::wstring(title);
+        };
         require(host.presentations > 0, "Inspector window must present");
         click("hierarchy-item-cube");
         host.message(WM_KEYDOWN, VK_DOWN, 1);
@@ -1161,7 +1253,17 @@ int native(bool smoke) {
         require(app.state.selected == "cube", "Native hierarchy navigation must return to the previous item");
         seek("name");
         host.message(WM_KEYDOWN, VK_END, 1);
+        const auto before_edit_rejection = app.state.item().name;
+        const auto edit_generation = app.view.commands.generation();
+        app.text.reject = true;
+        host.message(WM_CHAR, '?');
+        require(app.state.item().name == before_edit_rejection && app.view.commands.generation() == edit_generation &&
+                    caption().find(L"Name edit could not finish.") != std::wstring::npos && window.editing(),
+                "Rejected native typing must retain the editor and show feedback without closing");
+        app.text.reject = false;
         host.message(WM_CHAR, '!');
+        require(app.edit_diagnostics.empty() && caption() == window.title,
+                "Successful native typing must clear rejection feedback");
         control_key('A');
         const auto before_copy = app.state.item().name;
         control_key('C');
@@ -1190,8 +1292,34 @@ int native(bool smoke) {
         clipboard = "bad\ntext";
         const auto before_rejection = app.state.item().name;
         control_key('V');
-        require(app.state.item().name == before_rejection && !app.clipboard_diagnostics.empty(),
+        require(app.state.item().name == before_rejection && !app.clipboard_diagnostics.empty() &&
+                    caption().find(L"Use a single line") != std::wstring::npos,
                 "Rejected native paste must leave the application usable");
+        control_key('A');
+        const auto before_atlas_rejection = app.state.item().name;
+        const auto atlas_generation = app.view.commands.generation();
+        clipboard = std::string(4096, 'n');
+        control_key('V');
+        require(app.state.item().name == before_atlas_rejection && app.view.commands.generation() == atlas_generation &&
+                    app.clipboard_diagnostics.front().code == "glyph_limit" &&
+                    caption().find(L"Paste could not finish.") != std::wstring::npos,
+                "Native atlas rejection must retain the accepted presentation before publication");
+        // A full UTF-8 buffer whose scalar count fits the native frame's atlas budget.
+        std::string full_unicode;
+        for (int i = 0; i < 1024; ++i) full_unicode += "\xf0\x9f\x98\x80";
+        require(
+            app.try_edit({before_atlas_rejection.owner, before_atlas_rejection.revision, TextEditInsert{full_unicode}})
+                    .status == CommandOutcomeStatus::success,
+            "Native rejection fixture must fill the name buffer");
+        const auto full_name = app.state.item().name;
+        const auto full_generation = app.view.commands.generation();
+        host.message(WM_CHAR, '!');
+        require(app.state.item().name == full_name && app.view.commands.generation() == full_generation &&
+                    caption().find(L"4096 UTF-8 bytes") != std::wstring::npos && window.editing(),
+                "Typing beyond the name limit must show feedback and retain accepted text");
+        host.message(WM_KEYDOWN, VK_BACK, 1);
+        require(app.state.item().name.text.size() == 4092 && app.edit_diagnostics.empty() && caption() == window.title,
+                "Backspace after a rejected native edit must recover and clear feedback");
         control_key('A');
         clipboard = "Cube!";
         control_key('V');

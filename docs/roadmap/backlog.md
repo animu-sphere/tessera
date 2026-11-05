@@ -1,6 +1,6 @@
 # Backlog
 
-Inactive candidates; [current](current.md) owns selected work and [support](../reference/support-matrix.md) owns implementation/validation status. Expansion for v0.8.0 and beyond follows consumer needs, without fixed version ordering or committed dates.
+Inactive, unfinished candidates; [current](current.md) owns selected work and [support](../reference/support-matrix.md) owns implementation/validation status. Remove implemented operations from these lists; retain only the unfinished scope of partially delivered candidates. Delivery history belongs in the [changelog](../../CHANGELOG.md). Expansion for v0.8.0 and beyond follows consumer needs, without fixed version ordering or committed dates.
 
 Use the selected Inspector / Hierarchy application to identify the next user-visible blocker. Other concrete consumers and useful visual outcomes can also motivate independent slices; the candidates below are not a prerequisite checklist.
 
@@ -9,7 +9,7 @@ Use the selected Inspector / Hierarchy application to identify the next user-vis
 - Clipboard follow-ups: asynchronous results and additional consumers beyond the [Inspector's synchronous name copy/cut/paste](../guides/inspector-hierarchy.md#host-and-observation-boundary).
 - Japanese input: basic Windows IME composition/commit through TextInput, starting with a concrete input scenario.
 - Observation: make selection, focus, layout and command results easier to trace through existing [inspection](../architecture/inspection.md).
-- Failed edits/updates: retain the accepted UI and editing state while reporting a reproducible rejection.
+- Failed updates beyond name editing: select a concrete non-text operation that needs recoverable rejection feedback.
 - Focused reload/development aids: shorten one edit -> update -> inspect round trip when manual repetition becomes a bottleneck.
 
 Select these as individual application slices, not a combined release gate. Broader tooling remains below.
