@@ -8,11 +8,13 @@
 #include <tessera/render/paint.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <stdexcept>
 #ifdef _WIN32
 #include "../settings-starter/native_win32.hpp"
+#include "clipboard_win32.hpp"
 #endif
 
 using namespace tessera;
@@ -131,7 +133,7 @@ ui::Element Form(const State& state, Size viewport) {
                                  .column_gap = 8.f,
                                  .row_gap = 12.f}}),
                   ui::Text("Edits are kept per item.", {.id = "help"}),
-                  ui::Text("Name: Ctrl+A, text, arrows, Home/End, Backspace/Delete.")},
+                  ui::Text("Name: Ctrl+A/C/V, text, arrows, Home/End, Backspace/Delete.")},
                  {.id = "inspector", .style = {.height = Dimension::points(height), .gap = 12.f}}),
              state.split, "panes.resize",
              {.node = {.id = "panes", .style = {.height = Dimension::points(height)}},
@@ -197,6 +199,10 @@ public:
     FocusDispatcher focus;
     TextService text;
     std::uint64_t executions = 0;
+    // Synchronous host services, called after dispatch and outside core traversal.
+    std::function<Result<std::string>()> clipboard_read;
+    std::function<std::vector<Diagnostic>(std::string_view)> clipboard_write;
+    std::vector<Diagnostic> clipboard_diagnostics;
 
     App() { refresh(); }
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
@@ -226,7 +232,13 @@ public:
         auto candidate_focus = focus;
         if (command == "item.rename") (void)take(candidate_focus.focus(view.hit(), *view.tree->find("name")));
         auto prepared = stage(candidate, viewport, offsets, candidate_focus, true);
-        if (!prepared) return {CommandOutcomeStatus::error, {}, std::move(prepared.diagnostics)};
+        if (!prepared) {
+            if (prepared.diagnostics.size() > max_command_result_diagnostics) {
+                prepared.diagnostics.resize(max_command_result_diagnostics);
+                prepared.diagnostics.back().message += " Further presentation diagnostics omitted.";
+            }
+            return {CommandOutcomeStatus::error, {}, std::move(prepared.diagnostics)};
+        }
         pending_state = std::move(candidate);
         pending_focus = std::move(candidate_focus);
         pending_view = std::move(*prepared.value);
@@ -365,6 +377,7 @@ public:
         }
         slider_pointer.reset();
         focused = take(focus.refresh(view.hit())).focused;
+        if (const auto* key = std::get_if<KeyDown>(&event.data); key && clipboard_key(*key, source)) return;
         std::optional<decltype(TextEditRequest::operation)> operation;
         if (focused && focused == view.tree->find("name")) {
             if (const auto* committed = std::get_if<tessera::TextInput>(&event.data))
@@ -461,17 +474,60 @@ public:
         return view.inspection.semantics.nodes[*semantic].name;
     }
     ReplayReload recorded_view() const { return {view.tree->document(), view.styles}; }
-    CommandOutcome try_edit(TextEditRequest request) {
+    CommandOutcome try_edit(TextEditRequest request, CommandSource source = CommandSource::keyboard) {
         edit = std::move(request);
         const auto outcome =
-            operate(take(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate")),
-                    CommandSource::keyboard);
+            operate(take(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate")), source);
         edit.reset();
         return outcome;
     }
     bool resizing() const { return splitter.dragging(); }
 
 private:
+    bool clipboard_key(const KeyDown& key, CommandSource source) {
+        if ((key.key != Key::c && key.key != Key::v) || key.modifiers != Modifiers{.control = true} || key.repeat ||
+            state.menu != OpenMenu::none || take(focus.refresh(view.hit())).focused != view.tree->find("name"))
+            return false;
+        clipboard_diagnostics.clear();
+        const auto eligible = [&] {
+            return state.menu == OpenMenu::none && take(focus.refresh(view.hit())).focused == view.tree->find("name") &&
+                   static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate"));
+        };
+        if (!eligible()) return true;
+        const auto selected = state.selected;
+        const auto name = state.item().name;
+        if (key.key == Key::c) {
+            const auto begin = std::min(name.anchor, name.caret), end = std::max(name.anchor, name.caret);
+            if (begin == end) return true;
+            if (clipboard_write)
+                clipboard_diagnostics = clipboard_write(std::string_view(name.text).substr(begin, end - begin));
+            else
+                clipboard_error("clipboard_unavailable", "No clipboard write service is connected.");
+        } else {
+            if (!clipboard_read) {
+                clipboard_error("clipboard_unavailable", "No clipboard read service is connected.");
+            } else {
+                auto text = clipboard_read();
+                if (!text) {
+                    clipboard_diagnostics = std::move(text.diagnostics);
+                } else if (state.selected != selected || state.item().name != name || !eligible()) {
+                    clipboard_error("stale_clipboard_target", "Clipboard target changed during the host request.");
+                } else if (text.value->find('\0') != std::string::npos) {
+                    clipboard_error("clipboard_nul", "Clipboard text contains an embedded NUL.");
+                } else if (!text.value->empty()) {
+                    const auto outcome =
+                        try_edit({name.owner, name.revision, TextEditInsert{std::move(*text.value)}}, source);
+                    clipboard_diagnostics = outcome.diagnostics;
+                }
+            }
+        }
+        for (const auto& diagnostic : clipboard_diagnostics)
+            std::cerr << diagnostic.code << " at " << diagnostic.path << ": " << diagnostic.message << '\n';
+        return true;
+    }
+    void clipboard_error(std::string code, std::string message) {
+        clipboard_diagnostics = {{std::move(code), Severity::error, "/clipboard", std::move(message)}};
+    }
     ui::Session session;
     CommandExecutor executor;
     PointerDispatcher pointer{PointerSnapshotPolicy::compatible_author_ids};
@@ -595,7 +651,149 @@ private:
     }
 };
 
+void clipboard_smoke() {
+    App app;
+    app.focus_id("name");
+    auto shortcut = [&](Key key, Modifiers modifiers = {.control = true}, bool repeat = false) {
+        app.input({0us, KeyDown{key, modifiers, repeat}});
+    };
+    auto edit = [&](auto operation) {
+        const auto name = app.state.item().name;
+        require(app.try_edit({name.owner, name.revision, operation}).status == CommandOutcomeStatus::success,
+                "Clipboard fixture edit failed");
+    };
+    std::string clipboard;
+    unsigned reads = 0, writes = 0;
+    bool fail_read = false, fail_write = false;
+    const std::vector<Diagnostic> unavailable{
+        {"clipboard_unavailable", Severity::error, "/clipboard", "Injected failure"}};
+    app.clipboard_read = [&]() -> Result<std::string> {
+        ++reads;
+        if (fail_read) return {std::nullopt, unavailable};
+        return {clipboard, {}};
+    };
+    app.clipboard_write = [&](std::string_view text) {
+        ++writes;
+        if (fail_write) return unavailable;
+        clipboard = text;
+        return std::vector<Diagnostic>{};
+    };
+    edit(TextEditSelection{0, app.state.item().name.text.size()});
+    edit(TextEditInsert{"A\xe3\x81\x82\xf0\x9f\x98\x80Z"}); // A, hiragana, emoji, Z.
+    edit(TextEditSelection{8, 1});                          // Reverse selection of the two non-ASCII scalars.
+    const auto selected = app.state.item().name;
+    const auto generation = app.view.commands.generation(), executions = app.executions;
+    shortcut(Key::c);
+    require(clipboard == "\xe3\x81\x82\xf0\x9f\x98\x80" && writes == 1 && app.state.item().name == selected &&
+                app.view.commands.generation() == generation && app.executions == executions,
+            "Copy must preserve exact selected UTF-8 bytes and accepted state");
+    fail_write = true;
+    shortcut(Key::c);
+    require(app.clipboard_diagnostics.front().code == "clipboard_unavailable" && app.state.item().name == selected &&
+                app.view.commands.generation() == generation,
+            "Failed copy must retain the editor and view");
+    fail_write = false;
+    clipboard = "\xe6\x97\xa5\xe6\x9c\xac\xf0\x9f\x98\x80"; // Japanese plus a supplementary scalar.
+    const auto before_items = app.state.items;
+    shortcut(Key::v);
+    const auto pasted = app.state.item().name;
+    require(pasted.text == "A" + clipboard + "Z" && pasted.anchor == 11 && pasted.caret == 11 &&
+                pasted.owner == selected.owner && pasted.revision == selected.revision + 1 &&
+                app.executions == executions + 1 && app.clipboard_diagnostics.empty() &&
+                app.observed_name("hierarchy-item-cube") == pasted.text,
+            "Paste must replace the captured selection once and publish shared observations");
+    auto expected_items = before_items;
+    expected_items[1].name = pasted;
+    require(app.state.items == expected_items, "Paste must retain other items and properties");
+    app.action("hierarchy-item-sphere");
+    app.action("hierarchy-item-cube");
+    app.focus_id("name");
+    require(app.state.item().name == pasted, "Select and return must retain pasted bytes and caret");
+    shortcut(Key::c); // Empty selection does not overwrite clipboard.
+    require(writes == 2, "Collapsed selection must not call the clipboard writer");
+    const auto guarded_reads = reads, guarded_writes = writes;
+    for (const auto key : {Key::c, Key::v}) {
+        shortcut(key, {});
+        shortcut(key, {.shift = true, .control = true});
+        shortcut(key, {.control = true, .alt = true});
+        shortcut(key, {.control = true, .super = true});
+        shortcut(key, {.control = true}, true);
+    }
+    app.focus_id("hierarchy-item-cube");
+    shortcut(Key::c);
+    shortcut(Key::v);
+    app.action("actions");
+    shortcut(Key::v);
+    app.input({0us, KeyDown{Key::escape}});
+    require(reads == guarded_reads && writes == guarded_writes && app.state.item().name == pasted,
+            "Clipboard shortcuts require exact modifiers, initial keydown and the focused editor outside menus");
+    app.focus_id("name");
+    edit(TextEditSelection{1, 11});
+    const auto accepted = app.state.item();
+    const auto accepted_generation = app.view.commands.generation(), accepted_executions = app.executions;
+    auto unchanged = [&] {
+        require(app.state.item() == accepted && app.view.commands.generation() == accepted_generation &&
+                    app.executions == accepted_executions,
+                "Rejected paste must preserve accepted state and generation");
+    };
+    for (const auto& text : std::vector<std::string>{"two\nlines", "two\rlines", std::string(4097, 'x'),
+                                                     std::string("\xc0\xaf", 2), std::string("a\0b", 3)}) {
+        clipboard = text;
+        shortcut(Key::v);
+        require(!app.clipboard_diagnostics.empty(), "Invalid clipboard text needs a diagnostic");
+        unchanged();
+    }
+    clipboard.clear();
+    shortcut(Key::v);
+    require(app.clipboard_diagnostics.empty(), "Empty clipboard text is a no-op");
+    unchanged();
+    fail_read = true;
+    shortcut(Key::v);
+    require(app.clipboard_diagnostics.front().code == "clipboard_unavailable", "Read failure must be reported");
+    unchanged();
+    fail_read = false;
+    clipboard = "retry";
+    app.text.reject = true;
+    shortcut(Key::v);
+    require(app.clipboard_diagnostics.front().code == "inspector_measurement", "Presentation failure must be reported");
+    unchanged();
+    app.text.reject = false;
+    shortcut(Key::v);
+    require(app.state.item().name.text == "AretryZ" && app.state.item().name.revision == accepted.name.revision + 1,
+            "Rejected paste must retry against the retained revision");
+    app.clipboard_read = [&]() -> Result<std::string> {
+        app.action("hierarchy-item-sphere");
+        return {"wrong item", {}};
+    };
+    shortcut(Key::v);
+    require(app.state.selected == "sphere" && app.state.item().name.text == "Sphere" &&
+                app.clipboard_diagnostics.front().code == "stale_clipboard_target",
+            "Host callbacks must never redirect paste to another selected item");
+    app.focus_id("name");
+    app.clipboard_read = [&]() -> Result<std::string> {
+        edit(TextEditSelection{0, 0});
+        return {"stale selection", {}};
+    };
+    shortcut(Key::v);
+    require(app.state.item().name.text == "Sphere" && app.state.item().name.anchor == 0 &&
+                app.clipboard_diagnostics.front().code == "stale_clipboard_target",
+            "Changed revisions must reject a clipboard completion");
+    app.clipboard_read = [&]() -> Result<std::string> {
+        app.focus_id("enabled");
+        return {"lost focus", {}};
+    };
+    shortcut(Key::v);
+    require(app.state.item().name.text == "Sphere" &&
+                app.clipboard_diagnostics.front().code == "stale_clipboard_target",
+            "Focus loss must reject a clipboard completion");
+    app.focus_id("name");
+    app.clipboard_read = {};
+    shortcut(Key::v);
+    require(app.clipboard_diagnostics.front().code == "clipboard_unavailable", "Missing service must fail closed");
+}
+
 void smoke() {
+    clipboard_smoke();
     App app;
     std::chrono::microseconds time{};
     auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
@@ -756,6 +954,8 @@ int native(bool smoke) {
     GlyphCache cache(glyphs);
     CpuFrameCapture frames(&cache);
     settings_native::Window window;
+    app.clipboard_read = [&] { return inspector_clipboard::read(window.handle); };
+    app.clipboard_write = [&](std::string_view text) { return inspector_clipboard::write(window.handle, text); };
     window.title = L"Tessera Hierarchy / Inspector - select an item, edit its properties";
     window.input = [&](InputEvent event, CommandSource source) { app.input(std::move(event), source); };
     window.capture = [&] {
@@ -775,6 +975,36 @@ int native(bool smoke) {
                (app.resizing() || take(hit_test(app.view.hit(), point)).target == geometry->handle);
     };
     auto verify = [&](settings_native::Window& host) {
+        // Exercise key mapping without changing the user's live OS clipboard.
+        std::string clipboard;
+        app.clipboard_read = [&]() -> Result<std::string> { return {clipboard, {}}; };
+        app.clipboard_write = [&](std::string_view text) {
+            clipboard = text;
+            return std::vector<Diagnostic>{};
+        };
+        auto control_key = [&](WPARAM key, LPARAM flags = 1) {
+            BYTE original[256]{}, modified[256]{};
+            require(GetKeyboardState(original) != FALSE, "Cannot read smoke keyboard state");
+            std::copy(std::begin(original), std::end(original), std::begin(modified));
+            modified[VK_CONTROL] = 0x80;
+            require(SetKeyboardState(modified) != FALSE, "Cannot inject smoke Control key");
+            try {
+                host.message(WM_KEYDOWN, key, flags);
+            } catch (...) {
+                SetKeyboardState(original);
+                throw;
+            }
+            require(SetKeyboardState(original) != FALSE, "Cannot restore smoke keyboard state");
+        };
+        const std::wstring unicode{L'\x65e5', L'\x672c', L'\xd83d', L'\xde00'};
+        const std::string utf8 = "\xe6\x97\xa5\xe6\x9c\xac\xf0\x9f\x98\x80";
+        require(take(inspector_clipboard::decode(unicode)) == utf8 &&
+                    take(inspector_clipboard::encode(utf8)) == unicode &&
+                    !inspector_clipboard::decode(std::wstring{L'\xd800'}) &&
+                    !inspector_clipboard::encode(std::string("\xc0\xaf", 2)) &&
+                    !inspector_clipboard::decode(std::wstring(1400, L'\x65e5')) &&
+                    !inspector_clipboard::encode(std::string("a\0b", 3)),
+                "Native clipboard conversion must preserve Unicode and reject invalid or oversized values");
         auto click = [&](const char* id) {
             const auto point = host.physical(app.view.center(id));
             host.message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(point.x, point.y));
@@ -798,6 +1028,27 @@ int native(bool smoke) {
         seek("name");
         host.message(WM_KEYDOWN, VK_END, 1);
         host.message(WM_CHAR, '!');
+        control_key('A');
+        const auto before_copy = app.state.item().name;
+        control_key('C');
+        host.message(WM_CHAR, 3);
+        require(clipboard == "Cube!" && app.state.item().name == before_copy,
+                "Native Control+C must copy the selection without inserting its WM_CHAR");
+        const auto before_paste = app.executions;
+        clipboard = utf8;
+        control_key('V');
+        host.message(WM_CHAR, 22);
+        control_key('V', 1 | (LPARAM{1} << 30));
+        require(app.state.item().name.text == utf8 && app.executions == before_paste + 1,
+                "Native Control+V must replace once and ignore character/repeat messages");
+        clipboard = "bad\ntext";
+        const auto before_rejection = app.state.item().name;
+        control_key('V');
+        require(app.state.item().name == before_rejection && !app.clipboard_diagnostics.empty(),
+                "Rejected native paste must leave the application usable");
+        control_key('A');
+        clipboard = "Cube!";
+        control_key('V');
         seek("enabled");
         host.message(WM_KEYDOWN, VK_SPACE, 1);
         seek("amount");

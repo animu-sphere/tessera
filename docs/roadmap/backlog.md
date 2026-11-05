@@ -6,7 +6,7 @@ Use the selected Inspector / Hierarchy application to identify the next user-vis
 
 ## Near-term editing and development experience
 
-- Clipboard: selected UTF-8 copy/paste through an explicit host service when application editing needs it.
+- Clipboard follow-ups: cut, asynchronous results and additional consumers beyond the [Inspector's synchronous name copy/paste](../guides/inspector-hierarchy.md#host-and-observation-boundary).
 - Japanese input: basic Windows IME composition/commit through TextInput, starting with a concrete input scenario.
 - Observation: make selection, focus, layout and command results easier to trace through existing [inspection](../architecture/inspection.md).
 - Failed edits/updates: retain the accepted UI and editing state while reporting a reproducible rejection.
