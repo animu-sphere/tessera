@@ -1459,6 +1459,33 @@ void cpu_reference_fixtures(Host& host) {
          tessera::PopClip{}, tessera::PopTransform{},
          tessera::DrawRect{
              {{0, 0}, {0, 32}}, {}, 0, tessera::LinearGradient{{0, 0}, {0, 1}, {1, 0, 0, 1}, {0, 0, 1, 1}}}}};
+    auto multi_gradients = gradients;
+    std::get<tessera::DrawRect>(multi_gradients.commands[1]).gradient->stops = {{.1f, {1, 0, 0, 0}},
+                                                                                {.35f, {0, 1, 0, .5f}},
+                                                                                {.6f, {0, 0, 1, .75f}},
+                                                                                {.6f, {1, 0, 1, .75f}},
+                                                                                {.9f, {.8f, .85f, .9f, 1}}};
+    auto& many = std::get<tessera::DrawRect>(multi_gradients.commands[5]).gradient->stops;
+    for (unsigned i = 0; i <= 64; ++i) many.push_back({float(i) / 64, {float(i) / 64, float(64 - i) / 64, .5f, .5f}});
+    const tessera::UiDrawList hard_gradients{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::DrawRect{{{0, 0}, {32, 16}},
+                           {},
+                           0,
+                           tessera::LinearGradient{.start = {0, 0},
+                                                   .end = {1, 0},
+                                                   .stops = {{0, {1, 0, 0, 1}},
+                                                             {0, {0, 1, 0, .5f}},
+                                                             {.515625f, {0, 1, 0, .5f}},
+                                                             {.515625f, {0, 0, 1, .75f}},
+                                                             {1, {0, 0, 1, .75f}},
+                                                             {1, {1, 1, 1, 1}}}}},
+         tessera::DrawRect{
+             {{0, 16}, {32, 16}},
+             {},
+             0,
+             tessera::LinearGradient{
+                 .start = {0, 0}, .end = {1, 0}, .stops = {{.515625f, {1, 0, 0, .5f}}, {.515625f, {0, 0, 1, .75f}}}}}}};
     const auto compare = [](const std::vector<std::uint8_t>& actual, const std::vector<std::uint8_t>& expected,
                             VkExtent2D extent, const char* name, float scale) {
         double error = 0;
@@ -1514,29 +1541,54 @@ void cpu_reference_fixtures(Host& host) {
             compare(actual, expected.value->pixels, {extent.width, extent.height}, batched ? "batch" : "reference",
                     scale);
             gpu.retire(frame++);
-            const auto gradient_pixels = cpu.capture({0, {32, 32}, scale, extent, &gradients});
-            check(bool(gradient_pixels), "CPU gradient comparison capture rejected");
-            std::vector<std::uint8_t> previous;
-            for (int repeat = 0; repeat < 2; ++repeat) {
-                host.begin(gpu);
-                tessera::DrawRect invalid{{{0, 0}, {8, 8}}, {}, 0, tessera::LinearGradient{{0, 0}, {0, 0}, {}, {}}};
-                check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "degenerate_gradient",
-                          "/commands/0/gradient/end"),
-                      "Vulkan must reject an invalid gradient before recording a frame");
-                invalid.gradient->end.x = std::numeric_limits<float>::denorm_min();
-                check(
-                    has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "geometry_overflow", "/commands/0/gradient"),
-                    "Unrepresentable shader projection must reject explicitly");
-                check(gpu.submit({frame, {32, 32}, scale}, gradients).empty(), "GPU gradient submission rejected");
-                const auto pixels =
-                    host.finish(("cpu-compare-gradient-" + std::string(batched ? "batch-" : "reference-") + index +
-                                 "-" + std::to_string(repeat) + ".ppm")
-                                    .c_str());
-                compare(pixels, gradient_pixels.value->pixels, {extent.width, extent.height},
-                        batched ? "gradient-batch" : "gradient-reference", scale);
-                if (repeat) check(pixels == previous, "Repeated GPU gradient rendering must be deterministic");
-                previous = pixels;
-                gpu.retire(frame++);
+            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 3> gradient_scenes{
+                {{"gradient", &gradients}, {"multi-gradient", &multi_gradients}, {"hard-gradient", &hard_gradients}}};
+            for (const auto& [name, scene] : gradient_scenes) {
+                const auto gradient_pixels = cpu.capture({0, {32, 32}, scale, extent, scene});
+                check(bool(gradient_pixels), "CPU gradient comparison capture rejected");
+                std::vector<std::uint8_t> previous;
+                const bool retained = batched || scene != &gradients;
+                for (int repeat = 0; repeat < 2; ++repeat) {
+                    host.begin(gpu);
+                    const auto pending = gpu.pending_uploads();
+                    tessera::DrawRect invalid{{{0, 0}, {8, 8}}, {}, 0, tessera::LinearGradient{{0, 0}, {0, 0}, {}, {}}};
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "degenerate_gradient",
+                              "/commands/0/gradient/end"),
+                          "Vulkan must reject an invalid gradient before recording a frame");
+                    invalid.gradient->end.x = std::numeric_limits<float>::denorm_min();
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "geometry_overflow",
+                              "/commands/0/gradient"),
+                          "Unrepresentable shader projection must reject explicitly");
+                    invalid.gradient->end = {1, 0};
+                    invalid.gradient->stops = {{.8f, {}}, {.2f, {}}};
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "invalid_gradient_stops",
+                              "/commands/0/gradient/stops/1/offset") &&
+                              gpu.pending_uploads() == pending,
+                          "Invalid stop data must reject before allocation or recording");
+                    invalid.gradient->stops = {{std::numeric_limits<float>::denorm_min(), {}}, {1, {}}};
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "gradient_stop_precision",
+                              "/commands/0/gradient/stops/0/offset") &&
+                              gpu.pending_uploads() == pending,
+                          "Subnormal stop positions must reject explicitly rather than silently flush to zero");
+                    check(gpu.submit({frame, {32, 32}, scale}, *scene).empty(), "GPU gradient submission rejected");
+                    check(gpu.pending_uploads() == (retained ? std::size_t(repeat + 1) : 0),
+                          "Both paths must retain independent per-frame stop uploads until retirement");
+                    const auto pixels = host.finish(("cpu-compare-" + std::string(name) + "-" +
+                                                     std::string(batched ? "batch-" : "reference-") + index + "-" +
+                                                     std::to_string(repeat) + ".ppm")
+                                                        .c_str());
+                    compare(pixels, gradient_pixels.value->pixels, {extent.width, extent.height}, name, scale);
+                    if (repeat) {
+                        check(pixels == previous, "Repeated GPU gradient rendering must be deterministic");
+                        gpu.retire(frame - 1);
+                        check(gpu.pending_uploads() == (retained ? 1u : 0u),
+                              "Partial retirement must keep the later frame's stop buffer");
+                        gpu.retire(frame);
+                        check(gpu.pending_uploads() == 0, "Completed gradient uploads must be released");
+                    }
+                    previous = pixels;
+                    ++frame;
+                }
             }
             for (const auto& page : atlas.value->pages)
                 check(gpu.unbind_image(page.image).empty(), "Comparison atlas retirement failed");

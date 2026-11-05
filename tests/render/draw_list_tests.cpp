@@ -1,6 +1,8 @@
 #include <tessera/render/renderer.hpp>
 #include "../check.hpp"
+#include <cmath>
 #include <iostream>
+#include <limits>
 
 using tessera::test::check;
 using tessera::test::has;
@@ -83,6 +85,30 @@ void gradients() {
     check(has(errors, "out_of_range", "/commands/0/gradient/end/x") &&
               has(errors, "out_of_range", "/commands/0/gradient/start_color/a"),
           "Gradient coordinates and colors must be validated");
+    rect.gradient = tessera::LinearGradient{
+        {0, 0}, {1, 0}, {}, {}, {{.2f, {1, 0, 0, 1}}, {.5f, {}}, {.5f, {}}, {.8f, {0, 0, 1, 1}}}};
+    check(tessera::validate(tessera::UiDrawList{{rect}}).empty(), "Interior and coincident stops must be valid");
+    const auto valid = *rect.gradient;
+    for (float offset : {-1.f, 2.f, std::numeric_limits<float>::infinity(), NAN}) {
+        rect.gradient = valid;
+        rect.gradient->stops[1].offset = offset;
+        const auto diagnostics = tessera::validate(tessera::UiDrawList{{rect}});
+        check(has(diagnostics, std::isfinite(offset) ? "out_of_range" : "invalid_number",
+                  "/commands/0/gradient/stops/1/offset"),
+              "Stop offsets must validate with exact locations");
+    }
+    rect.gradient = valid;
+    rect.gradient->stops[2].offset = .3f;
+    check(has(tessera::validate(tessera::UiDrawList{{rect}}), "invalid_gradient_stops",
+              "/commands/0/gradient/stops/2/offset"),
+          "Unsorted stops must reject instead of being silently reordered");
+    rect.gradient = valid;
+    rect.gradient->stops[1].color.a = -1;
+    check(has(tessera::validate(tessera::UiDrawList{{rect}}), "out_of_range", "/commands/0/gradient/stops/1/color/a"),
+          "Stop colors must validate");
+    rect.gradient->stops.resize(1);
+    check(has(tessera::validate(tessera::UiDrawList{{rect}}), "invalid_gradient_stops", "/commands/0/gradient/stops"),
+          "A nonempty explicit stop list needs at least two stops");
 }
 
 } // namespace

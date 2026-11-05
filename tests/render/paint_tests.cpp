@@ -123,6 +123,18 @@ void gradient_backgrounds() {
     style.background_gradient->start_color.a = 0;
     style.background_gradient->end_color.a = 0;
     check(f.paint().commands.size() == 1, "Transparent gradient must not reveal the replaced solid background");
+    style.background_gradient->stops = {{.1f, {1, 0, 0, .5f}}, {.4f, {0, 1, 0, 1}}, {.9f, {0, 0, 1, .25f}}};
+    const auto multi = f.paint();
+    const auto& stops = std::get<tessera::DrawRect>(multi.commands[0]).gradient->stops;
+    check(multi.commands.size() == 2 && stops[0] == tessera::GradientStop{.1f, {1, 0, 0, .125f}} &&
+              stops[1] == tessera::GradientStop{.4f, {0, 1, 0, .25f}} &&
+              stops[2] == tessera::GradientStop{.9f, {0, 0, 1, .0625f}} &&
+              style.background_gradient->stops[1].color.a == 1,
+          "Every explicit stop must receive opacity in the owned draw list without mutating its style");
+    for (auto& stop : style.background_gradient->stops) stop.color.a = 0;
+    style.background_gradient->start_color.a = 1;
+    check(f.paint().commands.size() == 1,
+          "Explicit transparent stops must replace, not fall back to, shorthand colors");
     style.background_gradient.reset();
     check(!std::get<tessera::DrawRect>(f.paint().commands[0]).gradient,
           "Removing a gradient must restore the ordinary solid background");

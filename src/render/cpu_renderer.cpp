@@ -243,16 +243,17 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                     const auto y0 = edge(box.top, target_.extent.height), y1 = edge(box.bottom, target_.extent.height);
                     const auto& t = s.transform;
                     const double det = t.a * t.d - t.b * t.c;
-                    Pixel gradient_start{}, gradient_end{};
+                    std::vector<std::pair<double, Pixel>> gradient_stops;
                     std::array<double, 3> projection{};
                     if constexpr (std::is_same_v<T, DrawRect>) {
                         if (cmd.gradient) {
                             const auto& g = *cmd.gradient;
-                            gradient_start = linear(g.start_color);
-                            gradient_end = linear(g.end_color);
-                            for (unsigned c = 0; c < 3; ++c) {
-                                gradient_start[c] *= gradient_start[3];
-                                gradient_end[c] *= gradient_end[3];
+                            gradient_stops.reserve(g.stop_count());
+                            for (std::size_t i = 0; i < g.stop_count(); ++i) {
+                                const auto stop = g.stop(i);
+                                auto color = linear(stop.color);
+                                for (unsigned c = 0; c < 3; ++c) color[c] *= color[3];
+                                gradient_stops.emplace_back(stop.offset, color);
                             }
                             const double dx = (double(g.end.x) - g.start.x) * cmd.rect.size.width,
                                          dy = (double(g.end.y) - g.start.y) * cmd.rect.size.height;
@@ -301,8 +302,21 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                                     if (cmd.gradient) {
                                         const double progress = std::clamp(
                                             lx * projection[0] + ly * projection[1] + projection[2], 0.0, 1.0);
-                                        for (unsigned c = 0; c < 4; ++c)
-                                            color[c] = gradient_start[c] * (1 - progress) + gradient_end[c] * progress;
+                                        const auto upper = std::upper_bound(
+                                            gradient_stops.begin(), gradient_stops.end(), progress,
+                                            [](double offset, const auto& stop) { return offset < stop.first; });
+                                        if (upper == gradient_stops.begin())
+                                            color = upper->second;
+                                        else if (upper == gradient_stops.end())
+                                            color = gradient_stops.back().second;
+                                        else {
+                                            const auto& lower = *(upper - 1);
+                                            const double fraction =
+                                                (progress - lower.first) / (upper->first - lower.first);
+                                            for (unsigned c = 0; c < 4; ++c)
+                                                color[c] =
+                                                    lower.second[c] * (1 - fraction) + upper->second[c] * fraction;
+                                        }
                                         premultiplied = true;
                                     } else {
                                         color = linear(cmd.color);

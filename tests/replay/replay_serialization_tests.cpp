@@ -267,6 +267,29 @@ void gradient_styles_round_trip() {
           "Invalid encoded gradient must fail with its located field before playback");
     source.version = tessera::replay_host_version;
     check(load(save(source)) == source, "Gradient styles must also round-trip in host-state replay v2");
+    check(json.find("\"stops\"") == std::string::npos, "Shorthand gradients must retain their canonical encoding");
+    source.styles[0].background_gradient->stops = {
+        {.1f, {1, 0, 0, 0}}, {.5f, {0, 1, 0, .5f}}, {.5f, {0, 0, 1, .75f}}, {.9f, {1, 1, 1, 1}}};
+    source.steps[0] = tessera::ReplayReload{source.document, source.styles};
+    for (const auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        source.version = version;
+        const auto multi = save(source);
+        check(load(multi) == source && save(load(multi)) == multi &&
+                  tessera::compare_replay(play(source), play(load(multi))).empty(),
+              "Explicit stop order, offsets and alpha must round-trip in initial/reloaded styles in v1 and v2");
+        auto rejected = tessera::load_replay(changed(multi, "\"offset\":0.5", "\"offset\":-1"));
+        check(!rejected &&
+                  has(rejected.diagnostics, "out_of_range", "/steps/0/styles/0/background_gradient/stops/1/offset"),
+              "Malformed stop offsets must reject before playback with a located path");
+        rejected = tessera::load_replay(changed(multi, "\"offset\":0.5", "\"offset\":0"));
+        check(!rejected && has(rejected.diagnostics, "invalid_gradient_stops",
+                               "/steps/0/styles/0/background_gradient/stops/1/offset"),
+              "Replay must reject unsorted stops, not normalize their order");
+        rejected = tessera::load_replay(changed(multi, "\"offset\":0.5", "\"unknown\":0.5"));
+        check(!rejected &&
+                  has(rejected.diagnostics, "unknown_field", "/steps/0/styles/0/background_gradient/stops/1/unknown"),
+              "Stop schema must reject unknown fields");
+    }
     const auto legacy = save(recording());
     check(legacy.find("background_gradient") == std::string::npos && load(legacy) == recording(),
           "Absent gradients must not change legacy canonical recording bytes");

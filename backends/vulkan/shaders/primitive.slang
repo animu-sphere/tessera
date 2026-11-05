@@ -3,13 +3,18 @@ struct Primitive {
     float4 transform1; // b, d, ty, unused
     float4 rect;
     float4 color; // Linear RGB, straight alpha.
-    float4 widths; // Border edges, placeholder bitmap rows 0-3, or premultiplied gradient end color.
+    float4 widths; // Border edges, bitmap rows 0-3, gradient end color, or stop-buffer first/count.
     float4 source; // Image rectangle, placeholder rows 4-6, or gradient projection (x, y, offset).
-    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5 gradient), framebuffer width, height
+    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5 gradient, 6 multi-stop), framebuffer width, height
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
 [[vk::binding(0, 0)]] Texture2D<float4> image;
 [[vk::binding(1, 0)]] SamplerState imageSampler;
+struct GradientStopData {
+    float4 color; // Premultiplied linear-light color.
+    float4 position;
+};
+[[vk::binding(0, 1)]] StructuredBuffer<GradientStopData> gradientStops;
 
 struct VertexOutput {
     float4 position : SV_Position;
@@ -69,9 +74,26 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         return input.color;
     }
     if (!roundedContains(input.local, input.rect.zw, input.params.x)) discard;
-    if (input.params.y == 5) {
+    if (input.params.y == 5 || input.params.y == 6) {
         float t = saturate(dot(input.local / input.rect.zw, input.source.xy) + input.source.z);
-        float4 color = lerp(input.color, input.widths, t);
+        float4 color;
+        if (input.params.y == 5) {
+            color = lerp(input.color, input.widths, t);
+        } else {
+            uint first = uint(input.widths.x), end = first + uint(input.widths.y);
+            uint low = first, high = end;
+            while (low < high) {
+                uint middle = low + (high - low) / 2;
+                if (gradientStops[middle].position.x <= t) low = middle + 1;
+                else high = middle;
+            }
+            if (low == first) color = gradientStops[first].color;
+            else if (low == end) color = gradientStops[end - 1].color;
+            else {
+                GradientStopData a = gradientStops[low - 1], b = gradientStops[low];
+                color = lerp(a.color, b.color, (t - a.position.x) / (b.position.x - a.position.x));
+            }
+        }
         return float4(color.a > 0 ? color.rgb / color.a : float3(0,0,0), color.a);
     }
     if (input.params.y == 1) {

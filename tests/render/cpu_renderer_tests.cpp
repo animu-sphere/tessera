@@ -120,6 +120,56 @@ void linear_gradients() {
           "Gradient clipping must preserve the original segment rather than restart at the clip edge");
 }
 
+void multi_stop_gradients() {
+    CpuFrameCapture frames;
+    DrawRect rect{
+        {{0, 0}, {8, 8}},
+        {},
+        0,
+        LinearGradient{{0, 0},
+                       {1, 0},
+                       {},
+                       {},
+                       {{.25f, {1, 0, 0, 0}}, {.5f, {0, 1, 0, .5f}}, {.5f, {0, 0, 1, .75f}}, {.75f, {1, 1, 1, 1}}}}};
+    const auto encode = [](double value) {
+        return static_cast<std::uint8_t>(
+            std::floor((value <= .0031308 ? value * 12.92 : 1.055 * std::pow(value, 1 / 2.4) - .055) * 255 + .5));
+    };
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        const auto image = capture(frames, {{rect}}, {8, 8}, scale);
+        const auto mirrored =
+            capture(frames, {{PushTransform{{-1, 0, 0, 1, 8, 0}}, rect, PopTransform{}}}, {8, 8}, scale);
+        const auto clipped = capture(frames, {{PushClip{{{2.25f, 0}, {3, 8}}}, rect, PopClip{}}}, {8, 8}, scale);
+        for (unsigned x = 0; x < image.extent.width; ++x) {
+            const double t = (x + .5) / (8 * scale);
+            const double a = t < .5 ? std::clamp((t - .25) * 4, 0.0, 1.0) : std::clamp((t - .5) * 4, 0.0, 1.0);
+            const double alpha = t < .5 ? .5 * a : .75 + .25 * a;
+            const std::array<std::uint8_t, 4> expected{
+                t < .5 ? std::uint8_t{0} : encode(a), t < .5 ? encode(.5 * a) : encode(a),
+                t < .5 ? std::uint8_t{0} : encode(alpha), static_cast<std::uint8_t>(std::floor(alpha * 255 + .5))};
+            check(pixel(image, x, 4) == expected,
+                  "Nonuniform stops must clamp outside their range and interpolate premultiplied linear-light colors");
+            check(pixel(mirrored, image.extent.width - x - 1, 4) == expected,
+                  "Explicit stops must follow local coordinates under reflection");
+            if ((x + .5) / scale >= 2.25 && (x + .5) / scale < 5.25)
+                check(pixel(clipped, x, 4) == expected, "Clipping must not restart multi-stop interpolation");
+            else
+                check(pixel(clipped, x, 4)[3] == 0, "Multi-stop fills must respect the clip");
+        }
+        check(image == capture(frames, {{rect}}, {8, 8}, scale), "Multi-stop capture must be deterministic");
+    }
+    rect.gradient->stops = {{0, {1, 0, 0, 1}},      {0, {0, 1, 0, 1}}, {.4375f, {0, 1, 0, 1}},
+                            {.4375f, {0, 0, 1, 1}}, {1, {0, 0, 1, 1}}, {1, {1, 1, 1, 1}}};
+    auto image = capture(frames, {{rect}});
+    check(pixel(image, 0, 4) == std::array<std::uint8_t, 4>{0, 255, 0, 255} &&
+              pixel(image, 3, 4) == std::array<std::uint8_t, 4>{0, 0, 255, 255},
+          "The last coincident stop must win at its exact offset, including endpoint duplicates");
+    rect.gradient->stops = {{.4375f, {1, 0, 0, 1}}, {.4375f, {0, 0, 1, 1}}};
+    image = capture(frames, {{rect}});
+    check(pixel(image, 2, 4)[0] == 255 && pixel(image, 3, 4)[2] == 255,
+          "All-coincident stops must form a hard transition without division by zero");
+}
+
 void images_and_lifetime() {
     CpuFrameCapture frames;
     std::vector<std::uint8_t> texels{0, 0, 0, 255, 255, 255, 255, 255};
@@ -291,6 +341,7 @@ int main() {
     try {
         pixels_and_geometry();
         linear_gradients();
+        multi_stop_gradients();
         images_and_lifetime();
         rejection_is_atomic();
         glyphs_and_runner();
