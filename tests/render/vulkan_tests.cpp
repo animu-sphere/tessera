@@ -1444,6 +1444,21 @@ void cpu_reference_fixtures(Host& host) {
     const tessera::UiDrawList premultiplied{
         {tessera::DrawRect{{{0, 0}, {32, 32}}, {0.15f, 0.2f, 0.3f, 1}}, tessera::DrawImage{{{2, 2}, {14, 28}}, {2}},
          tessera::DrawImage{{{16, 2}, {14, 28}}, {2}, {{0, 0}, {1, 1}}, {1, 0.8f, 1, 0.6f}}}};
+    const tessera::UiDrawList gradients{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::DrawRect{{{2.125f, 2.125f}, {27.75f, 15.75f}},
+                           {},
+                           4,
+                           tessera::LinearGradient{{.25f, 0}, {.75f, 0}, {1, 0, 0, 0}, {0, 0, 1, .75f}}},
+         tessera::DrawBorder{{{2.125f, 2.125f}, {27.75f, 15.75f}}, {1, 2, 1, 2}, {.6f, .7f, .8f, .5f}, 4},
+         tessera::PushTransform{{-1, 0, 0, 1, 32, 0}}, tessera::PushClip{{{3.125f, 17.125f}, {24.75f, 12.75f}}},
+         tessera::DrawRect{{{2.125f, 16.125f}, {27.75f, 13.75f}},
+                           {},
+                           3,
+                           tessera::LinearGradient{{1, 1}, {0, 0}, {.1f, 1, .2f, .8f}, {1, .2f, .1f, .25f}}},
+         tessera::PopClip{}, tessera::PopTransform{},
+         tessera::DrawRect{
+             {{0, 0}, {0, 32}}, {}, 0, tessera::LinearGradient{{0, 0}, {0, 1}, {1, 0, 0, 1}, {0, 0, 1, 1}}}}};
     const auto compare = [](const std::vector<std::uint8_t>& actual, const std::vector<std::uint8_t>& expected,
                             VkExtent2D extent, const char* name, float scale) {
         double error = 0;
@@ -1493,13 +1508,36 @@ void cpu_reference_fixtures(Host& host) {
             host.begin(gpu);
             check(gpu.submit({frame, {32, 32}, scale}, atlas.value->draw_list).empty(),
                   "GPU comparison submission rejected");
-            const auto index =
-                std::to_string((frame + 1) / 2); // Two frames per scale; artifacts keep scale indices 1-4.
+            const auto index = std::to_string(extent.width);
             const auto actual =
                 host.finish(("cpu-compare-" + std::string(batched ? "batch-" : "reference-") + index + ".ppm").c_str());
             compare(actual, expected.value->pixels, {extent.width, extent.height}, batched ? "batch" : "reference",
                     scale);
             gpu.retire(frame++);
+            const auto gradient_pixels = cpu.capture({0, {32, 32}, scale, extent, &gradients});
+            check(bool(gradient_pixels), "CPU gradient comparison capture rejected");
+            std::vector<std::uint8_t> previous;
+            for (int repeat = 0; repeat < 2; ++repeat) {
+                host.begin(gpu);
+                tessera::DrawRect invalid{{{0, 0}, {8, 8}}, {}, 0, tessera::LinearGradient{{0, 0}, {0, 0}, {}, {}}};
+                check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "degenerate_gradient",
+                          "/commands/0/gradient/end"),
+                      "Vulkan must reject an invalid gradient before recording a frame");
+                invalid.gradient->end.x = std::numeric_limits<float>::denorm_min();
+                check(
+                    has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "geometry_overflow", "/commands/0/gradient"),
+                    "Unrepresentable shader projection must reject explicitly");
+                check(gpu.submit({frame, {32, 32}, scale}, gradients).empty(), "GPU gradient submission rejected");
+                const auto pixels =
+                    host.finish(("cpu-compare-gradient-" + std::string(batched ? "batch-" : "reference-") + index +
+                                 "-" + std::to_string(repeat) + ".ppm")
+                                    .c_str());
+                compare(pixels, gradient_pixels.value->pixels, {extent.width, extent.height},
+                        batched ? "gradient-batch" : "gradient-reference", scale);
+                if (repeat) check(pixels == previous, "Repeated GPU gradient rendering must be deterministic");
+                previous = pixels;
+                gpu.retire(frame++);
+            }
             for (const auto& page : atlas.value->pages)
                 check(gpu.unbind_image(page.image).empty(), "Comparison atlas retirement failed");
             host.clear_atlas();

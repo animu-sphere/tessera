@@ -252,6 +252,26 @@ void grid_styles_round_trip() {
           "Default Grid fields must not change legacy canonical recordings");
 }
 
+void gradient_styles_round_trip() {
+    auto source = recording();
+    source.styles[0].background_gradient = tessera::LinearGradient{{.25f, 0}, {.75f, 1}, {1, 0, 0, 0}, {0, 0, 1, .75f}};
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::ReplayResize{{160, 100}});
+    const auto json = save(source);
+    check(load(json) == source && save(load(json)) == json,
+          "Gradient endpoints and colors must survive initial and reloaded style encoding");
+    check(tessera::compare_replay(play(source), play(load(json))).empty(),
+          "Gradient replay must reproduce ordinary geometry, paint and semantics after resize");
+    const auto invalid = tessera::load_replay(changed(json, "\"x\":0.75", "\"x\":2"));
+    check(!invalid && has(invalid.diagnostics, "out_of_range", "/steps/0/styles/0/background_gradient/end/x"),
+          "Invalid encoded gradient must fail with its located field before playback");
+    source.version = tessera::replay_host_version;
+    check(load(save(source)) == source, "Gradient styles must also round-trip in host-state replay v2");
+    const auto legacy = save(recording());
+    check(legacy.find("background_gradient") == std::string::npos && load(legacy) == recording(),
+          "Absent gradients must not change legacy canonical recording bytes");
+}
+
 void compatible_pointer_policy_round_trips() {
     for (const auto version : {tessera::replay_version, tessera::replay_host_version}) {
         auto source = recording();
@@ -491,6 +511,7 @@ int main() {
         loaded_recordings_replay_identically();
         stack_styles_round_trip();
         grid_styles_round_trip();
+        gradient_styles_round_trip();
         loading_rejects_malformed_input();
         compatible_pointer_policy_round_trips();
         saving_rejects_invalid_recordings();

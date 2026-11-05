@@ -12,7 +12,7 @@
 
 | Command | Meaning |
 | --- | --- |
-| `DrawRect` | Filled rectangle; `corner_radius > 0` makes it rounded |
+| `DrawRect` | Solid or optional two-stop linear-gradient fill; `corner_radius > 0` makes it rounded |
 | `DrawBorder` | Border painted inside its rectangle with per-edge widths |
 | `DrawImage` | `ImageHandle`, normalized source rectangle, and tint |
 | `DrawGlyphRun` | Owned [`GlyphRun`](text.md) placed at the text box top left, with color |
@@ -22,6 +22,16 @@
 Colors are sRGB-encoded with straight alpha in [0, 1]; backends convert to their target format and blending convention. A node's opacity is multiplied into its command colors; group opacity (offscreen composition) is not representable. `ImageHandle` is a neutral, nonzero value issued by the host/backend resource system; the draw list never contains GPU objects.
 
 Clips and transforms share one LIFO stack with a maximum depth of 64. `validate(UiDrawList)` reports a pop that does not close the innermost push of the same kind or a push left open (`unbalanced_stack`), excessive nesting (`stack_limit`), a clip pushed while the composed transform rotates or skews (`unsupported_clip`), a non-invertible transform (`singular_transform`), a zero image handle (`invalid_handle`), and non-finite or out-of-range geometry and colors. Paths are `/commands/<index>/...`.
+
+### Implemented linear gradients
+
+[`LinearGradient`](../../include/tessera/style/gradient.hpp) holds `start`, `end`, `start_color` and `end_color`. Endpoints are fractions of the untransformed border box, each coordinate finite in [0, 1]. The two color stops are fixed at segment positions 0 and 1; reversed endpoints are valid. Coincident endpoints reject as `degenerate_gradient` at `end`; invalid coordinates/colors use ordinary located numeric diagnostics. Zero-area rectangles paint nothing.
+
+`ResolvedStyle::background_gradient` and `DrawRect::gradient` are optional and replace their solid background/color, rather than compositing over it. Gradient colors are ordinary sRGB-encoded, straight-alpha inputs. Decode RGB to linear light, premultiply each stop by its alpha, interpolate RGB and alpha using the clamped local projection `dot(p - start, end - start) / dot(end - start, end - start)`, then source-over blend. Projection uses endpoints scaled by the rectangle's logical width/height, so diagonal gradients respect aspect ratio. Transparent stops contribute no hidden RGB. Opacity attenuates both stop alphas before interpolation.
+
+CPU and both Vulkan paths implement this fill inside the same rounded-rectangle coverage, before the existing per-edge inside border and children. Transform, clip, scrolling and fractional-scale rules are unchanged; clipping never restarts the gradient. Vulkan reuses the primitive packet's unused fill fields, without extra resources or a larger shader ABI, and reports `geometry_overflow` at `/commands/<i>/gradient` if projection coefficients cannot fit shader float arithmetic. There is no silent solid fallback. Arbitrary stop lists/positions, radial gradients and antialiasing are not implemented.
+
+The [Inspector card](../guides/inspector-hierarchy.md) is the practical consumer. [CPU tests](../../tests/render/cpu_renderer_tests.cpp) check exact pixels, transparent stops, clamping, aspect ratio, transforms and clips; [Vulkan tests](../../tests/render/vulkan_tests.cpp) compare both submission paths and repeated frames with CPU at scales 1, 1.25, 1.5 and 2, using the existing 2/255 linear-channel tolerance.
 
 ## Implemented frame contract
 
@@ -58,7 +68,7 @@ The UI layer generates resolved drawing data. Backends consume that data without
 
 [paint.hpp](../../include/tessera/render/paint.hpp) defines `PaintInput` and `build_paint_list(PaintInput)`. One pass borrows the immutable `UiTree`, one `ResolvedStyle` per tree node indexed by `NodeHandle::index`, its `LayoutResult`, and the same `TextShaper` used for layout. The returned `UiDrawList` owns all commands and glyph data and can outlive those inputs. No tree handle, backend object, asset lookup, or application callback is stored in the output.
 
-- **Order and geometry.** Walk displayed boxes in tree preorder. Each box emits background (`DrawRect`), inside border (`DrawBorder`), then Text (`DrawGlyphRun`), before its children; later siblings paint above earlier subtrees. Rectangles use `border_box`, borders use its recorded per-edge widths, and both preserve `corner_radius`. Text is shaped using its required `text` string property, resolved `TextStyle`, and `TextConstraints::max_width` equal to `content_box().size.width` under the [text contract](text.md#implemented-boundary), and placed at `content_box().origin`; the shaper's glyph positions and metrics are preserved.
+- **Order and geometry.** Walk displayed boxes in tree preorder. Each box emits solid or gradient background (`DrawRect`), inside border (`DrawBorder`), then Text (`DrawGlyphRun`), before its children; later siblings paint above earlier subtrees. Rectangles use `border_box`, borders use its recorded per-edge widths, and both preserve `corner_radius`. Text is shaped using its required `text` string property, resolved `TextStyle`, and `TextConstraints::max_width` equal to `content_box().size.width` under the [text contract](text.md#implemented-boundary), and placed at `content_box().origin`; the shaper's glyph positions and metrics are preserved.
 - **Alpha.** Each command's straight alpha is multiplied by the product of the node's and all ancestors' resolved opacity. RGB is unchanged. This per-command attenuation does not provide offscreen group composition; overlapping descendants can produce different pixels from group opacity.
 - **Eligibility.** Display-none subtrees have no boxes. A hidden box suppresses its own commands; visibility is local in the supplied resolved styles, so an explicitly visible descendant can still paint. Ancestor opacity continues to apply through hidden boxes. Transparent backgrounds, borders, and text emit nothing; borders with all zero widths and runs with no glyphs emit nothing. Hidden or zero-opacity boxes and transparent Text do not call `shape`.
 - **Clips and overflow.** Commands remain in root logical coordinates. Each emitting box's commands are enclosed in a `PushClip` of its recorded [layout clip](layout.md#implemented-prototype-algorithm); consecutive emitting boxes with the same clip share one push/pop pair, so generated clips never nest. Unclipped overflow paints in place. There is no implicit viewport clip, transform, image emission, z-index, or custom paint callback. [Scroll offsets](layout.md#implemented-prototype-algorithm) arrive already applied to recorded geometry and clips, so scrolled content needs no paint-side transform and shares hit testing's geometry. Transforms remain available to direct draw-list authors; transformed geometry must share its semantics with hit testing.

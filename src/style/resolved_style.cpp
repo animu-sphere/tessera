@@ -74,6 +74,7 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
 
     check.range(style.opacity, path + "/opacity", 0, 1, "an opacity in [0, 1]");
     check.color(style.background, path + "/background");
+    if (style.background_gradient) check.gradient(*style.background_gradient, path + "/background_gradient");
     check.color(style.border_color, path + "/border_color");
     check.non_negative(style.corner_radius, path + "/corner_radius");
 

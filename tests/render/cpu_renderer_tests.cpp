@@ -72,6 +72,54 @@ void pixels_and_geometry() {
     check(image.extent == CaptureExtent{4, 4} && pixel(image, 0, 0)[3] == 255 && pixel(image, 1, 0)[3] == 0,
           "Fractional scale/half-open edges differ");
 }
+void linear_gradients() {
+    CpuFrameCapture frames;
+    DrawRect rect{{{0, 0}, {8, 8}}, {}, 3, LinearGradient{{.25f, 0}, {.75f, 0}, {1, 0, 0, 0}, {0, 0, 1, 1}}};
+    const auto encode = [](double value) {
+        const double srgb = value <= .0031308 ? value * 12.92 : 1.055 * std::pow(value, 1 / 2.4) - .055;
+        return static_cast<std::uint8_t>(std::floor(srgb * 255 + .5));
+    };
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        const auto image = capture(frames, {{rect}}, {8, 8}, scale);
+        check(image == capture(frames, {{rect}}, {8, 8}, scale), "Gradient capture must be deterministic");
+        check(pixel(image, 0, 0)[3] == 0, "Gradient must preserve rounded coverage");
+        for (unsigned x = 0; x < image.extent.width; ++x) {
+            const double t = std::clamp(((x + .5) / scale - 2) / 4, 0.0, 1.0);
+            const auto actual = pixel(image, x, image.extent.height / 2);
+            check(actual ==
+                      std::array<std::uint8_t, 4>{0, 0, encode(t), static_cast<std::uint8_t>(std::floor(t * 255 + .5))},
+                  "Transparent stop RGB must not bleed; gradient sampling/clamping must use logical pixel centers");
+        }
+    }
+    rect.corner_radius = 0;
+    rect.gradient = LinearGradient{{0, 0}, {1, 0}, {1, 0, 0, 1}, {0, 0, 1, 1}};
+    const auto image = capture(frames, {{rect}});
+    check(pixel(image, 3, 4) == std::array<std::uint8_t, 4>{encode(.5625), 0, encode(.4375), 255},
+          "Opaque stops must interpolate in linear light rather than encoded sRGB");
+    const auto mirrored = capture(frames, {{PushTransform{{-1, 0, 0, 1, 8, 0}}, rect, PopTransform{}}});
+    for (unsigned x = 0; x < 8; ++x)
+        check(pixel(mirrored, x, 4) == pixel(image, 7 - x, 4),
+              "Gradient must follow local coordinates under transforms");
+    rect.rect.size = {8, 4};
+    rect.gradient->end = {1, 1};
+    const auto diagonal = capture(frames, {{rect}});
+    const double t = (3.5 * 8 + 1.5 * 4) / 80;
+    check(pixel(diagonal, 3, 1) == std::array<std::uint8_t, 4>{encode(1 - t), 0, encode(t), 255},
+          "Diagonal gradient projection must respect the rectangle aspect ratio");
+    rect.gradient->end = rect.gradient->start;
+    const UiDrawList invalid{{rect}};
+    const auto rejected = frames.capture({0, {8, 8}, 1, {8, 8}, &invalid});
+    check(!rejected && has(rejected.diagnostics, "degenerate_gradient", "/commands/0/gradient/end"),
+          "Invalid gradients must reject before rendering");
+    rect.gradient->end = {1, 0};
+    rect.rect.size.width = 0;
+    check(pixel(capture(frames, {{rect}}), 0, 0)[3] == 0, "Zero-area gradient must emit no pixels");
+    rect.rect.size = {8, 8};
+    const auto clipped = capture(frames, {{PushClip{{{2.25f, 0}, {3, 8}}}, rect, PopClip{}}});
+    check(pixel(clipped, 1, 4)[3] == 0 && pixel(clipped, 2, 4) == pixel(image, 2, 4) && pixel(clipped, 5, 4)[3] == 0,
+          "Gradient clipping must preserve the original segment rather than restart at the clip edge");
+}
+
 void images_and_lifetime() {
     CpuFrameCapture frames;
     std::vector<std::uint8_t> texels{0, 0, 0, 255, 255, 255, 255, 255};
@@ -242,6 +290,7 @@ void glyphs_and_runner() {
 int main() {
     try {
         pixels_and_geometry();
+        linear_gradients();
         images_and_lifetime();
         rejection_is_atomic();
         glyphs_and_runner();

@@ -3,9 +3,9 @@ struct Primitive {
     float4 transform1; // b, d, ty, unused
     float4 rect;
     float4 color; // Linear RGB, straight alpha.
-    float4 widths; // Border edges, or placeholder bitmap rows 0-3.
-    float4 source; // Image source rectangle, or placeholder bitmap rows 4-6.
-    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image), framebuffer width, height
+    float4 widths; // Border edges, placeholder bitmap rows 0-3, or premultiplied gradient end color.
+    float4 source; // Image rectangle, placeholder rows 4-6, or gradient projection (x, y, offset).
+    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5 gradient), framebuffer width, height
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
 [[vk::binding(0, 0)]] Texture2D<float4> image;
@@ -69,6 +69,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         return input.color;
     }
     if (!roundedContains(input.local, input.rect.zw, input.params.x)) discard;
+    if (input.params.y == 5) {
+        float t = saturate(dot(input.local / input.rect.zw, input.source.xy) + input.source.z);
+        float4 color = lerp(input.color, input.widths, t);
+        return float4(color.a > 0 ? color.rgb / color.a : float3(0,0,0), color.a);
+    }
     if (input.params.y == 1) {
         float2 offset = input.widths.wx;
         float2 inner = input.rect.zw - offset - input.widths.yz;

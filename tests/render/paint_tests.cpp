@@ -100,6 +100,34 @@ void order_geometry_opacity_and_ownership() {
           "Returned draw list must outlive all borrowed inputs");
 }
 
+void gradient_backgrounds() {
+    Fixture f(box({box()}));
+    f.styles[0].opacity = .5f;
+    auto& style = f.styles[1];
+    style.height = Dimension::points(20);
+    style.opacity = .5f;
+    style.background = {0, 1, 0, 1};
+    style.background_gradient = tessera::LinearGradient{{0, 0}, {1, 0}, {1, 0, 0, .5f}, {0, 0, 1, 1}};
+    style.border = {1, 2, 3, 4};
+    style.border_color = {1, 1, 1, 1};
+    style.corner_radius = 5;
+    f.compute();
+    const auto paint = f.paint();
+    check(paint.commands.size() == 2, "Gradient replaces solid background without adding layers");
+    const auto& rect = std::get<tessera::DrawRect>(paint.commands[0]);
+    check(rect.rect == f.layout.boxes[1].border_box && rect.corner_radius == 5 && rect.gradient &&
+              rect.gradient->start_color == tessera::Color{1, 0, 0, .125f} &&
+              rect.gradient->end_color == tessera::Color{0, 0, 1, .25f} &&
+              std::holds_alternative<tessera::DrawBorder>(paint.commands[1]),
+          "Gradient must preserve box geometry, border order and inherited per-command opacity");
+    style.background_gradient->start_color.a = 0;
+    style.background_gradient->end_color.a = 0;
+    check(f.paint().commands.size() == 1, "Transparent gradient must not reveal the replaced solid background");
+    style.background_gradient.reset();
+    check(!std::get<tessera::DrawRect>(f.paint().commands[0]).gradient,
+          "Removing a gradient must restore the ordinary solid background");
+}
+
 void visibility_display_and_empty() {
     Fixture f(box({box({text("omitted")}), box({text("visible child")}), text(""), text("transparent")}));
     f.styles[0].background = {1, 0, 0, 1};
@@ -281,6 +309,7 @@ void shaping_failures_and_warnings() {
 int main() {
     try {
         order_geometry_opacity_and_ownership();
+        gradient_backgrounds();
         visibility_display_and_empty();
         clip_runs();
         invalid_input_and_topology();

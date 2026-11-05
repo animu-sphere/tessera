@@ -2,10 +2,12 @@
 
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
+#include <tessera/style/gradient.hpp>
 #include <tessera/text/text.hpp>
 #include <tessera/ui/document.hpp>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -86,6 +88,9 @@ struct ResolvedStyle {
     float row_gap = 0;
     Align grid_horizontal = Align::stretch;
     Align grid_vertical = Align::stretch;
+
+    // Replaces background when present; not inherited.
+    std::optional<LinearGradient> background_gradient;
 
     bool operator==(const ResolvedStyle&) const = default;
 };

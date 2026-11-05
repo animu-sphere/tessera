@@ -6,6 +6,7 @@
 #include <tessera/input/split_pane.hpp>
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/paint.hpp>
+#include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <algorithm>
 #include <functional>
@@ -119,19 +120,29 @@ ui::Element Form(const State& state, Size viewport) {
                             false, std::move(children)}},
                           {.node = {.id = "hierarchy", .style = {.height = Dimension::points(height)}}}),
              ui::ScrollView(
-                 {ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
-                  ui::Grid(
-                      {ui::Text("Display name"),
-                       ui::TextInput("Name", item.name, "item.name", {.node = control("name")}), ui::Text("Enabled"),
-                       ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
-                       ui::Text("Amount"),
-                       ui::Slider("Amount", item.amount, amount_range, "item.amount", {.node = control("amount")})},
-                      {.id = "properties",
-                       .style = {.grid_columns =
-                                     std::vector<GridTrack>{GridTrack{.maximum = 84}, GridTrack::fraction(1, 80)},
-                                 .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{}},
-                                 .column_gap = 8.f,
-                                 .row_gap = 12.f}}),
+                 {ui::Column(
+                      {ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
+                       ui::Grid({ui::Text("Display name"),
+                                 ui::TextInput("Name", item.name, "item.name", {.node = control("name")}),
+                                 ui::Text("Enabled"),
+                                 ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
+                                 ui::Text("Amount"),
+                                 ui::Slider("Amount", item.amount, amount_range, "item.amount",
+                                            {.node = control("amount")})},
+                                {.id = "properties",
+                                 .style = {.grid_columns = std::vector<GridTrack>{GridTrack{.maximum = 84},
+                                                                                  GridTrack::fraction(1, 80)},
+                                           .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{}},
+                                           .column_gap = 8.f,
+                                           .row_gap = 12.f}})},
+                      {.id = "item-card",
+                       .style = {.border = Edges{1, 1, 1, 1},
+                                 .padding = Edges{16, 16, 16, 16},
+                                 .gap = 12.f,
+                                 .border_color = Color{.72f, .8f, .92f, 1},
+                                 .corner_radius = 12.f,
+                                 .background_gradient =
+                                     LinearGradient{{0, 0}, {1, 1}, {.84f, .9f, 1, 1}, {.98f, .99f, 1, 1}}}}),
                   ui::Text("Edits are kept per item.", {.id = "help"}),
                   ui::Text("Name: Ctrl+A/C/X/V, text, arrows, Home/End, Backspace/Delete.")},
                  {.id = "inspector", .style = {.height = Dimension::points(height), .gap = 12.f}}),
@@ -1001,7 +1012,33 @@ void cut_smoke() {
     }
 }
 
+void gradient_card_smoke() {
+    App app;
+    const auto card = app.view.box("item-card").border_box;
+    const auto fill =
+        std::find_if(app.view.paint.commands.begin(), app.view.paint.commands.end(), [&](const DrawCommand& command) {
+            const auto* rect = std::get_if<DrawRect>(&command);
+            return rect && rect->rect == card && rect->gradient;
+        });
+    require(fill != app.view.paint.commands.end(), "Inspector card must paint a gradient through ordinary styles");
+    auto rect = std::get<DrawRect>(*fill);
+    rect.rect.origin = {};
+    CpuFrameCapture frames;
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        UiDrawList paint{{rect}};
+        const auto image = take(frames.capture({0, card.size, scale, take(capture_extent(card.size, scale)), &paint}));
+        require(image.pixels[3] == 0, "Inspector gradient must retain transparent rounded corners");
+        const auto y = image.extent.height / 2;
+        const auto left = (std::size_t(y) * image.extent.width + image.extent.width / 4) * 4;
+        const auto right = (std::size_t(y) * image.extent.width + image.extent.width * 3 / 4) * 4;
+        require(image.pixels[left] < image.pixels[right] && image.pixels[left + 3] == 255 &&
+                    image.pixels[right + 3] == 255,
+                "Inspector gradient must visibly change color across the card at every scale");
+    }
+}
+
 void smoke() {
+    gradient_card_smoke();
     edit_rejection_smoke();
     clipboard_smoke();
     cut_smoke();

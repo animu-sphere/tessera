@@ -164,7 +164,7 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                              "border",  "padding",    "gap",          "grow",          "shrink",     "visibility",
                              "opacity", "background", "border_color", "corner_radius", "text",       "color"},
                {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap",
-                "grid_horizontal", "grid_vertical"});
+                "grid_horizontal", "grid_vertical", "background_gradient"});
     ResolvedStyle s;
     s.display = choice<Display>(o.at("display"), path + "/display", display_names);
     s.direction = choice<FlexDirection>(o.at("direction"), path + "/direction", direction_names);
@@ -201,6 +201,13 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
     s.visibility = choice<Visibility>(o.at("visibility"), path + "/visibility", visibility_names);
     s.opacity = real(o.at("opacity"), path + "/opacity");
     s.background = color(o.at("background"), path + "/background");
+    if (const auto field = o.find("background_gradient"); field != o.end()) {
+        const auto at = path + "/background_gradient";
+        const auto& g = object(field->second, at, {"start", "end", "start_color", "end_color"});
+        s.background_gradient = LinearGradient{point(g.at("start"), at + "/start"), point(g.at("end"), at + "/end"),
+                                               color(g.at("start_color"), at + "/start_color"),
+                                               color(g.at("end_color"), at + "/end_color")};
+    }
     s.border_color = color(o.at("border_color"), path + "/border_color");
     s.corner_radius = real(o.at("corner_radius"), path + "/corner_radius");
     const auto text_path = path + "/text";
@@ -564,6 +571,13 @@ JsonValue style_json(const ResolvedStyle& s) {
     if (s.row_gap != 0) result["row_gap"] = real_json(s.row_gap);
     if (s.grid_horizontal != Align::stretch) result["grid_horizontal"] = name(s.grid_horizontal, align_names);
     if (s.grid_vertical != Align::stretch) result["grid_vertical"] = name(s.grid_vertical, align_names);
+    if (s.background_gradient) {
+        const auto& g = *s.background_gradient;
+        result["background_gradient"] = JsonValue{Object{{"start", point_json(g.start)},
+                                                         {"end", point_json(g.end)},
+                                                         {"start_color", color_json(g.start_color)},
+                                                         {"end_color", color_json(g.end_color)}}};
+    }
     return JsonValue{std::move(result)};
 }
 JsonValue styles_json(const std::vector<ResolvedStyle>& values) {

@@ -70,6 +70,21 @@ void frame_info() {
           "Invalid frame accepted");
 }
 
+void gradients() {
+    tessera::DrawRect rect{
+        {{0, 0}, {20, 10}}, {}, 4, tessera::LinearGradient{{0, 0}, {1, 1}, {1, 0, 0, 0}, {0, 0, 1, 1}}};
+    check(tessera::validate(tessera::UiDrawList{{rect}}).empty(), "Valid gradient rejected");
+    rect.gradient->end = rect.gradient->start;
+    check(has(tessera::validate(tessera::UiDrawList{{rect}}), "degenerate_gradient", "/commands/0/gradient/end"),
+          "Coincident gradient endpoints accepted");
+    rect.gradient->end = {2, 1};
+    rect.gradient->start_color.a = -1;
+    auto errors = tessera::validate(tessera::UiDrawList{{rect}});
+    check(has(errors, "out_of_range", "/commands/0/gradient/end/x") &&
+              has(errors, "out_of_range", "/commands/0/gradient/start_color/a"),
+          "Gradient coordinates and colors must be validated");
+}
+
 } // namespace
 
 int main() {
@@ -77,6 +92,7 @@ int main() {
         valid_list();
         invalid_lists();
         frame_info();
+        gradients();
         std::cout << "Draw-list order/stack/resource-handle and frame checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

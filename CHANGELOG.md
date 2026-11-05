@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Added two-stop linear-gradient backgrounds to ordinary styles, theme tokens, resolved draw rectangles and Replay v1/v2, with explicit clearing and located validation. CPU and Vulkan reference/batch paths interpolate premultiplied linear-light colors inside existing rounded coverage, preserving border order, clipping, transforms and fractional scale. The [Inspector property card](docs/guides/inspector-hierarchy.md#gradient-property-card) is the practical consumer; arbitrary stops, radial gradients and antialiasing remain deferred.
+
 - Made rejected [Inspector name input](docs/guides/inspector-hierarchy.md) recoverable, preserving accepted text, selection, focus and presentation for retry. The Windows caption reports name-edit and clipboard failures independently of layout and clears after a successful operation; native commands prepare their glyph atlas before publication to reject over-budget frames safely. Consumer checks cover invalid/oversized committed text, rejected presentation, retained Unicode selection and native rejection/recovery feedback.
 
 - Added Ctrl+X cut to the [Inspector name editor](docs/guides/inspector-hierarchy.md) through the existing synchronous clipboard writer and revisioned name command. Write failures preserve the selection; changed targets and rejected presentation prevent deletion after copying. Window-free checks cover Unicode selections, guards, failure/retry and reentrant changes; injected Windows checks cover cut/paste and control-character/repeat suppression without touching the OS clipboard.

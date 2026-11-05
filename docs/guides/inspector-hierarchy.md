@@ -29,6 +29,23 @@ Use `Release` for the other configuration. Without arguments the executable runs
 
 The context target is the selected-item button, not arbitrary unselected hierarchy rows. No command silently selects a different item on right-click.
 
+## Gradient property card
+
+The selected-item button and property Grid share a padded, rounded card with a pale-blue-to-white diagonal background and an inside border. The form uses the ordinary optional `StyleDeclarations::background_gradient`:
+
+```cpp
+ui::Column(children, {
+    .id = "item-card",
+    .style = {
+        .corner_radius = 12.f,
+        .background_gradient = LinearGradient{
+            {0, 0}, {1, 1}, {.84f, .9f, 1, 1}, {.98f, .99f, 1, 1}}
+    }
+});
+```
+
+Endpoints are normalized to the card's border box. The two fixed stops interpolate in premultiplied linear light, keep rounded corners and precede the existing inside border; CPU and Vulkan implement the same [fill contract](../architecture/rendering.md#implemented-linear-gradients). The native app uses the CPU implementation. This adds no special widget, image resource or interaction path. The window-free smoke checks that the authored card produces an actual gradient and changing pixels with rounded coverage at scales 1, 1.25, 1.5 and 2; ordinary application Replay preserves the resolved gradient while edits, scrolling and resizing retain their existing behavior.
+
 ## Host and observation boundary
 
 The host owns all item data, selection, disclosure, scroll offsets, input dispatchers and command sequences. Item actions resolve against the accepted semantic tree and command snapshot. A candidate copies host state, applies the public text transform where needed, and stages lowering, eligibility, styles, layout, paint and inspection. Only a successful command outcome accepts that candidate and publishes the session. A stale/foreign text owner or rejected text measurement leaves the accepted values and inspection unchanged; retry uses the retained edit revision.

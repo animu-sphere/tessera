@@ -243,6 +243,26 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                     const auto y0 = edge(box.top, target_.extent.height), y1 = edge(box.bottom, target_.extent.height);
                     const auto& t = s.transform;
                     const double det = t.a * t.d - t.b * t.c;
+                    Pixel gradient_start{}, gradient_end{};
+                    std::array<double, 3> projection{};
+                    if constexpr (std::is_same_v<T, DrawRect>) {
+                        if (cmd.gradient) {
+                            const auto& g = *cmd.gradient;
+                            gradient_start = linear(g.start_color);
+                            gradient_end = linear(g.end_color);
+                            for (unsigned c = 0; c < 3; ++c) {
+                                gradient_start[c] *= gradient_start[3];
+                                gradient_end[c] *= gradient_end[3];
+                            }
+                            const double dx = (double(g.end.x) - g.start.x) * cmd.rect.size.width,
+                                         dy = (double(g.end.y) - g.start.y) * cmd.rect.size.height;
+                            const double length2 = dx * dx + dy * dy;
+                            projection = {dx / length2, dy / length2,
+                                          -(double(g.start.x) * cmd.rect.size.width * dx +
+                                            double(g.start.y) * cmd.rect.size.height * dy) /
+                                              length2};
+                        }
+                    }
                     for (auto y = y0; y < y1; ++y)
                         for (auto x = x0; x < x1; ++x) {
                             const double px = (x + 0.5) / frame.device_scale - t.tx,
@@ -277,7 +297,19 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                                         rounded(ix, iy, iw, ih, radius))
                                         continue;
                                 }
-                                color = linear(cmd.color);
+                                if constexpr (std::is_same_v<T, DrawRect>) {
+                                    if (cmd.gradient) {
+                                        const double progress = std::clamp(
+                                            lx * projection[0] + ly * projection[1] + projection[2], 0.0, 1.0);
+                                        for (unsigned c = 0; c < 4; ++c)
+                                            color[c] = gradient_start[c] * (1 - progress) + gradient_end[c] * progress;
+                                        premultiplied = true;
+                                    } else {
+                                        color = linear(cmd.color);
+                                    }
+                                } else {
+                                    color = linear(cmd.color);
+                                }
                             }
                             blend(target_.pixels.data() + (std::size_t(y) * target_.extent.width + x) * 4, color,
                                   premultiplied);

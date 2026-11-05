@@ -39,6 +39,8 @@ std::vector<Diagnostic> validate(const UiDrawList& list) {
                     check.rect(command.rect, path + "/rect");
                     check.color(command.color, path + "/color");
                     check.non_negative(command.corner_radius, path + "/corner_radius");
+                    if constexpr (std::is_same_v<T, DrawRect>)
+                        if (command.gradient) check.gradient(*command.gradient, path + "/gradient");
                     if constexpr (std::is_same_v<T, DrawBorder>) check.edges(command.widths, path + "/widths");
                 } else if constexpr (std::is_same_v<T, DrawImage>) {
                     check.rect(command.rect, path + "/rect");
