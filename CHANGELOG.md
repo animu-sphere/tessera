@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Made rejected [Inspector name input](docs/guides/inspector-hierarchy.md) recoverable, preserving accepted text, selection, focus and presentation for retry. The Windows caption reports name-edit and clipboard failures independently of layout and clears after a successful operation; native commands prepare their glyph atlas before publication to reject over-budget frames safely. Consumer checks cover invalid/oversized committed text, rejected presentation, retained Unicode selection and native rejection/recovery feedback.
+
 - Added Ctrl+X cut to the [Inspector name editor](docs/guides/inspector-hierarchy.md) through the existing synchronous clipboard writer and revisioned name command. Write failures preserve the selection; changed targets and rejected presentation prevent deletion after copying. Window-free checks cover Unicode selections, guards, failure/retry and reentrant changes; injected Windows checks cover cut/paste and control-character/repeat suppression without touching the OS clipboard.
 
 - Added Ctrl+C/V to the [Inspector name editor](docs/guides/inspector-hierarchy.md) through synchronous host clipboard services and an application-local Windows Unicode adapter. Copy preserves selected UTF-8 bytes; paste uses the existing revisioned name command, retains accepted edits on rejection and rejects changed targets after host callbacks. Window-free and injected native checks cover Unicode selections, routing, failures/retry and conversion without touching the OS clipboard. Live OS exchange, cut, asynchronous paste and clipboard replay remain outside validated scope.
