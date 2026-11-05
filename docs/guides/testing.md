@@ -95,6 +95,7 @@ For [Look extensions](../proposals/look.md), select the owners of the changed gu
 
 - Core validation: finite geometry, gradient stops, parameter types/bounds and ordered clip/transform behavior.
 - Built-in CPU/reference: coverage, thin strokes, small sizes and alpha, including declared gradient interpolation.
+- Linear-gradient owners: `style_sheet`/`theme` for cascade, explicit clearing and invalid values; `draw_list`/`paint` for geometry, replacement/order and opacity; `cpu_renderer` for exact linear/premultiplied sampling, clamping, rounded coverage and transforms/clips; `replay_serialization` for v1/v2 and legacy bytes. `inspector_hierarchy` supplies the practical card smoke; `vulkan` compares reference/batch/repeat with CPU at four scales without weakening its 2/255 linear-channel tolerance.
 - Backend: actual pixels for rounded/clip edges, color/opacity and fractional device scale; shader diagnostics, capability/fallback behavior and completion-safe resource lifetime.
 - Host/replay: explicit evaluation time, seed, uniform values and shader/asset identity for repeatable state and draw data. Add the necessary adapter coverage when those inputs become supported.
 

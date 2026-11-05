@@ -121,7 +121,8 @@ void exact_types_and_destinations() {
         {"column_gap", 8.f},
         {"row_gap", 4.f},
         {"grid_horizontal", Align::center},
-        {"grid_vertical", Align::end}};
+        {"grid_vertical", Align::end},
+        {"background_gradient", std::optional<LinearGradient>{LinearGradient{{0, 0}, {1, 1}, red, blue}}}};
     Theme theme;
     StyleRule rule{StyleSelector::of_id("button"), {}};
     for (const auto& [field, value] : fields) {
@@ -149,6 +150,7 @@ void exact_types_and_destinations() {
     expected.shrink = 0.5f;
     expected.opacity = 0.7f;
     expected.background = red;
+    expected.background_gradient = LinearGradient{{0, 0}, {1, 1}, red, blue};
     expected.border_color = green;
     expected.corner_radius = 4;
     expected.text = {FontId{9}, 24, 28.0f, 600};
@@ -165,6 +167,13 @@ void exact_types_and_destinations() {
     theme.variables[24].value = ThemeValue{std::optional<float>{}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
     check(result && !result.value->at(1).text.line_height, "Empty optional selects default line height");
+    theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{}};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && !result.value->at(1).background_gradient, "Empty gradient token must clear the fill");
+    theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{LinearGradient{{0, 0}, {0, 0}, red, blue}}};
+    check(has(validate(theme), "degenerate_gradient",
+              "/theme/variables/" + std::to_string(fields.size() - 1) + "/value/end"),
+          "Invalid gradient tokens must validate even before matching a destination");
 
     StyleSheet wrong{
         {{StyleSelector::of_id("button"), {}, {binding("width", "number", ThemeValue{Dimension::points(3)})}}}};

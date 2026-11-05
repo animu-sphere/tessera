@@ -2,6 +2,7 @@
 
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
+#include <tessera/style/gradient.hpp>
 #include <tessera/ui/document.hpp>
 #include <cmath>
 #include <string>
@@ -61,6 +62,15 @@ public:
         range(value.g, path + "/g", 0, 1, "a component in [0, 1]");
         range(value.b, path + "/b", 0, 1, "a component in [0, 1]");
         range(value.a, path + "/a", 0, 1, "a component in [0, 1]");
+    }
+    void gradient(const LinearGradient& value, const std::string& path) {
+        for (const auto& [point, name] : {std::pair{value.start, "/start"}, std::pair{value.end, "/end"}}) {
+            range(point.x, path + name + "/x", 0, 1, "a coordinate in [0, 1]");
+            range(point.y, path + name + "/y", 0, 1, "a coordinate in [0, 1]");
+        }
+        if (value.start == value.end) error("degenerate_gradient", path + "/end", "Use distinct gradient endpoints.");
+        color(value.start_color, path + "/start_color");
+        color(value.end_color, path + "/end_color");
     }
 
 private:

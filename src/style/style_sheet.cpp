@@ -75,6 +75,7 @@ void apply(const StyleDeclarations& d, ResolvedStyle& s) {
     set(d.visibility, s.visibility);
     set(d.opacity, s.opacity);
     set(d.background, s.background);
+    set(d.background_gradient, s.background_gradient);
     set(d.border_color, s.border_color);
     set(d.corner_radius, s.corner_radius);
     set(d.text.font, s.text.font);

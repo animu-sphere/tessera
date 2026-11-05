@@ -91,6 +91,29 @@ void test_selectors_and_order() {
     check(reversed["a"].background == red && reversed["b"].background == red, "Rule order did not decide the tie");
 }
 
+void test_gradients() {
+    const auto tree = menu();
+    const tessera::LinearGradient gradient{{0, 0}, {1, 1}, red, blue};
+    tessera::StyleDeclarations fill;
+    fill.background_gradient = gradient;
+    const tessera::StyleSheet sheet{
+        {{tessera::StyleSelector::of_id("panel"), fill}, {tessera::StyleSelector::of_id("a"), fill}}};
+    const auto plain = resolve(*tree, sheet);
+    check(plain["panel"].background_gradient == gradient && plain["a"].background_gradient == gradient &&
+              !plain["a-label"].background_gradient && !plain["b"].background_gradient,
+          "Gradient declarations must resolve without inheritance");
+    std::vector<tessera::StyleDeclarations> overrides(tree->size());
+    overrides[tree->find("a")->index].background_gradient = std::optional<tessera::LinearGradient>{};
+    check(!resolve(*tree, sheet, {}, overrides)["a"].background_gradient,
+          "An explicitly empty gradient override must clear a rule's gradient");
+    fill.background_gradient->value().start.x = NAN;
+    check(has(tessera::validate(fill), "invalid_number", "/background_gradient/start/x"),
+          "Non-finite gradient geometry must produce located style diagnostics");
+    fill.background_gradient = tessera::LinearGradient{{0, 0}, {0, 0}, red, blue};
+    check(has(tessera::validate(fill), "degenerate_gradient", "/background_gradient/end"),
+          "Style validation must reject coincident gradient endpoints");
+}
+
 void test_inheritance() {
     const auto tree = menu();
     using S = tessera::StyleSelector;
@@ -249,6 +272,7 @@ void test_diagnostics() {
 int main() {
     try {
         test_selectors_and_order();
+        test_gradients();
         test_inheritance();
         test_states();
         test_overrides();

@@ -46,7 +46,15 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
 
         UiDrawList commands;
         const auto background = faded(style.background, opacity);
-        if (background.a > 0) commands.commands.push_back(DrawRect{box.border_box, background, style.corner_radius});
+        if (style.background_gradient) {
+            auto gradient = *style.background_gradient;
+            gradient.start_color = faded(gradient.start_color, opacity);
+            gradient.end_color = faded(gradient.end_color, opacity);
+            if (gradient.start_color.a > 0 || gradient.end_color.a > 0)
+                commands.commands.push_back(DrawRect{box.border_box, {}, style.corner_radius, gradient});
+        } else if (background.a > 0) {
+            commands.commands.push_back(DrawRect{box.border_box, background, style.corner_radius});
+        }
         const auto border = faded(style.border_color, opacity);
         if (border.a > 0 && has_border(box.border))
             commands.commands.push_back(DrawBorder{box.border_box, box.border, border, style.corner_radius});

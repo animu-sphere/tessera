@@ -1,6 +1,6 @@
 # Look and visual rendering
 
-> Proposed direction, not implemented APIs. [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
+> Proposed direction beyond the implemented [two-stop linear-gradient card](../architecture/rendering.md#implemented-linear-gradients). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
 
 ## Goal and scope
 
@@ -42,7 +42,7 @@ These are extension points, not a requirement to redesign current `DrawRect` or 
 
 ### A. Visual basics
 
-Show a visible improvement in an ordinary Inspector or Settings card with a linear gradient; add radial gradients, shadow, stroke quality or text decoration where useful.
+The [Inspector property card](../guides/inspector-hierarchy.md#gradient-property-card) now uses a two-stop linear gradient through ordinary styles and both CPU/Vulkan rendering. Add arbitrary stops, radial gradients, shadow, stroke quality or text decoration where useful.
 
 Define stop ordering/ranges, degenerate geometry, interpolation and alpha before implementation. Preserve rounded-corner clipping, existing border widths, paint order and continuous coordinates. Check transparent stops and fractional scales. A first consumer can be one card rather than a new application.
 

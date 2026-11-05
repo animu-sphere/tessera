@@ -571,6 +571,30 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                                            command.widths.left};
                     }
                     data.color = {linear(color.r), linear(color.g), linear(color.b), color.a};
+                    if constexpr (std::is_same_v<T, DrawRect>) {
+                        if (command.gradient) {
+                            const auto& g = *command.gradient;
+                            const double w = command.rect.size.width, h = command.rect.size.height;
+                            const double dx = (double(g.end.x) - g.start.x) * w, dy = (double(g.end.y) - g.start.y) * h;
+                            const double length2 = dx * dx + dy * dy;
+                            const double x = w * dx / length2, y = h * dy / length2;
+                            const double offset = -(double(g.start.x) * x + double(g.start.y) * y);
+                            if (!representable(x) || !representable(y) || !representable(offset) ||
+                                !representable(std::abs(x) + std::abs(y) + std::abs(offset))) {
+                                errors.push_back(error("geometry_overflow", path + "/gradient",
+                                                       "Gradient projection exceeds representable coordinates."));
+                                return;
+                            }
+                            const auto premultiply = [](Color c) {
+                                return std::array<float, 4>{linear(c.r) * c.a, linear(c.g) * c.a, linear(c.b) * c.a,
+                                                            c.a};
+                            };
+                            data.color = premultiply(g.start_color);
+                            data.widths = premultiply(g.end_color);
+                            data.source = {float(x), float(y), float(offset), 0};
+                            data.params[1] = 5;
+                        }
+                    }
                     packets.push_back(packet);
                 }
             },
