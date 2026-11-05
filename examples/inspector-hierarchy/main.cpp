@@ -485,8 +485,9 @@ public:
 
 private:
     bool clipboard_key(const KeyDown& key, CommandSource source) {
-        if ((key.key != Key::c && key.key != Key::v) || key.modifiers != Modifiers{.control = true} || key.repeat ||
-            state.menu != OpenMenu::none || take(focus.refresh(view.hit())).focused != view.tree->find("name"))
+        if ((key.key != Key::c && key.key != Key::v && key.key != Key::x) ||
+            key.modifiers != Modifiers{.control = true} || key.repeat || state.menu != OpenMenu::none ||
+            take(focus.refresh(view.hit())).focused != view.tree->find("name"))
             return false;
         clipboard_diagnostics.clear();
         const auto eligible = [&] {
@@ -496,13 +497,25 @@ private:
         if (!eligible()) return true;
         const auto selected = state.selected;
         const auto name = state.item().name;
-        if (key.key == Key::c) {
+        const auto target_unchanged = [&] {
+            return state.selected == selected && state.item().name == name && eligible();
+        };
+        if (key.key == Key::c || key.key == Key::x) {
             const auto begin = std::min(name.anchor, name.caret), end = std::max(name.anchor, name.caret);
             if (begin == end) return true;
             if (clipboard_write)
                 clipboard_diagnostics = clipboard_write(std::string_view(name.text).substr(begin, end - begin));
             else
                 clipboard_error("clipboard_unavailable", "No clipboard write service is connected.");
+            if (key.key == Key::x && clipboard_diagnostics.empty()) {
+                if (!target_unchanged()) {
+                    clipboard_error("stale_clipboard_target", "Clipboard target changed during the host request.");
+                } else {
+                    const auto outcome =
+                        try_edit({name.owner, name.revision, TextEditErase{TextErase::forward}}, source);
+                    clipboard_diagnostics = outcome.diagnostics;
+                }
+            }
         } else {
             if (!clipboard_read) {
                 clipboard_error("clipboard_unavailable", "No clipboard read service is connected.");
@@ -510,7 +523,7 @@ private:
                 auto text = clipboard_read();
                 if (!text) {
                     clipboard_diagnostics = std::move(text.diagnostics);
-                } else if (state.selected != selected || state.item().name != name || !eligible()) {
+                } else if (!target_unchanged()) {
                     clipboard_error("stale_clipboard_target", "Clipboard target changed during the host request.");
                 } else if (text.value->find('\0') != std::string::npos) {
                     clipboard_error("clipboard_nul", "Clipboard text contains an embedded NUL.");
@@ -792,8 +805,129 @@ void clipboard_smoke() {
     require(app.clipboard_diagnostics.front().code == "clipboard_unavailable", "Missing service must fail closed");
 }
 
+void cut_smoke() {
+    App app;
+    app.focus_id("name");
+    auto edit = [&](auto operation) {
+        const auto name = app.state.item().name;
+        require(app.try_edit({name.owner, name.revision, operation}).status == CommandOutcomeStatus::success,
+                "Cut fixture edit failed");
+    };
+    auto cut = [&](Modifiers modifiers = {.control = true}, bool repeat = false) {
+        app.input({0us, KeyDown{Key::x, modifiers, repeat}});
+    };
+    std::string clipboard = "retained clipboard";
+    unsigned writes = 0;
+    bool fail_write = false;
+    app.clipboard_write = [&](std::string_view text) {
+        ++writes;
+        if (fail_write)
+            return std::vector<Diagnostic>{{"clipboard_write", Severity::error, "/clipboard", "Injected failure"}};
+        clipboard = text;
+        return std::vector<Diagnostic>{};
+    };
+    edit(TextEditSelection{0, app.state.item().name.text.size()});
+    edit(TextEditInsert{"A\xe3\x81\x82\xf0\x9f\x98\x80Z"});
+    edit(TextEditSelection{8, 1});
+    const auto selected = app.state.item().name;
+    const auto items = app.state.items;
+    const auto generation = app.view.commands.generation(), executions = app.executions;
+    auto unchanged = [&] {
+        require(app.state.items == items && app.view.commands.generation() == generation &&
+                    app.executions == executions,
+                "Rejected cut must preserve accepted items, selection and presentation");
+    };
+    for (const auto modifiers : {Modifiers{}, Modifiers{.shift = true, .control = true},
+                                 Modifiers{.control = true, .alt = true}, Modifiers{.control = true, .super = true}})
+        cut(modifiers);
+    cut({.control = true}, true);
+    require(writes == 0, "Cut requires exact modifiers and an initial keydown");
+    unchanged();
+    fail_write = true;
+    cut();
+    require(app.clipboard_diagnostics.front().code == "clipboard_write" && clipboard == "retained clipboard",
+            "Failed clipboard write must not delete the selected text");
+    unchanged();
+    fail_write = false;
+    app.text.reject = true;
+    cut();
+    require(app.clipboard_diagnostics.front().code == "inspector_measurement" &&
+                clipboard == "\xe3\x81\x82\xf0\x9f\x98\x80",
+            "Rejected cut presentation must report failure after copying the original selection");
+    unchanged();
+    app.text.reject = false;
+    cut();
+    const auto cut_name = app.state.item().name;
+    auto expected = items;
+    expected[1].name = cut_name;
+    require(cut_name.text == "AZ" && cut_name.owner == selected.owner && cut_name.revision == selected.revision + 1 &&
+                cut_name.anchor == 1 && cut_name.caret == 1 && app.state.items == expected &&
+                clipboard == "\xe3\x81\x82\xf0\x9f\x98\x80" && app.executions == executions + 1 &&
+                app.clipboard_diagnostics.empty() && app.observed_name("hierarchy-item-cube") == "AZ",
+            "Cut retry must erase exactly the reverse Unicode selection once through the name command");
+    const auto empty_generation = app.view.commands.generation(), empty_executions = app.executions;
+    cut();
+    require(writes == 3 && app.state.item().name == cut_name && app.view.commands.generation() == empty_generation &&
+                app.executions == empty_executions,
+            "Collapsed cut must preserve the following scalar, clipboard and generation");
+    app.action("hierarchy-item-sphere");
+    app.action("hierarchy-item-cube");
+    app.focus_id("name");
+    require(app.state.item().name == cut_name, "Select and return must retain cut text and selection");
+    edit(TextEditSelection{0, 2});
+    app.focus_id("enabled");
+    cut();
+    app.focus_id("name");
+    app.action("actions");
+    cut();
+    app.input({0us, KeyDown{Key::escape}});
+    require(writes == 3 && app.state.item().name.text == "AZ", "Cut must respect focus and open menu routing");
+    app.focus_id("name");
+    app.clipboard_write = {};
+    const auto missing = app.state.item().name;
+    cut();
+    require(app.state.item().name == missing && app.clipboard_diagnostics.front().code == "clipboard_unavailable",
+            "Missing write service must leave cut selection intact");
+
+    for (unsigned change = 0; change < 4; ++change) {
+        App reentrant;
+        reentrant.focus_id("name");
+        const auto name = reentrant.state.item().name;
+        require(reentrant.try_edit({name.owner, name.revision, TextEditSelection{0, name.text.size()}}).status ==
+                    CommandOutcomeStatus::success,
+                "Reentrant cut fixture selection failed");
+        auto accepted = reentrant.state.items;
+        auto accepted_generation = reentrant.view.commands.generation();
+        auto accepted_executions = reentrant.executions;
+        reentrant.clipboard_write = [&](std::string_view text) {
+            if (change == 0)
+                reentrant.action("hierarchy-item-sphere");
+            else if (change == 1) {
+                const auto observed = reentrant.state.item().name;
+                require(reentrant.try_edit({observed.owner, observed.revision, TextEditSelection{0, 0}}).status ==
+                            CommandOutcomeStatus::success,
+                        "Reentrant selection edit failed");
+            } else if (change == 2)
+                reentrant.focus_id("enabled");
+            else
+                reentrant.action("actions");
+            require(text == "Cube", "Cut callback must borrow captured bytes even after changing the target");
+            accepted = reentrant.state.items;
+            accepted_generation = reentrant.view.commands.generation();
+            accepted_executions = reentrant.executions;
+            return std::vector<Diagnostic>{};
+        };
+        reentrant.input({0us, KeyDown{Key::x, {.control = true}}});
+        require(reentrant.state.items == accepted && reentrant.view.commands.generation() == accepted_generation &&
+                    reentrant.executions == accepted_executions &&
+                    reentrant.clipboard_diagnostics.front().code == "stale_clipboard_target",
+                "Changed item, revision, focus or menu must reject deletion after the clipboard write");
+    }
+}
+
 void smoke() {
     clipboard_smoke();
+    cut_smoke();
     App app;
     std::chrono::microseconds time{};
     auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
@@ -1041,6 +1175,18 @@ int native(bool smoke) {
         control_key('V', 1 | (LPARAM{1} << 30));
         require(app.state.item().name.text == utf8 && app.executions == before_paste + 1,
                 "Native Control+V must replace once and ignore character/repeat messages");
+        control_key('A');
+        const auto before_cut = app.state.item().name;
+        const auto cut_executions = app.executions;
+        control_key('X');
+        host.message(WM_CHAR, 24);
+        control_key('X', 1 | (LPARAM{1} << 30));
+        require(clipboard == utf8 && app.state.item().name.text.empty() &&
+                    app.state.item().name.revision == before_cut.revision + 1 && app.state.item().name.anchor == 0 &&
+                    app.state.item().name.caret == 0 && app.executions == cut_executions + 1,
+                "Native Control+X must cut Unicode once and suppress character/repeat messages");
+        control_key('V');
+        require(app.state.item().name.text == utf8, "Native paste must restore the cut Unicode text");
         clipboard = "bad\ntext";
         const auto before_rejection = app.state.item().name;
         control_key('V');

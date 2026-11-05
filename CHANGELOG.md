@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Added Ctrl+X cut to the [Inspector name editor](docs/guides/inspector-hierarchy.md) through the existing synchronous clipboard writer and revisioned name command. Write failures preserve the selection; changed targets and rejected presentation prevent deletion after copying. Window-free checks cover Unicode selections, guards, failure/retry and reentrant changes; injected Windows checks cover cut/paste and control-character/repeat suppression without touching the OS clipboard.
+
 - Added Ctrl+C/V to the [Inspector name editor](docs/guides/inspector-hierarchy.md) through synchronous host clipboard services and an application-local Windows Unicode adapter. Copy preserves selected UTF-8 bytes; paste uses the existing revisioned name command, retains accepted edits on rejection and rejects changed targets after host callbacks. Window-free and injected native checks cover Unicode selections, routing, failures/retry and conversion without touching the OS clipboard. Live OS exchange, cut, asynchronous paste and clipboard replay remain outside validated scope.
 
 - Added an engine-free [Hierarchy / Inspector reference application](docs/guides/inspector-hierarchy.md) with per-item display name, enabled and amount edits, TreeView selection/disclosure, Grid properties, SplitPane resizing and item command menus. Window-free checks cover retained edits, rejected staging/retry and inspection/semantic/replay observations; optional Windows CPU hosting shares the Settings adapter and adds right-click/F10 routing with injected-message coverage.
