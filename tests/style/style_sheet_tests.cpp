@@ -99,19 +99,32 @@ void test_gradients() {
     const tessera::StyleSheet sheet{
         {{tessera::StyleSelector::of_id("panel"), fill}, {tessera::StyleSelector::of_id("a"), fill}}};
     const auto plain = resolve(*tree, sheet);
-    check(plain["panel"].background_gradient == gradient && plain["a"].background_gradient == gradient &&
-              !plain["a-label"].background_gradient && !plain["b"].background_gradient,
+    check(plain["panel"].background_gradient == tessera::Gradient{gradient} &&
+              plain["a"].background_gradient == tessera::Gradient{gradient} && !plain["a-label"].background_gradient &&
+              !plain["b"].background_gradient,
           "Gradient declarations must resolve without inheritance");
     std::vector<tessera::StyleDeclarations> overrides(tree->size());
-    overrides[tree->find("a")->index].background_gradient = std::optional<tessera::LinearGradient>{};
+    overrides[tree->find("a")->index].background_gradient = std::optional<tessera::Gradient>{};
     check(!resolve(*tree, sheet, {}, overrides)["a"].background_gradient,
           "An explicitly empty gradient override must clear a rule's gradient");
-    fill.background_gradient->value().start.x = NAN;
+    std::get<tessera::LinearGradient>(fill.background_gradient->value()).start.x = NAN;
     check(has(tessera::validate(fill), "invalid_number", "/background_gradient/start/x"),
           "Non-finite gradient geometry must produce located style diagnostics");
     fill.background_gradient = tessera::LinearGradient{{0, 0}, {0, 0}, red, blue};
     check(has(tessera::validate(fill), "degenerate_gradient", "/background_gradient/end"),
           "Style validation must reject coincident gradient endpoints");
+    const tessera::RadialGradient radial{
+        .center = {.2f, .3f}, .radius = {.8f, 1.2f}, .stops = {{0, white}, {.4f, red}, {1, blue}}};
+    overrides[tree->find("a")->index].background_gradient = radial;
+    const auto changed = resolve(*tree, sheet, {}, overrides);
+    check(changed["a"].background_gradient == tessera::Gradient{radial} &&
+              changed["panel"].background_gradient == tessera::Gradient{gradient} &&
+              !changed["a-label"].background_gradient,
+          "Radial instance overrides must replace linear fills without inheritance");
+    fill.background_gradient = radial;
+    std::get<tessera::RadialGradient>(fill.background_gradient->value()).radius.height = 0;
+    check(has(tessera::validate(fill), "out_of_range", "/background_gradient/radius/height"),
+          "Radial style geometry must validate before resolution");
 }
 
 void test_inheritance() {

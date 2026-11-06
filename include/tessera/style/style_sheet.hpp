@@ -57,7 +57,7 @@ struct StyleDeclarations {
     std::optional<float> row_gap;
     std::optional<Align> grid_horizontal;
     std::optional<Align> grid_vertical;
-    std::optional<std::optional<LinearGradient>> background_gradient;
+    std::optional<std::optional<Gradient>> background_gradient;
     bool operator==(const StyleDeclarations&) const = default;
 };
 
@@ -97,7 +97,7 @@ struct StyleSelector {
 // Exact style types; numeric conversions and string expressions are excluded.
 using ThemeValue =
     std::variant<float, Color, Dimension, Edges, FontId, std::optional<float>, std::uint16_t, Display, FlexDirection,
-                 Justify, Align, Overflow, Visibility, std::vector<GridTrack>, std::optional<LinearGradient>>;
+                 Justify, Align, Overflow, Visibility, std::vector<GridTrack>, std::optional<Gradient>>;
 struct ThemeReference {
     std::string name;
     std::optional<ThemeValue> fallback; // Used only when this name is absent.

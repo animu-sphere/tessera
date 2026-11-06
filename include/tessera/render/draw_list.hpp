@@ -38,7 +38,7 @@ struct DrawRect {
     Rect rect;
     Color color;
     float corner_radius = 0;
-    std::optional<LinearGradient> gradient; // Replaces color when present.
+    std::optional<Gradient> gradient; // Replaces color when present.
     bool operator==(const DrawRect&) const = default;
 };
 // Border painted inside rect.
