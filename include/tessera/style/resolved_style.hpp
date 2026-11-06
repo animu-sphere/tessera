@@ -90,7 +90,7 @@ struct ResolvedStyle {
     Align grid_vertical = Align::stretch;
 
     // Replaces background when present; not inherited.
-    std::optional<LinearGradient> background_gradient;
+    std::optional<Gradient> background_gradient;
 
     bool operator==(const ResolvedStyle&) const = default;
 };

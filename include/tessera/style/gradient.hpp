@@ -2,6 +2,7 @@
 
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
+#include <variant>
 #include <vector>
 
 namespace tessera {
@@ -26,5 +27,21 @@ struct LinearGradient {
     }
     bool operator==(const LinearGradient&) const = default;
 };
+
+// Center and ellipse radii are fractions of the border box. Radii must be positive.
+struct RadialGradient {
+    Point center{.5f, .5f};
+    Size radius{.5f, .5f};
+    Color start_color;
+    Color end_color;
+    std::vector<GradientStop> stops;
+    std::size_t stop_count() const { return stops.empty() ? 2 : stops.size(); }
+    GradientStop stop(std::size_t index) const {
+        return stops.empty() ? (index == 0 ? GradientStop{0, start_color} : GradientStop{1, end_color}) : stops[index];
+    }
+    bool operator==(const RadialGradient&) const = default;
+};
+
+using Gradient = std::variant<LinearGradient, RadialGradient>;
 
 } // namespace tessera

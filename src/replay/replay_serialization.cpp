@@ -203,17 +203,30 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
     s.background = color(o.at("background"), path + "/background");
     if (const auto field = o.find("background_gradient"); field != o.end()) {
         const auto at = path + "/background_gradient";
-        const auto& g = object(field->second, at, {"start", "end", "start_color", "end_color"}, {"stops"});
-        s.background_gradient = LinearGradient{point(g.at("start"), at + "/start"), point(g.at("end"), at + "/end"),
-                                               color(g.at("start_color"), at + "/start_color"),
-                                               color(g.at("end_color"), at + "/end_color")};
-        if (const auto stops = g.find("stops"); stops != g.end()) {
+        const auto& fields = as<Object>(field->second, at, "an object");
+        const auto kind = fields.find("kind");
+        if (kind != fields.end()) {
+            if (string(kind->second, at + "/kind") != "radial")
+                fail("unknown_value", at + "/kind", "Expected radial, or omit kind for a linear gradient.");
+            const auto& g =
+                object(field->second, at, {"kind", "center", "radius", "start_color", "end_color"}, {"stops"});
+            s.background_gradient = RadialGradient{
+                point(g.at("center"), at + "/center"), size(g.at("radius"), at + "/radius"),
+                color(g.at("start_color"), at + "/start_color"), color(g.at("end_color"), at + "/end_color")};
+        } else {
+            const auto& g = object(field->second, at, {"start", "end", "start_color", "end_color"}, {"stops"});
+            s.background_gradient = LinearGradient{point(g.at("start"), at + "/start"), point(g.at("end"), at + "/end"),
+                                                   color(g.at("start_color"), at + "/start_color"),
+                                                   color(g.at("end_color"), at + "/end_color")};
+        }
+        if (const auto stops = fields.find("stops"); stops != fields.end()) {
             const auto& values = array(stops->second, at + "/stops");
             for (std::size_t i = 0; i < values.size(); ++i) {
                 const auto where = at + "/stops/" + std::to_string(i);
                 const auto& stop = object(values[i], where, {"offset", "color"});
-                s.background_gradient->stops.push_back(
-                    {real(stop.at("offset"), where + "/offset"), color(stop.at("color"), where + "/color")});
+                const GradientStop parsed{real(stop.at("offset"), where + "/offset"),
+                                          color(stop.at("color"), where + "/color")};
+                std::visit([&](auto& g) { g.stops.push_back(parsed); }, *s.background_gradient);
             }
         }
     }
@@ -581,19 +594,27 @@ JsonValue style_json(const ResolvedStyle& s) {
     if (s.grid_horizontal != Align::stretch) result["grid_horizontal"] = name(s.grid_horizontal, align_names);
     if (s.grid_vertical != Align::stretch) result["grid_vertical"] = name(s.grid_vertical, align_names);
     if (s.background_gradient) {
-        const auto& g = *s.background_gradient;
-        Object gradient{{"start", point_json(g.start)},
-                        {"end", point_json(g.end)},
-                        {"start_color", color_json(g.start_color)},
-                        {"end_color", color_json(g.end_color)}};
-        if (!g.stops.empty()) {
-            Array stops;
-            for (const auto& stop : g.stops)
-                stops.push_back(
-                    JsonValue{Object{{"offset", real_json(stop.offset)}, {"color", color_json(stop.color)}}});
-            gradient["stops"] = JsonValue{std::move(stops)};
-        }
-        result["background_gradient"] = JsonValue{std::move(gradient)};
+        std::visit(
+            [&](const auto& g) {
+                Object gradient{{"start_color", color_json(g.start_color)}, {"end_color", color_json(g.end_color)}};
+                if constexpr (std::is_same_v<std::decay_t<decltype(g)>, RadialGradient>) {
+                    gradient["kind"] = text("radial");
+                    gradient["center"] = point_json(g.center);
+                    gradient["radius"] = size_json(g.radius);
+                } else {
+                    gradient["start"] = point_json(g.start);
+                    gradient["end"] = point_json(g.end);
+                }
+                if (!g.stops.empty()) {
+                    Array stops;
+                    for (const auto& stop : g.stops)
+                        stops.push_back(
+                            JsonValue{Object{{"offset", real_json(stop.offset)}, {"color", color_json(stop.color)}}});
+                    gradient["stops"] = JsonValue{std::move(stops)};
+                }
+                result["background_gradient"] = JsonValue{std::move(gradient)};
+            },
+            *s.background_gradient);
     }
     return JsonValue{std::move(result)};
 }

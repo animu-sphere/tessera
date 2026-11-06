@@ -268,7 +268,7 @@ void gradient_styles_round_trip() {
     source.version = tessera::replay_host_version;
     check(load(save(source)) == source, "Gradient styles must also round-trip in host-state replay v2");
     check(json.find("\"stops\"") == std::string::npos, "Shorthand gradients must retain their canonical encoding");
-    source.styles[0].background_gradient->stops = {
+    std::get<tessera::LinearGradient>(*source.styles[0].background_gradient).stops = {
         {.1f, {1, 0, 0, 0}}, {.5f, {0, 1, 0, .5f}}, {.5f, {0, 0, 1, .75f}}, {.9f, {1, 1, 1, 1}}};
     source.steps[0] = tessera::ReplayReload{source.document, source.styles};
     for (const auto version : {tessera::replay_version, tessera::replay_host_version}) {
@@ -293,6 +293,31 @@ void gradient_styles_round_trip() {
     const auto legacy = save(recording());
     check(legacy.find("background_gradient") == std::string::npos && load(legacy) == recording(),
           "Absent gradients must not change legacy canonical recording bytes");
+    source.styles[0].background_gradient = tessera::RadialGradient{
+        .center = {.25f, .75f},
+        .radius = {.8f, 1.25f},
+        .stops = {{.1f, {1, 0, 0, 0}}, {.5f, {0, 1, 0, .5f}}, {.5f, {0, 0, 1, .75f}}, {.9f, {1, 1, 1, 1}}}};
+    source.steps[0] = tessera::ReplayReload{source.document, source.styles};
+    for (const auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        source.version = version;
+        const auto radial = save(source);
+        check(load(radial) == source && save(load(radial)) == radial &&
+                  tessera::compare_replay(play(source), play(load(radial))).empty(),
+              "Radial geometry, stops and rendered observations must round-trip in initial/reloaded views in v1/v2");
+        auto rejected = tessera::load_replay(changed(radial, "\"kind\":\"radial\"", "\"kind\":\"conic\""));
+        check(!rejected && has(rejected.diagnostics, "unknown_value", "/steps/0/styles/0/background_gradient/kind"),
+              "Unknown gradient kinds must reject explicitly");
+        rejected = tessera::load_replay(changed(radial, "\"radius\":", "\"start\":"));
+        check(!rejected && has(rejected.diagnostics, "unknown_field", "/steps/0/styles/0/background_gradient/start"),
+              "Radial encoding must reject linear geometry rather than ignore it");
+        rejected = tessera::load_replay(changed(radial, "\"height\":1.25", "\"height\":0"));
+        check(!rejected &&
+                  has(rejected.diagnostics, "out_of_range", "/steps/0/styles/0/background_gradient/radius/height"),
+              "Invalid radial radii must retain their replay location");
+    }
+    std::get<tessera::RadialGradient>(*source.styles[0].background_gradient).stops.clear();
+    source.steps[0] = tessera::ReplayReload{source.document, source.styles};
+    check(load(save(source)) == source, "Radial two-color shorthand must round-trip");
 }
 
 void compatible_pointer_policy_round_trips() {

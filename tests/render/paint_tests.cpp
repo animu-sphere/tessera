@@ -116,25 +116,38 @@ void gradient_backgrounds() {
     check(paint.commands.size() == 2, "Gradient replaces solid background without adding layers");
     const auto& rect = std::get<tessera::DrawRect>(paint.commands[0]);
     check(rect.rect == f.layout.boxes[1].border_box && rect.corner_radius == 5 && rect.gradient &&
-              rect.gradient->start_color == tessera::Color{1, 0, 0, .125f} &&
-              rect.gradient->end_color == tessera::Color{0, 0, 1, .25f} &&
+              std::get<tessera::LinearGradient>(*rect.gradient).start_color == tessera::Color{1, 0, 0, .125f} &&
+              std::get<tessera::LinearGradient>(*rect.gradient).end_color == tessera::Color{0, 0, 1, .25f} &&
               std::holds_alternative<tessera::DrawBorder>(paint.commands[1]),
           "Gradient must preserve box geometry, border order and inherited per-command opacity");
-    style.background_gradient->start_color.a = 0;
-    style.background_gradient->end_color.a = 0;
+    auto& gradient = std::get<tessera::LinearGradient>(*style.background_gradient);
+    gradient.start_color.a = 0;
+    gradient.end_color.a = 0;
     check(f.paint().commands.size() == 1, "Transparent gradient must not reveal the replaced solid background");
-    style.background_gradient->stops = {{.1f, {1, 0, 0, .5f}}, {.4f, {0, 1, 0, 1}}, {.9f, {0, 0, 1, .25f}}};
+    gradient.stops = {{.1f, {1, 0, 0, .5f}}, {.4f, {0, 1, 0, 1}}, {.9f, {0, 0, 1, .25f}}};
     const auto multi = f.paint();
-    const auto& stops = std::get<tessera::DrawRect>(multi.commands[0]).gradient->stops;
+    const auto& stops =
+        std::get<tessera::LinearGradient>(*std::get<tessera::DrawRect>(multi.commands[0]).gradient).stops;
     check(multi.commands.size() == 2 && stops[0] == tessera::GradientStop{.1f, {1, 0, 0, .125f}} &&
               stops[1] == tessera::GradientStop{.4f, {0, 1, 0, .25f}} &&
-              stops[2] == tessera::GradientStop{.9f, {0, 0, 1, .0625f}} &&
-              style.background_gradient->stops[1].color.a == 1,
+              stops[2] == tessera::GradientStop{.9f, {0, 0, 1, .0625f}} && gradient.stops[1].color.a == 1,
           "Every explicit stop must receive opacity in the owned draw list without mutating its style");
-    for (auto& stop : style.background_gradient->stops) stop.color.a = 0;
-    style.background_gradient->start_color.a = 1;
+    for (auto& stop : gradient.stops) stop.color.a = 0;
+    gradient.start_color.a = 1;
     check(f.paint().commands.size() == 1,
           "Explicit transparent stops must replace, not fall back to, shorthand colors");
+    style.background_gradient =
+        tessera::RadialGradient{.center = {.25f, .75f},
+                                .radius = {1, .5f},
+                                .stops = {{0, {1, 0, 0, .5f}}, {.4f, {0, 1, 0, 1}}, {1, {0, 0, 1, .25f}}}};
+    const auto radial_paint = f.paint();
+    const auto& radial_rect = std::get<tessera::DrawRect>(radial_paint.commands[0]);
+    const auto& radial = std::get<tessera::RadialGradient>(*radial_rect.gradient);
+    check(radial_paint.commands.size() == 2 && radial.center == tessera::Point{.25f, .75f} &&
+              radial.radius == tessera::Size{1, .5f} && radial.stops[1].color.a == .25f &&
+              std::get<tessera::RadialGradient>(*style.background_gradient).stops[1].color.a == 1 &&
+              std::holds_alternative<tessera::DrawBorder>(radial_paint.commands[1]),
+          "Radial fills must preserve geometry, owned stops, opacity and border order");
     style.background_gradient.reset();
     check(!std::get<tessera::DrawRect>(f.paint().commands[0]).gradient,
           "Removing a gradient must restore the ordinary solid background");

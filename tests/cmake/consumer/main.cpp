@@ -149,6 +149,14 @@ int main() {
             .stops = {{.1f, {1, 0, 0, 1}}, {.5f, {1, 0, 0, 1}}, {.5f, {0, 0, 1, 1}}, {.9f, {0, 0, 1, 1}}}}}}};
     const auto gradient_capture = frames.capture({0, {1, 1}, 1, {1, 1}, &gradient});
     if (!gradient_capture || gradient_capture.value->pixels != std::vector<std::uint8_t>{0, 0, 255, 255}) return 60;
+    const tessera::UiDrawList radial{{tessera::DrawRect{
+        {{0, 0}, {1, 1}},
+        {},
+        0,
+        tessera::RadialGradient{
+            .center = {.5f, .5f}, .radius = {.5f, .25f}, .stops = {{0, {0, 1, 0, 1}}, {.5f, {0, 0, 1, 1}}}}}}};
+    const auto radial_capture = frames.capture({0, {1, 1}, 1, {1, 1}, &radial});
+    if (!radial_capture || radial_capture.value->pixels != std::vector<std::uint8_t>{0, 255, 0, 255}) return 61;
     tessera::ReactiveRuntime runtime;
     tessera::AsyncValue asset(runtime, runtime.root(), "asset", tessera::PropertyType::string);
     const auto attempt = asset.begin("host-request");

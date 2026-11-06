@@ -76,11 +76,12 @@ void gradients() {
     tessera::DrawRect rect{
         {{0, 0}, {20, 10}}, {}, 4, tessera::LinearGradient{{0, 0}, {1, 1}, {1, 0, 0, 0}, {0, 0, 1, 1}}};
     check(tessera::validate(tessera::UiDrawList{{rect}}).empty(), "Valid gradient rejected");
-    rect.gradient->end = rect.gradient->start;
+    auto& gradient = std::get<tessera::LinearGradient>(*rect.gradient);
+    gradient.end = gradient.start;
     check(has(tessera::validate(tessera::UiDrawList{{rect}}), "degenerate_gradient", "/commands/0/gradient/end"),
           "Coincident gradient endpoints accepted");
-    rect.gradient->end = {2, 1};
-    rect.gradient->start_color.a = -1;
+    gradient.end = {2, 1};
+    gradient.start_color.a = -1;
     auto errors = tessera::validate(tessera::UiDrawList{{rect}});
     check(has(errors, "out_of_range", "/commands/0/gradient/end/x") &&
               has(errors, "out_of_range", "/commands/0/gradient/start_color/a"),
@@ -91,24 +92,43 @@ void gradients() {
     const auto valid = *rect.gradient;
     for (float offset : {-1.f, 2.f, std::numeric_limits<float>::infinity(), NAN}) {
         rect.gradient = valid;
-        rect.gradient->stops[1].offset = offset;
+        gradient.stops[1].offset = offset;
         const auto diagnostics = tessera::validate(tessera::UiDrawList{{rect}});
         check(has(diagnostics, std::isfinite(offset) ? "out_of_range" : "invalid_number",
                   "/commands/0/gradient/stops/1/offset"),
               "Stop offsets must validate with exact locations");
     }
     rect.gradient = valid;
-    rect.gradient->stops[2].offset = .3f;
+    gradient.stops[2].offset = .3f;
     check(has(tessera::validate(tessera::UiDrawList{{rect}}), "invalid_gradient_stops",
               "/commands/0/gradient/stops/2/offset"),
           "Unsorted stops must reject instead of being silently reordered");
     rect.gradient = valid;
-    rect.gradient->stops[1].color.a = -1;
+    gradient.stops[1].color.a = -1;
     check(has(tessera::validate(tessera::UiDrawList{{rect}}), "out_of_range", "/commands/0/gradient/stops/1/color/a"),
           "Stop colors must validate");
-    rect.gradient->stops.resize(1);
+    gradient.stops.resize(1);
     check(has(tessera::validate(tessera::UiDrawList{{rect}}), "invalid_gradient_stops", "/commands/0/gradient/stops"),
           "A nonempty explicit stop list needs at least two stops");
+    rect.gradient = tessera::RadialGradient{};
+    check(tessera::validate(tessera::UiDrawList{{rect}}).empty(), "Default radial geometry must be valid");
+    auto& radial = std::get<tessera::RadialGradient>(*rect.gradient);
+    radial.radius = {2, 3};
+    check(tessera::validate(tessera::UiDrawList{{rect}}).empty(), "Radii may extend beyond the box");
+    radial.center = {-1, NAN};
+    radial.radius = {0, -1};
+    radial.stops = {{.8f, {}}, {.2f, {}}};
+    errors = tessera::validate(tessera::UiDrawList{{rect}});
+    check(errors.size() == 5 && has(errors, "out_of_range", "/commands/0/gradient/center/x") &&
+              has(errors, "invalid_number", "/commands/0/gradient/center/y") &&
+              has(errors, "out_of_range", "/commands/0/gradient/radius/width") &&
+              has(errors, "out_of_range", "/commands/0/gradient/radius/height") &&
+              has(errors, "invalid_gradient_stops", "/commands/0/gradient/stops/1/offset"),
+          "Radial geometry and stops must use located validation");
+    radial = {};
+    radial.radius.width = std::numeric_limits<float>::infinity();
+    check(has(tessera::validate(tessera::UiDrawList{{rect}}), "invalid_number", "/commands/0/gradient/radius/width"),
+          "Nonfinite radial radii must reject");
 }
 
 } // namespace
