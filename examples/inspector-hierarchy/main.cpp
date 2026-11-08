@@ -283,6 +283,19 @@ struct View {
         const auto rect = box(id).border_box;
         return {rect.origin.x + rect.size.width / 2, rect.origin.y + rect.size.height / 2};
     }
+    bool contains(NodeHandle owner, NodeHandle node) const {
+        if (owner == node) return true;
+        for (const auto child : tree->children(owner))
+            if (contains(child, node)) return true;
+        return false;
+    }
+    // Center of a control that a pointer press can actually reach; scrolled-out or covered targets fail.
+    Point reachable(std::string_view id) const {
+        const auto point = center(id);
+        const auto target = take(hit_test(hit(), point)).target;
+        require(target && contains(*tree->find(id), *target), "Pointer target is clipped or covered");
+        return point;
+    }
 };
 struct Visuals {
     std::vector<ResolvedStyle> styles;
@@ -943,7 +956,7 @@ void composition_smoke() {
     using Kind = ImeStep::Kind;
     App app;
     const auto click = [&](const char* id) {
-        const auto point = app.view.center(id);
+        const auto point = app.view.reachable(id);
         app.input({0us, PointerDown{{1}, point}}, CommandSource::pointer);
         app.input({0us, PointerUp{{1}, point}}, CommandSource::pointer);
     };
@@ -1682,7 +1695,7 @@ void smoke() {
         app.input({++time, event}, source);
     };
     auto click = [&](std::string_view id) {
-        const auto point = app.view.center(id);
+        const auto point = app.view.reachable(id);
         input(PointerDown{{1}, point}, CommandSource::pointer);
         input(PointerUp{{1}, point}, CommandSource::pointer);
     };
@@ -1923,7 +1936,7 @@ int native(bool smoke) {
                     !inspector_clipboard::encode(std::string("a\0b", 3)),
                 "Native clipboard conversion must preserve Unicode and reject invalid or oversized values");
         auto click = [&](const char* id) {
-            const auto point = host.physical(app.view.center(id));
+            const auto point = host.physical(app.view.reachable(id));
             host.message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(point.x, point.y));
             host.message(WM_LBUTTONUP, 0, MAKELPARAM(point.x, point.y));
         };
@@ -2106,7 +2119,16 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_RIGHT, 1);
         const auto cube = app.state.item();
         require(cube.name.text == "Cube!" && !cube.enabled && cube.amount == 55, "Native fields must accept edits");
+        // Tab traversal revealed the last Hierarchy row; wheel back so the rows are under the pointer.
+        const auto hierarchy = host.physical(app.view.center("hierarchy"));
+        POINT wheel{hierarchy.x, hierarchy.y};
+        require(ClientToScreen(host.handle, &wheel) != FALSE, "Cannot map native wheel position");
+        host.message(WM_MOUSEWHEEL, MAKEWPARAM(0, 20 * WHEEL_DELTA), MAKELPARAM(wheel.x, wheel.y));
+        require(app.view.box("hierarchy").scroll->offset.y == 0 && app.state.item() == cube,
+                "Native wheel must reveal the first Hierarchy rows without changing selection");
         click("hierarchy-item-sphere");
+        require(app.state.selected == "sphere" && app.state.item().name.text == "Sphere",
+                "Native pointer press/release must select another hierarchy item");
         click("hierarchy-item-cube");
         require(app.state.item() == cube, "Native select/edit/return must preserve per-item state");
         const auto selected = host.physical(app.view.center("selected"));

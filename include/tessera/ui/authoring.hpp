@@ -168,7 +168,6 @@ private:
     friend Element TreeView(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
-    friend Element VerticalScrollbar(std::string, float, ScrollGeometry, std::string, ScrollbarProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
     friend Element VerticalSplitPane(Element, Element, float, std::string, SplitPaneProps);
 };
@@ -212,6 +211,8 @@ Element ScrollView(std::vector<Element> children, Props = {});
 // Compose beside a ScrollView using its accepted padding-box height and scroll
 // geometry. Recompose after wheel/reveal/resize; no second scroll state is kept.
 Element VerticalScrollbar(std::string label, float viewport, ScrollGeometry, std::string action, ScrollbarProps = {});
+// The same control below a ScrollView, using its accepted padding-box width and horizontal offset.
+Element HorizontalScrollbar(std::string label, float viewport, ScrollGeometry, std::string action, ScrollbarProps = {});
 // Controlled single selection; nullopt means no selection. Branch expansion never
 // changes selection. IDs: <id>-item-<key>, -label-<key>, -toggle-<key>, and <id>-title.
 // Both are scrollable Columns; constrain their size and retain host scroll offsets.

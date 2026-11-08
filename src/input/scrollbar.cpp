@@ -10,6 +10,10 @@ namespace {
 bool near(float a, float b) {
     return std::abs(a - b) <= 8 * std::numeric_limits<float>::epsilon() * std::max({1.f, std::abs(a), std::abs(b)});
 }
+bool horizontal(ScrollbarAxis axis) { return axis == ScrollbarAxis::horizontal; }
+float along(ScrollbarAxis axis, Point value) { return horizontal(axis) ? value.x : value.y; }
+float along(ScrollbarAxis axis, Size value) { return horizontal(axis) ? value.width : value.height; }
+float& main_axis(ScrollbarAxis axis, Point& value) { return horizontal(axis) ? value.x : value.y; }
 }
 
 Result<std::optional<ScrollbarGeometry>> scrollbar_geometry(const HitTestInput& input, std::string_view id,
@@ -37,26 +41,35 @@ Result<std::optional<ScrollbarGeometry>> scrollbar_geometry(const HitTestInput& 
     const auto before = input.tree->find(std::string(id) + "-before");
     const auto thumb = input.tree->find(std::string(id) + "-thumb");
     if (!before || !thumb || input.tree->children(*root) != std::vector<NodeHandle>{*before, *thumb})
-        return {std::nullopt,
-                {{"scrollbar_structure", Severity::error, "/id",
-                  "Keep VerticalScrollbar's generated before/thumb children."}}};
-    ScrollbarGeometry view{
-        *container, *thumb, track->content_box(), {}, scroll->scroll->offset, scroll->scroll_limit().y};
+        return {
+            std::nullopt,
+            {{"scrollbar_structure", Severity::error, "/id", "Keep the generated scrollbar before/thumb children."}}};
+    // The generated track direction names the axis; an altered direction fails the viewport check below.
+    const auto axis =
+        input.styles[root->index].direction == FlexDirection::row ? ScrollbarAxis::horizontal : ScrollbarAxis::vertical;
+    ScrollbarGeometry view{axis,
+                           *container,
+                           *thumb,
+                           track->content_box(),
+                           {},
+                           scroll->scroll->offset,
+                           along(axis, scroll->scroll_limit())};
     const auto* handle = box(*thumb);
     if (handle) view.bounds = handle->border_box;
-    if (!near(view.track.size.height, scroll->padding_box().size.height))
+    const float length = along(axis, view.track.size);
+    if (!near(length, along(axis, scroll->padding_box().size)))
         return {std::nullopt,
                 {{"scrollbar_geometry", Severity::error, "/id",
                   "Recompose the scrollbar from the accepted scroll viewport."}}};
     if (view.maximum <= 0 || !handle || !handle->visible) return {view, {}};
-    const float travel = view.track.size.height - view.bounds.size.height;
-    const auto expected_size = std::min(
-        view.track.size.height, std::max(input.styles[thumb->index].min_height,
-                                         static_cast<float>(double(view.track.size.height) * view.track.size.height /
-                                                            scroll->scroll->extent.height)));
-    const auto expected = static_cast<float>(double(std::max(0.f, travel)) * view.offset.y / view.maximum);
-    if (travel < 0 || !near(view.bounds.size.height, expected_size) ||
-        !near(view.bounds.origin.y, view.track.origin.y + expected))
+    const float travel = length - along(axis, view.bounds.size);
+    const auto& thumb_style = input.styles[thumb->index];
+    const auto expected_size =
+        std::min(length, std::max(horizontal(axis) ? thumb_style.min_width : thumb_style.min_height,
+                                  static_cast<float>(double(length) * length / along(axis, scroll->scroll->extent))));
+    const auto expected = static_cast<float>(double(std::max(0.f, travel)) * along(axis, view.offset) / view.maximum);
+    if (travel < 0 || !near(along(axis, view.bounds.size), expected_size) ||
+        !near(along(axis, view.bounds.origin), along(axis, view.track.origin) + expected))
         return {std::nullopt,
                 {{"scrollbar_geometry", Severity::error, "/id",
                   "Recompose the thumb from the accepted scroll extent and offset before dispatch."}}};
@@ -90,8 +103,9 @@ Result<ScrollbarDispatchResult> ScrollbarDispatcher::refresh(const HitTestInput&
     result.update = ScrollUpdate{view.container, view.offset};
     const auto* node = input.tree->get(view.thumb);
     if (drag_ &&
-        (!view.enabled || drag_->thumb_size != view.bounds.size.height || drag_->track_size != view.track.size.height ||
-         drag_->maximum != view.maximum || node->events.at("activate") != drag_->action))
+        (!view.enabled || drag_->axis != view.axis || drag_->thumb_size != along(view.axis, view.bounds.size) ||
+         drag_->track_size != along(view.axis, view.track.size) || drag_->maximum != view.maximum ||
+         node->events.at("activate") != drag_->action))
         reset();
     return {result, {}};
 }
@@ -113,12 +127,14 @@ Result<ScrollbarDispatchResult> ScrollbarDispatcher::dispatch(const HitTestInput
         return {result, {}};
     }
     const auto& view = **geometry.value;
+    const auto axis = view.axis;
     auto adjustment = [&](double requested, bool rounded_pointer = false) -> Result<ScrollbarDispatchResult> {
         auto offset = view.offset;
-        offset.y = static_cast<float>(std::clamp(requested, 0., double(view.maximum)));
+        auto& value = main_axis(axis, offset);
+        const auto current = along(axis, view.offset);
+        value = static_cast<float>(std::clamp(requested, 0., double(view.maximum)));
         result.handled = true;
-        if (offset.y != view.offset.y &&
-            !(rounded_pointer && offset.y > 0 && offset.y < view.maximum && near(offset.y, view.offset.y))) {
+        if (value != current && !(rounded_pointer && value > 0 && value < view.maximum && near(value, current))) {
             auto action = request_semantic_action({input.tree, input.styles, input.layout}, view.thumb, "activate");
             if (!action) return {std::nullopt, std::move(action.diagnostics)};
             result.update = ScrollUpdate{view.container, offset};
@@ -128,8 +144,9 @@ Result<ScrollbarDispatchResult> ScrollbarDispatcher::dispatch(const HitTestInput
         return {result, {}};
     };
     auto dragged_offset = [&](Point point, float grab) {
-        const double travel = double(view.track.size.height) - view.bounds.size.height;
-        return std::clamp((double(point.y) - view.track.origin.y - grab) / travel, 0., 1.) * view.maximum;
+        const double travel = double(along(axis, view.track.size)) - along(axis, view.bounds.size);
+        return std::clamp((double(along(axis, point)) - along(axis, view.track.origin) - grab) / travel, 0., 1.) *
+               view.maximum;
     };
     if (const auto* cancel = std::get_if<PointerCancel>(&event.data)) {
         if (candidate.drag_ && candidate.drag_->pointer == cancel->pointer) {
@@ -142,10 +159,11 @@ Result<ScrollbarDispatchResult> ScrollbarDispatcher::dispatch(const HitTestInput
             if (!hit) return {std::nullopt, std::move(hit.diagnostics)};
             if (hit.value->target == view.thumb) {
                 candidate.drag_ = Drag{down->pointer,
-                                       down->position.y - view.bounds.origin.y,
-                                       view.bounds.size.height,
-                                       view.track.size.height,
+                                       along(axis, down->position) - along(axis, view.bounds.origin),
+                                       along(axis, view.bounds.size),
+                                       along(axis, view.track.size),
                                        view.maximum,
+                                       axis,
                                        input.tree->get(view.thumb)->events.at("activate")};
                 result.handled = true;
                 result.focus = view.thumb;
@@ -168,36 +186,34 @@ Result<ScrollbarDispatchResult> ScrollbarDispatcher::dispatch(const HitTestInput
     } else {
         if (!std::holds_alternative<Scroll>(event.data)) candidate.reset();
         if (focused == view.thumb) {
-            double requested = view.offset.y;
+            // Only main-axis arrows adjust, so cross-axis arrows keep their navigation meaning.
+            const auto backward_key = horizontal(axis) ? Key::left : Key::up;
+            const auto forward_key = horizontal(axis) ? Key::right : Key::down;
+            const auto backward = horizontal(axis) ? Direction::left : Direction::up;
+            const auto forward = horizontal(axis) ? Direction::right : Direction::down;
+            double requested = along(axis, view.offset);
             bool adjusts = false;
             if (const auto* key = std::get_if<KeyDown>(&event.data); key && key->modifiers == Modifiers{}) {
-                switch (key->key) {
-                    case Key::home:
-                        requested = 0;
-                        adjusts = true;
-                        break;
-                    case Key::end:
-                        requested = view.maximum;
-                        adjusts = true;
-                        break;
-                    case Key::up:
-                        requested -= step_;
-                        adjusts = true;
-                        break;
-                    case Key::down:
-                        requested += step_;
-                        adjusts = true;
-                        break;
-                    default:
-                        break;
+                if (key->key == Key::home) {
+                    requested = 0;
+                    adjusts = true;
+                } else if (key->key == Key::end) {
+                    requested = view.maximum;
+                    adjusts = true;
+                } else if (key->key == backward_key) {
+                    requested -= step_;
+                    adjusts = true;
+                } else if (key->key == forward_key) {
+                    requested += step_;
+                    adjusts = true;
                 }
             }
             if (const auto* navigate = std::get_if<Navigate>(&event.data)) {
-                if (navigate->direction == Direction::up) {
+                if (navigate->direction == backward) {
                     requested -= step_;
                     adjusts = true;
                 }
-                if (navigate->direction == Direction::down) {
+                if (navigate->direction == forward) {
                     requested += step_;
                     adjusts = true;
                 }
