@@ -29,6 +29,16 @@ Use `Release` for the other configuration. Without arguments the executable runs
 
 The context target is the selected-item button, not arbitrary unselected hierarchy rows. No command silently selects a different item on right-click.
 
+## Application appearance
+
+The ordinary form now uses a larger heading, a white rounded Hierarchy panel, muted property labels and compact multiline help. Hierarchy rows have a 30-unit minimum height; the controlled selection has a blue fill and white text, while keyboard focus has a separate inside border. Buttons, name editing, the enabled value, rounded Slider parts and padded item menus share the blue-gray palette. The property card retains its radial highlight and outer shadow.
+
+The application-local stylesheet targets public author IDs and classes, including the documented generated TreeView, Slider and Menu IDs. Hover, active and focus rules change paint only: their borders already reserve space in the base styles. The host resolves feedback against the accepted tree and layout, then prepares paint and inspection together before replacing either. Stationary hover survives ordinary view replacements through the existing compatible pointer policy; pointer release/cancellation clears active feedback, including the custom Slider drag. Hover never edits item data or publishes a command generation.
+
+The Inspector uses a 72-unit label column and a control column with a 202-unit minimum. The 200-unit Slider track has no extra horizontal padding, so its full travel fits the existing 320-unit pane minimum, including card borders and pane/card padding. Both pane minima fit a 492-unit window including the application padding; smaller windows still clip the overflowing minima. Focus reveal and wheel scrolling retain their ordinary behavior.
+
+The window-free smoke checks distinct hover/press/selection/focus pixels at scales 1, 1.25, 1.5 and 2, inherited selected-label color, stable row geometry, cancellation and once-only selection, stationary Slider feedback, minimum-width track containment and retained item data. Pixel comparisons omit glyph commands to isolate the changed decorations; the injected Windows smoke still presents the complete form with the existing GDI glyph adapter. This is application styling, not a new widget skin API, text shaper or rendering effect.
+
 ## Gradient property card
 
 The selected-item button and property Grid share a padded, rounded card with an off-center pale-blue/cyan-to-lilac radial highlight and an inside border. The form uses the ordinary optional `StyleDeclarations::background_gradient` with a nonuniform interior stop:

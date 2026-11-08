@@ -95,8 +95,75 @@ CommandStates command_states(const ValidationContext& context) {
     for (const auto& action : context.actions) states.emplace(action, CommandState{true});
     return states;
 }
+StyleSheet appearance(const State& state) {
+    StyleSheet sheet{
+        {{StyleSelector::of_class("control"),
+          {.min_height = 32.f,
+           .border = Edges{1, 1, 1, 1},
+           .padding = Edges{6, 10, 6, 10},
+           .background = Color{1, 1, 1, 1},
+           .border_color = Color{.65f, .72f, .83f, 1},
+           .corner_radius = 6.f}},
+         {StyleSelector::of_class("control", {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}},
+         {StyleSelector::of_class("control", {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}},
+         {StyleSelector::of_class("control", {.focus = true}), {.border_color = Color{.2f, .4f, .85f, 1}}},
+         {StyleSelector::of_class("control", {.disabled = true}),
+          {.background = Color{.94f, .95f, .97f, 1}, .color = Color{.45f, .49f, .56f, 1}}},
+         {StyleSelector::of_class("section-title"), {.text = {.size = 14.f}, .color = Color{.32f, .4f, .54f, 1}}},
+         {StyleSelector::of_class("muted"), {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}},
+         {StyleSelector::of_id("actions"), {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}}},
+         {StyleSelector::of_id("actions", {.hover = true}), {.background = Color{.16f, .28f, .56f, 1}}},
+         {StyleSelector::of_id("actions", {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}},
+         {StyleSelector::of_id("actions", {.focus = true}), {.border_color = Color{.55f, .72f, 1, 1}}},
+         {StyleSelector::of_id("enabled"),
+          {.background = state.item().enabled ? Color{.88f, .94f, 1, 1} : Color{1, 1, 1, 1}}},
+         {StyleSelector::of_id("hierarchy-title"), {.text = {.size = 14.f}, .color = Color{.32f, .4f, .54f, 1}}},
+         {StyleSelector::of_id("amount-track"), {.corner_radius = 4.f}},
+         {StyleSelector::of_id("amount-fill"), {.corner_radius = 4.f}},
+         {StyleSelector::of_id("amount-thumb"), {.corner_radius = 4.f}},
+         {StyleSelector::of_id("panes-handle"),
+          {.border = Edges{0, 2, 0, 2}, .border_color = Color{.95f, .95f, .98f, 1}}},
+         {StyleSelector::of_id("panes-handle", {.hover = true}), {.border_color = Color{.65f, .75f, .94f, 1}}},
+         {StyleSelector::of_id("panes-handle", {.active = true}), {.border_color = Color{.2f, .4f, .85f, 1}}},
+         {StyleSelector::of_id("panes-handle", {.focus = true}), {.border_color = Color{.2f, .4f, .85f, 1}}},
+         {StyleSelector::of_class("popup"),
+          {.border = Edges{1, 1, 1, 1},
+           .padding = Edges{8, 8, 8, 8},
+           .gap = 4.f,
+           .background = Color{1, 1, 1, 1},
+           .border_color = Color{.65f, .72f, .83f, 1},
+           .corner_radius = 8.f,
+           .box_shadow = BoxShadow{{0, 3}, 6, {.18f, .22f, .38f, .18f}}}}}};
+    auto row = [&](std::string id) {
+        sheet.rules.push_back({StyleSelector::of_id(id),
+                               {.align = Align::center,
+                                .min_height = 30.f,
+                                .border = Edges{1, 1, 1, 1},
+                                .border_color = Color{0, 0, 0, 0},
+                                .corner_radius = 6.f}});
+        sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
+        sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(std::move(id), {.focus = true}), {.border_color = Color{.2f, .4f, .85f, 1}}});
+    };
+    for (const auto& item : state.items) row("hierarchy-item-" + item.id);
+    const auto selected = "hierarchy-item-" + state.selected;
+    sheet.rules.push_back(
+        {StyleSelector::of_id(selected), {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}}});
+    sheet.rules.push_back(
+        {StyleSelector::of_id(selected, {.hover = true}), {.background = Color{.16f, .28f, .56f, 1}}});
+    sheet.rules.push_back(
+        {StyleSelector::of_id(selected, {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}});
+    sheet.rules.push_back({StyleSelector::of_id(selected, {.focus = true}), {.border_color = Color{.55f, .72f, 1, 1}}});
+    for (const auto* menu : {"actions-menu", "item-menu"}) {
+        sheet.rules.push_back({StyleSelector::of_id(std::string(menu) + "-title"),
+                               {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}});
+        for (const auto* command : {"rename", "enabled"}) row(std::string(menu) + "-item-" + command);
+    }
+    return sheet;
+}
 ui::Element Form(const State& state, Size viewport) {
-    const float height = std::max(100.f, viewport.height - 64);
+    const float height = std::max(100.f, viewport.height - 72);
     std::vector<ui::TreeItem> children;
     for (std::size_t i = 1; i < state.items.size(); ++i) {
         const auto& item = state.items[i];
@@ -107,37 +174,47 @@ ui::Element Form(const State& state, Size viewport) {
     const std::vector<ui::MenuItem> commands{{"rename", "Edit display name", "item.rename"},
                                              {"enabled", "Toggle enabled", "item.enabled"}};
     const auto popup = [&](const char* id, OpenMenu kind) {
-        return ui::PopupProps{.node = {.id = id, .classes = {"control"}, .style = {.width = Dimension::points(220)}},
+        return ui::PopupProps{.node = {.id = id, .classes = {"popup"}, .style = {.width = Dimension::points(220)}},
                               .open = state.menu == kind};
     };
     return ui::Column(
-        {ui::Row(
-             {ui::Text("Hierarchy / Inspector"), ui::Button("Item actions", "menu.open", {.node = control("actions")})},
-             {.style = {.gap = 16.f}}),
+        {ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
+                  ui::Button("Item actions", "menu.open", {.node = control("actions")})},
+                 {.style = {.align = Align::center, .gap = 16.f}}),
          ui::HorizontalSplitPane(
              ui::TreeView("Hierarchy", state.selected,
                           {{"scene", state.items.front().name.text, "select.scene", "scene.toggle", state.expanded,
                             false, std::move(children)}},
-                          {.node = {.id = "hierarchy", .style = {.height = Dimension::points(height)}}}),
+                          {.node = {.id = "hierarchy",
+                                    .style = {.height = Dimension::points(height),
+                                              .border = Edges{1, 1, 1, 1},
+                                              .padding = Edges{8, 8, 8, 8},
+                                              .gap = 4.f,
+                                              .background = Color{1, 1, 1, 1},
+                                              .border_color = Color{.8f, .85f, .93f, 1},
+                                              .corner_radius = 10.f}}}),
              ui::ScrollView(
-                 {ui::Column(
+                 {ui::Text("Inspector", {.id = "inspector-title", .classes = {"section-title"}}),
+                  ui::Column(
                       {ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
-                       ui::Grid({ui::Text("Display name"),
+                       ui::Grid({ui::Text("Display name", {.classes = {"muted"}}),
                                  ui::TextInput("Name", item.name, "item.name", {.node = control("name")}),
-                                 ui::Text("Enabled"),
+                                 ui::Text("Enabled", {.classes = {"muted"}}),
                                  ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
-                                 ui::Text("Amount"),
+                                 ui::Text("Amount", {.classes = {"muted"}}),
                                  ui::Slider("Amount", item.amount, amount_range, "item.amount",
-                                            {.node = control("amount")})},
+                                            {.node = {.id = "amount",
+                                                      .classes = {"control"},
+                                                      .style = {.padding = Edges{6, 0, 6, 0}}}})},
                                 {.id = "properties",
-                                 .style = {.grid_columns = std::vector<GridTrack>{GridTrack{.maximum = 84},
-                                                                                  GridTrack::fraction(1, 80)},
+                                 .style = {.grid_columns = std::vector<GridTrack>{GridTrack{.maximum = 72},
+                                                                                  GridTrack::fraction(1, 202)},
                                            .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{}},
                                            .column_gap = 8.f,
                                            .row_gap = 12.f}})},
                       {.id = "item-card",
                        .style = {.border = Edges{1, 1, 1, 1},
-                                 .padding = Edges{16, 16, 16, 16},
+                                 .padding = Edges{12, 12, 12, 12},
                                  .gap = 12.f,
                                  .border_color = Color{.72f, .8f, .92f, 1},
                                  .corner_radius = 12.f,
@@ -147,9 +224,12 @@ ui::Element Form(const State& state, Size viewport) {
                                                                                  {.42f, {.84f, .92f, 1, 1}},
                                                                                  {1, {.98f, .9f, .98f, 1}}}},
                                  .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}}}}),
-                  ui::Text("Edits are kept per item.", {.id = "help"}),
-                  ui::Text("Name: Ctrl+A/C/X/V, text, arrows, Home/End, Backspace/Delete.")},
-                 {.id = "inspector", .style = {.height = Dimension::points(height), .gap = 12.f}}),
+                  ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
+                              ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
+                              ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}})},
+                             {.id = "help", .style = {.gap = 4.f}})},
+                 {.id = "inspector",
+                  .style = {.height = Dimension::points(height), .padding = Edges{0, 6, 0, 6}, .gap = 12.f}}),
              state.split, "panes.resize",
              {.node = {.id = "panes", .style = {.height = Dimension::points(height)}},
               .limits = pane_limits,
@@ -159,9 +239,11 @@ ui::Element Form(const State& state, Size viewport) {
         {.id = "application",
          .style = {.overflow = Overflow::clip,
                    .height = Dimension::points(viewport.height),
-                   .padding = Edges{8, 8, 8, 8},
-                   .gap = 8.f,
-                   .background = Color{.95f, .95f, .98f, 1}}});
+                   .padding = Edges{12, 12, 12, 12},
+                   .gap = 16.f,
+                   .background = Color{.95f, .95f, .98f, 1},
+                   .text = {.size = 14.f},
+                   .color = Color{.16f, .22f, .34f, 1}}});
 }
 using Offsets = std::map<std::string, Point, std::less<>>;
 struct View {
@@ -171,6 +253,8 @@ struct View {
     LayoutResult layout;
     InspectionSnapshot inspection;
     UiDrawList paint;
+    StyleSheet sheet;
+    std::vector<StyleDeclarations> overrides;
     HitTestInput hit() const { return {tree.get(), styles, &layout}; }
     SemanticInput semantic() const { return {tree.get(), styles, &layout}; }
     const LayoutBox& box(std::string_view id) const {
@@ -185,6 +269,25 @@ struct View {
         return {rect.origin.x + rect.size.width / 2, rect.origin.y + rect.size.height / 2};
     }
 };
+struct Visuals {
+    std::vector<ResolvedStyle> styles;
+    InspectionSnapshot inspection;
+    UiDrawList paint;
+};
+Result<Visuals> prepare_visuals(const View& view, const InteractionState& state, TextShaper& text) {
+    auto styles = resolve_styles({view.tree.get(), &view.sheet, state, view.overrides});
+    if (!styles) return {std::nullopt, std::move(styles.diagnostics)};
+    auto paint = build_paint_list({view.tree.get(), *styles.value, &view.layout, &text});
+    if (!paint) return {std::nullopt, std::move(paint.diagnostics)};
+    auto inspection = capture_inspection({view.tree.get(), *styles.value, &view.layout, nullptr, state.focused});
+    if (!inspection) return {std::nullopt, std::move(inspection.diagnostics)};
+    return {Visuals{std::move(*styles.value), std::move(*inspection.value), std::move(*paint.value)}, {}};
+}
+void accept_visuals(View& view, Visuals visuals) {
+    view.styles = std::move(visuals.styles);
+    view.inspection = std::move(visuals.inspection);
+    view.paint = std::move(visuals.paint);
+}
 struct TextService final : TextShaper {
     PlaceholderTextShaper delegate;
     bool reject = false;
@@ -344,16 +447,19 @@ public:
         }
         if (const auto* cancel = std::get_if<PointerCancel>(&event.data); cancel && slider_pointer == cancel->pointer) {
             slider_pointer.reset();
+            observe();
             return;
         }
         if (const auto* move = std::get_if<PointerMove>(&event.data); move && slider_pointer == move->pointer) {
             set_amount(amount_at(move->position), source);
+            observe();
             return;
         }
         if (const auto* up = std::get_if<PointerUp>(&event.data);
             up && slider_pointer == up->pointer && up->button == PointerButton::primary) {
             slider_pointer.reset();
             set_amount(amount_at(up->position), source);
+            observe();
             return;
         }
         if (const auto* down = std::get_if<PointerDown>(&event.data); down && down->button == PointerButton::primary) {
@@ -397,6 +503,7 @@ public:
                     }
             for (const auto& request : dispatched.actions) checked(operate(request, source));
             if (std::holds_alternative<PointerDown>(event.data)) refresh(true);
+            observe();
             return;
         }
         slider_pointer.reset();
@@ -615,8 +722,7 @@ private:
         if (!document) return {std::nullopt, std::move(document.diagnostics)};
         auto tree = UiTree::create(*document.value, context);
         if (!tree) return {std::nullopt, std::move(tree.diagnostics)};
-        const StyleSheet sheet{{{StyleSelector::of_class("control"),
-                                 {.padding = Edges{4, 4, 4, 4}, .background = Color{.8f, .9f, 1, 1}}}}};
+        auto sheet = appearance(state);
         auto styles = resolve_styles({tree.value->get(), &sheet, {}, authored.value->styles});
         if (!styles) return {std::nullopt, std::move(styles.diagnostics)};
         std::vector<Point> requested((*tree.value)->size());
@@ -631,7 +737,9 @@ private:
                      std::move(*styles.value),
                      std::move(*layout.value),
                      {},
-                     std::move(*paint.value)},
+                     std::move(*paint.value),
+                     std::move(sheet),
+                     std::move(authored.value->styles)},
                 {}};
     }
     Result<View> stage(State& candidate, Size viewport, Offsets requested, FocusDispatcher& candidate_focus,
@@ -657,10 +765,10 @@ private:
             }
         }
         const auto target = take(candidate_focus.refresh(result.value->hit())).focused;
-        auto inspection = capture_inspection(
-            {result.value->tree.get(), result.value->styles, &result.value->layout, nullptr, target});
-        if (!inspection) return {std::nullopt, std::move(inspection.diagnostics)};
-        result.value->inspection = std::move(*inspection.value);
+        auto candidate_pointer = pointer;
+        auto visuals = prepare_visuals(*result.value, interaction(*result.value, candidate_pointer, target), text);
+        if (!visuals) return {std::nullopt, std::move(visuals.diagnostics)};
+        accept_visuals(*result.value, std::move(*visuals.value));
         return result;
     }
     void accept(View candidate) {
@@ -685,9 +793,21 @@ private:
         observe();
         session.publish();
     }
+    InteractionState interaction(const View& candidate, PointerDispatcher& pointers,
+                                 std::optional<NodeHandle> focused) const {
+        InteractionState state;
+        for (const auto& pointer : take(pointers.refresh(candidate.hit())).pointers) {
+            if (pointer.hovered) state.hovered.push_back(*pointer.hovered);
+            if (pointer.active) state.active.push_back(*pointer.active);
+        }
+        state.focused = focused;
+        if (slider_pointer) state.active.push_back(*candidate.tree->find("amount"));
+        if (splitter.dragging()) state.active.push_back(*candidate.tree->find("panes-handle"));
+        return state;
+    }
     void observe() {
-        view.inspection = take(capture_inspection(
-            {view.tree.get(), view.styles, &view.layout, nullptr, take(focus.refresh(view.hit())).focused}));
+        accept_visuals(view, take(prepare_visuals(
+                                 view, interaction(view, pointer, take(focus.refresh(view.hit())).focused), text)));
     }
     int amount_at(Point point) const {
         const auto& track = view.box("amount-track").border_box;
@@ -1016,6 +1136,105 @@ void cut_smoke() {
     }
 }
 
+void appearance_smoke() {
+    App app;
+    const auto style = [&](std::string_view id) -> const ResolvedStyle& {
+        return app.view.styles[app.view.tree->find(id)->index];
+    };
+    const auto row = app.view.box("hierarchy-item-sphere").border_box;
+    const auto sphere = app.view.center("hierarchy-item-sphere");
+    const auto accepted = app.state.items;
+    const auto generation = app.view.commands.generation();
+    const auto* tree = app.view.tree.get();
+    const auto normal = style("hierarchy-item-sphere").background;
+    require(row.size.height >= 30 && style("name").corner_radius == 6 && style("amount-track").corner_radius == 4,
+            "Inspector must use comfortable hierarchy rows and rounded controls");
+    require(style("hierarchy-item-cube").background != style("hierarchy-item-sphere").background &&
+                style("hierarchy-label-cube").color == Color{1, 1, 1, 1},
+            "Controlled selection must have a distinct fill and inherited readable label color");
+    std::vector<UiDrawList> states{app.view.paint};
+    app.input({0us, PointerMove{{1}, sphere}}, CommandSource::pointer);
+    states.push_back(app.view.paint);
+    require(app.view.tree.get() == tree && app.view.commands.generation() == generation &&
+                app.state.items == accepted && app.state.selected == "cube" && app.executions == 0,
+            "Hover feedback must retain the accepted tree, commands and item values");
+    const auto hovered = style("hierarchy-item-sphere").background;
+    app.input({0us, PointerDown{{1}, sphere}}, CommandSource::pointer);
+    states.push_back(app.view.paint);
+    require(style("hierarchy-item-sphere").background != hovered && app.state.selected == "cube",
+            "Press feedback must survive focus publication without prematurely selecting");
+    const auto away = app.view.center("actions");
+    app.input({0us, PointerMove{{1}, away}}, CommandSource::pointer);
+    require(style("hierarchy-item-sphere").background == normal, "Leaving a pressed row must remove its active fill");
+    app.input({0us, PointerUp{{1}, away}}, CommandSource::pointer);
+    require(app.executions == 0 && app.state.selected == "cube",
+            "Releasing outside the pressed row must not select an item");
+    app.input({0us, PointerDown{{1}, sphere}}, CommandSource::pointer);
+    app.input({0us, PointerCancel{{1}}}, CommandSource::pointer);
+    app.input({0us, PointerUp{{1}, sphere}}, CommandSource::pointer);
+    require(app.executions == 0 && app.state.selected == "cube",
+            "Cancelled visual presses must not activate on release");
+    app.input({0us, PointerDown{{1}, sphere}}, CommandSource::pointer);
+    app.input({0us, PointerUp{{1}, sphere}}, CommandSource::pointer);
+    require(app.executions == 1 && app.state.selected == "sphere" && app.state.items == accepted,
+            "A styled press/release must select exactly once without editing item values");
+    app.input({0us, PointerMove{{1}, away}}, CommandSource::pointer);
+    app.focus_id("name");
+    states.push_back(app.view.paint);
+    app.focus_id("hierarchy-item-sphere");
+    states.push_back(app.view.paint);
+    require(app.view.box("hierarchy-item-sphere").border_box == row &&
+                style("hierarchy-item-sphere").border_color != Color{0, 0, 0, 0},
+            "Focus must remain distinct from selection without moving hierarchy geometry");
+    CpuFrameCapture frames;
+    for (auto& paint : states) {
+        std::erase_if(paint.commands,
+                      [](const auto& command) { return std::holds_alternative<DrawGlyphRun>(command); });
+        paint.commands.insert(paint.commands.begin(),
+                              PushTransform{Affine2D{.tx = -row.origin.x, .ty = -row.origin.y}});
+        paint.commands.push_back(PopTransform{});
+    }
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        std::vector<CapturedImage> images;
+        for (const auto& paint : states)
+            images.push_back(take(frames.capture({0, row.size, scale, take(capture_extent(row.size, scale)), &paint})));
+        for (const auto [before, after] :
+             std::vector<std::pair<std::size_t, std::size_t>>{{0, 1}, {1, 2}, {0, 3}, {3, 4}}) {
+            const auto& a = images[before];
+            const auto& b = images[after];
+            std::size_t changes = 0;
+            for (unsigned y = 0; y < a.extent.height; ++y)
+                for (unsigned x = 0; x < a.extent.width; ++x) {
+                    const auto at = (std::size_t(y) * a.extent.width + x) * 4;
+                    if (a.pixels[at] != b.pixels[at] || a.pixels[at + 1] != b.pixels[at + 1] ||
+                        a.pixels[at + 2] != b.pixels[at + 2])
+                        ++changes;
+                }
+            require(changes >= 32, "Hover, press, selection and focus must change actual row pixels at every scale");
+        }
+    }
+    app.focus_id("amount");
+    const auto track = app.view.box("amount-track").border_box;
+    const auto amount = app.state.item().amount;
+    app.input({0us, PointerDown{{1}, {track.origin.x + 100, track.origin.y + 6}}}, CommandSource::pointer);
+    require(style("amount").background == Color{.8f, .87f, .98f, 1} && app.state.item().amount == amount,
+            "A stationary Slider drag must show active feedback without changing its value");
+    app.input({0us, PointerCancel{{1}}}, CommandSource::pointer);
+    require(style("amount").background != Color{.8f, .87f, .98f, 1},
+            "Slider cancellation must clear its active feedback");
+    app.resize({492, 360});
+    app.focus_id("amount");
+    const auto pane = app.view.box("inspector").padding_box();
+    const auto& control = app.view.box("amount").border_box;
+    const auto& narrow_track = app.view.box("amount-track").border_box;
+    require(narrow_track.origin.x >= pane.origin.x &&
+                narrow_track.origin.x + narrow_track.size.width <= pane.origin.x + pane.size.width &&
+                narrow_track.origin.x + narrow_track.size.width <= control.origin.x + control.size.width,
+            "The complete Slider track must fit the 320-unit minimum Inspector pane");
+    require(app.state.items == accepted && app.state.selected == "sphere",
+            "Visual layout and drag feedback must preserve independent item data");
+}
+
 void gradient_card_smoke() {
     App app;
     const auto card = app.view.box("item-card").border_box;
@@ -1109,6 +1328,7 @@ void shadow_card_smoke() {
 }
 
 void smoke() {
+    appearance_smoke();
     gradient_card_smoke();
     shadow_card_smoke();
     edit_rejection_smoke();
@@ -1131,7 +1351,13 @@ void smoke() {
     recording.styles = app.view.styles;
     auto replay = take(ReplaySession::open(recording, app.text));
     auto record = [&] { (void)take(replay.apply(app.recorded_view())); };
-    click("hierarchy-item-cube");
+    const auto cube_point = app.view.center("hierarchy-item-cube");
+    input(PointerMove{{1}, cube_point}, CommandSource::pointer);
+    record();
+    input(PointerDown{{1}, cube_point}, CommandSource::pointer);
+    record();
+    input(PointerUp{{1}, cube_point}, CommandSource::pointer);
+    record();
     app.focus_id("name");
     input(KeyDown{Key::a, {.control = true}});
     input(tessera::TextInput{"Edited cube"});
