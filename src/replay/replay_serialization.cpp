@@ -238,11 +238,13 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
     }
     if (const auto field = o.find("background_procedural"); field != o.end()) {
         const auto at = path + "/background_procedural";
-        const auto& fill = object(field->second, at, {"shader", "parameters", "time", "opacity"});
+        const auto& fill = object(field->second, at, {"shader", "parameters", "time", "opacity"}, {"time_rate"});
         ProceduralFill parsed{string(fill.at("shader"), at + "/shader"),
                               {},
                               real(fill.at("time"), at + "/time"),
                               real(fill.at("opacity"), at + "/opacity")};
+        if (const auto rate = fill.find("time_rate"); rate != fill.end())
+            parsed.time_rate = real(rate->second, at + "/time_rate");
         const auto& values = array(fill.at("parameters"), at + "/parameters");
         if (values.size() > max_procedural_parameters)
             fail("procedural_parameter_limit", at + "/parameters", "Use at most 16 procedural parameters.");
@@ -696,10 +698,12 @@ JsonValue style_json(const ResolvedStyle& s) {
                         parameters.push_back(JsonValue{Object{{"color", color_json(v)}}});
                 },
                 value);
-        result["background_procedural"] = JsonValue{Object{{"shader", text(fill.shader)},
-                                                           {"parameters", JsonValue{std::move(parameters)}},
-                                                           {"time", real_json(fill.time)},
-                                                           {"opacity", real_json(fill.opacity)}}};
+        Object encoded{{"shader", text(fill.shader)},
+                       {"parameters", JsonValue{std::move(parameters)}},
+                       {"time", real_json(fill.time)},
+                       {"opacity", real_json(fill.opacity)}};
+        if (fill.time_rate != 0) encoded["time_rate"] = real_json(fill.time_rate);
+        result["background_procedural"] = JsonValue{std::move(encoded)};
     }
     return JsonValue{std::move(result)};
 }

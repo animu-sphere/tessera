@@ -30,6 +30,8 @@ std::vector<Diagnostic> validate(const PaintInput& input) {
     auto errors = detail::validate_layout_snapshot(input.tree, input.styles, input.layout);
     detail::Checker check(errors);
     if (!input.text) check.error("missing_input", "/text", "Provide the TextShaper used for layout.");
+    if (!std::isfinite(input.host_time))
+        check.error("invalid_number", "/host_time", "Use a finite host time in seconds.");
     return errors;
 }
 
@@ -86,8 +88,22 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         }
         if (style.background_procedural) {
             fill.procedural = *style.background_procedural;
-            fill.procedural->opacity *= opacity;
-            fill_visible |= fill.procedural->opacity > 0;
+            auto& procedural = *fill.procedural;
+            procedural.opacity *= opacity;
+            fill_visible |= procedural.opacity > 0;
+            if (procedural.time_rate != 0) {
+                const double time = double(procedural.time) + double(procedural.time_rate) * input.host_time;
+                if (std::abs(time) > std::numeric_limits<float>::max()) {
+                    diagnostics.push_back({"time_overflow",
+                                           Severity::error,
+                                           "/nodes/" + std::to_string(box.node.index) + "/background_procedural/time",
+                                           "Evaluated procedural time must fit a finite float.",
+                                           {}});
+                    fill_visible = false;
+                } else {
+                    procedural.time = float(time);
+                }
+            }
         }
         if (fill_visible) commands.commands.push_back(std::move(fill));
         if (style.box_shadow && style.box_shadow->inset && style.box_shadow->color.a > 0) {

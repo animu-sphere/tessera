@@ -49,7 +49,8 @@ constexpr std::uint32_t frames_in_flight = 2;
 constexpr std::uint32_t atlas_pages_per_slot = 16;
 constexpr tessera::PointerId mouse{1};
 constexpr float base_dpi = 96;
-constexpr float wheel_step = 40; // Logical units per WHEEL_DELTA; partial deltas scroll proportionally.
+constexpr UINT_PTR restore_timer = 2; // Smoke-only: restores the window after its minimized interval.
+constexpr float wheel_step = 40;      // Logical units per WHEEL_DELTA; partial deltas scroll proportionally.
 constexpr const char* menu_json = R"({"version":1,"root":{"type":"Box","id":"screen","children":[
 {"type":"Box","id":"panel","children":[
 {"type":"Text","id":"title","properties":{"text":"Tessera"}},
@@ -98,7 +99,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug(VkDebugUtilsMessageSeverityFlagBitsEXT seve
     return VK_FALSE;
 }
 
-// Monotonic host clock for InputEvent timestamps.
+// Monotonic host clock for InputEvent timestamps and the animation clock's source.
 std::chrono::microseconds now() {
     static const LONGLONG frequency = [] {
         LARGE_INTEGER f;
@@ -119,6 +120,23 @@ float logical_length(std::uint32_t pixels, float scale) {
         value = std::nextafter(value, std::numeric_limits<float>::infinity());
     return value;
 }
+// Seconds of shown time for procedural motion, read from a monotonic source. Pausing freezes it, so
+// motion resumes where it stopped instead of jumping by the hidden interval. It starts paused at 0.
+struct AnimationClock {
+    std::chrono::microseconds origin{0}, paused_at{0};
+    bool running = false;
+    void pause(std::chrono::microseconds source) {
+        if (running) paused_at = source;
+        running = false;
+    }
+    void resume(std::chrono::microseconds source) {
+        if (!running) origin += source - paused_at;
+        running = true;
+    }
+    double seconds(std::chrono::microseconds source) const {
+        return std::chrono::duration<double>((running ? source : paused_at) - origin).count();
+    }
+};
 // Client pixel (x, y) covers [x, x+1) x [y, y+1); its center is the rasterizer's coverage and
 // scissor sample, so a pixel painted by a half-open border box inside a clip is also a hit on it.
 tessera::Point logical_point(int x, int y, float scale) { return {float((x + 0.5) / scale), float((y + 0.5) / scale)}; }
@@ -147,10 +165,11 @@ struct Menu {
     static constexpr tessera::Color screen = rgb(18, 20, 26), panel = rgb(34, 39, 52), label = rgb(255, 255, 255);
     static constexpr tessera::Color idle = rgb(47, 74, 128), hover = rgb(66, 104, 176), pressed = rgb(32, 50, 88);
     static constexpr tessera::Color outline = rgb(90, 120, 180), focus_ring = rgb(255, 214, 102);
-    // Backdrop drawn by aurora.slang; `screen` stays the declared fallback without that shader.
+    // Backdrop drawn by aurora.slang; `screen` stays the declared fallback without that shader. The
+    // wave drifts at `aurora_rate` shader seconds (radians of wave phase) per host second.
     static constexpr const char* aurora = "tessera.example.aurora";
     static constexpr tessera::Color aurora_bottom = rgb(34, 24, 58), aurora_glow{.25f, .78f, .67f, .55f};
-    static constexpr float aurora_cycles = 1.5f, aurora_time = 0.75f;
+    static constexpr float aurora_cycles = 1.5f, aurora_phase = 0.75f, aurora_rate = 0.8f;
     static constexpr tessera::Point aurora_band{.32f, .2f}; // Center and thickness, height fractions.
     static constexpr std::array<tessera::ProceduralValueKind, 5> aurora_kinds{
         tessera::ProceduralValueKind::color, tessera::ProceduralValueKind::color, tessera::ProceduralValueKind::color,
@@ -166,6 +185,8 @@ struct Menu {
     tessera::UiDrawList paint;
     tessera::Size viewport;
     std::vector<tessera::Point> offsets; // Host-owned requested scroll offsets by node index.
+    double host_time = 0;                // Animation clock seconds that produced `paint`.
+    bool changed = true;                 // `paint` differs from the last presented frame.
 
     Menu(const std::vector<std::filesystem::path>& fonts = {}) {
         tessera::FontId menu_font;
@@ -244,7 +265,7 @@ struct Menu {
             s.align = tessera::Align::center;
             s.background = screen;
             s.background_procedural = tessera::ProceduralFill{
-                aurora, {screen, aurora_bottom, aurora_glow, aurora_cycles, aurora_band}, aurora_time};
+                aurora, {screen, aurora_bottom, aurora_glow, aurora_cycles, aurora_band}, aurora_phase, 1, aurora_rate};
             s.text.font = menu_font;
         });
         rule(S::of_id("panel"), [](auto& s) {
@@ -306,7 +327,25 @@ struct Menu {
         resize(viewport);
     }
     void repaint() {
-        paint = take(tessera::build_paint_list({tree.get(), styles, &layout, text.get()}), "Menu paint rejected");
+        auto next = take(tessera::build_paint_list({tree.get(), styles, &layout, text.get(), host_time}),
+                         "Menu paint rejected");
+        if (next == paint) return;
+        paint = std::move(next);
+        changed = true;
+    }
+    // Update point for host time: motion is paint-only, so styles and layout stay as they are.
+    void advance(double time) {
+        if (time == host_time) return;
+        host_time = time;
+        repaint();
+    }
+    // Shader time of the aurora in the current paint.
+    float aurora_time() const {
+        for (const auto& command : paint.commands)
+            if (const auto* rect = std::get_if<tessera::DrawRect>(&command);
+                rect && rect->procedural && rect->procedural->shader == aurora)
+                return rect->procedural->time;
+        throw std::logic_error("Aurora backdrop missing from paint");
     }
     // Full-tree restyle for the current interaction state; changed styles re-run layout and paint.
     void show(tessera::InteractionState state) {
@@ -356,6 +395,10 @@ struct App {
     HWND window = nullptr;
     float scale = 1;
     bool minimized = false, resizing = false, swapchain_dirty = true, quit = false;
+    bool exposed = true; // The presented image needs a frame even if paint is unchanged.
+    AnimationClock clock;
+    bool aurora_registered = false;
+    std::chrono::microseconds smoke_clock{0}; // Smoke-only scripted source: 60 Hz frames plus 1 s per step.
     Menu menu;
     tessera::PointerDispatcher dispatcher;
     tessera::FocusDispatcher focus;
@@ -403,6 +446,9 @@ struct App {
     unsigned captures = 0;
     unsigned step = 0;
     std::uint64_t step_ready = 1;
+    std::optional<float> captured_aurora_time; // Shader time of the previous verified capture.
+    std::uint64_t hidden_from = 0;             // Presentations when the smoke minimized the window.
+    double hidden_clock = 0;                   // Animation clock when the smoke minimized the window.
 
     void fail(std::string message) {
         if (failure.empty()) failure = std::move(message);
@@ -625,6 +671,7 @@ struct App {
         // Build-time Slang artifact; a failed registration leaves the declared solid fallback.
         const auto aurora = shader("procedural.aurora.spv");
         const auto registered = renderer->register_procedural_fill({Menu::aurora, aurora, Menu::aurora_kinds});
+        aurora_registered = registered.empty();
         if (!registered.empty()) {
             print(registered);
             if (smoke) throw std::runtime_error("Aurora procedural fill registration failed");
@@ -779,7 +826,7 @@ struct App {
                                capabilities.maxImageExtent.height)};
         }
         if (!size.width || !size.height) {
-            minimized = true;
+            hide(true);
             return;
         }
         destroy_images();
@@ -836,6 +883,7 @@ struct App {
             require(vkCreateSemaphore(device, &semaphore, nullptr, &image.rendered), "create semaphore");
         }
         swapchain_dirty = false;
+        exposed = true;
         const tessera::Size logical{logical_length(extent.width, scale), logical_length(extent.height, scale)};
         std::cout << "Swapchain " << extent.width << 'x' << extent.height << " at scale " << scale << " -> logical "
                   << logical.width << 'x' << logical.height << '\n';
@@ -885,6 +933,30 @@ struct App {
         surface = VK_NULL_HANDLE;
         messenger = VK_NULL_HANDLE;
         instance = VK_NULL_HANDLE;
+    }
+
+    // ---- Frame scheduling ----------------------------------------------------------------
+    std::chrono::microseconds clock_source() const { return smoke ? smoke_clock : now(); }
+    // A minimized window shows nothing: its clock pauses and motion requests no frames.
+    void hide(bool hidden) {
+        if (hidden == minimized) return;
+        if (hidden)
+            clock.pause(clock_source());
+        else
+            clock.resume(clock_source());
+        minimized = hidden;
+    }
+    // Motion needs frames only while shown and while the backend executes a moving fill; the declared
+    // static fallback of an unregistered fill would present identical frames.
+    bool moving() const { return !minimized && aurora_registered && tessera::time_dependent(menu.paint); }
+    // Presents a frame only for visible change: motion, new paint, a new swapchain or exposure.
+    // Returns whether one was presented; otherwise the caller waits for messages.
+    bool frame() {
+        if (moving()) menu.advance(clock.seconds(clock_source()));
+        if (!menu.changed && !exposed && !swapchain_dirty && !capture_next) return false;
+        const auto before = presented;
+        render();
+        return presented != before;
     }
 
     // ---- Frame ---------------------------------------------------------------------------
@@ -1002,6 +1074,7 @@ struct App {
             require(presented_result, "present");
         slot_index = (slot_index + 1) % frames_in_flight;
         ++presented;
+        menu.changed = exposed = false;
         if (capture) {
             require(vkWaitForFences(device, 1, &slot.fence, VK_TRUE, UINT64_MAX), "wait capture fence");
             renderer->retire(slot.frame);
@@ -1153,7 +1226,9 @@ struct App {
                   << "; Latin/Japanese ink samples=" << ink[0] << '/' << ink[1] << '\n';
     }
     // Independent double-precision evaluation of aurora.slang at backdrop pixel centers outside the
-    // panel. Fallback would show the flat screen color, so the glow band must differ from it.
+    // panel, at the shader time this frame's paint evaluated from the host clock. Fallback would show
+    // the flat screen color, so the glow band must differ from it; motion must also make the frame
+    // distinguishable from the previous capture's time.
     void verify_aurora(const std::vector<std::uint8_t>& pixels, const std::string& name, tessera::Rect panel) {
         const auto linear = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
         const auto encode = [](double c) {
@@ -1161,34 +1236,45 @@ struct App {
             return c <= 0.0031308 ? c * 12.92 : 1.055 * std::pow(c, 1 / 2.4) - 0.055;
         };
         const auto size = menu.viewport;
+        const double time = menu.aurora_time();
+        if (time != float(Menu::aurora_phase + double(Menu::aurora_rate) * menu.host_time))
+            return fail("Aurora time in " + name + " is not phase + rate * host time");
+        const auto shade = [&](double u, double v, double t, int c) {
+            const auto band = Menu::aurora_band;
+            const double center = band.x + band.y * .5 * std::sin(6.283185307 * u * Menu::aurora_cycles + t);
+            const double d = (v - center) / band.y;
+            const double intensity = std::exp(-d * d) * Menu::aurora_glow.a;
+            const tessera::Color top = Menu::screen, bottom = Menu::aurora_bottom, glow = Menu::aurora_glow;
+            const float channel[3][3]{{top.r, bottom.r, glow.r}, {top.g, bottom.g, glow.g}, {top.b, bottom.b, glow.b}};
+            const auto& k = channel[c];
+            const double value = linear(k[0]) + (linear(k[1]) - linear(k[0])) * v + linear(k[2]) * intensity;
+            return int(std::lround(encode(value) * 255));
+        };
         double farthest = 0;
+        int moved = 0;
         for (const double fx : {.01, .5})
             for (const double fy : {.01, .2, .3, .36, .45, .8, .99}) {
                 const auto px = unsigned(panel.origin.x * fx * scale), py = unsigned(size.height * fy * scale);
                 if (px >= extent.width || py >= extent.height) continue;
                 const double u = (px + .5) / scale / size.width, v = (py + .5) / scale / size.height;
-                const auto band = Menu::aurora_band;
-                const double center =
-                    band.x + band.y * .5 * std::sin(6.283185307 * u * Menu::aurora_cycles + Menu::aurora_time);
-                const double d = (v - center) / band.y;
-                const double intensity = std::exp(-d * d) * Menu::aurora_glow.a;
-                const tessera::Color top = Menu::screen, bottom = Menu::aurora_bottom, glow = Menu::aurora_glow;
-                const std::array<double, 3> expected{
-                    linear(top.r) + (linear(bottom.r) - linear(top.r)) * v + linear(glow.r) * intensity,
-                    linear(top.g) + (linear(bottom.g) - linear(top.g)) * v + linear(glow.g) * intensity,
-                    linear(top.b) + (linear(bottom.b) - linear(top.b)) * v + linear(glow.b) * intensity};
                 const auto at = (std::size_t(py) * extent.width + px) * 4;
                 const float flat[3]{Menu::screen.r, Menu::screen.g, Menu::screen.b};
                 for (int c = 0; c < 3; ++c) {
-                    const auto want = int(std::lround(encode(expected[c]) * 255));
+                    const auto want = shade(u, v, time, c);
                     if (std::abs(int(pixels[at + c]) - want) > 3)
                         return fail("Aurora backdrop mismatch in " + name + " at pixel " + std::to_string(px) + ',' +
                                     std::to_string(py) + " channel " + std::to_string(c) + ": got " +
                                     std::to_string(pixels[at + c]) + " expected " + std::to_string(want));
                     farthest = std::max(farthest, std::abs(double(pixels[at + c]) - flat[c] * 255));
+                    if (captured_aurora_time)
+                        moved = std::max(moved, std::abs(int(pixels[at + c]) - shade(u, v, *captured_aurora_time, c)));
                 }
             }
         if (farthest < 20) fail("Aurora backdrop is indistinguishable from its solid fallback in " + name);
+        if (captured_aurora_time && (time <= *captured_aurora_time || moved <= 6))
+            fail("Aurora backdrop in " + name + " did not move since the previous capture");
+        std::cout << "Aurora " << name << " host time=" << menu.host_time << " s shader time=" << time << '\n';
+        captured_aurora_time = float(time);
     }
     // Checks presented pixels against the styles that produced this frame's paint.
     void verify_capture() {
@@ -1569,7 +1655,7 @@ struct App {
                 break;
             case WM_SIZE:
                 // Update point: swapchain, scale and layout change together before later input maps.
-                minimized = wparam == SIZE_MINIMIZED;
+                hide(wparam == SIZE_MINIMIZED);
                 swapchain_dirty = true;
                 if (!minimized && device) recreate_swapchain();
                 return 0;
@@ -1581,7 +1667,8 @@ struct App {
                 return 0;
             case WM_PAINT:
                 ValidateRect(window, nullptr);
-                if (resizing) render(); // The modal size loop blocks the main loop.
+                exposed = true;
+                if (resizing) frame(); // The modal size loop blocks the main loop.
                 return 0;
             case WM_DPICHANGED: {
                 scale = LOWORD(wparam) / base_dpi;
@@ -1593,6 +1680,10 @@ struct App {
                 return 0;
             }
             case WM_TIMER:
+                if (wparam == restore_timer) {
+                    restore();
+                    return 0;
+                }
                 fail("Smoke sequence timed out at step " + std::to_string(step));
                 return 0;
             case WM_CLOSE:
@@ -1869,6 +1960,22 @@ struct App {
                 break;
             case 24:
                 expect(list().scroll->offset.y == wheeled_from - wheel_step / 4, "Wheel outside the list scrolled it");
+                // Minimize: presentation stops and the clock pauses across a scripted 10 s hidden interval.
+                hidden_from = presented;
+                hidden_clock = clock.seconds(clock_source());
+                ShowWindow(window, SW_MINIMIZE);
+                expect(minimized && !moving(), "Minimizing did not stop motion frames");
+                smoke_clock += std::chrono::seconds(10);
+                SetTimer(window, restore_timer, 250, nullptr);
+                break;
+            case 25:
+                expect(!minimized && presented > hidden_from, "Restored menu did not resume presenting");
+                expect(menu.host_time > hidden_clock && menu.host_time - hidden_clock < 1,
+                       "Motion did not resume where it paused");
+                capture_next = true;
+                break;
+            case 26:
+                expect(captures == 6, "Restored presentation was not captured");
                 click("quit");
                 break;
             default:
@@ -1876,6 +1983,15 @@ struct App {
         }
         ++step;
         step_ready = presented + 2;
+        smoke_clock += std::chrono::seconds(1); // Visible motion between scripted captures.
+    }
+    // Smoke restore after the minimized interval: nothing presented and the clock did not advance.
+    void restore() {
+        KillTimer(window, restore_timer);
+        expect(minimized && presented == hidden_from, "Frames were presented while minimized");
+        expect(clock.seconds(clock_source()) == hidden_clock, "The animation clock advanced while minimized");
+        ShowWindow(window, SW_RESTORE);
+        expect(!minimized, "Restoring did not show the menu");
     }
 };
 
@@ -1939,11 +2055,13 @@ int wmain(int argc, wchar_t** argv) {
         SetWindowPos(app.window, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
         app.initialize_vulkan();
         ShowWindow(app.window, SW_SHOWNORMAL);
+        app.clock.resume(app.clock_source()); // Host time 0 is the first shown frame.
         if (app.smoke) {
             app.check_gamepad_mapping();
             app.capture_next = true;
             SetTimer(app.window, 1, 30'000, nullptr);
-        }
+        } else if (app.aurora_registered)
+            std::cout << "Aurora backdrop follows the host clock; minimizing pauses it and its frames.\n";
         while (!app.quit) {
             MSG msg;
             while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -1956,9 +2074,12 @@ int wmain(int argc, wchar_t** argv) {
                 WaitMessage();
                 continue;
             }
+            if (app.smoke) app.smoke_clock += std::chrono::microseconds(16'667);
             app.poll_gamepad();
-            app.render();
+            const bool presented = app.frame();
             app.smoke_step();
+            // Nothing changed: sleep until a message, waking at 60 Hz only to poll the gamepad.
+            if (!presented && !app.quit) MsgWaitForMultipleObjectsEx(0, nullptr, 16, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         }
     } catch (const std::exception& error) {
         app.fail(error.what());
@@ -1967,7 +2088,7 @@ int wmain(int argc, wchar_t** argv) {
     app.shutdown_vulkan();
     if (app.window) DestroyWindow(app.window);
     if (app.smoke) {
-        if (app.failure.empty() && app.step != 25)
+        if (app.failure.empty() && app.step != 27)
             app.fail("Smoke sequence ended early at step " + std::to_string(app.step));
         if (app.actions != std::vector<std::string>{"start-game", "start-game", "show-credits", "start-game",
                                                     "show-credits", "show-credits", "quit-game"})

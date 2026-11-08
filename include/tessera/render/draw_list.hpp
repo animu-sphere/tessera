@@ -120,4 +120,9 @@ inline constexpr std::size_t max_draw_stack_depth = 64;
 
 std::vector<Diagnostic> validate(const UiDrawList&);
 
+// True when a procedural fill in the list moves with host time (nonzero `time_rate`), so a host
+// showing it requests further frames; a static list needs a frame only after it changes. This
+// reports the request, not execution: a backend drawing the static fallback needs no motion frames.
+bool time_dependent(const UiDrawList&);
+
 } // namespace tessera
