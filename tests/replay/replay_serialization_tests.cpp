@@ -377,6 +377,18 @@ void procedural_styles_round_trip() {
         check(load(json) == source && save(load(json)) == json &&
                   tessera::compare_replay(play(source), play(load(json))).empty(),
               "Procedural fills must round-trip identity, typed parameters, time and opacity in Replay v1/v2");
+        check(json.find("\"time_rate\"") == std::string::npos, "Static fills must keep their fill-v1 encoding");
+        auto moving = source;
+        for (auto* styles : {&moving.styles, &std::get<tessera::ReplayReload>(moving.steps.back()).styles})
+            (*styles)[0].background_procedural->time_rate = -.5f;
+        const auto moving_json = save(moving);
+        check(moving_json.find("\"time_rate\":-0.5") != std::string::npos && load(moving_json) == moving &&
+                  save(load(moving_json)) == moving_json,
+              "Moving fills must round-trip their time rate");
+        auto invalid_rate = tessera::load_replay(changed(moving_json, "\"time_rate\":-0.5", "\"time_rate\":true"));
+        check(!invalid_rate &&
+                  has(invalid_rate.diagnostics, "schema_type", "/steps/0/styles/0/background_procedural/time_rate"),
+              "Encoded time rates must be numbers");
         auto rejected = tessera::load_replay(changed(json, "{\"number\":0.25}", "{\"angle\":0.25}"));
         check(!rejected && has(rejected.diagnostics, "unknown_field",
                                "/steps/0/styles/0/background_procedural/parameters/0/angle"),

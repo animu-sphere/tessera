@@ -116,7 +116,7 @@ Improve ordinary screens and enable distinctive GPU visuals through the [Look pr
 
 - Visual basics beyond gradients, distance-based outer/inset shadows and smooth solid/dashed outlines: blurred shadows, additional stroke caps/joins and text-decoration improvements.
 - Additional built-in shapes, ellipse strokes and local glow beyond rectangle/ellipse fills.
-- Procedural fills beyond fill-v1: host-clock motion with visibility-aware redraw requests, theme tokens, an Inspector or other CPU-hosted consumer, and texture/multipass profiles with their own validation and resource bounds.
+- Procedural fills beyond fill-v1: theme tokens, an Inspector or other CPU-hosted consumer, recorded host time for Replay, and texture/multipass profiles with their own validation and resource bounds.
 - Custom SDF; masks, blur and offscreen composition when a visual outcome needs them.
 - A representative screen that grows with the features rather than a demo or snapshot catalog per effect.
 

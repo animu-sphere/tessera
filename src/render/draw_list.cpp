@@ -2,11 +2,19 @@
 #include <tessera/render/renderer.hpp>
 #include "../detail/checks.hpp"
 #include "../detail/shadow.hpp"
+#include <algorithm>
 #include <string>
 #include <type_traits>
 #include <utility>
 
 namespace tessera {
+
+bool time_dependent(const UiDrawList& list) {
+    return std::any_of(list.commands.begin(), list.commands.end(), [](const DrawCommand& command) {
+        const auto* rect = std::get_if<DrawRect>(&command);
+        return rect && rect->procedural && rect->procedural->time_rate != 0;
+    });
+}
 
 std::vector<Diagnostic> validate(const UiDrawList& list) {
     std::vector<Diagnostic> errors;
