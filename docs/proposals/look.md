@@ -1,6 +1,6 @@
 # Look and visual rendering
 
-> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), [distance-based outer/inset shadows](../architecture/rendering.md#implemented-box-shadows) and [smooth solid/dashed outlines](../architecture/rendering.md#implemented-outlines-and-dashed-strokes). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
+> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), [distance-based outer/inset shadows](../architecture/rendering.md#implemented-box-shadows), [smooth solid/dashed outlines](../architecture/rendering.md#implemented-outlines-and-dashed-strokes) and [analytic rectangle/ellipse fills](../architecture/rendering.md#implemented-analytic-fills). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
 
 ## Goal and scope
 
@@ -50,7 +50,9 @@ Provide a CPU reference for the built-in behavior or an explicitly declared capa
 
 ### B. Built-in analytic and SDF shapes
 
-Use circles/ellipses and rounded rectangles to establish reusable coverage, stroke and local glow. Exercise thin strokes, small dimensions, clamped radii and transformed/fractional-scale edges.
+Circle/ellipse and rounded-rectangle background fills now have opt-in shared CPU/Vulkan 4x4 coverage under [analytic fills](../architecture/rendering.md#implemented-analytic-fills). The Inspector combines a circular Enabled indicator with its smooth gradient card. The ellipse equation supplies inside/outside coverage, not an exact Euclidean signed distance.
+
+Extend these foundations with additional shapes, ellipse strokes and local glow when a consumer needs them. Exercise thin strokes, small dimensions, clamped radii and transformed/fractional-scale edges.
 
 GPU analytic/SDF evaluation and a small CPU reference should express the same visual semantics, with declared tolerances rather than mandatory identical algorithms or bitwise pixels. Keep the existing layout-box hit test by default; shape-aware input is an explicit choice with its own CPU geometry contract, not implicit execution of a GPU shader during input dispatch.
 

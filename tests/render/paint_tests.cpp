@@ -100,6 +100,41 @@ void order_geometry_opacity_and_ownership() {
           "Returned draw list must outlive all borrowed inputs");
 }
 
+void fill_shapes() {
+    Fixture f(box({box()}));
+    auto& style = f.styles[0];
+    style.width = Dimension::points(40);
+    style.height = Dimension::points(20);
+    style.background = {1, 0, 0, .8f};
+    style.opacity = .5f;
+    style.border = {1, 2, 3, 4};
+    style.border_color = {0, 1, 0, 1};
+    style.corner_radius = 7;
+    f.compute();
+    const auto original = f.layout.boxes[0].border_box;
+    style.background_shape = tessera::FillShape::ellipse;
+    style.background_antialias = true;
+    f.compute();
+    auto paint = f.paint();
+    const auto fill = std::get<tessera::DrawRect>(paint.commands[0]);
+    check(fill.rect == original && fill.shape == tessera::FillShape::ellipse && fill.antialias && fill.color.a == .4f &&
+              f.layout.boxes[0].border_box == original,
+          "Analytic fill must retain the layout box and inherited command opacity");
+    check(std::get<tessera::DrawBorder>(paint.commands[1]).corner_radius == 7,
+          "Background shape must not replace the independent rectangular border contract");
+    style.background_gradient = tessera::LinearGradient{.start_color = {1, 1, 1, 1}, .end_color = {0, 0, 1, 1}};
+    const auto gradient_paint = f.paint();
+    const auto& gradient = std::get<tessera::DrawRect>(gradient_paint.commands[0]);
+    check(gradient.shape == tessera::FillShape::ellipse && gradient.antialias && gradient.gradient &&
+              std::get<tessera::LinearGradient>(*gradient.gradient).start_color.a == .5f,
+          "Gradient and solid fills must carry the same shape and coverage");
+    style.background_shape = tessera::FillShape::rectangle;
+    style.background_antialias = false;
+    check(fill.shape == tessera::FillShape::ellipse && fill.antialias &&
+              std::get<tessera::DrawRect>(f.paint().commands[0]).shape == tessera::FillShape::rectangle,
+          "Resolved paint must own its shape after style replacement");
+}
+
 void box_shadows() {
     Fixture f(box({box()}));
     f.styles[0].overflow = tessera::Overflow::clip;
@@ -431,6 +466,7 @@ int main() {
         gradient_backgrounds();
         box_shadows();
         outlines();
+        fill_shapes();
         visibility_display_and_empty();
         clip_runs();
         invalid_input_and_topology();

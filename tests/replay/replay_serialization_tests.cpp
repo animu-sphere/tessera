@@ -341,6 +341,31 @@ void outline_styles_round_trip() {
           "Absent outlines must preserve legacy replay encoding");
 }
 
+void fill_shapes_round_trip() {
+    auto source = recording();
+    source.styles[0].background_shape = tessera::FillShape::ellipse;
+    source.styles[0].background_antialias = true;
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    for (auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        source.version = version;
+        const auto json = save(source);
+        check(load(json) == source && save(load(json)) == json &&
+                  tessera::compare_replay(play(source), play(load(json))).empty(),
+              "Analytic fill must round-trip initial/reloaded style and pixels in Replay v1/v2");
+        auto rejected =
+            tessera::load_replay(changed(json, "\"background_shape\":\"ellipse\"", "\"background_shape\":\"blob\""));
+        check(!rejected && has(rejected.diagnostics, "unknown_value", "/steps/0/styles/0/background_shape"),
+              "Unknown replay shapes must reject before playback");
+        rejected = tessera::load_replay(changed(json, "\"background_antialias\":true", "\"background_antialias\":1"));
+        check(!rejected && has(rejected.diagnostics, "schema_type", "/steps/0/styles/0/background_antialias"),
+              "Replay coverage must require a boolean");
+    }
+    const auto legacy = save(recording());
+    check(legacy.find("\"background_shape\"") == std::string::npos &&
+              legacy.find("\"background_antialias\"") == std::string::npos,
+          "Default fill settings must preserve legacy Replay bytes");
+}
+
 void shadow_styles_round_trip() {
     auto source = recording();
     source.styles[0].box_shadow = tessera::BoxShadow{{-2, 4}, 7, {.2f, .3f, .4f, .5f}};
@@ -626,6 +651,7 @@ int main() {
         gradient_styles_round_trip();
         shadow_styles_round_trip();
         outline_styles_round_trip();
+        fill_shapes_round_trip();
         loading_rejects_malformed_input();
         compatible_pointer_policy_round_trips();
         saving_rejects_invalid_recordings();

@@ -28,6 +28,11 @@ void valid_list() {
 }
 
 void invalid_lists() {
+    tessera::DrawRect shape{{{0, 0}, {10, 5}}, {1, 1, 1, 1}, 100, {}, tessera::FillShape::ellipse, true};
+    check(tessera::validate(tessera::UiDrawList{{shape}}).empty(), "Valid ellipse fill rejected");
+    shape.shape = static_cast<tessera::FillShape>(255);
+    check(has(tessera::validate(tessera::UiDrawList{{shape}}), "unknown_value", "/commands/0/shape"),
+          "Invalid shape must not silently become a rectangle");
     const tessera::UiDrawList unbalanced{{
         tessera::PopClip{},
         tessera::PushClip{},

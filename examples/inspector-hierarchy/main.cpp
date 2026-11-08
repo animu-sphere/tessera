@@ -201,21 +201,30 @@ ui::Element Form(const State& state, Size viewport) {
                  {ui::Text("Inspector", {.id = "inspector-title", .classes = {"section-title"}}),
                   ui::Column(
                       {ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
-                       ui::Grid({ui::Text("Display name", {.classes = {"muted"}}),
-                                 ui::TextInput("Name", item.name, "item.name", {.node = control("name")}),
-                                 ui::Text("Enabled", {.classes = {"muted"}}),
-                                 ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
-                                 ui::Text("Amount", {.classes = {"muted"}}),
-                                 ui::Slider("Amount", item.amount, amount_range, "item.amount",
-                                            {.node = {.id = "amount",
-                                                      .classes = {"control"},
-                                                      .style = {.padding = Edges{6, 0, 6, 0}}}})},
-                                {.id = "properties",
-                                 .style = {.grid_columns = std::vector<GridTrack>{GridTrack{.maximum = 72},
-                                                                                  GridTrack::fraction(1, 202)},
-                                           .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{}},
-                                           .column_gap = 8.f,
-                                           .row_gap = 12.f}})},
+                       ui::Grid(
+                           {ui::Text("Display name", {.classes = {"muted"}}),
+                            ui::TextInput("Name", item.name, "item.name", {.node = control("name")}),
+                            ui::Row({ui::Column({}, {.id = "enabled-indicator",
+                                                     .style = {.width = Dimension::points(8),
+                                                               .height = Dimension::points(8),
+                                                               .background = item.enabled ? Color{.15f, .6f, .4f, 1}
+                                                                                          : Color{.55f, .6f, .68f, 1},
+                                                               .background_shape = FillShape::ellipse,
+                                                               .background_antialias = true}}),
+                                     ui::Text("Enabled", {.classes = {"muted"}})},
+                                    {.style = {.align = Align::center, .gap = 4.f}}),
+                            ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
+                            ui::Text("Amount", {.classes = {"muted"}}),
+                            ui::Slider("Amount", item.amount, amount_range, "item.amount",
+                                       {.node = {.id = "amount",
+                                                 .classes = {"control"},
+                                                 .style = {.padding = Edges{6, 0, 6, 0}}}})},
+                           {.id = "properties",
+                            .style = {.grid_columns =
+                                          std::vector<GridTrack>{GridTrack{.maximum = 72}, GridTrack::fraction(1, 202)},
+                                      .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{}},
+                                      .column_gap = 8.f,
+                                      .row_gap = 12.f}})},
                       {.id = "item-card",
                        .style = {.border = Edges{1, 1, 1, 1},
                                  .padding = Edges{12, 12, 12, 12},
@@ -227,7 +236,8 @@ ui::Element Form(const State& state, Size viewport) {
                                                                        .stops = {{0, {.96f, .99f, 1, 1}},
                                                                                  {.42f, {.84f, .92f, 1, 1}},
                                                                                  {1, {.98f, .9f, .98f, 1}}}},
-                                 .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}}}}),
+                                 .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
+                                 .background_antialias = true}}),
                   ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
                               ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
                               ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}})},
@@ -1282,6 +1292,33 @@ void gradient_card_smoke() {
     }
 }
 
+void analytic_fill_smoke() {
+    App app;
+    const auto box = app.view.box("enabled-indicator").border_box;
+    const auto style = app.view.styles[app.view.tree->find("enabled-indicator")->index];
+    require(style.background_shape == FillShape::ellipse && style.background_antialias && box.size == Size{8, 8},
+            "Enabled indicator must resolve an ordinary smooth circular background");
+    CpuFrameCapture frames;
+    auto smooth_paint = app.view.paint;
+    std::erase_if(smooth_paint.commands,
+                  [](const auto& command) { return std::holds_alternative<DrawGlyphRun>(command); });
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        auto hard_paint = smooth_paint;
+        for (auto& command : hard_paint.commands)
+            if (auto* fill = std::get_if<DrawRect>(&command)) fill->antialias = false;
+        const auto extent = take(capture_extent(app.viewport, scale));
+        const auto actual = take(frames.capture({0, app.viewport, scale, extent, &smooth_paint}));
+        const auto hard = take(frames.capture({0, app.viewport, scale, extent, &hard_paint}));
+        require(actual != hard, "Inspector analytic coverage must change actual decoration pixels at every scale");
+    }
+    const auto enabled = app.state.item().enabled;
+    app.action("enabled");
+    require(app.view.box("enabled-indicator").border_box == box &&
+                app.view.styles[app.view.tree->find("enabled-indicator")->index].background != style.background &&
+                app.state.item().enabled != enabled,
+            "Enabled indicator must follow accepted edits without changing layout");
+}
+
 void shadow_card_smoke() {
     App app;
     const auto& box = app.view.box("item-card");
@@ -1424,6 +1461,7 @@ void outline_smoke() {
 void smoke() {
     appearance_smoke();
     gradient_card_smoke();
+    analytic_fill_smoke();
     shadow_card_smoke();
     inset_name_smoke();
     outline_smoke();

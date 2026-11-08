@@ -158,14 +158,19 @@ Modifiers modifiers(const JsonValue& value, const std::string& path) {
 }
 
 ResolvedStyle style(const JsonValue& value, const std::string& path) {
-    const auto& o =
-        object(value, path, {"display", "direction",  "justify",      "align",         "overflow",   "width",
-                             "height",  "min_width",  "min_height",   "max_width",     "max_height", "margin",
-                             "border",  "padding",    "gap",          "grow",          "shrink",     "visibility",
-                             "opacity", "background", "border_color", "corner_radius", "text",       "color"},
-               {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap",
-                "grid_horizontal", "grid_vertical", "background_gradient", "box_shadow", "outline"});
+    const auto& o = object(
+        value, path,
+        {"display",    "direction",  "justify",    "align",      "overflow",     "width",         "height", "min_width",
+         "min_height", "max_width",  "max_height", "margin",     "border",       "padding",       "gap",    "grow",
+         "shrink",     "visibility", "opacity",    "background", "border_color", "corner_radius", "text",   "color"},
+        {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap", "grid_horizontal",
+         "grid_vertical", "background_gradient", "box_shadow", "outline", "background_shape", "background_antialias"});
     ResolvedStyle s;
+    if (const auto field = o.find("background_shape"); field != o.end())
+        s.background_shape = choice<FillShape>(field->second, path + "/background_shape",
+                                               std::array<std::string_view, 2>{"rectangle", "ellipse"});
+    if (const auto field = o.find("background_antialias"); field != o.end())
+        s.background_antialias = boolean(field->second, path + "/background_antialias");
     s.display = choice<Display>(o.at("display"), path + "/display", display_names);
     s.direction = choice<FlexDirection>(o.at("direction"), path + "/direction", direction_names);
     s.justify = choice<Justify>(o.at("justify"), path + "/justify", justify_names);
@@ -651,6 +656,8 @@ JsonValue style_json(const ResolvedStyle& s) {
                                              {"gap_length", real_json(outline.gap_length)},
                                              {"dash_offset", real_json(outline.dash_offset)}}};
     }
+    if (s.background_shape != FillShape::rectangle) result["background_shape"] = JsonValue{std::string("ellipse")};
+    if (s.background_antialias) result["background_antialias"] = JsonValue{true};
     return JsonValue{std::move(result)};
 }
 JsonValue styles_json(const std::vector<ResolvedStyle>& values) {

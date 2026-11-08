@@ -1503,6 +1503,44 @@ void cpu_reference_fixtures(Host& host) {
         {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
          tessera::DrawStroke{{{3.25f, 3.25f}, {25.5f, 9.5f}}, {.1f, .4f, .8f, 1}, .5f},
          tessera::DrawStroke{{{3.25f, 18.25f}, {25.5f, 9.5f}}, {.1f, .4f, .8f, 1}, .25f, 0, 3, 2, -2}}};
+    const tessera::UiDrawList analytic_fills{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::DrawRect{
+             {{2.137f, 2.137f}, {12.71f, 8.71f}}, {.1f, .4f, .8f, .75f}, 100, {}, tessera::FillShape::ellipse, true},
+         tessera::DrawRect{{{17.137f, 2.137f}, {11.71f, 10.71f}},
+                           {},
+                           3.7f,
+                           tessera::LinearGradient{{0, 0}, {1, 1}, {.1f, .4f, .8f, 0}, {.2f, .6f, .4f, .75f}},
+                           tessera::FillShape::rectangle,
+                           true},
+         tessera::PushClip{{{1.125f, 16.125f}, {29.75f, 14.75f}}},
+         tessera::PushTransform{{-1, 0, .25f, 1, 28.137f, 17.137f}},
+         tessera::DrawRect{
+             {{0, 0}, {12.71f, 8.71f}},
+             {},
+             0,
+             tessera::RadialGradient{.start_color = {.1f, .4f, .8f, .5f}, .end_color = {.2f, .6f, .4f, .75f}},
+             tessera::FillShape::ellipse,
+             true},
+         tessera::PopTransform{}, tessera::PopClip{}, tessera::PushTransform{{0, 1, -1, .25f, 12.137f, 19.137f}},
+         tessera::DrawRect{
+             {{0, 0}, {7.71f, 5.71f}}, {.1f, .4f, .8f, .5f}, 100, {}, tessera::FillShape::rectangle, true},
+         tessera::PopTransform{},
+         tessera::DrawRect{
+             {{26.137f, 27.137f}, {3.71f, 2.71f}}, {.1f, .4f, .8f, 1}, 0, {}, tessera::FillShape::ellipse, false},
+         tessera::DrawRect{{{0, 0}, {0, 32}}, {1, 0, 0, 1}, 0, {}, tessera::FillShape::ellipse, true}}};
+    const tessera::UiDrawList fill_grid{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::DrawRect{{{3.5f, 3.5f}, {12, 4}}, {.1f, .4f, .8f, 1}, 0, {}, tessera::FillShape::rectangle, true},
+         tessera::DrawRect{
+             {{3.25f, 10.25f}, {.25f, 12}}, {.1f, .4f, .8f, 1}, 0, {}, tessera::FillShape::rectangle, true},
+         tessera::DrawRect{{{8, 12}, {4, 4}}, {.1f, .4f, .8f, 1}, 0, {}, tessera::FillShape::ellipse, true},
+         tessera::DrawRect{{{16, 12}, {8, 4}}, {.1f, .4f, .8f, .5f}, 0, {}, tessera::FillShape::ellipse, true}}};
+    auto analytic_multi = analytic_fills;
+    std::get<tessera::LinearGradient>(*std::get<tessera::DrawRect>(analytic_multi.commands[2]).gradient).stops = {
+        {0, {.1f, .4f, .8f, 0}}, {.4f, {.2f, .6f, .4f, .5f}}, {.4f, {.4f, .2f, .6f, .75f}}, {1, {.2f, .6f, .4f, .75f}}};
+    std::get<tessera::RadialGradient>(*std::get<tessera::DrawRect>(analytic_multi.commands[5]).gradient).stops = {
+        {0, {.1f, .4f, .8f, .5f}}, {.35f, {.2f, .6f, .4f, .75f}}, {1, {.4f, .2f, .6f, .5f}}};
     auto multi_gradients = gradients;
     std::get<tessera::LinearGradient>(*std::get<tessera::DrawRect>(multi_gradients.commands[1]).gradient).stops = {
         {.1f, {1, 0, 0, 0}},
@@ -1622,7 +1660,7 @@ void cpu_reference_fixtures(Host& host) {
             compare(actual, expected.value->pixels, {extent.width, extent.height}, batched ? "batch" : "reference",
                     scale);
             gpu.retire(frame++);
-            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 11> gradient_scenes{
+            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 14> gradient_scenes{
                 {{"gradient", &gradients},
                  {"multi-gradient", &multi_gradients},
                  {"hard-gradient", &hard_gradients},
@@ -1633,15 +1671,18 @@ void cpu_reference_fixtures(Host& host) {
                  {"shadow", &shadows},
                  {"inset-shadow", &inset_shadows},
                  {"stroke", &strokes},
-                 {"stroke-grid", &stroke_grid}}};
+                 {"stroke-grid", &stroke_grid},
+                 {"analytic-fill", &analytic_fills},
+                 {"fill-grid", &fill_grid},
+                 {"analytic-multi", &analytic_multi}}};
             for (const auto& [name, scene] : gradient_scenes) {
                 const auto gradient_pixels = cpu.capture({0, {32, 32}, scale, extent, scene});
                 check(bool(gradient_pixels), "CPU gradient comparison capture rejected");
                 std::vector<std::uint8_t> previous;
                 const bool retained =
-                    batched ||
-                    (scene != &gradients && scene != &radial_gradients && scene != &radial_transform &&
-                     scene != &shadows && scene != &inset_shadows && scene != &strokes && scene != &stroke_grid);
+                    batched || (scene != &gradients && scene != &radial_gradients && scene != &radial_transform &&
+                                scene != &shadows && scene != &inset_shadows && scene != &strokes &&
+                                scene != &stroke_grid && scene != &analytic_fills && scene != &fill_grid);
                 for (int repeat = 0; repeat < 2; ++repeat) {
                     host.begin(gpu);
                     const auto pending = gpu.pending_uploads();
@@ -1715,6 +1756,32 @@ void cpu_reference_fixtures(Host& host) {
                               "/commands/1") &&
                               gpu.pending_uploads() == pending,
                           "Unrepresentable shader inverse transforms must reject stroke coverage without fallback");
+                    tessera::DrawRect invalid_fill{{{0, 0}, {8, 8}}, {}, 0, {}, tessera::FillShape::ellipse, true};
+                    invalid_fill.shape = static_cast<tessera::FillShape>(255);
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid_fill}}), "unknown_value",
+                              "/commands/0/shape") &&
+                              gpu.pending_uploads() == pending,
+                          "Unsupported fill shapes must not consume a frame or change uploads");
+                    invalid_fill.shape = tessera::FillShape::ellipse;
+                    invalid_fill.rect.size.width = std::numeric_limits<float>::denorm_min();
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid_fill}}), "geometry_overflow",
+                              "/commands/0/shape") &&
+                              gpu.pending_uploads() == pending,
+                          "Subnormal ellipse dimensions must reject without a rectangle fallback");
+                    invalid_fill.rect.size.width = 8;
+                    const tessera::UiDrawList singular_fill{
+                        {tessera::PushTransform{{1e-20f, 0, 0, 1e-20f}}, invalid_fill, tessera::PopTransform{}}};
+                    check(
+                        has(gpu.submit({frame, {32, 32}, scale}, singular_fill), "geometry_overflow", "/commands/1") &&
+                            gpu.pending_uploads() == pending,
+                        "Smooth fill inverse-transform precision must reject atomically");
+                    invalid_fill.rect.size.width = std::numeric_limits<float>::min();
+                    const tessera::UiDrawList overflow_fill{
+                        {tessera::PushTransform{{1e-10f, 0, 0, 1e-10f}}, invalid_fill, tessera::PopTransform{}}};
+                    check(
+                        has(gpu.submit({frame, {32, 32}, scale}, overflow_fill), "geometry_overflow", "/commands/1") &&
+                            gpu.pending_uploads() == pending,
+                        "Unrepresentable normalized fill fringes must reject instead of producing shader NaNs");
                     check(gpu.submit({frame, {32, 32}, scale}, *scene).empty(), "GPU visual submission rejected");
                     check(gpu.pending_uploads() == (retained ? std::size_t(repeat + 1) : 0),
                           "Both paths must retain independent per-frame stop uploads until retirement");

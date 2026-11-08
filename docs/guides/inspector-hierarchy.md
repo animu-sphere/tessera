@@ -39,6 +39,19 @@ The Inspector uses a 72-unit label column and a control column with a 202-unit m
 
 The window-free smoke checks distinct hover/press/selection/focus pixels at scales 1, 1.25, 1.5 and 2, inherited selected-label color, stable row geometry, cancellation and once-only selection, stationary Slider feedback, minimum-width track containment and retained item data. Pixel comparisons omit glyph commands to isolate the changed decorations; the injected Windows smoke still presents the complete form with the existing GDI glyph adapter. Base appearance remains application styling, not a new widget skin API or text shaper; the focus decoration uses the built-in stroke below.
 
+## Analytic backgrounds
+
+The Enabled label includes an eight-unit circular status mark, green when the selected item is enabled and gray otherwise. It is an ordinary borderless Column, not an image or special widget:
+
+```cpp
+.background_shape = FillShape::ellipse,
+.background_antialias = true
+```
+
+Equal width/height makes a circle; unequal dimensions make an ellipse. The property card also opts into smooth fill-boundary coverage for its radial gradient. Both use the [analytic fill contract](../architecture/rendering.md#implemented-analytic-fills), with fixed 4x4 physical-pixel samples on CPU and Vulkan. Background shape does not change borders, shadows, outlines, descendant clips, rectangular input or pane allocation; the status mark has no action and Enabled retains its existing Checkbox command.
+
+The window-free smoke compares actual smooth/hard decoration pixels at scales 1, 1.25, 1.5 and 2, checks that the indicator follows an accepted enabled edit and keeps its geometry, and retains the existing edit/selection/scroll/resize checks. The injected native smoke presents the complete CPU-rendered form. GPU owner checks validate the built-in shapes, not this application's glyphs.
+
 ## Focus outlines
 
 Focused controls use a solid 1.5-unit blue outside outline with a one-unit gap. Focused Hierarchy and menu rows use the same rounded geometry with four-unit dashes and two-unit gaps:
@@ -64,7 +77,8 @@ ui::Column(children, {
             .center = {.25f, .2f}, .radius = {.85f, .95f},
             .stops = {{0, {.96f, .99f, 1, 1}},
                       {.42f, {.84f, .92f, 1, 1}},
-                      {1, {.98f, .9f, .98f, 1}}}}
+                      {1, {.98f, .9f, .98f, 1}}}},
+        .background_antialias = true
     }
 });
 ```

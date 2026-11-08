@@ -61,6 +61,11 @@ bool rounded(double x, double y, double w, double h, double radius) {
     const double qx = std::abs(x - w * 0.5) - (w * 0.5 - r), qy = std::abs(y - h * 0.5) - (h * 0.5 - r);
     return std::hypot(std::max(qx, 0.0), std::max(qy, 0.0)) + std::min(std::max(qx, qy), 0.0) <= r;
 }
+bool fill_contains(double x, double y, double w, double h, double radius, FillShape shape) {
+    if (w == 0 || h == 0) return false;
+    if (shape == FillShape::rectangle) return rounded(x, y, w, h, radius);
+    return std::hypot(2 * x / w - 1, 2 * y / h - 1) <= 1;
+}
 double shadow_coverage(double x, double y, double w, double h, double radius, double softness, bool inset) {
     if (softness == 0) return rounded(x, y, w, h, radius) != inset ? 1 : 0;
     const double r = std::min(radius, std::min(w, h) * .5);
@@ -250,7 +255,9 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                     if constexpr (std::is_same_v<T, DrawShadow>)
                         rect = *detail::shadow_bounds(rect, cmd.softness, cmd.inset);
                     auto physical = bounds(rect, s.transform, frame.device_scale);
-                    if constexpr (std::is_same_v<T, DrawStroke>) {
+                    bool smooth = std::is_same_v<T, DrawStroke>;
+                    if constexpr (std::is_same_v<T, DrawRect>) smooth = cmd.antialias;
+                    if (smooth) {
                         physical.left -= .5;
                         physical.top -= .5;
                         physical.right += .5;
@@ -317,25 +324,31 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                                                         double(cmd.rect.size.height) + 2 * cmd.softness, t))
                                         continue;
                                 }
-                            } else if constexpr (!std::is_same_v<T, DrawStroke>) {
-                                if (!outer_contains(lx, ly, cmd.rect.size.width, cmd.rect.size.height, t)) continue;
+                            } else {
+                                if (!smooth && !outer_contains(lx, ly, cmd.rect.size.width, cmd.rect.size.height, t))
+                                    continue;
                             }
-                            Pixel color;
-                            bool premultiplied = false;
-                            if constexpr (std::is_same_v<T, DrawStroke>) {
+                            const auto coverage = [&](const auto& contains) {
                                 unsigned covered = 0;
                                 for (double sy : {-.375, -.125, .125, .375})
                                     for (double sx : {-.375, -.125, .125, .375}) {
                                         const double sample_x = (x + .5 + sx) / frame.device_scale - t.tx;
                                         const double sample_y = (y + .5 + sy) / frame.device_scale - t.ty;
-                                        covered += detail::stroke_contains(
-                                            (t.d * sample_x - t.c * sample_y) / det - cmd.rect.origin.x,
-                                            (-t.b * sample_x + t.a * sample_y) / det - cmd.rect.origin.y,
-                                            cmd.rect.size.width, cmd.rect.size.height, cmd.corner_radius, cmd.width,
-                                            cmd.dash_length, cmd.gap_length, cmd.dash_offset);
+                                        covered +=
+                                            contains((t.d * sample_x - t.c * sample_y) / det - cmd.rect.origin.x,
+                                                     (-t.b * sample_x + t.a * sample_y) / det - cmd.rect.origin.y);
                                     }
+                                return covered / 16.0;
+                            };
+                            Pixel color;
+                            bool premultiplied = false;
+                            if constexpr (std::is_same_v<T, DrawStroke>) {
                                 color = linear(cmd.color);
-                                color[3] *= covered / 16.0;
+                                color[3] *= coverage([&](double sx, double sy) {
+                                    return detail::stroke_contains(sx, sy, cmd.rect.size.width, cmd.rect.size.height,
+                                                                   cmd.corner_radius, cmd.width, cmd.dash_length,
+                                                                   cmd.gap_length, cmd.dash_offset);
+                                });
                             } else if constexpr (std::is_same_v<T, DrawShadow>) {
                                 color = linear(cmd.color);
                                 color[3] *=
@@ -353,7 +366,21 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                                 if (premultiplied)
                                     for (unsigned c = 0; c < 3; ++c) color[c] *= tint[3];
                             } else {
-                                if (!rounded(lx, ly, cmd.rect.size.width, cmd.rect.size.height, cmd.corner_radius))
+                                double fill_coverage = 1;
+                                if constexpr (std::is_same_v<T, DrawRect>) {
+                                    if (smooth) {
+                                        fill_coverage = coverage([&](double sx, double sy) {
+                                            return sx >= 0 && sy >= 0 && sx < cmd.rect.size.width &&
+                                                   sy < cmd.rect.size.height &&
+                                                   fill_contains(sx, sy, cmd.rect.size.width, cmd.rect.size.height,
+                                                                 cmd.corner_radius, cmd.shape);
+                                        });
+                                        if (fill_coverage == 0) continue;
+                                    } else if (!fill_contains(lx, ly, cmd.rect.size.width, cmd.rect.size.height,
+                                                              cmd.corner_radius, cmd.shape))
+                                        continue;
+                                } else if (!rounded(lx, ly, cmd.rect.size.width, cmd.rect.size.height,
+                                                    cmd.corner_radius))
                                     continue;
                                 if constexpr (std::is_same_v<T, DrawBorder>) {
                                     const auto& w = cmd.widths;
@@ -392,6 +419,11 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                                         premultiplied = true;
                                     } else {
                                         color = linear(cmd.color);
+                                    }
+                                    if constexpr (std::is_same_v<T, DrawRect>) {
+                                        color[3] *= fill_coverage;
+                                        if (premultiplied)
+                                            for (unsigned c = 0; c < 3; ++c) color[c] *= fill_coverage;
                                     }
                                 } else {
                                     color = linear(cmd.color);

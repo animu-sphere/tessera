@@ -2,6 +2,7 @@
 
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
+#include <tessera/style/fill_shape.hpp>
 #include <tessera/style/gradient.hpp>
 #include <tessera/style/outline.hpp>
 #include <tessera/style/shadow.hpp>
@@ -95,6 +96,8 @@ struct ResolvedStyle {
     std::optional<Gradient> background_gradient;
     std::optional<BoxShadow> box_shadow;
     std::optional<Outline> outline;
+    FillShape background_shape = FillShape::rectangle;
+    bool background_antialias = false;
 
     bool operator==(const ResolvedStyle&) const = default;
 };
