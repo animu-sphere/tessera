@@ -4,8 +4,8 @@ struct Primitive {
     float4 rect;
     float4 color; // Linear RGB, straight alpha.
     float4 widths; // Border edges, bitmap rows 0-3, gradient end color, or stop-buffer first/count.
-    float4 source; // Image rectangle, placeholder rows 4-6, gradient geometry, or shadow softness/inverse.
-    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5/6 linear, 7/8 radial, 9 shadow), framebuffer width, height
+    float4 source; // Image rectangle, placeholder rows 4-6, gradient geometry, or shadow softness/inverse/offset.
+    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5/6 linear, 7/8 radial, 9 outer/10 inset shadow), framebuffer width, height
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
 [[vk::binding(0, 0)]] Texture2D<float4> image;
@@ -69,17 +69,20 @@ bool roundedContains(float2 p, float2 size, float radius) {
 }
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
-    if (input.params.y == 9) {
+    if (input.params.y == 9 || input.params.y == 10) {
+        bool inset = input.params.y == 10;
+        if (inset && !roundedContains(input.local, input.rect.zw, input.params.x)) discard;
+        float2 local = input.local - input.source.zw;
         if (input.source.x == 0) {
-            if (!roundedContains(input.local, input.rect.zw, input.params.x)) discard;
+            if (roundedContains(local, input.rect.zw, input.params.x) == inset) discard;
             return input.color;
         }
         float r = min(input.params.x, min(input.rect.z, input.rect.w) * 0.5);
-        float2 q = abs(input.local - input.rect.zw * 0.5) - (input.rect.zw * 0.5 - r);
+        float2 q = abs(local - input.rect.zw * 0.5) - (input.rect.zw * 0.5 - r);
         float2 positive = max(q, 0);
         float m = max(positive.x, positive.y);
         float distance = (m > 0 ? m * length(positive / m) : 0) + min(max(q.x, q.y), 0) - r;
-        float t = saturate(distance * input.source.y);
+        float t = saturate((inset ? -distance : distance) * input.source.y);
         float coverage = 1 - t * t * (3 - 2 * t);
         return float4(input.color.rgb, input.color.a * coverage);
     }

@@ -567,7 +567,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                 } else {
                     auto rect = command.rect;
                     if constexpr (std::is_same_v<T, DrawShadow>) {
-                        rect = *detail::shadow_bounds(rect, command.softness);
+                        rect = *detail::shadow_bounds(rect, command.softness, command.inset);
                         const double softness = command.softness;
                         const double radius =
                             std::min(double(command.corner_radius),
@@ -575,7 +575,11 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                         const double inverse = softness > 0 ? 1 / softness : 0;
                         if ((softness > 0 &&
                              (!representable(inverse) || inverse < std::numeric_limits<float>::min())) ||
-                            !representable(std::hypot(radius + softness, radius + softness))) {
+                            !representable(std::hypot(radius + softness + std::abs(double(command.offset.x)),
+                                                      radius + softness + std::abs(double(command.offset.y)))) ||
+                            (command.inset &&
+                             (!representable(double(command.rect.size.width) + std::abs(double(command.offset.x))) ||
+                              !representable(double(command.rect.size.height) + std::abs(double(command.offset.y)))))) {
                             errors.push_back(error("geometry_overflow", path + "/softness",
                                                    "Shadow distance or softness exceeds shader precision."));
                             return;
@@ -641,8 +645,9 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                             data.widths = {command.widths.top, command.widths.right, command.widths.bottom,
                                            command.widths.left};
                         if constexpr (std::is_same_v<T, DrawShadow>) {
-                            data.params[1] = 9;
-                            data.source = {command.softness, command.softness > 0 ? 1 / command.softness : 0, 0, 0};
+                            data.params[1] = command.inset ? 10.f : 9.f;
+                            data.source = {command.softness, command.softness > 0 ? 1 / command.softness : 0,
+                                           command.offset.x, command.offset.y};
                         }
                     }
                     data.color = {linear(color.r), linear(color.g), linear(color.b), color.a};

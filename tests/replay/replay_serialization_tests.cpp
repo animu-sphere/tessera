@@ -328,6 +328,8 @@ void shadow_styles_round_trip() {
     for (auto version : {tessera::replay_version, tessera::replay_host_version}) {
         source.version = version;
         const auto json = save(source);
+        check(json.find("\"inset\"") == std::string::npos,
+              "Outer shadows must retain their pre-inset canonical encoding");
         check(load(json) == source && save(load(json)) == json &&
                   tessera::compare_replay(play(source), play(load(json))).empty(),
               "Shadow styles must round-trip initial/reloaded views and reproduce paint in Replay v1/v2");
@@ -337,6 +339,24 @@ void shadow_styles_round_trip() {
         rejected = tessera::load_replay(changed(json, "\"softness\":7", "\"blur\":7"));
         check(!rejected && has(rejected.diagnostics, "unknown_field", "/steps/0/styles/0/box_shadow/blur"),
               "Shadow encoding must not silently accept unknown effect parameters");
+        auto inset = source;
+        inset.styles[0].box_shadow->inset = true;
+        auto& reload = std::get<tessera::ReplayReload>(inset.steps[0]);
+        reload.styles[0].box_shadow->inset = true;
+        const auto inset_json = save(inset);
+        check(load(inset_json) == inset && save(load(inset_json)) == inset_json &&
+                  tessera::compare_replay(play(inset), play(load(inset_json))).empty(),
+              "Inset styles and reloads must round-trip and reproduce drawing in Replay v1/v2");
+        rejected = tessera::load_replay(changed(inset_json, "\"inset\":true", "\"inset\":1"));
+        check(!rejected && has(rejected.diagnostics, "schema_type", "/steps/0/styles/0/box_shadow/inset"),
+              "Encoded inset flags must reject nonboolean values");
+        const auto explicit_outer = load(
+            changed(changed(inset_json, "\"inset\":true", "\"inset\":false"), "\"inset\":true", "\"inset\":false"));
+        check(explicit_outer == source && save(explicit_outer) == json,
+              "Explicit false inset flags must normalize to legacy outer-shadow bytes");
+        inset.styles[0].box_shadow->inset = false;
+        check(load(save(inset)) == inset && tessera::compare_replay(play(inset), play(load(save(inset)))).empty(),
+              "Replay must preserve replacement of an outer shadow by an inset shadow on reload");
     }
     const auto legacy = save(recording());
     check(legacy.find("box_shadow") == std::string::npos && load(legacy) == recording(),

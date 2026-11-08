@@ -7,7 +7,8 @@
 
 namespace tessera::detail {
 
-inline std::optional<Rect> shadow_bounds(Rect rect, float softness) {
+inline std::optional<Rect> shadow_bounds(Rect rect, float softness, bool inset = false) {
+    if (inset) softness = 0;
     const double x = double(rect.origin.x) - softness, y = double(rect.origin.y) - softness;
     const double w = double(rect.size.width) + 2 * double(softness),
                  h = double(rect.size.height) + 2 * double(softness);

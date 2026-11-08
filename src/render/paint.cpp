@@ -47,7 +47,7 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         if (!box.visible || opacity == 0) continue;
 
         UiDrawList commands;
-        if (style.box_shadow && style.box_shadow->color.a > 0) {
+        if (style.box_shadow && !style.box_shadow->inset && style.box_shadow->color.a > 0) {
             const auto& shadow = *style.box_shadow;
             const double x = double(box.border_box.origin.x) + shadow.offset.x,
                          y = double(box.border_box.origin.y) + shadow.offset.y;
@@ -79,6 +79,11 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
             if (visible) commands.commands.push_back(DrawRect{box.border_box, {}, style.corner_radius, gradient});
         } else if (background.a > 0) {
             commands.commands.push_back(DrawRect{box.border_box, background, style.corner_radius});
+        }
+        if (style.box_shadow && style.box_shadow->inset && style.box_shadow->color.a > 0) {
+            const auto& shadow = *style.box_shadow;
+            commands.commands.push_back(DrawShadow{box.border_box, faded(shadow.color, opacity), style.corner_radius,
+                                                   shadow.softness, true, shadow.offset});
         }
         const auto border = faded(style.border_color, opacity);
         if (border.a > 0 && has_border(box.border))

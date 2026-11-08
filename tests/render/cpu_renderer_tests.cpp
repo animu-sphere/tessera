@@ -291,6 +291,60 @@ void box_shadows() {
     check(capture(frames, {{offset}}, {20, 20}) == image, "Rejected shadow capture must permit a deterministic retry");
 }
 
+void inset_shadows() {
+    CpuFrameCapture frames;
+    DrawShadow shadow{{{6, 6}, {8, 8}}, {0, 0, 0, .5f}, 0, 2, true, {1, 0}};
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        const auto image = capture(frames, {{shadow}}, {20, 20}, scale);
+        check(image == capture(frames, {{shadow}}, {20, 20}, scale), "Inset captures must be deterministic");
+        const auto clipped = capture(frames, {{PushClip{{{8, 0}, {4, 20}}}, shadow, PopClip{}}}, {20, 20}, scale);
+        const auto y = image.extent.height / 2;
+        for (unsigned x = 0; x < image.extent.width; ++x) {
+            const double lx = (x + .5) / scale;
+            const double distance = std::min(lx - 7, 15 - lx);
+            const double t = std::clamp(distance / 2, 0.0, 1.0);
+            const auto alpha = static_cast<std::uint8_t>(
+                lx >= 6 && lx < 14 ? std::floor(.5 * (1 - t * t * (3 - 2 * t)) * 255 + .5) : 0);
+            check(pixel(image, x, y) == std::array<std::uint8_t, 4>{0, 0, 0, alpha},
+                  "Inset falloff must use negative cutout distance and never paint outside the box");
+            check(pixel(clipped, x, y) == (lx >= 8 && lx < 12 ? pixel(image, x, y) : std::array<std::uint8_t, 4>{}),
+                  "Ancestor clips must trim inset coverage without moving the cutout");
+        }
+        auto hard = shadow;
+        hard.softness = 0;
+        check(capture(frames, {{hard}}, {20, 20}, scale) ==
+                  capture(frames, {{DrawRect{{{6, 6}, {1, 8}}, hard.color}}}, {20, 20}, scale),
+              "Hard inset shadows must paint only outside the translated cutout");
+        hard.offset = {};
+        check(capture(frames, {{hard}}, {20, 20}, scale) == capture(frames, {}, {20, 20}, scale),
+              "Unshifted zero-softness inset shadows must paint nothing");
+        auto rounded = shadow;
+        rounded.corner_radius = 4;
+        const auto round_image = capture(frames, {{rounded}}, {20, 20}, scale);
+        rounded.corner_radius = 100;
+        check(round_image == capture(frames, {{rounded}}, {20, 20}, scale),
+              "Both inset clipping and cutout radii must clamp");
+        rounded.offset = {100, -100};
+        check(capture(frames, {{rounded}}, {20, 20}, scale) ==
+                  capture(frames, {{DrawRect{rounded.rect, rounded.color, 4}}}, {20, 20}, scale),
+              "Distant cutouts must saturate to the rounded box, not leak outside it");
+        rounded.rect.size.width = 0;
+        check(capture(frames, {{rounded}}, {20, 20}, scale) == capture(frames, {}, {20, 20}, scale),
+              "Empty inset clipping boxes must paint nothing");
+    }
+    const auto image = capture(frames, {{shadow}}, {20, 20});
+    const auto mirrored = capture(frames, {{PushTransform{{-1, 0, 0, 1, 20, 0}}, shadow, PopTransform{}}}, {20, 20});
+    for (unsigned y = 0; y < 20; ++y)
+        for (unsigned x = 0; x < 20; ++x)
+            check(pixel(image, x, y) == pixel(mirrored, 19 - x, y),
+                  "Mirrors must transform inset bounds and cutout direction together");
+    shadow.color = {0, 0, 1, .5f};
+    const auto blended = capture(frames, {{DrawRect{shadow.rect, {1, 0, 0, 1}}, shadow}}, {20, 20});
+    check(pixel(blended, 6, 10) == std::array<std::uint8_t, 4>{188, 0, 188, 255} &&
+              pixel(blended, 10, 10) == std::array<std::uint8_t, 4>{255, 0, 0, 255},
+          "Inset shadows must blend over the fill in linear light while preserving its unaffected center");
+}
+
 void images_and_lifetime() {
     CpuFrameCapture frames;
     std::vector<std::uint8_t> texels{0, 0, 0, 255, 255, 255, 255, 255};
@@ -465,6 +519,7 @@ int main() {
         multi_stop_gradients();
         radial_gradients();
         box_shadows();
+        inset_shadows();
         images_and_lifetime();
         rejection_is_atomic();
         glyphs_and_runner();

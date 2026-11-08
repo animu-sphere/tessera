@@ -138,6 +138,13 @@ void test_shadows() {
     check(resolved["panel"].box_shadow == shadow && resolved["a"].box_shadow == shadow &&
               !resolved["a-label"].box_shadow && !resolved["b"].box_shadow,
           "Shadows must resolve through ordinary rules without inheriting");
+    auto inset = shadow;
+    inset.inset = true;
+    sheet.rules.push_back({tessera::StyleSelector::of_id("a"), {.box_shadow = inset}});
+    const auto inset_resolved = resolve(*tree, sheet);
+    check(inset_resolved["panel"].box_shadow == shadow && inset_resolved["a"].box_shadow == inset &&
+              !inset_resolved["a-label"].box_shadow,
+          "Inset shadows must replace outer shadows without inheriting or changing siblings");
     tessera::StyleDeclarations cleared;
     cleared.box_shadow = std::optional<tessera::BoxShadow>{};
     sheet.rules.push_back({tessera::StyleSelector::of_id("a", {.focus = true}), cleared});

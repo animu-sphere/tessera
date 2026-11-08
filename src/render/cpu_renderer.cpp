@@ -60,12 +60,12 @@ bool rounded(double x, double y, double w, double h, double radius) {
     const double qx = std::abs(x - w * 0.5) - (w * 0.5 - r), qy = std::abs(y - h * 0.5) - (h * 0.5 - r);
     return std::hypot(std::max(qx, 0.0), std::max(qy, 0.0)) + std::min(std::max(qx, qy), 0.0) <= r;
 }
-double shadow_coverage(double x, double y, double w, double h, double radius, double softness) {
-    if (softness == 0) return rounded(x, y, w, h, radius) ? 1 : 0;
+double shadow_coverage(double x, double y, double w, double h, double radius, double softness, bool inset) {
+    if (softness == 0) return rounded(x, y, w, h, radius) != inset ? 1 : 0;
     const double r = std::min(radius, std::min(w, h) * .5);
     const double qx = std::abs(x - w * .5) - (w * .5 - r), qy = std::abs(y - h * .5) - (h * .5 - r);
     const double distance = std::hypot(std::max(qx, 0.0), std::max(qy, 0.0)) + std::min(std::max(qx, qy), 0.0) - r;
-    const double t = std::clamp(distance / softness, 0.0, 1.0);
+    const double t = std::clamp((inset ? -distance : distance) / softness, 0.0, 1.0);
     return 1 - t * t * (3 - 2 * t);
 }
 bool outer_contains(double x, double y, double w, double h, Transform t) {
@@ -216,7 +216,8 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                         "Prepare glyph atlas images before submission, or use CpuFrameCapture with a GlyphCache.");
                 } else {
                     auto rect = cmd.rect;
-                    if constexpr (std::is_same_v<T, DrawShadow>) rect = *detail::shadow_bounds(rect, cmd.softness);
+                    if constexpr (std::is_same_v<T, DrawShadow>)
+                        rect = *detail::shadow_bounds(rect, cmd.softness, cmd.inset);
                     if (!safe(rect, state.transform, frame.device_scale))
                         check.error("geometry_overflow", path + "/rect",
                                     "Transformed rectangle exceeds safe numeric bounds.");
@@ -244,7 +245,8 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                 if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawBorder> ||
                               std::is_same_v<T, DrawImage> || std::is_same_v<T, DrawShadow>) {
                     auto rect = cmd.rect;
-                    if constexpr (std::is_same_v<T, DrawShadow>) rect = *detail::shadow_bounds(rect, cmd.softness);
+                    if constexpr (std::is_same_v<T, DrawShadow>)
+                        rect = *detail::shadow_bounds(rect, cmd.softness, cmd.inset);
                     auto box = intersection(s.clip, bounds(rect, s.transform, frame.device_scale));
                     if (box.right <= box.left || box.bottom <= box.top || cmd.rect.size.width == 0 ||
                         cmd.rect.size.height == 0)
@@ -296,10 +298,16 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                             const double lx = (t.d * px - t.c * py) / det - cmd.rect.origin.x,
                                          ly = (-t.b * px + t.a * py) / det - cmd.rect.origin.y;
                             if constexpr (std::is_same_v<T, DrawShadow>) {
-                                if (!outer_contains(lx + cmd.softness, ly + cmd.softness,
-                                                    double(cmd.rect.size.width) + 2 * cmd.softness,
-                                                    double(cmd.rect.size.height) + 2 * cmd.softness, t))
-                                    continue;
+                                if (cmd.inset) {
+                                    if (!outer_contains(lx, ly, cmd.rect.size.width, cmd.rect.size.height, t) ||
+                                        !rounded(lx, ly, cmd.rect.size.width, cmd.rect.size.height, cmd.corner_radius))
+                                        continue;
+                                } else {
+                                    if (!outer_contains(lx + cmd.softness, ly + cmd.softness,
+                                                        double(cmd.rect.size.width) + 2 * cmd.softness,
+                                                        double(cmd.rect.size.height) + 2 * cmd.softness, t))
+                                        continue;
+                                }
                             } else {
                                 if (!outer_contains(lx, ly, cmd.rect.size.width, cmd.rect.size.height, t)) continue;
                             }
@@ -307,8 +315,9 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                             bool premultiplied = false;
                             if constexpr (std::is_same_v<T, DrawShadow>) {
                                 color = linear(cmd.color);
-                                color[3] *= shadow_coverage(lx, ly, cmd.rect.size.width, cmd.rect.size.height,
-                                                            cmd.corner_radius, cmd.softness);
+                                color[3] *=
+                                    shadow_coverage(lx - cmd.offset.x, ly - cmd.offset.y, cmd.rect.size.width,
+                                                    cmd.rect.size.height, cmd.corner_radius, cmd.softness, cmd.inset);
                             } else if constexpr (std::is_same_v<T, DrawImage>) {
                                 const auto& bound = images_.at(cmd.image.value);
                                 color = sample(
