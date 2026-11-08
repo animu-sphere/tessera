@@ -627,52 +627,71 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                     data.color = {linear(color.r), linear(color.g), linear(color.b), color.a};
                     if constexpr (std::is_same_v<T, DrawRect>) {
                         if (command.gradient) {
-                            const auto& g = *command.gradient;
-                            const double w = command.rect.size.width, h = command.rect.size.height;
-                            const double dx = (double(g.end.x) - g.start.x) * w, dy = (double(g.end.y) - g.start.y) * h;
-                            const double length2 = dx * dx + dy * dy;
-                            const double x = w * dx / length2, y = h * dy / length2;
-                            const double offset = -(double(g.start.x) * x + double(g.start.y) * y);
-                            if (!representable(x) || !representable(y) || !representable(offset) ||
-                                !representable(std::abs(x) + std::abs(y) + std::abs(offset))) {
-                                errors.push_back(error("geometry_overflow", path + "/gradient",
-                                                       "Gradient projection exceeds representable coordinates."));
-                                return;
-                            }
-                            const auto premultiply = [](Color c) {
-                                return std::array<float, 4>{linear(c.r) * c.a, linear(c.g) * c.a, linear(c.b) * c.a,
-                                                            c.a};
-                            };
-                            data.color = premultiply(g.start_color);
-                            data.widths = premultiply(g.end_color);
-                            data.source = {float(x), float(y), float(offset), 0};
-                            data.params[1] = 5;
-                            if (!g.stops.empty()) {
-                                const auto capacity = std::min<VkDeviceSize>(
-                                    p.limits.maxStorageBufferRange / sizeof(GradientStopData), 1u << 24);
-                                if (g.stops.size() > capacity - gradient_stops.size()) {
-                                    errors.push_back(error(
-                                        "gradient_stop_limit", path + "/gradient/stops",
-                                        "Frame stop data exceeds the device storage-buffer or exact-index limit."));
-                                    return;
-                                }
-                                data.widths = {float(gradient_stops.size()), float(g.stops.size()), 0, 0};
-                                for (std::size_t stop_index = 0; stop_index < g.stops.size(); ++stop_index) {
-                                    const auto& stop = g.stops[stop_index];
-                                    const double gap =
-                                        stop_index ? double(stop.offset) - g.stops[stop_index - 1].offset : 0;
-                                    if ((stop.offset > 0 && stop.offset < std::numeric_limits<float>::min()) ||
-                                        (gap > 0 && gap < std::numeric_limits<float>::min())) {
-                                        errors.push_back(error(
-                                            "gradient_stop_precision",
-                                            path + "/gradient/stops/" + std::to_string(stop_index) + "/offset",
-                                            "Stop offsets and nonzero gaps must not require subnormal shader arithmetic."));
-                                        return;
+                            std::visit(
+                                [&](const auto& g) {
+                                    constexpr bool radial = std::is_same_v<std::decay_t<decltype(g)>, RadialGradient>;
+                                    if constexpr (radial) {
+                                        const double x = 1.0 / g.radius.width, y = 1.0 / g.radius.height;
+                                        if (!representable(x) || !representable(y) ||
+                                            x < std::numeric_limits<float>::min() ||
+                                            y < std::numeric_limits<float>::min()) {
+                                            errors.push_back(
+                                                error("geometry_overflow", path + "/gradient",
+                                                      "Radial gradient radii exceed shader coordinate precision."));
+                                            return;
+                                        }
+                                        data.source = {g.center.x, g.center.y, float(x), float(y)};
+                                    } else {
+                                        const double w = command.rect.size.width, h = command.rect.size.height;
+                                        const double dx = (double(g.end.x) - g.start.x) * w,
+                                                     dy = (double(g.end.y) - g.start.y) * h;
+                                        const double length2 = dx * dx + dy * dy;
+                                        const double x = w * dx / length2, y = h * dy / length2;
+                                        const double offset = -(double(g.start.x) * x + double(g.start.y) * y);
+                                        if (!representable(x) || !representable(y) || !representable(offset) ||
+                                            !representable(std::abs(x) + std::abs(y) + std::abs(offset))) {
+                                            errors.push_back(
+                                                error("geometry_overflow", path + "/gradient",
+                                                      "Gradient projection exceeds representable coordinates."));
+                                            return;
+                                        }
+                                        data.source = {float(x), float(y), float(offset), 0};
                                     }
-                                    gradient_stops.push_back({premultiply(stop.color), {stop.offset, 0, 0, 0}});
-                                }
-                                data.params[1] = 6;
-                            }
+                                    const auto premultiply = [](Color c) {
+                                        return std::array<float, 4>{linear(c.r) * c.a, linear(c.g) * c.a,
+                                                                    linear(c.b) * c.a, c.a};
+                                    };
+                                    data.color = premultiply(g.start_color);
+                                    data.widths = premultiply(g.end_color);
+                                    data.params[1] = radial ? 7 : 5;
+                                    if (!g.stops.empty()) {
+                                        const auto capacity = std::min<VkDeviceSize>(
+                                            p.limits.maxStorageBufferRange / sizeof(GradientStopData), 1u << 24);
+                                        if (g.stops.size() > capacity - gradient_stops.size()) {
+                                            errors.push_back(error(
+                                                "gradient_stop_limit", path + "/gradient/stops",
+                                                "Frame stop data exceeds the device storage-buffer or exact-index limit."));
+                                            return;
+                                        }
+                                        data.widths = {float(gradient_stops.size()), float(g.stops.size()), 0, 0};
+                                        for (std::size_t stop_index = 0; stop_index < g.stops.size(); ++stop_index) {
+                                            const auto& stop = g.stops[stop_index];
+                                            const double gap =
+                                                stop_index ? double(stop.offset) - g.stops[stop_index - 1].offset : 0;
+                                            if ((stop.offset > 0 && stop.offset < std::numeric_limits<float>::min()) ||
+                                                (gap > 0 && gap < std::numeric_limits<float>::min())) {
+                                                errors.push_back(error(
+                                                    "gradient_stop_precision",
+                                                    path + "/gradient/stops/" + std::to_string(stop_index) + "/offset",
+                                                    "Stop offsets and nonzero gaps must not require subnormal shader arithmetic."));
+                                                return;
+                                            }
+                                            gradient_stops.push_back({premultiply(stop.color), {stop.offset, 0, 0, 0}});
+                                        }
+                                        data.params[1] = radial ? 8 : 6;
+                                    }
+                                },
+                                *command.gradient);
                         }
                     }
                     packets.push_back(packet);

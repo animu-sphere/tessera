@@ -122,7 +122,7 @@ void exact_types_and_destinations() {
         {"row_gap", 4.f},
         {"grid_horizontal", Align::center},
         {"grid_vertical", Align::end},
-        {"background_gradient", std::optional<LinearGradient>{LinearGradient{{0, 0}, {1, 1}, red, blue}}}};
+        {"background_gradient", std::optional<Gradient>{LinearGradient{{0, 0}, {1, 1}, red, blue}}}};
     Theme theme;
     StyleRule rule{StyleSelector::of_id("button"), {}};
     for (const auto& [field, value] : fields) {
@@ -167,23 +167,35 @@ void exact_types_and_destinations() {
     theme.variables[24].value = ThemeValue{std::optional<float>{}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
     check(result && !result.value->at(1).text.line_height, "Empty optional selects default line height");
-    theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{}};
+    theme.variables.back().value = ThemeValue{std::optional<Gradient>{}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
     check(result && !result.value->at(1).background_gradient, "Empty gradient token must clear the fill");
     const LinearGradient multi{{0, 0}, {1, 1}, {}, {}, {{0, red}, {.3f, green}, {1, blue}}};
-    theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{multi}};
+    theme.variables.back().value = ThemeValue{std::optional<Gradient>{multi}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
-    check(result && result.value->at(1).background_gradient == multi, "Theme tokens must preserve owned stop lists");
+    check(result && result.value->at(1).background_gradient == Gradient{multi},
+          "Theme tokens must preserve owned stop lists");
     auto invalid_stops = multi;
     invalid_stops.stops[1].offset = -1;
-    theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{invalid_stops}};
+    theme.variables.back().value = ThemeValue{std::optional<Gradient>{invalid_stops}};
     check(has(validate(theme), "out_of_range",
               "/theme/variables/" + std::to_string(fields.size() - 1) + "/value/stops/1/offset"),
           "Theme stop errors must retain the token and stop location");
-    theme.variables.back().value = ThemeValue{std::optional<LinearGradient>{LinearGradient{{0, 0}, {0, 0}, red, blue}}};
+    theme.variables.back().value = ThemeValue{std::optional<Gradient>{LinearGradient{{0, 0}, {0, 0}, red, blue}}};
     check(has(validate(theme), "degenerate_gradient",
               "/theme/variables/" + std::to_string(fields.size() - 1) + "/value/end"),
           "Invalid gradient tokens must validate even before matching a destination");
+    const RadialGradient radial{.center = {.25f, .5f}, .radius = {1, .5f}, .stops = multi.stops};
+    theme.variables.back().value = ThemeValue{std::optional<Gradient>{radial}};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).background_gradient == Gradient{radial},
+          "Radial theme tokens must replace linear fills with owned stops");
+    auto invalid_radial = radial;
+    invalid_radial.radius.height = 0;
+    theme.variables.back().value = ThemeValue{std::optional<Gradient>{invalid_radial}};
+    check(has(validate(theme), "out_of_range",
+              "/theme/variables/" + std::to_string(fields.size() - 1) + "/value/radius/height"),
+          "Invalid radial token geometry must retain its variable location");
 
     StyleSheet wrong{
         {{StyleSelector::of_id("button"), {}, {binding("width", "number", ThemeValue{Dimension::points(3)})}}}};

@@ -4,8 +4,8 @@ struct Primitive {
     float4 rect;
     float4 color; // Linear RGB, straight alpha.
     float4 widths; // Border edges, bitmap rows 0-3, gradient end color, or stop-buffer first/count.
-    float4 source; // Image rectangle, placeholder rows 4-6, or gradient projection (x, y, offset).
-    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5 gradient, 6 multi-stop), framebuffer width, height
+    float4 source; // Image rectangle, placeholder rows 4-6, linear projection, or radial center/inverse radii.
+    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5/6 linear, 7/8 radial), framebuffer width, height
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
 [[vk::binding(0, 0)]] Texture2D<float4> image;
@@ -74,10 +74,14 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         return input.color;
     }
     if (!roundedContains(input.local, input.rect.zw, input.params.x)) discard;
-    if (input.params.y == 5 || input.params.y == 6) {
-        float t = saturate(dot(input.local / input.rect.zw, input.source.xy) + input.source.z);
+    if (input.params.y >= 5 && input.params.y <= 8) {
+        float2 uv = input.local / input.rect.zw;
+        // Clamping each distance component first preserves saturated length without overflow.
+        float t = input.params.y >= 7
+            ? saturate(length(clamp((uv - input.source.xy) * input.source.zw, -1.0, 1.0)))
+            : saturate(dot(uv, input.source.xy) + input.source.z);
         float4 color;
-        if (input.params.y == 5) {
+        if (input.params.y == 5 || input.params.y == 7) {
             color = lerp(input.color, input.widths, t);
         } else {
             uint first = uint(input.widths.x), end = first + uint(input.widths.y);

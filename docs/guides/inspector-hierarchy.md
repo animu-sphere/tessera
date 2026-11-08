@@ -31,25 +31,25 @@ The context target is the selected-item button, not arbitrary unselected hierarc
 
 ## Gradient property card
 
-The selected-item button and property Grid share a padded, rounded card with a pale-blue-to-cyan-to-lilac diagonal background and an inside border. The form uses the ordinary optional `StyleDeclarations::background_gradient` with a nonuniform interior stop:
+The selected-item button and property Grid share a padded, rounded card with an off-center pale-blue/cyan-to-lilac radial highlight and an inside border. The form uses the ordinary optional `StyleDeclarations::background_gradient` with a nonuniform interior stop:
 
 ```cpp
 ui::Column(children, {
     .id = "item-card",
     .style = {
         .corner_radius = 12.f,
-        .background_gradient = LinearGradient{
-            .start = {0, 0}, .end = {1, 1},
-            .stops = {{0, {.84f, .9f, 1, 1}},
-                      {.42f, {.9f, .96f, 1, 1}},
-                      {1, {.98f, .95f, 1, 1}}}}
+        .background_gradient = RadialGradient{
+            .center = {.25f, .2f}, .radius = {.85f, .95f},
+            .stops = {{0, {.96f, .99f, 1, 1}},
+                      {.42f, {.84f, .92f, 1, 1}},
+                      {1, {.98f, .9f, .98f, 1}}}}
     }
 });
 ```
 
-Endpoints are normalized to the card's border box. The stops interpolate in premultiplied linear light, keep rounded corners and precede the existing inside border; CPU and Vulkan implement the same [fill contract](../architecture/rendering.md#implemented-linear-gradients). An empty `stops` vector preserves the original `LinearGradient{start, end, start_color, end_color}` shorthand. Explicit positions must be nondecreasing in [0, 1]; duplicate positions make hard color transitions.
+Center and positive ellipse radii are normalized to the card's border box. The stops interpolate in premultiplied linear light, keep rounded corners and precede the existing inside border; CPU and Vulkan implement the same [radial fill contract](../architecture/rendering.md#implemented-radial-gradients). An empty `stops` vector selects `start_color` at the center and `end_color` at/outside the ellipse. Explicit positions must be nondecreasing in [0, 1]; duplicate positions make hard color transitions. The same property also accepts the existing `LinearGradient`; either replaces the other, while an explicit empty `optional<Gradient>` clears the fill.
 
-The native app uses the CPU implementation. This adds no special widget, authored image resource or interaction path. The window-free smoke checks that the authored card's interior stop changes actual pixels compared with its two-color endpoints, with rounded coverage at scales 1, 1.25, 1.5 and 2; ordinary application Replay preserves the resolved stops while edits, scrolling and resizing retain their existing behavior.
+The native app uses the CPU implementation. This adds no special widget, authored image resource or interaction path. The window-free smoke checks that the authored radial card changes actual pixels compared with both its two-color endpoints and a linear substitute, with rounded coverage at scales 1, 1.25, 1.5 and 2; ordinary application Replay preserves the resolved geometry and stops while edits, scrolling and resizing retain their existing behavior.
 
 ## Host and observation boundary
 

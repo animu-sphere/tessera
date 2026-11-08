@@ -101,17 +101,18 @@ void linear_gradients() {
         check(pixel(mirrored, x, 4) == pixel(image, 7 - x, 4),
               "Gradient must follow local coordinates under transforms");
     rect.rect.size = {8, 4};
-    rect.gradient->end = {1, 1};
+    auto& gradient = std::get<LinearGradient>(*rect.gradient);
+    gradient.end = {1, 1};
     const auto diagonal = capture(frames, {{rect}});
     const double t = (3.5 * 8 + 1.5 * 4) / 80;
     check(pixel(diagonal, 3, 1) == std::array<std::uint8_t, 4>{encode(1 - t), 0, encode(t), 255},
           "Diagonal gradient projection must respect the rectangle aspect ratio");
-    rect.gradient->end = rect.gradient->start;
+    gradient.end = gradient.start;
     const UiDrawList invalid{{rect}};
     const auto rejected = frames.capture({0, {8, 8}, 1, {8, 8}, &invalid});
     check(!rejected && has(rejected.diagnostics, "degenerate_gradient", "/commands/0/gradient/end"),
           "Invalid gradients must reject before rendering");
-    rect.gradient->end = {1, 0};
+    gradient.end = {1, 0};
     rect.rect.size.width = 0;
     check(pixel(capture(frames, {{rect}}), 0, 0)[3] == 0, "Zero-area gradient must emit no pixels");
     rect.rect.size = {8, 8};
@@ -158,16 +159,75 @@ void multi_stop_gradients() {
         }
         check(image == capture(frames, {{rect}}, {8, 8}, scale), "Multi-stop capture must be deterministic");
     }
-    rect.gradient->stops = {{0, {1, 0, 0, 1}},      {0, {0, 1, 0, 1}}, {.4375f, {0, 1, 0, 1}},
-                            {.4375f, {0, 0, 1, 1}}, {1, {0, 0, 1, 1}}, {1, {1, 1, 1, 1}}};
+    std::get<LinearGradient>(*rect.gradient).stops = {{0, {1, 0, 0, 1}},      {0, {0, 1, 0, 1}}, {.4375f, {0, 1, 0, 1}},
+                                                      {.4375f, {0, 0, 1, 1}}, {1, {0, 0, 1, 1}}, {1, {1, 1, 1, 1}}};
     auto image = capture(frames, {{rect}});
     check(pixel(image, 0, 4) == std::array<std::uint8_t, 4>{0, 255, 0, 255} &&
               pixel(image, 3, 4) == std::array<std::uint8_t, 4>{0, 0, 255, 255},
           "The last coincident stop must win at its exact offset, including endpoint duplicates");
-    rect.gradient->stops = {{.4375f, {1, 0, 0, 1}}, {.4375f, {0, 0, 1, 1}}};
+    std::get<LinearGradient>(*rect.gradient).stops = {{.4375f, {1, 0, 0, 1}}, {.4375f, {0, 0, 1, 1}}};
     image = capture(frames, {{rect}});
     check(pixel(image, 2, 4)[0] == 255 && pixel(image, 3, 4)[2] == 255,
           "All-coincident stops must form a hard transition without division by zero");
+}
+
+void radial_gradients() {
+    CpuFrameCapture frames;
+    DrawRect rect{{{0, 0}, {16, 8}}, {}, 0, RadialGradient{{.25f, .5f}, {.5f, .5f}, {1, 0, 0, 0}, {0, 0, 1, 1}}};
+    const auto encode = [](double value) {
+        return static_cast<std::uint8_t>(
+            std::floor((value <= .0031308 ? value * 12.92 : 1.055 * std::pow(value, 1 / 2.4) - .055) * 255 + .5));
+    };
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        const auto image = capture(frames, {{rect}}, {16, 8}, scale);
+        for (unsigned y = 0; y < image.extent.height; ++y)
+            for (unsigned x = 0; x < image.extent.width; ++x) {
+                const double t = std::min(std::hypot(((x + .5) / scale - 4) / 8, ((y + .5) / scale - 4) / 4), 1.0);
+                check(pixel(image, x, y) ==
+                          std::array<std::uint8_t, 4>{0, 0, encode(t),
+                                                      static_cast<std::uint8_t>(std::floor(t * 255 + .5))},
+                      "Radial interpolation must use elliptical local distance, clamp and premultiplied linear colors");
+            }
+        check(image == capture(frames, {{rect}}, {16, 8}, scale), "Radial captures must be deterministic");
+        const auto mirrored =
+            capture(frames, {{PushTransform{{-1, 0, 0, 1, 16, 0}}, rect, PopTransform{}}}, {16, 8}, scale);
+        for (unsigned x = 0; x < image.extent.width; ++x)
+            check(pixel(mirrored, x, 3) == pixel(image, image.extent.width - 1 - x, 3),
+                  "Radial centers and radii must follow the local transform");
+        const auto clipped = capture(frames, {{PushClip{{{4, 0}, {8, 8}}}, rect, PopClip{}}}, {16, 8}, scale);
+        const auto cx = static_cast<unsigned>(6 * scale), cy = static_cast<unsigned>(4 * scale);
+        check(pixel(clipped, cx, cy) == pixel(image, cx, cy) && pixel(clipped, 0, cy)[3] == 0,
+              "Clipping must not recenter a radial fill");
+    }
+    rect.rect.size = {8, 8};
+    rect.gradient =
+        RadialGradient{.center = {.0625f, .0625f},
+                       .radius = {.5f, .25f},
+                       .stops = {{.25f, {1, 0, 0, 1}}, {.5f, {0, 1, 0, 1}}, {.5f, {0, 0, 1, 1}}, {.75f, {1, 1, 1, 1}}}};
+    auto image = capture(frames, {{rect}});
+    check(pixel(image, 0, 0) == std::array<std::uint8_t, 4>{255, 0, 0, 255} &&
+              pixel(image, 2, 0) == std::array<std::uint8_t, 4>{0, 0, 255, 255} &&
+              pixel(image, 0, 1) == pixel(image, 2, 0) &&
+              pixel(image, 7, 7) == std::array<std::uint8_t, 4>{255, 255, 255, 255},
+          "Radial stops must clamp and the last coincident color must win at an exact elliptical radius");
+    auto& radial = std::get<RadialGradient>(*rect.gradient);
+    radial.stops = {{.5f, {1, 0, 0, 1}}, {.5f, {0, 0, 1, 1}}};
+    image = capture(frames, {{rect}});
+    check(pixel(image, 1, 0)[0] == 255 && pixel(image, 2, 0)[2] == 255,
+          "All-coincident radial stops must form a hard transition");
+    radial = RadialGradient{{.5f, .5f}, {.5f, .5f}, {1, 0, 0, 1}, {0, 0, 1, 1}};
+    rect.corner_radius = 3;
+    image = capture(frames, {{rect, DrawBorder{rect.rect, {1, 1, 1, 1}, {0, 1, 0, 1}, 3}}});
+    check(pixel(image, 0, 0)[3] == 0 && pixel(image, 4, 0)[1] == 255 && pixel(image, 4, 4)[1] == 0,
+          "Radial fills must retain rounded coverage and inside border order");
+    radial.radius.width = 0;
+    const UiDrawList invalid{{rect}};
+    const auto rejected = frames.capture({0, {8, 8}, 1, {8, 8}, &invalid});
+    check(!rejected && has(rejected.diagnostics, "out_of_range", "/commands/0/gradient/radius/width"),
+          "Degenerate radial geometry must reject before rendering");
+    radial.radius.width = .5f;
+    rect.rect.size.width = 0;
+    check(pixel(capture(frames, {{rect}}), 0, 0)[3] == 0, "Zero-area radial fills must paint nothing");
 }
 
 void images_and_lifetime() {
@@ -342,6 +402,7 @@ int main() {
         pixels_and_geometry();
         linear_gradients();
         multi_stop_gradients();
+        radial_gradients();
         images_and_lifetime();
         rejection_is_atomic();
         glyphs_and_runner();

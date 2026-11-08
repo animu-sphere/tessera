@@ -1213,6 +1213,8 @@ void runner_fixtures(Host& host) {
     check(saved && loaded && *loaded.value == recording, "Runner recording JSON round trip failed");
     tessera::PlaceholderTextShaper text;
     const auto result = tessera::run_offscreen({&*loaded.value, &text, declared, &frames});
+    for (const auto& diagnostic : result.diagnostics)
+        std::cerr << diagnostic.code << ' ' << diagnostic.path << ' ' << diagnostic.message << '\n';
     check(result && result.diagnostics.empty(), "Vulkan offscreen run rejected");
     const auto& run = *result.value;
     check(run.manifest.capture == declared && run.frames.size() == 5 && run.output.actions.size() == 1,
@@ -1460,12 +1462,14 @@ void cpu_reference_fixtures(Host& host) {
          tessera::DrawRect{
              {{0, 0}, {0, 32}}, {}, 0, tessera::LinearGradient{{0, 0}, {0, 1}, {1, 0, 0, 1}, {0, 0, 1, 1}}}}};
     auto multi_gradients = gradients;
-    std::get<tessera::DrawRect>(multi_gradients.commands[1]).gradient->stops = {{.1f, {1, 0, 0, 0}},
-                                                                                {.35f, {0, 1, 0, .5f}},
-                                                                                {.6f, {0, 0, 1, .75f}},
-                                                                                {.6f, {1, 0, 1, .75f}},
-                                                                                {.9f, {.8f, .85f, .9f, 1}}};
-    auto& many = std::get<tessera::DrawRect>(multi_gradients.commands[5]).gradient->stops;
+    std::get<tessera::LinearGradient>(*std::get<tessera::DrawRect>(multi_gradients.commands[1]).gradient).stops = {
+        {.1f, {1, 0, 0, 0}},
+        {.35f, {0, 1, 0, .5f}},
+        {.6f, {0, 0, 1, .75f}},
+        {.6f, {1, 0, 1, .75f}},
+        {.9f, {.8f, .85f, .9f, 1}}};
+    auto& many =
+        std::get<tessera::LinearGradient>(*std::get<tessera::DrawRect>(multi_gradients.commands[5]).gradient).stops;
     for (unsigned i = 0; i <= 64; ++i) many.push_back({float(i) / 64, {float(i) / 64, float(64 - i) / 64, .5f, .5f}});
     const tessera::UiDrawList hard_gradients{
         {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
@@ -1486,6 +1490,41 @@ void cpu_reference_fixtures(Host& host) {
              0,
              tessera::LinearGradient{
                  .start = {0, 0}, .end = {1, 0}, .stops = {{.515625f, {1, 0, 0, .5f}}, {.515625f, {0, 0, 1, .75f}}}}}}};
+    auto radial_gradients = gradients;
+    std::get<tessera::DrawRect>(radial_gradients.commands[1]).gradient =
+        tessera::RadialGradient{{.25f, .3f}, {.65f, .8f}, {1, 0, 0, 0}, {0, 0, 1, .75f}};
+    std::get<tessera::DrawRect>(radial_gradients.commands[5]).gradient =
+        tessera::RadialGradient{{.7f, .4f}, {1.2f, .6f}, {.1f, .8f, .2f, .8f}, {.8f, .2f, .1f, .25f}};
+    std::get<tessera::DrawRect>(radial_gradients.commands[8]).gradient = tessera::RadialGradient{};
+    const tessera::UiDrawList radial_transform{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::PushTransform{{0, 1, -1, .25f, 29.125f, 2.125f}},
+         tessera::DrawRect{{{0, 0}, {20, 12}},
+                           {},
+                           2,
+                           tessera::RadialGradient{{.3f, .4f}, {.7f, .5f}, {.6f, .7f, 0, .5f}, {0, .7f, .6f, .75f}}},
+         tessera::PopTransform{}}};
+    auto radial_multi = radial_gradients;
+    std::get<tessera::RadialGradient>(*std::get<tessera::DrawRect>(radial_multi.commands[1]).gradient).stops =
+        std::get<tessera::LinearGradient>(*std::get<tessera::DrawRect>(multi_gradients.commands[1]).gradient).stops;
+    std::get<tessera::RadialGradient>(*std::get<tessera::DrawRect>(radial_multi.commands[5]).gradient).stops = many;
+    const tessera::UiDrawList radial_hard{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::DrawRect{{{0, 0}, {32, 32}},
+                           {},
+                           0,
+                           tessera::RadialGradient{.center = {.015625f, .015625f},
+                                                   .radius = {.5f, .25f},
+                                                   .stops = {{0, {1, 0, 0, 1}},
+                                                             {0, {0, 1, 0, .5f}},
+                                                             {.5f, {0, 1, 0, .5f}},
+                                                             {.5f, {0, 0, 1, .75f}},
+                                                             {1, {0, 0, 1, .75f}},
+                                                             {1, {1, 1, 1, 1}}}}},
+         tessera::DrawRect{{{16.125f, 16.125f}, {13.75f, 13.75f}},
+                           {},
+                           0,
+                           tessera::RadialGradient{.stops = {{.5f, {1, 0, 0, .5f}}, {.5f, {0, 0, 1, .75f}}}}}}};
     const auto compare = [](const std::vector<std::uint8_t>& actual, const std::vector<std::uint8_t>& expected,
                             VkExtent2D extent, const char* name, float scale) {
         double error = 0;
@@ -1541,13 +1580,20 @@ void cpu_reference_fixtures(Host& host) {
             compare(actual, expected.value->pixels, {extent.width, extent.height}, batched ? "batch" : "reference",
                     scale);
             gpu.retire(frame++);
-            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 3> gradient_scenes{
-                {{"gradient", &gradients}, {"multi-gradient", &multi_gradients}, {"hard-gradient", &hard_gradients}}};
+            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 7> gradient_scenes{
+                {{"gradient", &gradients},
+                 {"multi-gradient", &multi_gradients},
+                 {"hard-gradient", &hard_gradients},
+                 {"radial", &radial_gradients},
+                 {"radial-multi", &radial_multi},
+                 {"radial-hard", &radial_hard},
+                 {"radial-transform", &radial_transform}}};
             for (const auto& [name, scene] : gradient_scenes) {
                 const auto gradient_pixels = cpu.capture({0, {32, 32}, scale, extent, scene});
                 check(bool(gradient_pixels), "CPU gradient comparison capture rejected");
                 std::vector<std::uint8_t> previous;
-                const bool retained = batched || scene != &gradients;
+                const bool retained =
+                    batched || (scene != &gradients && scene != &radial_gradients && scene != &radial_transform);
                 for (int repeat = 0; repeat < 2; ++repeat) {
                     host.begin(gpu);
                     const auto pending = gpu.pending_uploads();
@@ -1555,21 +1601,34 @@ void cpu_reference_fixtures(Host& host) {
                     check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "degenerate_gradient",
                               "/commands/0/gradient/end"),
                           "Vulkan must reject an invalid gradient before recording a frame");
-                    invalid.gradient->end.x = std::numeric_limits<float>::denorm_min();
+                    auto& invalid_linear = std::get<tessera::LinearGradient>(*invalid.gradient);
+                    invalid_linear.end.x = std::numeric_limits<float>::denorm_min();
                     check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "geometry_overflow",
                               "/commands/0/gradient"),
                           "Unrepresentable shader projection must reject explicitly");
-                    invalid.gradient->end = {1, 0};
-                    invalid.gradient->stops = {{.8f, {}}, {.2f, {}}};
+                    invalid_linear.end = {1, 0};
+                    invalid_linear.stops = {{.8f, {}}, {.2f, {}}};
                     check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "invalid_gradient_stops",
                               "/commands/0/gradient/stops/1/offset") &&
                               gpu.pending_uploads() == pending,
                           "Invalid stop data must reject before allocation or recording");
-                    invalid.gradient->stops = {{std::numeric_limits<float>::denorm_min(), {}}, {1, {}}};
+                    invalid_linear.stops = {{std::numeric_limits<float>::denorm_min(), {}}, {1, {}}};
                     check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "gradient_stop_precision",
                               "/commands/0/gradient/stops/0/offset") &&
                               gpu.pending_uploads() == pending,
                           "Subnormal stop positions must reject explicitly rather than silently flush to zero");
+                    invalid.gradient = tessera::RadialGradient{.radius = {0, .5f}};
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "out_of_range",
+                              "/commands/0/gradient/radius/width"),
+                          "Vulkan must reject degenerate radial geometry before recording");
+                    for (float radius : {std::numeric_limits<float>::denorm_min(), std::numeric_limits<float>::max()}) {
+                        std::get<tessera::RadialGradient>(*invalid.gradient).radius.width = radius;
+                        check(
+                            has(gpu.submit({frame, {32, 32}, scale}, {{invalid}}), "geometry_overflow",
+                                "/commands/0/gradient") &&
+                                gpu.pending_uploads() == pending,
+                            "Unrepresentable radial reciprocal radii must reject without consuming a frame or upload");
+                    }
                     check(gpu.submit({frame, {32, 32}, scale}, *scene).empty(), "GPU gradient submission rejected");
                     check(gpu.pending_uploads() == (retained ? std::size_t(repeat + 1) : 0),
                           "Both paths must retain independent per-frame stop uploads until retirement");

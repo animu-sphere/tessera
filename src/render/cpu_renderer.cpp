@@ -244,24 +244,36 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                     const auto& t = s.transform;
                     const double det = t.a * t.d - t.b * t.c;
                     std::vector<std::pair<double, Pixel>> gradient_stops;
-                    std::array<double, 3> projection{};
+                    std::array<double, 4> projection{};
+                    bool radial = false;
                     if constexpr (std::is_same_v<T, DrawRect>) {
                         if (cmd.gradient) {
-                            const auto& g = *cmd.gradient;
-                            gradient_stops.reserve(g.stop_count());
-                            for (std::size_t i = 0; i < g.stop_count(); ++i) {
-                                const auto stop = g.stop(i);
-                                auto color = linear(stop.color);
-                                for (unsigned c = 0; c < 3; ++c) color[c] *= color[3];
-                                gradient_stops.emplace_back(stop.offset, color);
-                            }
-                            const double dx = (double(g.end.x) - g.start.x) * cmd.rect.size.width,
-                                         dy = (double(g.end.y) - g.start.y) * cmd.rect.size.height;
-                            const double length2 = dx * dx + dy * dy;
-                            projection = {dx / length2, dy / length2,
-                                          -(double(g.start.x) * cmd.rect.size.width * dx +
-                                            double(g.start.y) * cmd.rect.size.height * dy) /
-                                              length2};
+                            std::visit(
+                                [&](const auto& g) {
+                                    gradient_stops.reserve(g.stop_count());
+                                    for (std::size_t i = 0; i < g.stop_count(); ++i) {
+                                        const auto stop = g.stop(i);
+                                        auto color = linear(stop.color);
+                                        for (unsigned c = 0; c < 3; ++c) color[c] *= color[3];
+                                        gradient_stops.emplace_back(stop.offset, color);
+                                    }
+                                    if constexpr (std::is_same_v<std::decay_t<decltype(g)>, RadialGradient>) {
+                                        radial = true;
+                                        projection = {double(g.center.x) * cmd.rect.size.width,
+                                                      double(g.center.y) * cmd.rect.size.height,
+                                                      double(g.radius.width) * cmd.rect.size.width,
+                                                      double(g.radius.height) * cmd.rect.size.height};
+                                    } else {
+                                        const double dx = (double(g.end.x) - g.start.x) * cmd.rect.size.width,
+                                                     dy = (double(g.end.y) - g.start.y) * cmd.rect.size.height;
+                                        const double length2 = dx * dx + dy * dy;
+                                        projection = {dx / length2, dy / length2,
+                                                      -(double(g.start.x) * cmd.rect.size.width * dx +
+                                                        double(g.start.y) * cmd.rect.size.height * dy) /
+                                                          length2};
+                                    }
+                                },
+                                *cmd.gradient);
                         }
                     }
                     for (auto y = y0; y < y1; ++y)
@@ -300,8 +312,12 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                                 }
                                 if constexpr (std::is_same_v<T, DrawRect>) {
                                     if (cmd.gradient) {
-                                        const double progress = std::clamp(
-                                            lx * projection[0] + ly * projection[1] + projection[2], 0.0, 1.0);
+                                        const double progress =
+                                            radial ? std::min(std::hypot((lx - projection[0]) / projection[2],
+                                                                         (ly - projection[1]) / projection[3]),
+                                                              1.0)
+                                                   : std::clamp(lx * projection[0] + ly * projection[1] + projection[2],
+                                                                0.0, 1.0);
                                         const auto upper = std::upper_bound(
                                             gradient_stops.begin(), gradient_stops.end(), progress,
                                             [](double offset, const auto& stop) { return offset < stop.first; });

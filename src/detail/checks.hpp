@@ -7,6 +7,7 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -63,12 +64,25 @@ public:
         range(value.b, path + "/b", 0, 1, "a component in [0, 1]");
         range(value.a, path + "/a", 0, 1, "a component in [0, 1]");
     }
-    void gradient(const LinearGradient& value, const std::string& path) {
-        for (const auto& [point, name] : {std::pair{value.start, "/start"}, std::pair{value.end, "/end"}}) {
-            range(point.x, path + name + "/x", 0, 1, "a coordinate in [0, 1]");
-            range(point.y, path + name + "/y", 0, 1, "a coordinate in [0, 1]");
+    void gradient(const Gradient& value, const std::string& path) {
+        std::visit([&](const auto& fill) { gradient_fill(fill, path); }, value);
+    }
+
+private:
+    template<class T> void gradient_fill(const T& value, const std::string& path) {
+        if constexpr (std::is_same_v<T, LinearGradient>) {
+            for (const auto& [point, name] : {std::pair{value.start, "/start"}, std::pair{value.end, "/end"}}) {
+                range(point.x, path + name + "/x", 0, 1, "a coordinate in [0, 1]");
+                range(point.y, path + name + "/y", 0, 1, "a coordinate in [0, 1]");
+            }
+            if (value.start == value.end)
+                error("degenerate_gradient", path + "/end", "Use distinct gradient endpoints.");
+        } else {
+            range(value.center.x, path + "/center/x", 0, 1, "a coordinate in [0, 1]");
+            range(value.center.y, path + "/center/y", 0, 1, "a coordinate in [0, 1]");
+            positive(value.radius.width, path + "/radius/width");
+            positive(value.radius.height, path + "/radius/height");
         }
-        if (value.start == value.end) error("degenerate_gradient", path + "/end", "Use distinct gradient endpoints.");
         color(value.start_color, path + "/start_color");
         color(value.end_color, path + "/end_color");
         if (value.stops.size() == 1)
@@ -83,7 +97,6 @@ public:
         }
     }
 
-private:
     std::vector<Diagnostic>& out_;
 };
 

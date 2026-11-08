@@ -48,11 +48,15 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         const auto background = faded(style.background, opacity);
         if (style.background_gradient) {
             auto gradient = *style.background_gradient;
-            gradient.start_color = faded(gradient.start_color, opacity);
-            gradient.end_color = faded(gradient.end_color, opacity);
-            for (auto& stop : gradient.stops) stop.color = faded(stop.color, opacity);
             bool visible = false;
-            for (std::size_t i = 0; i < gradient.stop_count(); ++i) visible |= gradient.stop(i).color.a > 0;
+            std::visit(
+                [&](auto& fill) {
+                    fill.start_color = faded(fill.start_color, opacity);
+                    fill.end_color = faded(fill.end_color, opacity);
+                    for (auto& stop : fill.stops) stop.color = faded(stop.color, opacity);
+                    for (std::size_t i = 0; i < fill.stop_count(); ++i) visible |= fill.stop(i).color.a > 0;
+                },
+                gradient);
             if (visible) commands.commands.push_back(DrawRect{box.border_box, {}, style.corner_radius, gradient});
         } else if (background.a > 0) {
             commands.commands.push_back(DrawRect{box.border_box, background, style.corner_radius});
