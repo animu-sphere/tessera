@@ -76,6 +76,7 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     check.color(style.background, path + "/background");
     check.enumeration(style.background_shape, FillShape::ellipse, path + "/background_shape");
     if (style.background_gradient) check.gradient(*style.background_gradient, path + "/background_gradient");
+    if (style.background_procedural) check.procedural(*style.background_procedural, path + "/background_procedural");
     if (style.box_shadow) check.shadow(*style.box_shadow, path + "/box_shadow");
     if (style.outline) check.outline(*style.outline, path + "/outline");
     check.color(style.border_color, path + "/border_color");

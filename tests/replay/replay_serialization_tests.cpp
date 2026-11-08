@@ -366,6 +366,30 @@ void fill_shapes_round_trip() {
           "Default fill settings must preserve legacy Replay bytes");
 }
 
+void procedural_styles_round_trip() {
+    auto source = recording();
+    source.styles[0].background_procedural = tessera::ProceduralFill{
+        "example.wave", {.25f, tessera::Point{1, -2}, tessera::Color{.1f, .2f, .3f, .4f}}, 1.5f, .75f};
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    for (auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        source.version = version;
+        const auto json = save(source);
+        check(load(json) == source && save(load(json)) == json &&
+                  tessera::compare_replay(play(source), play(load(json))).empty(),
+              "Procedural fills must round-trip identity, typed parameters, time and opacity in Replay v1/v2");
+        auto rejected = tessera::load_replay(changed(json, "{\"number\":0.25}", "{\"angle\":0.25}"));
+        check(!rejected && has(rejected.diagnostics, "unknown_field",
+                               "/steps/0/styles/0/background_procedural/parameters/0/angle"),
+              "Unknown parameter kinds must reject before playback");
+        rejected = tessera::load_replay(changed(json, "\"shader\":\"example.wave\"", "\"shader\":\"\""));
+        check(!rejected &&
+                  has(rejected.diagnostics, "invalid_identifier", "/steps/0/styles/0/background_procedural/shader"),
+              "Replay must validate procedural identities");
+    }
+    check(save(recording()).find("\"background_procedural\"") == std::string::npos,
+          "Absent procedural fills must preserve legacy Replay bytes");
+}
+
 void shadow_styles_round_trip() {
     auto source = recording();
     source.styles[0].box_shadow = tessera::BoxShadow{{-2, 4}, 7, {.2f, .3f, .4f, .5f}};
@@ -652,6 +676,7 @@ int main() {
         shadow_styles_round_trip();
         outline_styles_round_trip();
         fill_shapes_round_trip();
+        procedural_styles_round_trip();
         loading_rejects_malformed_input();
         compatible_pointer_policy_round_trips();
         saving_rejects_invalid_recordings();

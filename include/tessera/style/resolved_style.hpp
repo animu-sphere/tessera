@@ -5,6 +5,7 @@
 #include <tessera/style/fill_shape.hpp>
 #include <tessera/style/gradient.hpp>
 #include <tessera/style/outline.hpp>
+#include <tessera/style/procedural_fill.hpp>
 #include <tessera/style/shadow.hpp>
 #include <tessera/text/text.hpp>
 #include <tessera/ui/document.hpp>
@@ -98,6 +99,9 @@ struct ResolvedStyle {
     std::optional<Outline> outline;
     FillShape background_shape = FillShape::rectangle;
     bool background_antialias = false;
+    // Requests a procedural fill inside the background shape; background/background_gradient
+    // remain the fallback a backend draws when it lacks the shader. Not inherited.
+    std::optional<ProceduralFill> background_procedural;
 
     bool operator==(const ResolvedStyle&) const = default;
 };

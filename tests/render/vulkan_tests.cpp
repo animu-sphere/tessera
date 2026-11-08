@@ -1821,6 +1821,179 @@ void cpu_reference_fixtures(Host& host) {
         check(gpu.unbind_image({1}).empty() && gpu.unbind_image({2}).empty(), "Comparison texture retirement failed");
     }
 }
+double srgb_encode(double linear) {
+    return linear <= 0.0031308 ? linear * 12.92 : 1.055 * std::pow(linear, 1 / 2.4) - 0.055;
+}
+// Procedural fills: a constant fill must reproduce solid DrawRect pixels for every shape/coverage
+// mode; a probe fill reports the ABI's local position, size, time and typed parameters.
+void procedural_fixtures(Host& host) {
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
+    const auto solid = shader("procedural.solid.spv"), probe = shader("procedural.probe.spv");
+    using Kind = tessera::ProceduralValueKind;
+    const std::array<Kind, 1> solid_kinds{Kind::color};
+    const std::array<Kind, 2> probe_kinds{Kind::point, Kind::number};
+    const auto max_difference = [](const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
+        check(a.size() == b.size(), "Procedural comparison sizes differ");
+        int result = 0;
+        for (std::size_t i = 0; i < a.size(); ++i) result = std::max(result, std::abs(int(a[i]) - int(b[i])));
+        return result;
+    };
+    const tessera::Color blue{.1f, .4f, .8f, 1}, translucent{.2f, .6f, .4f, .75f}, red{1, 0, 0, 1};
+    const auto fill = [](tessera::DrawRect rect, tessera::Color color, float opacity = 1) {
+        rect.procedural = tessera::ProceduralFill{"test.solid", {color}, 0, opacity};
+        rect.color = {1, 0, 0, 1}; // A visible fallback would fail the comparison.
+        return rect;
+    };
+    const std::vector<std::pair<tessera::DrawRect, tessera::Color>> shapes{
+        {{{{2.137f, 2.137f}, {12.71f, 8.71f}}, blue, 3.5f}, blue},
+        {{{{17.137f, 2.137f}, {12.71f, 8.71f}}, translucent, 100, {}, tessera::FillShape::ellipse, true}, translucent},
+        {{{{2.5f, 13.25f}, {11.5f, 7.75f}}, blue, 4, {}, tessera::FillShape::rectangle, true}, blue},
+        {{{{26.137f, 27.137f}, {3.71f, 2.71f}}, blue, 0, {}, tessera::FillShape::ellipse, false}, blue}};
+    tessera::UiDrawList solid_list{{tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}}}};
+    tessera::UiDrawList procedural_list = solid_list;
+    for (const auto& [rect, color] : shapes) {
+        solid_list.commands.push_back(rect);
+        procedural_list.commands.push_back(fill(rect, color));
+    }
+    // Clipped/transformed fill and an opacity-scaled one.
+    const tessera::DrawRect turned{{{0, 0}, {9.71f, 6.71f}}, translucent, 0, {}, tessera::FillShape::ellipse, true};
+    for (auto* list : {&solid_list, &procedural_list}) {
+        list->commands.push_back(tessera::PushClip{{{1.125f, 16.125f}, {29.75f, 14.75f}}});
+        list->commands.push_back(tessera::PushTransform{{0, 1, -1, .25f, 28.137f, 19.137f}});
+        list->commands.push_back(list == &solid_list ? tessera::DrawCommand{turned}
+                                                     : tessera::DrawCommand{fill(turned, translucent)});
+        list->commands.push_back(tessera::PopTransform{});
+        list->commands.push_back(tessera::PopClip{});
+    }
+    tessera::DrawRect faded{
+        {{15.25f, 21.5f}, {8.5f, 6.25f}}, {.1f, .4f, .8f, .5f}, 2, {}, tessera::FillShape::rectangle, true};
+    solid_list.commands.push_back(faded);
+    procedural_list.commands.push_back(fill(faded, blue, .5f));
+
+    for (bool batched : {false, true}) {
+        tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+                                       vertex,        fragment,    image,     1};
+        if (batched) context.batch_vertex_spirv = batch;
+        tessera::VulkanRenderer gpu(context);
+        const char* path = batched ? "batch" : "reference";
+        // Registration failures are diagnostics, not exceptions, and register nothing.
+        check(has(gpu.register_procedural_fill({"", solid, solid_kinds}), "invalid_identifier", "/shader"),
+              "Empty procedural identities must be rejected");
+        check(
+            has(gpu.register_procedural_fill({"test.solid", vertex, solid_kinds}), "procedural_abi", "/fragment_spirv"),
+            "Artifacts without fragment proceduralMain must be rejected");
+        check(
+            has(gpu.register_procedural_fill({"test.solid", image, solid_kinds}), "procedural_abi", "/fragment_spirv"),
+            "Image-sampling artifacts are outside fill-v1");
+        const std::array<std::uint32_t, 5> garbage{1, 2, 3, 4, 5};
+        check(has(gpu.register_procedural_fill({"test.solid", garbage, solid_kinds}), "invalid_shader",
+                  "/fragment_spirv"),
+              "Non-SPIR-V words must be rejected");
+        const std::array<Kind, 1> unknown{static_cast<Kind>(255)};
+        check(has(gpu.register_procedural_fill({"test.solid", solid, unknown}), "unknown_value", "/parameters/0"),
+              "Unknown parameter kinds must be rejected");
+        check(has(gpu.unregister_procedural_fill("test.solid"), "unknown_shader", "/shader"),
+              "Rejected registration must not register the fill");
+        check(gpu.register_procedural_fill({"test.solid", solid, solid_kinds}).empty(), "Solid fill registration");
+        check(gpu.register_procedural_fill({"test.probe", probe, probe_kinds}).empty(), "Probe fill registration");
+
+        std::uint64_t frame = 1;
+        for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+            const auto extent = *tessera::capture_extent({32, 32}, scale).value;
+            host.resize({extent.width, extent.height});
+            const auto render = [&](const tessera::UiDrawList& list, const std::string& name) {
+                host.begin(gpu);
+                const auto diagnostics = gpu.submit({frame, {32, 32}, scale}, list);
+                check(diagnostics.empty(), ("Procedural scene rejected: " + name).c_str());
+                auto pixels = host.finish(
+                    ("procedural-" + name + "-" + path + "-" + std::to_string(extent.width) + ".ppm").c_str());
+                gpu.retire(frame++);
+                return pixels;
+            };
+            const auto expected = render(solid_list, "solid");
+            const auto actual = render(procedural_list, "fill");
+            check(gpu.submission_stats().procedural_fills == 6 && gpu.submission_stats().procedural_fallbacks == 0,
+                  "Registered fills must execute without fallback");
+            check(max_difference(actual, expected) <= 1,
+                  "Constant procedural fill must match solid coverage, clipping, transform and opacity");
+
+            // ABI probe: (position + offset) / size, frac(time), alpha parameter, over opaque black.
+            tessera::DrawRect probed{{{4, 4}, {16, 8}}, red};
+            probed.procedural = tessera::ProceduralFill{"test.probe", {tessera::Point{2, 1}, .75f}, 2.25f, 1};
+            const auto probe_pixels = render({{probed}}, "probe");
+            for (const auto [x, y] :
+                 std::array<std::pair<float, float>, 4>{{{0.f, 0.f}, {15.f, 7.f}, {7.5f, 3.f}, {11.f, 6.5f}}}) {
+                const auto px = unsigned(std::floor((4 + x + .25) * scale)),
+                           py = unsigned(std::floor((4 + y + .25) * scale));
+                const double lx = (px + .5) / scale - 4, ly = (py + .5) / scale - 4;
+                const std::array<double, 3> linear{(lx + 2) / 16, (ly + 1) / 8, .25};
+                std::array<int, 4> expect{};
+                for (int c = 0; c < 3; ++c)
+                    expect[c] = int(std::lround(srgb_encode(std::clamp(linear[c], 0.0, 1.0) * .75) * 255));
+                expect[3] = 255;
+                pixel(probe_pixels, extent.width, px, py, expect, "Procedural ABI probe mismatch");
+            }
+
+            // Unregistered shaders draw the declared fallback (or nothing) and report it.
+            tessera::DrawRect missing{{{4, 4}, {16, 8}}, translucent, 3, {}, tessera::FillShape::ellipse, true};
+            const auto plain = render({{missing}}, "fallback-expected");
+            missing.procedural = tessera::ProceduralFill{"test.missing"};
+            const auto fallback = render({{missing}}, "fallback");
+            check(gpu.submission_stats().procedural_fallbacks == 1 && gpu.submission_stats().procedural_fills == 0,
+                  "Unregistered fills must be reported as fallbacks");
+            check(max_difference(fallback, plain) == 0, "Fallback must draw exactly the declared fill");
+            missing.color = {};
+            const auto omitted = render({{missing}}, "omitted");
+            pixel(omitted, extent.width, unsigned(12 * scale), unsigned(8 * scale), {0, 0, 0, 255},
+                  "Transparent fallback must omit the fill");
+            missing.color = translucent;
+            missing.gradient = tessera::LinearGradient{{0, 0}, {1, 1}, blue, translucent};
+            const auto gradient_plain =
+                render({{tessera::DrawRect{missing.rect, {}, 3, missing.gradient, tessera::FillShape::ellipse, true}}},
+                       "gradient-expected");
+            check(max_difference(render({{missing}}, "gradient-fallback"), gradient_plain) == 0,
+                  "Gradient fallback must draw the declared gradient");
+        }
+
+        // Kind/count mismatches reject the frame atomically.
+        host.resize({32, 32});
+        host.begin(gpu);
+        const auto pending = gpu.pending_uploads();
+        tessera::DrawRect wrong{{{0, 0}, {8, 8}}, red};
+        wrong.procedural = tessera::ProceduralFill{"test.solid", {tessera::Point{1, 1}}};
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "procedural_parameter_mismatch",
+                  "/commands/0/procedural/parameters/0") &&
+                  gpu.pending_uploads() == pending,
+              "Parameter kind mismatch must reject without uploads");
+        wrong.procedural->parameters = {blue, blue};
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "procedural_parameter_mismatch",
+                  "/commands/0/procedural/parameters"),
+              "Parameter count mismatch must reject");
+        wrong.procedural->shader = "bad id";
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "invalid_identifier", "/commands/0/procedural/shader"),
+              "Draw-list validation must reject malformed identities");
+        // Retirement: an in-flight fill cannot be replaced or unregistered.
+        wrong.procedural = tessera::ProceduralFill{"test.solid", {blue}};
+        const tessera::UiDrawList adjacent{{wrong, wrong, wrong}};
+        check(gpu.submit({frame, {32, 32}, 1}, adjacent).empty(), "Procedural submission rejected");
+        check(gpu.submission_stats().draw_calls == (batched ? 1u : 3u),
+              "Adjacent fills with one shader must batch like solid fills");
+        host.finish("procedural-retire.ppm");
+        check(has(gpu.register_procedural_fill({"test.solid", solid, solid_kinds}), "resource_in_use", "/shader") &&
+                  has(gpu.unregister_procedural_fill("test.solid"), "resource_in_use", "/shader"),
+              "In-flight fills must not be replaced or unregistered");
+        gpu.retire(frame++);
+        check(gpu.register_procedural_fill({"test.solid", solid, solid_kinds}).empty() &&
+                  gpu.unregister_procedural_fill("test.solid").empty(),
+              "Retired fills may be replaced and unregistered");
+        host.begin(gpu);
+        check(gpu.submit({frame, {32, 32}, 1}, {{wrong}}).empty() && gpu.submission_stats().procedural_fallbacks == 1,
+              "Unregistered fills fall back after removal");
+        host.finish("procedural-unregistered.ppm");
+        gpu.retire(frame++);
+    }
+}
 #ifdef TESSERA_UI_FIXTURES
 template<class T> T ui_take(tessera::Result<T> result) {
     if (!result) {
@@ -2108,6 +2281,7 @@ int main(int argc, char** argv) {
                 batch_fixtures(host);
                 runner_fixtures(host);
                 cpu_reference_fixtures(host);
+                procedural_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
                 real_glyph_fixtures(host);
                 real_runner_fixtures(host);

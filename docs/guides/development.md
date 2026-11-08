@@ -219,9 +219,9 @@ cmake --build build-vulkan --config Debug
 ctest --test-dir build-vulkan -C Debug --output-on-failure
 ```
 
-Use the actual installed paths; explicit overrides avoid mixing an older `VULKAN_SDK` environment value with another compiler on PATH. CMake rejects compiler versions outside the adoption record. `tessera_vulkan_shaders` generates `build-vulkan/backends/vulkan/shaders/primitive.{vertex,batch,fragment,image}.spv`; the backend target depends on these artifacts. Shaders are build artifacts and are not loaded from implicit filesystem paths by the renderer: the host passes their words at construction.
+Use the actual installed paths; explicit overrides avoid mixing an older `VULKAN_SDK` environment value with another compiler on PATH. CMake rejects compiler versions outside the adoption record. `tessera_vulkan_shaders` generates `build-vulkan/backends/vulkan/shaders/primitive.{vertex,batch,fragment,image}.spv`; the backend target depends on these artifacts. Shaders are build artifacts and are not loaded from implicit filesystem paths by the renderer: the host passes their words at construction. `tessera_add_procedural_fill(<target> <source.slang> <output.spv>)` compiles a host [procedural fill](../architecture/rendering.md#implemented-procedural-fills) against `backends/vulkan/shaders/procedural.slang`; the test fixture builds `procedural.{solid,probe}.spv` and the menu host `procedural.aurora.spv` in the same shader directory, and hosts pass those words to `register_procedural_fill`.
 
-The offscreen fixture requires an eligible Vulkan 1.1 graphics device, RGBA8 sRGB attachment/blending/sampling/transfer capabilities, coherent readback memory, and the installed Khronos validation layer. It enables synchronization validation and fails on validation errors. PPM images appear under `build-vulkan/backends/vulkan/artifacts`, including `glyph-scale-{1,2,3,4}.ppm`, `glyph-transforms.ppm`, `glyph-rejected.ppm`, `glyph-blank.ppm`, `placeholder-menu.ppm`, and offscreen runner frames `runner-<run>-<generation>.ppm`; logs are under `build-vulkan/Testing/Temporary`. Placeholder marks need no installed fonts. This procedure does not open a window or run a native menu.
+The offscreen fixture requires an eligible Vulkan 1.1 graphics device, RGBA8 sRGB attachment/blending/sampling/transfer capabilities, coherent readback memory, and the installed Khronos validation layer. It enables synchronization validation and fails on validation errors. PPM images appear under `build-vulkan/backends/vulkan/artifacts`, including `glyph-scale-{1,2,3,4}.ppm`, `glyph-transforms.ppm`, `glyph-rejected.ppm`, `glyph-blank.ppm`, `placeholder-menu.ppm`, `procedural-<scene>-{reference,batch}-<width>.ppm`, and offscreen runner frames `runner-<run>-<generation>.ppm`; logs are under `build-vulkan/Testing/Temporary`. Placeholder marks need no installed fonts. This procedure does not open a window or run a native menu.
 
 For standalone SPIR-V environment checks with the selected SDK:
 
@@ -230,6 +230,11 @@ foreach ($stage in 'vertex', 'batch', 'fragment', 'image') {
     & C:/VulkanSDK/1.4.350.0/Bin/spirv-val.exe --target-env vulkan1.1 `
         "build-vulkan/backends/vulkan/shaders/primitive.$stage.spv"
     if ($LASTEXITCODE -ne 0) { throw "SPIR-V validation failed: $stage" }
+}
+foreach ($fill in 'solid', 'probe', 'aurora') {
+    & C:/VulkanSDK/1.4.350.0/Bin/spirv-val.exe --target-env vulkan1.1 `
+        "build-vulkan/backends/vulkan/shaders/procedural.$fill.spv"
+    if ($LASTEXITCODE -ne 0) { throw "SPIR-V validation failed: $fill" }
 }
 ```
 
@@ -288,7 +293,7 @@ With `TESSERA_BUILD_VULKAN=ON` and examples enabled on Windows, the build above 
 & .\build-vulkan\backends\vulkan\Debug\tessera_vulkan_menu.exe --smoke  # scripted; exits 0 on success
 ```
 
-The executable loads the SPIR-V artifacts from the build tree's shader directory. The smoke needs an interactive desktop session, the Khronos validation layer, and a device presenting an sRGB swapchain with transfer-source usage. It writes `vulkan-menu-{1,2,3,4}.ppm` presentation captures to `build-vulkan/backends/vulkan/artifacts` and fails after 30 seconds if the sequence stalls. Physical mouse activity over the window during the smoke can perturb it; the smoke reads no game controller.
+The executable loads the SPIR-V artifacts, including its aurora procedural backdrop, from the build tree's shader directory. The smoke needs an interactive desktop session, the Khronos validation layer, and a device presenting an sRGB swapchain with transfer-source usage. It writes `vulkan-menu-{1,2,3,4}.ppm` presentation captures to `build-vulkan/backends/vulkan/artifacts` and fails after 30 seconds if the sequence stalls. Physical mouse activity over the window during the smoke can perturb it; the smoke reads no game controller.
 
 For the original Bluetooth Joy-Con L/R pair, run the interactive executable with `--joycons` and bring the menu window to the foreground. Both sides must be connected; use the left directions/stick to move, right A to activate, and right B to cancel. This explicitly selects the pair even when a DualSense or XInput controller is also attached. Device mapping and limits belong to the [input contract](../architecture/input.md#host-boundary).
 

@@ -115,8 +115,9 @@ See [text](../architecture/text.md), [localization](#later--localization-and-int
 Improve ordinary screens and enable distinctive GPU visuals through the [Look proposal](../proposals/look.md):
 
 - Visual basics beyond gradients, distance-based outer/inset shadows and smooth solid/dashed outlines: blurred shadows, additional stroke caps/joins and text-decoration improvements.
-- Additional built-in shapes, ellipse strokes and local glow beyond rectangle/ellipse fills; Slang procedural fills with explicit parameters and capabilities.
-- Custom SDF and host-clock motion; masks, blur and offscreen composition when a visual outcome needs them.
+- Additional built-in shapes, ellipse strokes and local glow beyond rectangle/ellipse fills.
+- Procedural fills beyond fill-v1: host-clock motion with visibility-aware redraw requests, theme tokens, an Inspector or other CPU-hosted consumer, and texture/multipass profiles with their own validation and resource bounds.
+- Custom SDF; masks, blur and offscreen composition when a visual outcome needs them.
 - A representative screen that grows with the features rather than a demo or snapshot catalog per effect.
 
 This is a suggested progression, not fixed ordering or permanent shader/API limits. Promote useful slices without requiring the whole direction or expanding the v0.7.0 completion gate. Contracts: [rendering](../architecture/rendering.md), [animation](../proposals/animation.md); checks: [Look verification](../guides/testing.md#look-and-effect-verification).

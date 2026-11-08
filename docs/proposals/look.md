@@ -1,6 +1,6 @@
 # Look and visual rendering
 
-> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), [distance-based outer/inset shadows](../architecture/rendering.md#implemented-box-shadows), [smooth solid/dashed outlines](../architecture/rendering.md#implemented-outlines-and-dashed-strokes) and [analytic rectangle/ellipse fills](../architecture/rendering.md#implemented-analytic-fills). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
+> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), [distance-based outer/inset shadows](../architecture/rendering.md#implemented-box-shadows), [smooth solid/dashed outlines](../architecture/rendering.md#implemented-outlines-and-dashed-strokes), [analytic rectangle/ellipse fills](../architecture/rendering.md#implemented-analytic-fills) and [fill-v1 Slang procedural fills](../architecture/rendering.md#implemented-procedural-fills). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
 
 ## Goal and scope
 
@@ -57,6 +57,8 @@ Extend these foundations with additional shapes, ellipse strokes and local glow 
 GPU analytic/SDF evaluation and a small CPU reference should express the same visual semantics, with declared tolerances rather than mandatory identical algorithms or bitwise pixels. Keep the existing layout-box hit test by default; shape-aware input is an explicit choice with its own CPU geometry contract, not implicit execution of a GPU shader during input dispatch.
 
 ### C. Slang procedural fill
+
+The [fill-v1 profile](../architecture/rendering.md#implemented-procedural-fills) implements the first step: a build-time Slang fragment fill inside the existing background shape, a logical identity with typed parameters and explicit host time, Vulkan registration with diagnostics, and a declared color/gradient fallback that CPU always uses. The [Win32 Vulkan menu](../architecture/rendering.md#implemented-win32-vulkan-example-host) draws a static aurora backdrop. Host-clock motion and redraw scheduling, broader profiles (textures, multipass), theme tokens and an Inspector consumer remain open; the guidance below still applies to them.
 
 Apply a procedural fill to an ordinary panel: for example an animated gradient, noise or holographic surface. Begin with a fragment-like fill inside an existing shape so coverage, layout and interaction remain understandable.
 

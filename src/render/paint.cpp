@@ -66,32 +66,30 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
             }
         }
         const auto background = faded(style.background, opacity);
+        // Background/gradient are the declared fallback of a procedural fill, faded the same way.
+        DrawRect fill{
+            box.border_box, background, style.corner_radius, {}, style.background_shape, style.background_antialias};
+        bool fill_visible = background.a > 0;
         if (style.background_gradient) {
             auto gradient = *style.background_gradient;
-            bool visible = false;
+            fill_visible = false;
             std::visit(
-                [&](auto& fill) {
-                    fill.start_color = faded(fill.start_color, opacity);
-                    fill.end_color = faded(fill.end_color, opacity);
-                    for (auto& stop : fill.stops) stop.color = faded(stop.color, opacity);
-                    for (std::size_t i = 0; i < fill.stop_count(); ++i) visible |= fill.stop(i).color.a > 0;
+                [&](auto& g) {
+                    g.start_color = faded(g.start_color, opacity);
+                    g.end_color = faded(g.end_color, opacity);
+                    for (auto& stop : g.stops) stop.color = faded(stop.color, opacity);
+                    for (std::size_t i = 0; i < g.stop_count(); ++i) fill_visible |= g.stop(i).color.a > 0;
                 },
                 gradient);
-            if (visible)
-                commands.commands.push_back(DrawRect{box.border_box,
-                                                     {},
-                                                     style.corner_radius,
-                                                     gradient,
-                                                     style.background_shape,
-                                                     style.background_antialias});
-        } else if (background.a > 0) {
-            commands.commands.push_back(DrawRect{box.border_box,
-                                                 background,
-                                                 style.corner_radius,
-                                                 {},
-                                                 style.background_shape,
-                                                 style.background_antialias});
+            fill.color = {};
+            fill.gradient = std::move(gradient);
         }
+        if (style.background_procedural) {
+            fill.procedural = *style.background_procedural;
+            fill.procedural->opacity *= opacity;
+            fill_visible |= fill.procedural->opacity > 0;
+        }
+        if (fill_visible) commands.commands.push_back(std::move(fill));
         if (style.box_shadow && style.box_shadow->inset && style.box_shadow->color.a > 0) {
             const auto& shadow = *style.box_shadow;
             commands.commands.push_back(DrawShadow{box.border_box, faded(shadow.color, opacity), style.corner_radius,

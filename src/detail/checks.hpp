@@ -4,8 +4,10 @@
 #include <tessera/style/color.hpp>
 #include <tessera/style/gradient.hpp>
 #include <tessera/style/outline.hpp>
+#include <tessera/style/procedural_fill.hpp>
 #include <tessera/style/shadow.hpp>
 #include <tessera/ui/document.hpp>
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <string_view>
@@ -86,6 +88,31 @@ public:
         stroke(value.width, value.dash_length, value.gap_length, value.dash_offset, path);
         non_negative(value.offset, path + "/offset");
         color(value.color, path + "/color");
+    }
+    void procedural(const ProceduralFill& value, const std::string& path) {
+        if (value.shader.empty() || value.shader.size() > max_procedural_shader_bytes ||
+            std::any_of(value.shader.begin(), value.shader.end(),
+                        [](unsigned char c) { return c <= 0x20 || c >= 0x7f; }))
+            error("invalid_identifier", path + "/shader",
+                  "Use 1-128 printable ASCII bytes without spaces for a procedural shader identity.");
+        if (value.parameters.size() > max_procedural_parameters)
+            error("procedural_parameter_limit", path + "/parameters", "Use at most 16 procedural parameters.");
+        for (std::size_t i = 0; i < value.parameters.size(); ++i) {
+            const auto at = path + "/parameters/" + std::to_string(i);
+            std::visit(
+                [&](const auto& v) {
+                    using V = std::decay_t<decltype(v)>;
+                    if constexpr (std::is_same_v<V, float>)
+                        finite(v, at);
+                    else if constexpr (std::is_same_v<V, Point>)
+                        point(v, at);
+                    else
+                        color(v, at);
+                },
+                value.parameters[i]);
+        }
+        finite(value.time, path + "/time");
+        range(value.opacity, path + "/opacity", 0, 1, "an opacity in [0, 1]");
     }
 
 private:

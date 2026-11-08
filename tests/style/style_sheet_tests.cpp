@@ -170,6 +170,24 @@ void test_fill_shapes() {
           "Unknown fill shapes must reject with a located diagnostic");
 }
 
+void test_procedural_fills() {
+    const auto tree = menu();
+    const tessera::ProceduralFill wave{"example.wave", {.5f}, 2};
+    tessera::StyleSheet sheet{{{tessera::StyleSelector::of_id("a"), {.background_procedural = wave}}}};
+    const auto resolved = resolve(*tree, sheet);
+    check(resolved["a"].background_procedural == wave && !resolved["a-label"].background_procedural,
+          "Procedural fills must apply to the matched node without inheriting");
+    std::vector<tessera::StyleDeclarations> overrides(tree->size());
+    overrides[tree->find("a")->index].background_procedural = std::optional<tessera::ProceduralFill>{};
+    check(!resolve(*tree, sheet, {}, overrides)["a"].background_procedural,
+          "An explicit empty declaration must clear a procedural fill");
+    overrides[0].background_procedural = tessera::ProceduralFill{"", {}, 0, 2};
+    const auto errors = tessera::validate(overrides[0]);
+    check(has(errors, "invalid_identifier", "/background_procedural/shader") &&
+              has(errors, "out_of_range", "/background_procedural/opacity"),
+          "Procedural declarations must use located shared validation");
+}
+
 void test_shadows() {
     const auto tree = menu();
     const tessera::BoxShadow shadow{{-2, 4}, 8, {.2f, .3f, .4f, .5f}};
@@ -369,6 +387,7 @@ int main() {
         test_shadows();
         test_outlines();
         test_fill_shapes();
+        test_procedural_fills();
         test_inheritance();
         test_states();
         test_overrides();

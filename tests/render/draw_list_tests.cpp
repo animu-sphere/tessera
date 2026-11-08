@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <string>
 
 using tessera::test::check;
 using tessera::test::has;
@@ -33,6 +34,30 @@ void invalid_lists() {
     shape.shape = static_cast<tessera::FillShape>(255);
     check(has(tessera::validate(tessera::UiDrawList{{shape}}), "unknown_value", "/commands/0/shape"),
           "Invalid shape must not silently become a rectangle");
+    tessera::DrawRect procedural{{{0, 0}, {10, 5}}, {}, 0};
+    procedural.procedural = tessera::ProceduralFill{"example.wave", {1.f, tessera::Point{0, 1}}, 3, 1};
+    check(tessera::validate(tessera::UiDrawList{{procedural}}).empty(), "Valid procedural fill rejected");
+    for (const auto& shader :
+         {std::string(""), std::string("a b"), std::string(129, 'a'), std::string("caf\xc3\xa9")}) {
+        procedural.procedural->shader = shader;
+        check(has(tessera::validate(tessera::UiDrawList{{procedural}}), "invalid_identifier",
+                  "/commands/0/procedural/shader"),
+              "Procedural identity must be 1-128 printable ASCII bytes without spaces");
+    }
+    procedural.procedural->shader = "example.wave";
+    procedural.procedural->parameters = {std::numeric_limits<float>::infinity(), tessera::Color{2, 0, 0, 1}};
+    procedural.procedural->time = std::numeric_limits<float>::quiet_NaN();
+    procedural.procedural->opacity = -1;
+    const auto procedural_errors = tessera::validate(tessera::UiDrawList{{procedural}});
+    check(has(procedural_errors, "invalid_number", "/commands/0/procedural/parameters/0") &&
+              has(procedural_errors, "out_of_range", "/commands/0/procedural/parameters/1/r") &&
+              has(procedural_errors, "invalid_number", "/commands/0/procedural/time") &&
+              has(procedural_errors, "out_of_range", "/commands/0/procedural/opacity"),
+          "Procedural values must use located shared numeric validation");
+    procedural.procedural = tessera::ProceduralFill{"example.wave", std::vector<tessera::ProceduralValue>(17, 0.f)};
+    check(has(tessera::validate(tessera::UiDrawList{{procedural}}), "procedural_parameter_limit",
+              "/commands/0/procedural/parameters"),
+          "Procedural parameters must be bounded");
     const tessera::UiDrawList unbalanced{{
         tessera::PopClip{},
         tessera::PushClip{},
