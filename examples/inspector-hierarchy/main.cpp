@@ -106,7 +106,8 @@ StyleSheet appearance(const State& state) {
            .corner_radius = 6.f}},
          {StyleSelector::of_class("control", {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}},
          {StyleSelector::of_class("control", {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}},
-         {StyleSelector::of_class("control", {.focus = true}), {.border_color = Color{.2f, .4f, .85f, 1}}},
+         {StyleSelector::of_class("control", {.focus = true}),
+          {.border_color = Color{.2f, .4f, .85f, 1}, .outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}}}},
          {StyleSelector::of_class("control", {.disabled = true}),
           {.background = Color{.94f, .95f, .97f, 1}, .color = Color{.45f, .49f, .56f, 1}}},
          {StyleSelector::of_class("section-title"), {.text = {.size = 14.f}, .color = Color{.32f, .4f, .54f, 1}}},
@@ -115,7 +116,8 @@ StyleSheet appearance(const State& state) {
          {StyleSelector::of_id("actions"), {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}}},
          {StyleSelector::of_id("actions", {.hover = true}), {.background = Color{.16f, .28f, .56f, 1}}},
          {StyleSelector::of_id("actions", {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}},
-         {StyleSelector::of_id("actions", {.focus = true}), {.border_color = Color{.55f, .72f, 1, 1}}},
+         {StyleSelector::of_id("actions", {.focus = true}),
+          {.border_color = Color{.55f, .72f, 1, 1}, .outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}}}},
          {StyleSelector::of_id("enabled"),
           {.background = state.item().enabled ? Color{.88f, .94f, 1, 1} : Color{1, 1, 1, 1}}},
          {StyleSelector::of_id("hierarchy-title"), {.text = {.size = 14.f}, .color = Color{.32f, .4f, .54f, 1}}},
@@ -145,7 +147,8 @@ StyleSheet appearance(const State& state) {
         sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
         sheet.rules.push_back(
-            {StyleSelector::of_id(std::move(id), {.focus = true}), {.border_color = Color{.2f, .4f, .85f, 1}}});
+            {StyleSelector::of_id(std::move(id), {.focus = true}),
+             {.border_color = Color{.2f, .4f, .85f, 1}, .outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}, 4.f, 2.f}}});
     };
     for (const auto& item : state.items) row("hierarchy-item-" + item.id);
     const auto selected = "hierarchy-item-" + state.selected;
@@ -1376,11 +1379,54 @@ void inset_name_smoke() {
             "Focus and hover must retain the inset, editing data and name geometry");
 }
 
+void outline_smoke() {
+    App app;
+    const auto items = app.state.items;
+    for (const auto* id : {"name", "hierarchy-item-sphere"}) {
+        const auto box = app.view.box(id).border_box;
+        app.focus_id(id);
+        require(app.view.box(id).border_box == box && app.state.items == items,
+                "Focus outlines must preserve editing data and layout geometry");
+        const auto& style = app.view.styles[app.view.tree->find(id)->index];
+        require(style.outline && style.outline->width == 1.5f && style.outline->offset == 1,
+                "Inspector focus must resolve an ordinary outside outline");
+        const bool dashed = std::string_view(id).starts_with("hierarchy");
+        require(style.outline->dash_length == (dashed ? 4.f : 0.f) && style.outline->gap_length == (dashed ? 2.f : 0.f),
+                "Hierarchy focus must use a continuous rounded dash pattern distinct from control focus");
+        const auto found =
+            std::find_if(app.view.paint.commands.begin(), app.view.paint.commands.end(), [&](const auto& command) {
+                const auto* stroke = std::get_if<DrawStroke>(&command);
+                return stroke && stroke->rect.origin == Point{box.origin.x - 2.5f, box.origin.y - 2.5f};
+            });
+        require(found != app.view.paint.commands.end(), "Inspector focus must emit the smooth stroke command");
+        auto stroke = std::get<DrawStroke>(*found);
+        stroke.rect.origin = {4, 4};
+        const Size viewport{stroke.rect.size.width + 8, stroke.rect.size.height + 8};
+        const UiDrawList paint{{stroke}};
+        CpuFrameCapture frames;
+        for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+            const auto extent = take(capture_extent(viewport, scale));
+            const auto image = take(frames.capture({0, viewport, scale, extent, &paint}));
+            std::size_t partial = 0, opaque = 0;
+            for (std::size_t at = 3; at < image.pixels.size(); at += 4) {
+                partial += image.pixels[at] > 0 && image.pixels[at] < 255;
+                opaque += image.pixels[at] == 255;
+            }
+            require(partial >= 16 && opaque >= 16,
+                    "Inspector focus must have actual smooth edge pixels and visible interiors at every scale");
+        }
+        app.focus_id("actions");
+        require(!app.view.styles[app.view.tree->find(id)->index].outline && app.state.items == items,
+                "Moving focus must remove the previous outline without changing item data");
+    }
+}
+
 void smoke() {
     appearance_smoke();
     gradient_card_smoke();
     shadow_card_smoke();
     inset_name_smoke();
+    outline_smoke();
     edit_rejection_smoke();
     clipboard_smoke();
     cut_smoke();

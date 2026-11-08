@@ -72,6 +72,80 @@ void pixels_and_geometry() {
     check(image.extent == CaptureExtent{4, 4} && pixel(image, 0, 0)[3] == 255 && pixel(image, 1, 0)[3] == 0,
           "Fractional scale/half-open edges differ");
 }
+void strokes() {
+    CpuFrameCapture frames;
+    DrawStroke thin{{{3.25f, 3.25f}, {9.5f, 7.5f}}, {1, 1, 1, 1}, .5f};
+    auto image = capture(frames, {{thin}}, {16, 16});
+    check(pixel(image, 7, 3)[3] == 128 && pixel(image, 7, 4)[3] == 0 && pixel(image, 2, 7)[3] == 0 &&
+              pixel(image, 3, 7)[3] == 128,
+          "Half-pixel strokes must retain half coverage on both axes instead of disappearing");
+    thin.width = .25f;
+    check(pixel(capture(frames, {{thin}}, {16, 16}), 7, 3)[3] == 64,
+          "Quarter-pixel strokes must retain measurable coverage");
+    thin.width = .5f;
+    check(pixel(capture(frames, {{thin}}, {16, 16}, 1.5f), 6, 5)[3] == 128,
+          "Subsample positions must transform directly so exact inner boundaries exclude their samples");
+    DrawStroke dashed{{{2, 2}, {20, 12}}, {0, 0, 1, 1}, 1, 0, 3, 2};
+    image = capture(frames, {{dashed}}, {24, 16});
+    check(pixel(image, 4, 2)[3] == 255 && pixel(image, 6, 2)[3] == 0 && pixel(image, 21, 5)[3] == 255 &&
+              pixel(image, 21, 6)[3] == 128 && pixel(image, 21, 7)[3] == 0,
+          "Dash arclength must continue from the top edge around the corner without restarting on the right");
+    dashed.dash_offset = -2;
+    const auto shifted = capture(frames, {{dashed}}, {24, 16});
+    dashed.dash_offset = 3;
+    check(capture(frames, {{dashed}}, {24, 16}) == shifted,
+          "Negative dash phases must normalize to the same periodic pattern");
+    dashed.corner_radius = 5;
+    dashed.width = 1.5f;
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        image = capture(frames, {{dashed}}, {24, 16}, scale);
+        check(capture(frames, {{dashed}}, {24, 16}, scale) == image, "Stroke captures must be deterministic");
+        const auto clipped = capture(frames, {{PushClip{{{8.25f, 0}, {8, 16}}}, dashed, PopClip{}}}, {24, 16}, scale);
+        const auto mirrored =
+            capture(frames, {{PushTransform{{-1, 0, 0, 1, 24, 0}}, dashed, PopTransform{}}}, {24, 16}, scale);
+        unsigned partial = 0, opaque = 0;
+        for (unsigned y = 0; y < image.extent.height; ++y)
+            for (unsigned x = 0; x < image.extent.width; ++x) {
+                const auto alpha = pixel(image, x, y)[3];
+                partial += alpha > 0 && alpha < 255;
+                opaque += alpha == 255;
+                const double lx = (x + .5) / scale;
+                check(pixel(clipped, x, y) ==
+                          (lx >= 8.25 && lx < 16.25 ? pixel(image, x, y) : std::array<std::uint8_t, 4>{}),
+                      "Clips must trim stroke pixels without moving dash phase or changing clip-edge sampling");
+                check(pixel(mirrored, x, y) == pixel(image, image.extent.width - 1 - x, y),
+                      "Mirroring must carry the entire rounded dash pattern and coverage");
+            }
+        check(partial >= 8 && opaque >= 8, "Rounded dashes must retain smooth edge pixels and opaque dash interiors");
+        auto solid = dashed;
+        solid.gap_length = 0;
+        const auto ring = capture(frames, {{solid}}, {24, 16}, scale);
+        check(pixel(ring, unsigned(12 * scale), unsigned(8 * scale))[3] == 0,
+              "Rounded strokes must leave their center transparent");
+        solid.corner_radius = 100;
+        const auto clamped = capture(frames, {{solid}}, {24, 16}, scale);
+        solid.corner_radius = 6;
+        check(capture(frames, {{solid}}, {24, 16}, scale) == clamped,
+              "Stroke radii must clamp before inner subtraction");
+        solid.width = 100;
+        const auto collapsed = capture(frames, {{solid}}, {24, 16}, scale);
+        solid.width = 6;
+        check(capture(frames, {{solid}}, {24, 16}, scale) == collapsed,
+              "Excessive stroke widths must saturate without inverted inner geometry");
+    }
+    thin.width = .5f;
+    thin.color = {0, 0, 1, .5f};
+    image = capture(frames, {{DrawRect{{{0, 0}, {16, 16}}, {1, 0, 0, 1}}, thin}}, {16, 16});
+    check(pixel(image, 7, 3) == std::array<std::uint8_t, 4>{225, 0, 137, 255},
+          "Stroke coverage must attenuate alpha before linear-light source-over blending");
+    thin.width = 0;
+    check(capture(frames, {{thin}}, {16, 16}) == capture(frames, {}, {16, 16}),
+          "Zero-width strokes must paint nothing");
+    thin.width = 1;
+    thin.rect.size.width = 0;
+    check(capture(frames, {{thin}}, {16, 16}) == capture(frames, {}, {16, 16}), "Zero-area strokes must paint nothing");
+}
+
 void linear_gradients() {
     CpuFrameCapture frames;
     DrawRect rect{{{0, 0}, {8, 8}}, {}, 3, LinearGradient{{.25f, 0}, {.75f, 0}, {1, 0, 0, 0}, {0, 0, 1, 1}}};
@@ -515,6 +589,7 @@ void glyphs_and_runner() {
 int main() {
     try {
         pixels_and_geometry();
+        strokes();
         linear_gradients();
         multi_stop_gradients();
         radial_gradients();

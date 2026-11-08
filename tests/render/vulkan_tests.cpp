@@ -1486,6 +1486,23 @@ void cpu_reference_fixtures(Host& host) {
          tessera::DrawShadow{{{26.125f, 20.125f}, {3, 5}}, {.7f, .6f, .2f, .5f}, 0, 0, true, {1, 1}},
          tessera::DrawShadow{{{26.125f, 26.125f}, {3, 3}}, {.7f, .6f, .2f, .5f}, 100, 2, true, {100, -100}},
          tessera::DrawShadow{{{0, 0}, {0, 32}}, {1, 0, 0, 1}, 0, 4, true, {1, 1}}}};
+    const tessera::UiDrawList strokes{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::DrawStroke{{{2.137f, 2.137f}, {27.71f, 12.71f}}, {.1f, .4f, .8f, 1}, .63f, 4.3f},
+         tessera::PushClip{{{1.125f, 16.125f}, {29.75f, 14.75f}}},
+         tessera::PushTransform{{-1, 0, .25f, 1, 28.137f, 17.137f}},
+         tessera::DrawStroke{{{0, 0}, {12.71f, 8.71f}}, {.1f, .4f, .8f, .75f}, 1.3f, 3.7f, 3.3f, 2.1f, -1.3f},
+         tessera::PopTransform{}, tessera::PopClip{}, tessera::PushTransform{{0, 1, -1, .25f, 12.137f, 19.137f}},
+         tessera::DrawStroke{{{0, 0}, {7.71f, 5.71f}}, {.1f, .4f, .8f, .5f}, .7f, 0, 2.7f, 1.3f, 1.1f},
+         tessera::PopTransform{},
+         tessera::DrawStroke{{{26.137f, 20.137f}, {3.71f, 5.71f}}, {.1f, .4f, .8f, 1}, 100, 100},
+         tessera::DrawStroke{{{26.137f, 27.137f}, {3.71f, 2.71f}}, {.1f, .4f, .8f, 1}, .3f, 0},
+         tessera::DrawStroke{{{0, 0}, {0, 32}}, {1, 0, 0, 1}, 1, 4, 3, 2},
+         tessera::DrawStroke{{{0, 0}, {32, 32}}, {1, 0, 0, 1}, 0}}};
+    const tessera::UiDrawList stroke_grid{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::DrawStroke{{{3.25f, 3.25f}, {25.5f, 9.5f}}, {.1f, .4f, .8f, 1}, .5f},
+         tessera::DrawStroke{{{3.25f, 18.25f}, {25.5f, 9.5f}}, {.1f, .4f, .8f, 1}, .25f, 0, 3, 2, -2}}};
     auto multi_gradients = gradients;
     std::get<tessera::LinearGradient>(*std::get<tessera::DrawRect>(multi_gradients.commands[1]).gradient).stops = {
         {.1f, {1, 0, 0, 0}},
@@ -1605,7 +1622,7 @@ void cpu_reference_fixtures(Host& host) {
             compare(actual, expected.value->pixels, {extent.width, extent.height}, batched ? "batch" : "reference",
                     scale);
             gpu.retire(frame++);
-            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 9> gradient_scenes{
+            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 11> gradient_scenes{
                 {{"gradient", &gradients},
                  {"multi-gradient", &multi_gradients},
                  {"hard-gradient", &hard_gradients},
@@ -1614,14 +1631,17 @@ void cpu_reference_fixtures(Host& host) {
                  {"radial-hard", &radial_hard},
                  {"radial-transform", &radial_transform},
                  {"shadow", &shadows},
-                 {"inset-shadow", &inset_shadows}}};
+                 {"inset-shadow", &inset_shadows},
+                 {"stroke", &strokes},
+                 {"stroke-grid", &stroke_grid}}};
             for (const auto& [name, scene] : gradient_scenes) {
                 const auto gradient_pixels = cpu.capture({0, {32, 32}, scale, extent, scene});
                 check(bool(gradient_pixels), "CPU gradient comparison capture rejected");
                 std::vector<std::uint8_t> previous;
                 const bool retained =
-                    batched || (scene != &gradients && scene != &radial_gradients && scene != &radial_transform &&
-                                scene != &shadows && scene != &inset_shadows);
+                    batched ||
+                    (scene != &gradients && scene != &radial_gradients && scene != &radial_transform &&
+                     scene != &shadows && scene != &inset_shadows && scene != &strokes && scene != &stroke_grid);
                 for (int repeat = 0; repeat < 2; ++repeat) {
                     host.begin(gpu);
                     const auto pending = gpu.pending_uploads();
@@ -1678,6 +1698,23 @@ void cpu_reference_fixtures(Host& host) {
                               "/commands/0/softness") &&
                               gpu.pending_uploads() == pending,
                           "Unrepresentable inset distances must reject before GPU recording");
+                    tessera::DrawStroke invalid_stroke{{{0, 0}, {8, 8}}, {}, 1, 4, 0, 2};
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid_stroke}}), "invalid_dash",
+                              "/commands/0/dash_length") &&
+                              gpu.pending_uploads() == pending,
+                          "Invalid stroke patterns must reject without consuming a frame or changing uploads");
+                    invalid_stroke.dash_length = std::numeric_limits<float>::denorm_min();
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid_stroke}}), "geometry_overflow",
+                              "/commands/0") &&
+                              gpu.pending_uploads() == pending,
+                          "Subnormal dash arithmetic must reject explicitly before GPU recording");
+                    invalid_stroke.dash_length = 3;
+                    const tessera::UiDrawList singular_stroke{
+                        {tessera::PushTransform{{1e-20f, 0, 0, 1e-20f}}, invalid_stroke, tessera::PopTransform{}}};
+                    check(has(gpu.submit({frame, {32, 32}, scale}, singular_stroke), "geometry_overflow",
+                              "/commands/1") &&
+                              gpu.pending_uploads() == pending,
+                          "Unrepresentable shader inverse transforms must reject stroke coverage without fallback");
                     check(gpu.submit({frame, {32, 32}, scale}, *scene).empty(), "GPU visual submission rejected");
                     check(gpu.pending_uploads() == (retained ? std::size_t(repeat + 1) : 0),
                           "Both paths must retain independent per-frame stop uploads until retirement");

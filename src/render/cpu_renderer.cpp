@@ -1,6 +1,7 @@
 #include <tessera/render/cpu_renderer.hpp>
 #include "../detail/checks.hpp"
 #include "../detail/shadow.hpp"
+#include "../detail/stroke.hpp"
 #include <array>
 #include <cmath>
 #include <limits>
@@ -243,11 +244,19 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
             [&](const auto& cmd) {
                 using T = std::decay_t<decltype(cmd)>;
                 if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawBorder> ||
-                              std::is_same_v<T, DrawImage> || std::is_same_v<T, DrawShadow>) {
+                              std::is_same_v<T, DrawImage> || std::is_same_v<T, DrawShadow> ||
+                              std::is_same_v<T, DrawStroke>) {
                     auto rect = cmd.rect;
                     if constexpr (std::is_same_v<T, DrawShadow>)
                         rect = *detail::shadow_bounds(rect, cmd.softness, cmd.inset);
-                    auto box = intersection(s.clip, bounds(rect, s.transform, frame.device_scale));
+                    auto physical = bounds(rect, s.transform, frame.device_scale);
+                    if constexpr (std::is_same_v<T, DrawStroke>) {
+                        physical.left -= .5;
+                        physical.top -= .5;
+                        physical.right += .5;
+                        physical.bottom += .5;
+                    }
+                    auto box = intersection(s.clip, physical);
                     if (box.right <= box.left || box.bottom <= box.top || cmd.rect.size.width == 0 ||
                         cmd.rect.size.height == 0)
                         return;
@@ -308,12 +317,26 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                                                         double(cmd.rect.size.height) + 2 * cmd.softness, t))
                                         continue;
                                 }
-                            } else {
+                            } else if constexpr (!std::is_same_v<T, DrawStroke>) {
                                 if (!outer_contains(lx, ly, cmd.rect.size.width, cmd.rect.size.height, t)) continue;
                             }
                             Pixel color;
                             bool premultiplied = false;
-                            if constexpr (std::is_same_v<T, DrawShadow>) {
+                            if constexpr (std::is_same_v<T, DrawStroke>) {
+                                unsigned covered = 0;
+                                for (double sy : {-.375, -.125, .125, .375})
+                                    for (double sx : {-.375, -.125, .125, .375}) {
+                                        const double sample_x = (x + .5 + sx) / frame.device_scale - t.tx;
+                                        const double sample_y = (y + .5 + sy) / frame.device_scale - t.ty;
+                                        covered += detail::stroke_contains(
+                                            (t.d * sample_x - t.c * sample_y) / det - cmd.rect.origin.x,
+                                            (-t.b * sample_x + t.a * sample_y) / det - cmd.rect.origin.y,
+                                            cmd.rect.size.width, cmd.rect.size.height, cmd.corner_radius, cmd.width,
+                                            cmd.dash_length, cmd.gap_length, cmd.dash_offset);
+                                    }
+                                color = linear(cmd.color);
+                                color[3] *= covered / 16.0;
+                            } else if constexpr (std::is_same_v<T, DrawShadow>) {
                                 color = linear(cmd.color);
                                 color[3] *=
                                     shadow_coverage(lx - cmd.offset.x, ly - cmd.offset.y, cmd.rect.size.width,

@@ -320,6 +320,27 @@ void gradient_styles_round_trip() {
     check(load(save(source)) == source, "Radial two-color shorthand must round-trip");
 }
 
+void outline_styles_round_trip() {
+    auto source = recording();
+    source.styles[0].outline = tessera::Outline{1.5f, 2, {.2f, .4f, .8f, .75f}, 4, 2, -3};
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    for (auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        source.version = version;
+        const auto json = save(source);
+        check(load(json) == source && save(load(json)) == json &&
+                  tessera::compare_replay(play(source), play(load(json))).empty(),
+              "Outline styles must reproduce initial/reloaded paint and canonical encoding in Replay v1/v2");
+        auto rejected = tessera::load_replay(changed(json, "\"dash_length\":4", "\"dash_length\":0"));
+        check(!rejected && has(rejected.diagnostics, "invalid_dash", "/steps/0/styles/0/outline/dash_length"),
+              "Invalid replay dash patterns must reject before playback");
+        rejected = tessera::load_replay(changed(json, "\"dash_offset\":-3", "\"phase\":-3"));
+        check(!rejected && has(rejected.diagnostics, "unknown_field", "/steps/0/styles/0/outline/phase"),
+              "Replay must reject unknown outline fields instead of ignoring them");
+    }
+    check(save(recording()).find("\"outline\"") == std::string::npos,
+          "Absent outlines must preserve legacy replay encoding");
+}
+
 void shadow_styles_round_trip() {
     auto source = recording();
     source.styles[0].box_shadow = tessera::BoxShadow{{-2, 4}, 7, {.2f, .3f, .4f, .5f}};
@@ -604,6 +625,7 @@ int main() {
         grid_styles_round_trip();
         gradient_styles_round_trip();
         shadow_styles_round_trip();
+        outline_styles_round_trip();
         loading_rejects_malformed_input();
         compatible_pointer_policy_round_trips();
         saving_rejects_invalid_recordings();

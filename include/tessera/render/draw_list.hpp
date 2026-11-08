@@ -87,9 +87,20 @@ struct DrawShadow {
     Point offset{}; // Inset cutout translation; must be zero for outer shadows.
     bool operator==(const DrawShadow&) const = default;
 };
+// Uniform inside stroke with 4x4 pixel coverage; existing DrawBorder stays hard-edged.
+struct DrawStroke {
+    Rect rect;
+    Color color;
+    float width = 1;
+    float corner_radius = 0;
+    float dash_length = 0;
+    float gap_length = 0;
+    float dash_offset = 0;
+    bool operator==(const DrawStroke&) const = default;
+};
 
 using DrawCommand = std::variant<DrawRect, DrawBorder, DrawImage, DrawGlyphRun, PushClip, PopClip, PushTransform,
-                                 PopTransform, DrawShadow>;
+                                 PopTransform, DrawShadow, DrawStroke>;
 
 // Commands paint in order; later commands appear above earlier ones.
 // Clips and transforms share one LIFO stack that must be balanced.
