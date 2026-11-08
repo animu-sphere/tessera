@@ -131,6 +131,18 @@ void box_shadows() {
               std::holds_alternative<tessera::DrawBorder>(list.commands[3]) &&
               std::holds_alternative<tessera::PopClip>(list.commands[4]),
           "Shadow must precede fill/border under the ancestor clip, with multiplied opacity and owned data");
+    style.box_shadow->inset = true;
+    f.compute();
+    const auto inset = f.paint();
+    check(f.layout.boxes[1].border_box == box.border_box && f.layout.boxes[1].clip == box.clip &&
+              inset.commands.size() == 5 && std::holds_alternative<tessera::DrawRect>(inset.commands[1]) &&
+              std::get<tessera::DrawShadow>(inset.commands[2]) ==
+                  tessera::DrawShadow{box.border_box, {.2f, .3f, .4f, .125f}, 4, 8, true, {-2, 4}} &&
+              std::holds_alternative<tessera::DrawBorder>(inset.commands[3]),
+          "Inset shadows must follow the fill and precede borders, with retained bounds, offset and opacity");
+    style.box_shadow->inset = false;
+    check(std::get<tessera::DrawShadow>(inset.commands[2]).inset,
+          "Paint must own inset parameters independently of subsequent style edits");
     style.box_shadow->color.a = 0;
     check(f.paint().commands.size() == 4, "Transparent shadows must emit nothing");
     style.box_shadow->color.a = 1;

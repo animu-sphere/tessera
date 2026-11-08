@@ -46,10 +46,14 @@ std::vector<Diagnostic> validate(const UiDrawList& list) {
                     if constexpr (std::is_same_v<T, DrawBorder>) check.edges(command.widths, path + "/widths");
                     if constexpr (std::is_same_v<T, DrawShadow>) {
                         check.non_negative(command.softness, path + "/softness");
+                        check.point(command.offset, path + "/offset");
+                        if (!command.inset && command.offset != Point{})
+                            check.error("out_of_range", path + "/offset",
+                                        "Outer shadows use an already offset caster rectangle; offset must be zero.");
                         if (std::isfinite(command.softness) && command.softness >= 0 &&
                             std::isfinite(command.rect.origin.x) && std::isfinite(command.rect.origin.y) &&
                             std::isfinite(command.rect.size.width) && std::isfinite(command.rect.size.height) &&
-                            !detail::shadow_bounds(command.rect, command.softness))
+                            !detail::shadow_bounds(command.rect, command.softness, command.inset))
                             check.error("geometry_overflow", path + "/rect",
                                         "Expanded shadow bounds must fit finite float coordinates.");
                     }

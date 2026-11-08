@@ -1473,6 +1473,19 @@ void cpu_reference_fixtures(Host& host) {
          tessera::DrawShadow{{{0, 0}, {7, 5}}, {.6f, .1f, .2f, .4f}, 1, 2}, tessera::PopTransform{},
          tessera::DrawShadow{{{26.125f, 20.125f}, {3, 5}}, {.7f, .6f, .2f, .5f}, 0, 0},
          tessera::DrawShadow{{{0, 0}, {0, 32}}, {1, 0, 0, 1}, 0, 4}}};
+    const tessera::UiDrawList inset_shadows{
+        {tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}},
+         tessera::DrawRect{{{5.125f, 3.125f}, {20, 12}}, {204.f / 255, 217.f / 255, 229.f / 255, 1}, 4},
+         tessera::DrawShadow{{{5.125f, 3.125f}, {20, 12}}, {.05f, .1f, .2f, .5f}, 4, 3, true, {1, 2}},
+         tessera::DrawBorder{{{5.125f, 3.125f}, {20, 12}}, {1, 1, 1, 1}, {.4f, .5f, .6f, .5f}, 4},
+         tessera::PushClip{{{1.125f, 18.125f}, {29.75f, 12.75f}}},
+         tessera::PushTransform{{-1, 0, .25f, 1, 28.125f, 18.125f}},
+         tessera::DrawShadow{{{0, 0}, {12, 8}}, {.1f, .4f, .2f, .5f}, 100, 3, true, {-1, 1}}, tessera::PopTransform{},
+         tessera::PopClip{}, tessera::PushTransform{{0, 1, -1, .25f, 12.125f, 19.125f}},
+         tessera::DrawShadow{{{0, 0}, {7, 5}}, {.6f, .1f, .2f, .4f}, 1, 2, true, {1, -1}}, tessera::PopTransform{},
+         tessera::DrawShadow{{{26.125f, 20.125f}, {3, 5}}, {.7f, .6f, .2f, .5f}, 0, 0, true, {1, 1}},
+         tessera::DrawShadow{{{26.125f, 26.125f}, {3, 3}}, {.7f, .6f, .2f, .5f}, 100, 2, true, {100, -100}},
+         tessera::DrawShadow{{{0, 0}, {0, 32}}, {1, 0, 0, 1}, 0, 4, true, {1, 1}}}};
     auto multi_gradients = gradients;
     std::get<tessera::LinearGradient>(*std::get<tessera::DrawRect>(multi_gradients.commands[1]).gradient).stops = {
         {.1f, {1, 0, 0, 0}},
@@ -1592,7 +1605,7 @@ void cpu_reference_fixtures(Host& host) {
             compare(actual, expected.value->pixels, {extent.width, extent.height}, batched ? "batch" : "reference",
                     scale);
             gpu.retire(frame++);
-            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 8> gradient_scenes{
+            const std::array<std::pair<const char*, const tessera::UiDrawList*>, 9> gradient_scenes{
                 {{"gradient", &gradients},
                  {"multi-gradient", &multi_gradients},
                  {"hard-gradient", &hard_gradients},
@@ -1600,13 +1613,15 @@ void cpu_reference_fixtures(Host& host) {
                  {"radial-multi", &radial_multi},
                  {"radial-hard", &radial_hard},
                  {"radial-transform", &radial_transform},
-                 {"shadow", &shadows}}};
+                 {"shadow", &shadows},
+                 {"inset-shadow", &inset_shadows}}};
             for (const auto& [name, scene] : gradient_scenes) {
                 const auto gradient_pixels = cpu.capture({0, {32, 32}, scale, extent, scene});
                 check(bool(gradient_pixels), "CPU gradient comparison capture rejected");
                 std::vector<std::uint8_t> previous;
-                const bool retained = batched || (scene != &gradients && scene != &radial_gradients &&
-                                                  scene != &radial_transform && scene != &shadows);
+                const bool retained =
+                    batched || (scene != &gradients && scene != &radial_gradients && scene != &radial_transform &&
+                                scene != &shadows && scene != &inset_shadows);
                 for (int repeat = 0; repeat < 2; ++repeat) {
                     host.begin(gpu);
                     const auto pending = gpu.pending_uploads();
@@ -1652,6 +1667,17 @@ void cpu_reference_fixtures(Host& host) {
                               "/commands/0/softness") &&
                               gpu.pending_uploads() == pending,
                           "Unrepresentable shadow softness must reject without consuming the frame");
+                    invalid_shadow.inset = true;
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid_shadow}}), "geometry_overflow",
+                              "/commands/0/softness") &&
+                              gpu.pending_uploads() == pending,
+                          "Unrepresentable inset softness must preserve frame and upload state");
+                    invalid_shadow.softness = 2;
+                    invalid_shadow.offset = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+                    check(has(gpu.submit({frame, {32, 32}, scale}, {{invalid_shadow}}), "geometry_overflow",
+                              "/commands/0/softness") &&
+                              gpu.pending_uploads() == pending,
+                          "Unrepresentable inset distances must reject before GPU recording");
                     check(gpu.submit({frame, {32, 32}, scale}, *scene).empty(), "GPU visual submission rejected");
                     check(gpu.pending_uploads() == (retained ? std::size_t(repeat + 1) : 0),
                           "Both paths must retain independent per-frame stop uploads until retirement");

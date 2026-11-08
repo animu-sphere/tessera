@@ -31,7 +31,7 @@ The context target is the selected-item button, not arbitrary unselected hierarc
 
 ## Application appearance
 
-The ordinary form now uses a larger heading, a white rounded Hierarchy panel, muted property labels and compact multiline help. Hierarchy rows have a 30-unit minimum height; the controlled selection has a blue fill and white text, while keyboard focus has a separate inside border. Buttons, name editing, the enabled value, rounded Slider parts and padded item menus share the blue-gray palette. The property card retains its radial highlight and outer shadow.
+The ordinary form now uses a larger heading, a white rounded Hierarchy panel, muted property labels and compact multiline help. Hierarchy rows have a 30-unit minimum height; the controlled selection has a blue fill and white text, while keyboard focus has a separate inside border. Buttons, name editing, the enabled value, rounded Slider parts and padded item menus share the blue-gray palette. The property card retains its radial highlight and outer shadow; the name input has a subtle inset shadow.
 
 The application-local stylesheet targets public author IDs and classes, including the documented generated TreeView, Slider and Menu IDs. Hover, active and focus rules change paint only: their borders already reserve space in the base styles. The host resolves feedback against the accepted tree and layout, then prepares paint and inspection together before replacing either. Stationary hover survives ordinary view replacements through the existing compatible pointer policy; pointer release/cancellation clears active feedback, including the custom Slider drag. Hover never edits item data or publishes a command generation.
 
@@ -72,6 +72,18 @@ The same card now casts a subtle blue-gray shadow below its radial highlight:
 The offset and softness are logical units. This single [distance-based outer shadow](../architecture/rendering.md#implemented-box-shadows) has finite smooth falloff, not a Gaussian blur. It follows the card's 12-unit corner radius, paints before the fill/border and uses the ordinary pane/window clip. The existing layout and hit-test/scroll bounds stay unchanged, so the pane edges trim the halo and its lower portion occupies the existing gap beneath the card.
 
 An explicit empty `optional<BoxShadow>` clears the style or theme effect. CPU and Vulkan reference/batch render the same contract without an image or offscreen pass. The window-free smoke compares actual shadow/no-shadow pixels at scales 1, 1.25, 1.5 and 2 and checks that the opaque radial interior stays unchanged; ordinary Replay reproduces the shadow together with retained edits, scrolling and resizing.
+
+## Name input inset shadow
+
+Display name uses the same ordinary shadow property with `inset` enabled:
+
+```cpp
+.box_shadow = BoxShadow{{0, 1}, 4, {.18f, .22f, .38f, .2f}, true}
+```
+
+The one-unit downward cutout offset emphasizes the top edge; four-unit finite falloff gives the white input a recessed appearance. The [distance-based inset contract](../architecture/rendering.md#implemented-box-shadows) clips the shadow to the input's six-unit rounded border box and paints it above the fill, below the focus border and text. It is not Gaussian blur or CSS padding-box shadow placement. It does not change padding, layout, hit testing, caret/selection, editing or pane minima, and hover/focus retain the effect.
+
+The window-free smoke checks actual interior darkening at scales 1, 1.25, 1.5 and 2 with unchanged outside and center pixels, plus paint order, authored parameters and stable focus/hover geometry. Existing edit/select/return, scroll/resize, rejection, clipboard and Replay checks remain in the same consumer; the injected Windows smoke presents the full CPU-rendered form. GPU owner fixtures validate the built-in effect, not this application's white-filled pixels or glyphs.
 
 ## Host and observation boundary
 

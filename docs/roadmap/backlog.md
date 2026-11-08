@@ -114,7 +114,7 @@ See [text](../architecture/text.md), [localization](#later--localization-and-int
 
 Improve ordinary screens and enable distinctive GPU visuals through the [Look proposal](../proposals/look.md):
 
-- Visual basics beyond linear/radial gradients and distance-based outer shadows: useful blurred/inset-shadow, stroke and text-decoration improvements.
+- Visual basics beyond linear/radial gradients and distance-based outer/inset shadows: useful blurred-shadow, stroke and text-decoration improvements.
 - Built-in analytic/SDF shapes and coverage; Slang procedural fills with explicit parameters and capabilities.
 - Custom SDF and host-clock motion; masks, blur and offscreen composition when a visual outcome needs them.
 - A representative screen that grows with the features rather than a demo or snapshot catalog per effect.

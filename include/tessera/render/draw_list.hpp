@@ -79,10 +79,12 @@ struct PopTransform {
     bool operator==(const PopTransform&) const = default;
 };
 struct DrawShadow {
-    Rect rect; // Offset caster box, before expansion by softness.
+    Rect rect; // Outer: offset caster. Inset: unshifted rounded clipping box.
     Color color;
     float corner_radius = 0;
     float softness = 0;
+    bool inset = false;
+    Point offset{}; // Inset cutout translation; must be zero for outer shadows.
     bool operator==(const DrawShadow&) const = default;
 };
 

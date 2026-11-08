@@ -111,6 +111,7 @@ StyleSheet appearance(const State& state) {
           {.background = Color{.94f, .95f, .97f, 1}, .color = Color{.45f, .49f, .56f, 1}}},
          {StyleSelector::of_class("section-title"), {.text = {.size = 14.f}, .color = Color{.32f, .4f, .54f, 1}}},
          {StyleSelector::of_class("muted"), {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}},
+         {StyleSelector::of_id("name"), {.box_shadow = BoxShadow{{0, 1}, 4, {.18f, .22f, .38f, .2f}, true}}},
          {StyleSelector::of_id("actions"), {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}}},
          {StyleSelector::of_id("actions", {.hover = true}), {.background = Color{.16f, .28f, .56f, 1}}},
          {StyleSelector::of_id("actions", {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}},
@@ -1327,10 +1328,59 @@ void shadow_card_smoke() {
     }
 }
 
+void inset_name_smoke() {
+    App app;
+    const auto box = app.view.box("name");
+    const auto shadow_at =
+        std::find_if(app.view.paint.commands.begin(), app.view.paint.commands.end(), [&](const auto& command) {
+            const auto* shadow = std::get_if<DrawShadow>(&command);
+            return shadow && shadow->inset && shadow->rect == box.border_box;
+        });
+    require(shadow_at != app.view.paint.commands.end() && shadow_at != app.view.paint.commands.begin() &&
+                shadow_at + 1 != app.view.paint.commands.end() && std::holds_alternative<DrawRect>(*(shadow_at - 1)) &&
+                std::holds_alternative<DrawBorder>(*(shadow_at + 1)),
+            "Inspector name inset must paint between its fill and inside border");
+    auto shadow = std::get<DrawShadow>(*shadow_at);
+    auto fill = std::get<DrawRect>(*(shadow_at - 1));
+    auto border = std::get<DrawBorder>(*(shadow_at + 1));
+    require(shadow.softness == 4 && shadow.offset == Point{0, 1} && shadow.corner_radius == 6 && shadow.color.a == .2f,
+            "Inspector name must retain its authored inset softness, direction, radius and alpha");
+    shadow.rect.origin = fill.rect.origin = border.rect.origin = {4, 4};
+    const Size viewport{shadow.rect.size.width + 8, shadow.rect.size.height + 8};
+    const UiDrawList plain{{DrawRect{{{}, viewport}, {1, 1, 1, 1}}, fill, border}};
+    const UiDrawList decorated{{DrawRect{{{}, viewport}, {1, 1, 1, 1}}, fill, shadow, border}};
+    CpuFrameCapture frames;
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        const auto extent = take(capture_extent(viewport, scale));
+        const auto baseline = take(frames.capture({0, viewport, scale, extent, &plain}));
+        const auto actual = take(frames.capture({0, viewport, scale, extent, &decorated}));
+        std::size_t darkened = 0;
+        for (unsigned y = 0; y < extent.height; ++y)
+            for (unsigned x = 0; x < extent.width; ++x) {
+                const auto at = (std::size_t(y) * extent.width + x) * 4;
+                const double lx = (x + .5) / scale - 4, ly = (y + .5) / scale - 4;
+                if (actual.pixels[at] < baseline.pixels[at]) ++darkened;
+                if (lx < 0 || ly < 0 || lx >= shadow.rect.size.width || ly >= shadow.rect.size.height ||
+                    (lx > 8 && ly > 8 && lx < shadow.rect.size.width - 8 && ly < shadow.rect.size.height - 8))
+                    require(actual.pixels[at] == baseline.pixels[at],
+                            "Name inset must preserve outside pixels and the readable center");
+            }
+        require(darkened >= 16, "Name inset must visibly darken actual interior pixels at every scale");
+    }
+    const auto accepted = app.state.items;
+    app.focus_id("name");
+    app.input({0us, PointerMove{{1}, app.view.center("name")}}, CommandSource::pointer);
+    require(app.view.styles[app.view.tree->find("name")->index].box_shadow ==
+                    BoxShadow{{0, 1}, 4, {.18f, .22f, .38f, .2f}, true} &&
+                app.state.items == accepted && app.view.box("name").border_box == box.border_box,
+            "Focus and hover must retain the inset, editing data and name geometry");
+}
+
 void smoke() {
     appearance_smoke();
     gradient_card_smoke();
     shadow_card_smoke();
+    inset_name_smoke();
     edit_rejection_smoke();
     clipboard_smoke();
     cut_smoke();

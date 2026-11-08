@@ -223,6 +223,12 @@ void shadow_tokens() {
     auto result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
     check(result && result.value->at(1).box_shadow == shadow && !result.value->at(2).box_shadow,
           "Typed shadow tokens must reach their destination without inheriting");
+    auto inset = shadow;
+    inset.inset = true;
+    theme.variables[0].value = ThemeValue{std::optional<BoxShadow>{inset}};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).box_shadow == inset && !result.value->at(2).box_shadow,
+          "Typed tokens must replace outer shadows with inset shadows without inheriting");
     theme.variables[0].value = ThemeValue{std::optional<BoxShadow>{}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
     check(result && !result.value->at(1).box_shadow, "Empty shadow tokens must clear the effect");

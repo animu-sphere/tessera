@@ -233,10 +233,12 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
     s.border_color = color(o.at("border_color"), path + "/border_color");
     if (const auto field = o.find("box_shadow"); field != o.end()) {
         const auto at = path + "/box_shadow";
-        const auto& shadow = object(field->second, at, {"offset", "softness", "color"});
+        const auto& shadow = object(field->second, at, {"offset", "softness", "color"}, {"inset"});
         s.box_shadow =
             BoxShadow{point(shadow.at("offset"), at + "/offset"), real(shadow.at("softness"), at + "/softness"),
                       color(shadow.at("color"), at + "/color")};
+        if (const auto inset = shadow.find("inset"); inset != shadow.end())
+            s.box_shadow->inset = boolean(inset->second, at + "/inset");
     }
     s.corner_radius = real(o.at("corner_radius"), path + "/corner_radius");
     const auto text_path = path + "/text";
@@ -625,9 +627,11 @@ JsonValue style_json(const ResolvedStyle& s) {
     }
     if (s.box_shadow) {
         const auto& shadow = *s.box_shadow;
-        result["box_shadow"] = JsonValue{Object{{"offset", point_json(shadow.offset)},
-                                                {"softness", real_json(shadow.softness)},
-                                                {"color", color_json(shadow.color)}}};
+        Object fields{{"offset", point_json(shadow.offset)},
+                      {"softness", real_json(shadow.softness)},
+                      {"color", color_json(shadow.color)}};
+        if (shadow.inset) fields["inset"] = JsonValue{true};
+        result["box_shadow"] = JsonValue{std::move(fields)};
     }
     return JsonValue{std::move(result)};
 }

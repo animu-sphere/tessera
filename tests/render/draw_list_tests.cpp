@@ -85,6 +85,18 @@ void shadows() {
           "Nonfinite softness must report once");
     shadow.softness = 0;
     check(tessera::validate(tessera::UiDrawList{{shadow}}).empty(), "Hard shadows must be valid");
+    shadow.inset = true;
+    shadow.offset = {-2, 4};
+    shadow.softness = std::numeric_limits<float>::max();
+    check(tessera::validate(tessera::UiDrawList{{shadow}}).empty(), "Inset softness must not expand the clipping box");
+    shadow.offset.x = NAN;
+    check(has(tessera::validate(tessera::UiDrawList{{shadow}}), "invalid_number", "/commands/0/offset/x"),
+          "Inset cutout offsets must reject nonfinite coordinates");
+    shadow.offset = {1, 0};
+    shadow.inset = false;
+    shadow.softness = 1;
+    check(has(tessera::validate(tessera::UiDrawList{{shadow}}), "out_of_range", "/commands/0/offset"),
+          "Outer shadows must not silently ignore inset-only offsets");
 }
 
 void frame_info() {

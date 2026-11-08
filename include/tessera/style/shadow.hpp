@@ -5,11 +5,12 @@
 
 namespace tessera {
 
-// Finite distance-based outer shadow, not a Gaussian blur.
+// Finite distance-based shadow, not a Gaussian blur.
 struct BoxShadow {
     Point offset;
     float softness = 0;
     Color color;
+    bool inset = false;
     bool operator==(const BoxShadow&) const = default;
 };
 
