@@ -164,7 +164,7 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                              "border",  "padding",    "gap",          "grow",          "shrink",     "visibility",
                              "opacity", "background", "border_color", "corner_radius", "text",       "color"},
                {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap",
-                "grid_horizontal", "grid_vertical", "background_gradient", "box_shadow"});
+                "grid_horizontal", "grid_vertical", "background_gradient", "box_shadow", "outline"});
     ResolvedStyle s;
     s.display = choice<Display>(o.at("display"), path + "/display", display_names);
     s.direction = choice<FlexDirection>(o.at("direction"), path + "/direction", direction_names);
@@ -239,6 +239,15 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                       color(shadow.at("color"), at + "/color")};
         if (const auto inset = shadow.find("inset"); inset != shadow.end())
             s.box_shadow->inset = boolean(inset->second, at + "/inset");
+    }
+    if (const auto field = o.find("outline"); field != o.end()) {
+        const auto at = path + "/outline";
+        const auto& outline =
+            object(field->second, at, {"width", "offset", "color", "dash_length", "gap_length", "dash_offset"});
+        s.outline = Outline{
+            real(outline.at("width"), at + "/width"),           real(outline.at("offset"), at + "/offset"),
+            color(outline.at("color"), at + "/color"),          real(outline.at("dash_length"), at + "/dash_length"),
+            real(outline.at("gap_length"), at + "/gap_length"), real(outline.at("dash_offset"), at + "/dash_offset")};
     }
     s.corner_radius = real(o.at("corner_radius"), path + "/corner_radius");
     const auto text_path = path + "/text";
@@ -632,6 +641,15 @@ JsonValue style_json(const ResolvedStyle& s) {
                       {"color", color_json(shadow.color)}};
         if (shadow.inset) fields["inset"] = JsonValue{true};
         result["box_shadow"] = JsonValue{std::move(fields)};
+    }
+    if (s.outline) {
+        const auto& outline = *s.outline;
+        result["outline"] = JsonValue{Object{{"width", real_json(outline.width)},
+                                             {"offset", real_json(outline.offset)},
+                                             {"color", color_json(outline.color)},
+                                             {"dash_length", real_json(outline.dash_length)},
+                                             {"gap_length", real_json(outline.gap_length)},
+                                             {"dash_offset", real_json(outline.dash_offset)}}};
     }
     return JsonValue{std::move(result)};
 }

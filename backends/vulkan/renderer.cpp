@@ -1,6 +1,7 @@
 #include <tessera/vulkan/renderer.hpp>
 #include "placeholder_glyph.hpp"
 #include "../../src/detail/shadow.hpp"
+#include "../../src/detail/stroke.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -566,6 +567,34 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                     }
                 } else {
                     auto rect = command.rect;
+                    std::array<float, 2> stroke_fringe{};
+                    if constexpr (std::is_same_v<T, DrawStroke>) {
+                        const auto& t = state.transform;
+                        const double det = (double(t.a) * t.d - double(t.b) * t.c) * frame.device_scale;
+                        const double fx = (std::abs(double(t.d)) + std::abs(double(t.c))) / std::abs(det) * .5;
+                        const double fy = (std::abs(double(t.b)) + std::abs(double(t.a))) / std::abs(det) * .5;
+                        const auto expanded = detail::expanded_stroke_bounds(rect, fx, fy);
+                        const double period = double(command.dash_length) + command.gap_length;
+                        const double perimeter = 2 * double(rect.size.width) + 2 * double(rect.size.height);
+                        const float shader_det = t.a * t.d - t.b * t.c;
+                        const float shader_scaled_det = shader_det * frame.device_scale;
+                        bool precise = std::isnormal(shader_det) && std::isnormal(shader_scaled_det) &&
+                                       std::isnormal(1 / frame.device_scale);
+                        for (float value : {command.width, command.corner_radius, command.dash_length,
+                                            command.gap_length, t.a, t.b, t.c, t.d})
+                            precise &= value == 0 || std::abs(value) >= std::numeric_limits<float>::min();
+                        for (float value : {rect.size.width, rect.size.height})
+                            precise &= value == 0 || value >= std::numeric_limits<float>::min();
+                        if (!expanded || !representable(fx) || !representable(fy) ||
+                            !representable(perimeter + period) || !precise ||
+                            (command.gap_length > 0 && perimeter / period > 1048576)) {
+                            errors.push_back(error("geometry_overflow", path,
+                                                   "Stroke bounds, coverage or dash period exceed shader precision."));
+                            return;
+                        }
+                        rect = *expanded;
+                        stroke_fringe = {float(fx), float(fy)};
+                    }
                     if constexpr (std::is_same_v<T, DrawShadow>) {
                         rect = *detail::shadow_bounds(rect, command.softness, command.inset);
                         const double softness = command.softness;
@@ -648,6 +677,14 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                             data.params[1] = command.inset ? 10.f : 9.f;
                             data.source = {command.softness, command.softness > 0 ? 1 / command.softness : 0,
                                            command.offset.x, command.offset.y};
+                        }
+                        if constexpr (std::is_same_v<T, DrawStroke>) {
+                            data.params[1] = 11;
+                            const double period = double(command.dash_length) + command.gap_length;
+                            double phase = period > 0 ? std::fmod(double(command.dash_offset), period) : 0;
+                            if (phase < 0) phase += period;
+                            data.widths = {command.width, command.dash_length, command.gap_length, float(phase)};
+                            data.source = {stroke_fringe[0], stroke_fringe[1], 0, 0};
                         }
                     }
                     data.color = {linear(color.r), linear(color.g), linear(color.b), color.a};

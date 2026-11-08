@@ -127,6 +127,29 @@ void test_gradients() {
           "Radial style geometry must validate before resolution");
 }
 
+void test_outlines() {
+    const auto tree = menu();
+    const tessera::Outline outline{1.5f, 1, blue, 4, 2, -1};
+    tessera::StyleSheet sheet{{{tessera::StyleSelector::of_class("button", {.focus = true}), {.outline = outline}}}};
+    auto resolved = resolve(*tree, sheet, {.focused = *tree->find("a")});
+    check(resolved["a"].outline == outline && !resolved["a-label"].outline && !resolved["b"].outline,
+          "Focus outlines must be local, typed decoration rather than inherited layout state");
+    sheet.rules.push_back({tessera::StyleSelector::of_id("a"), {.outline = std::optional<tessera::Outline>{}}});
+    check(resolve(*tree, sheet, {.focused = *tree->find("a")})["a"].outline == outline,
+          "State outlines must follow the existing base/state cascade");
+    std::vector<tessera::StyleDeclarations> overrides(tree->size());
+    overrides[tree->find("a")->index].outline = std::optional<tessera::Outline>{};
+    check(!resolve(*tree, sheet, {.focused = *tree->find("a")}, overrides)["a"].outline,
+          "Instance overrides must explicitly clear outlines");
+    tessera::StyleDeclarations invalid;
+    invalid.outline = outline;
+    invalid.outline->value().offset = -1;
+    invalid.outline->value().gap_length = NAN;
+    check(has(tessera::validate(invalid), "out_of_range", "/outline/offset") &&
+              has(tessera::validate(invalid), "invalid_number", "/outline/gap_length"),
+          "Outline declarations must use located shared validation");
+}
+
 void test_shadows() {
     const auto tree = menu();
     const tessera::BoxShadow shadow{{-2, 4}, 8, {.2f, .3f, .4f, .5f}};
@@ -324,6 +347,7 @@ int main() {
         test_selectors_and_order();
         test_gradients();
         test_shadows();
+        test_outlines();
         test_inheritance();
         test_states();
         test_overrides();

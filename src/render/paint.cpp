@@ -2,6 +2,7 @@
 #include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
+#include "../detail/stroke.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -88,6 +89,27 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         const auto border = faded(style.border_color, opacity);
         if (border.a > 0 && has_border(box.border))
             commands.commands.push_back(DrawBorder{box.border_box, box.border, border, style.corner_radius});
+        if (style.outline && style.outline->width > 0 && style.outline->color.a > 0 && box.border_box.size.width > 0 &&
+            box.border_box.size.height > 0) {
+            const auto& outline = *style.outline;
+            const double expansion = double(outline.offset) + outline.width;
+            const auto rect = detail::expanded_stroke_bounds(box.border_box, expansion, expansion);
+            const double radius = style.corner_radius == 0
+                                      ? 0
+                                      : std::min(double(style.corner_radius),
+                                                 std::min(box.border_box.size.width, box.border_box.size.height) * .5) +
+                                            expansion;
+            if (!rect || radius > std::numeric_limits<float>::max())
+                diagnostics.push_back({"geometry_overflow",
+                                       Severity::error,
+                                       "/nodes/" + std::to_string(box.node.index) + "/outline",
+                                       "Expanded outline geometry must fit finite float coordinates.",
+                                       {}});
+            else
+                commands.commands.push_back(DrawStroke{*rect, faded(outline.color, opacity), outline.width,
+                                                       float(radius), outline.dash_length, outline.gap_length,
+                                                       outline.dash_offset});
+        }
         const auto& node = *input.tree->get(box.node);
         const auto color = faded(style.color, opacity);
         const auto path = "/nodes/" + std::to_string(box.node.index);

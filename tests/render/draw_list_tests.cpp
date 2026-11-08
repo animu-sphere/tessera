@@ -99,6 +99,21 @@ void shadows() {
           "Outer shadows must not silently ignore inset-only offsets");
 }
 
+void strokes() {
+    tessera::DrawStroke stroke{{{2, 2}, {20, 10}}, {1, 1, 1, 1}, 1, 4, 3, 2, -7};
+    check(tessera::validate(tessera::UiDrawList{{stroke}}).empty(), "Valid rounded dashed stroke rejected");
+    stroke.width = -1;
+    stroke.corner_radius = NAN;
+    stroke.dash_offset = INFINITY;
+    stroke.dash_length = 0;
+    const auto errors = tessera::validate(tessera::UiDrawList{{stroke}});
+    check(errors.size() == 4 && has(errors, "out_of_range", "/commands/0/width") &&
+              has(errors, "invalid_number", "/commands/0/corner_radius") &&
+              has(errors, "invalid_number", "/commands/0/dash_offset") &&
+              has(errors, "invalid_dash", "/commands/0/dash_length"),
+          "Stroke geometry and degenerate dash patterns must reject with exact locations");
+}
+
 void frame_info() {
     check(tessera::validate(tessera::FrameInfo{1, {800, 600}, 1.5f}).empty(), "Valid frame rejected");
     const auto errors = tessera::validate(tessera::FrameInfo{});
@@ -174,6 +189,7 @@ int main() {
         frame_info();
         gradients();
         shadows();
+        strokes();
         std::cout << "Draw-list order/stack/resource-handle and frame checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

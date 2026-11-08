@@ -215,6 +215,28 @@ void exact_types_and_destinations() {
     check(!resolve_styles({ui.get(), &wrong, {}, {}, &theme}), "Infinity is allowed only at a valid destination");
 }
 
+void outline_tokens() {
+    const auto ui = tree();
+    const Outline outline{1.5f, 1, blue, 4, 2, -1};
+    Theme theme{{{"outline", ThemeValue{std::optional<Outline>{outline}}}}};
+    StyleSheet sheet{{{StyleSelector::of_id("button"), {}, {binding("outline", "outline")}}}};
+    auto result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).outline == outline && !result.value->at(2).outline,
+          "Typed outline tokens must reach their destination without inheriting");
+    theme.variables[0].value = ThemeValue{std::optional<Outline>{}};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && !result.value->at(1).outline, "Empty outline tokens must clear the decoration");
+    auto invalid = outline;
+    invalid.dash_length = 0;
+    theme.variables[0].value = ThemeValue{std::optional<Outline>{invalid}};
+    check(has(validate(theme), "invalid_dash", "/theme/variables/0/value/dash_length"),
+          "Invalid outline tokens must reject even before binding");
+    theme.variables[0].value = ThemeValue{1.f};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(!result && has(result.diagnostics, "theme_type", "/sheet/rules/0/variables/0/variable"),
+          "Outline tokens must not coerce numeric values");
+}
+
 void shadow_tokens() {
     const auto ui = tree();
     const BoxShadow shadow{{-2, 4}, 8, {.2f, .3f, .4f, .5f}};
@@ -429,6 +451,7 @@ void component_presentation_and_rejected_switch() {
 int main() {
     try {
         shadow_tokens();
+        outline_tokens();
         cascade_and_inheritance();
         exact_types_and_destinations();
         diagnostic_and_candidate_boundaries();

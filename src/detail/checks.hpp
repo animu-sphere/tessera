@@ -3,6 +3,7 @@
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
 #include <tessera/style/gradient.hpp>
+#include <tessera/style/outline.hpp>
 #include <tessera/style/shadow.hpp>
 #include <tessera/ui/document.hpp>
 #include <cmath>
@@ -71,6 +72,19 @@ public:
     void shadow(const BoxShadow& value, const std::string& path) {
         point(value.offset, path + "/offset");
         non_negative(value.softness, path + "/softness");
+        color(value.color, path + "/color");
+    }
+    void stroke(float width, float dash, float gap, float offset, const std::string& path) {
+        non_negative(width, path + "/width");
+        non_negative(dash, path + "/dash_length");
+        non_negative(gap, path + "/gap_length");
+        finite(offset, path + "/dash_offset");
+        if (dash == 0 && gap > 0)
+            error("invalid_dash", path + "/dash_length", "Use a positive dash length when a gap is present.");
+    }
+    void outline(const Outline& value, const std::string& path) {
+        stroke(value.width, value.dash_length, value.gap_length, value.dash_offset, path);
+        non_negative(value.offset, path + "/offset");
         color(value.color, path + "/color");
     }
 

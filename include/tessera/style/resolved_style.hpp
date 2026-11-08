@@ -3,6 +3,7 @@
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
 #include <tessera/style/gradient.hpp>
+#include <tessera/style/outline.hpp>
 #include <tessera/style/shadow.hpp>
 #include <tessera/text/text.hpp>
 #include <tessera/ui/document.hpp>
@@ -93,6 +94,7 @@ struct ResolvedStyle {
     // Replaces background when present; not inherited.
     std::optional<Gradient> background_gradient;
     std::optional<BoxShadow> box_shadow;
+    std::optional<Outline> outline;
 
     bool operator==(const ResolvedStyle&) const = default;
 };

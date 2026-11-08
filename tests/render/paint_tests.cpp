@@ -210,6 +210,43 @@ void gradient_backgrounds() {
           "Removing a gradient must restore the ordinary solid background");
 }
 
+void outlines() {
+    Fixture f(box({box()}));
+    auto& style = f.styles[0];
+    style.background = {1, 1, 1, 1};
+    style.border = {1, 1, 1, 1};
+    style.border_color = {0, 0, 1, 1};
+    style.corner_radius = 100;
+    style.opacity = .5f;
+    style.outline = tessera::Outline{2, 3, {1, 0, 0, .8f}, 4, 2, -1};
+    f.compute({40, 20});
+    const auto boxes = f.layout.boxes;
+    const auto list = f.paint();
+    check(list.commands.size() == 3 && std::holds_alternative<tessera::DrawBorder>(list.commands[1]),
+          "Outlines must follow the background and unchanged inside border");
+    const auto& stroke = std::get<tessera::DrawStroke>(list.commands[2]);
+    check(stroke.rect == tessera::Rect{{-5, -5}, {50, 30}} && stroke.corner_radius == 15 && stroke.width == 2 &&
+              stroke.color == tessera::Color{1, 0, 0, .4f} && stroke.dash_length == 4 && stroke.gap_length == 2 &&
+              stroke.dash_offset == -1,
+          "Outline expansion must preserve the clamped box radius, gap, pattern and inherited alpha");
+    style.outline.reset();
+    f.compute({40, 20});
+    check(f.layout.boxes == boxes && f.paint().commands.size() == 2,
+          "Outlines must not alter layout boxes, padding, descendants or the legacy paint list when absent");
+    style.corner_radius = 0;
+    style.outline = tessera::Outline{1, 0, {1, 0, 0, 1}};
+    f.compute({40, 20});
+    check(std::get<tessera::DrawStroke>(f.paint().commands[2]).corner_radius == 0,
+          "Square outlines must retain square joins");
+    style.outline->width = 0;
+    check(f.paint().commands.size() == 2, "Zero-width outlines must not emit commands");
+    style.outline->width = 1;
+    style.outline->offset = std::numeric_limits<float>::max();
+    const auto rejected = tessera::build_paint_list(f.input());
+    check(!rejected && has(rejected.diagnostics, "geometry_overflow", "/nodes/0/outline"),
+          "Unrepresentable outside decoration must reject without a partial paint list");
+}
+
 void visibility_display_and_empty() {
     Fixture f(box({box({text("omitted")}), box({text("visible child")}), text(""), text("transparent")}));
     f.styles[0].background = {1, 0, 0, 1};
@@ -393,6 +430,7 @@ int main() {
         order_geometry_opacity_and_ownership();
         gradient_backgrounds();
         box_shadows();
+        outlines();
         visibility_display_and_empty();
         clip_runs();
         invalid_input_and_topology();

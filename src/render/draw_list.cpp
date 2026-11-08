@@ -37,13 +37,15 @@ std::vector<Diagnostic> validate(const UiDrawList& list) {
             [&](const auto& command) {
                 using T = std::decay_t<decltype(command)>;
                 if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawBorder> ||
-                              std::is_same_v<T, DrawShadow>) {
+                              std::is_same_v<T, DrawShadow> || std::is_same_v<T, DrawStroke>) {
                     check.rect(command.rect, path + "/rect");
                     check.color(command.color, path + "/color");
                     check.non_negative(command.corner_radius, path + "/corner_radius");
                     if constexpr (std::is_same_v<T, DrawRect>)
                         if (command.gradient) check.gradient(*command.gradient, path + "/gradient");
                     if constexpr (std::is_same_v<T, DrawBorder>) check.edges(command.widths, path + "/widths");
+                    if constexpr (std::is_same_v<T, DrawStroke>)
+                        check.stroke(command.width, command.dash_length, command.gap_length, command.dash_offset, path);
                     if constexpr (std::is_same_v<T, DrawShadow>) {
                         check.non_negative(command.softness, path + "/softness");
                         check.point(command.offset, path + "/offset");
