@@ -78,6 +78,8 @@ void apply(const StyleDeclarations& d, ResolvedStyle& s) {
     set(d.background_gradient, s.background_gradient);
     set(d.box_shadow, s.box_shadow);
     set(d.outline, s.outline);
+    set(d.background_shape, s.background_shape);
+    set(d.background_antialias, s.background_antialias);
     set(d.border_color, s.border_color);
     set(d.corner_radius, s.corner_radius);
     set(d.text.font, s.text.font);

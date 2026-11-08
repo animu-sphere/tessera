@@ -2,6 +2,7 @@
 
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
+#include <tessera/style/fill_shape.hpp>
 #include <tessera/style/gradient.hpp>
 #include <tessera/text/text.hpp>
 #include <tessera/ui/document.hpp>
@@ -39,6 +40,8 @@ struct DrawRect {
     Color color;
     float corner_radius = 0;
     std::optional<Gradient> gradient; // Replaces color when present.
+    FillShape shape = FillShape::rectangle;
+    bool antialias = false;
     bool operator==(const DrawRect&) const = default;
 };
 // Border painted inside rect.

@@ -237,6 +237,31 @@ void outline_tokens() {
           "Outline tokens must not coerce numeric values");
 }
 
+void fill_shape_tokens() {
+    const auto ui = tree();
+    Theme theme{{{"shape", ThemeValue{FillShape::ellipse}}, {"smooth", ThemeValue{true}}}};
+    StyleSheet sheet{{{StyleSelector::of_id("button"),
+                       {},
+                       {binding("background_shape", "shape"), binding("background_antialias", "smooth")}}}};
+    auto result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).background_shape == FillShape::ellipse &&
+              result.value->at(1).background_antialias && !result.value->at(2).background_antialias,
+          "Shape and boolean tokens must resolve through ordinary noninherited declarations");
+    theme.variables[0].value = ThemeValue{FillShape::rectangle};
+    theme.variables[1].value = ThemeValue{false};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).background_shape == FillShape::rectangle &&
+              !result.value->at(1).background_antialias,
+          "Default-valued tokens must replace the previous fill");
+    theme.variables[1].value = ThemeValue{1.f};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(!result && has(result.diagnostics, "theme_type", "/sheet/rules/0/variables/1/variable"),
+          "Numeric tokens must not coerce to boolean coverage");
+    theme.variables[0].value = ThemeValue{static_cast<FillShape>(255)};
+    check(has(validate(theme), "unknown_value", "/theme/variables/0/value"),
+          "Unknown shape tokens must validate before binding");
+}
+
 void shadow_tokens() {
     const auto ui = tree();
     const BoxShadow shadow{{-2, 4}, 8, {.2f, .3f, .4f, .5f}};
@@ -452,6 +477,7 @@ int main() {
     try {
         shadow_tokens();
         outline_tokens();
+        fill_shape_tokens();
         cascade_and_inheritance();
         exact_types_and_destinations();
         diagnostic_and_candidate_boundaries();

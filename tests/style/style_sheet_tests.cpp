@@ -150,6 +150,26 @@ void test_outlines() {
           "Outline declarations must use located shared validation");
 }
 
+void test_fill_shapes() {
+    const auto tree = menu();
+    tessera::StyleSheet sheet{{{tessera::StyleSelector::of_id("a"),
+                                {.background_shape = tessera::FillShape::ellipse, .background_antialias = true}}}};
+    const auto resolved = resolve(*tree, sheet);
+    check(resolved["a"].background_shape == tessera::FillShape::ellipse && resolved["a"].background_antialias &&
+              resolved["a-label"].background_shape == tessera::FillShape::rectangle &&
+              !resolved["a-label"].background_antialias,
+          "Fill shape and coverage must not inherit into children");
+    std::vector<tessera::StyleDeclarations> overrides(tree->size());
+    overrides[tree->find("a")->index] = {.background_shape = tessera::FillShape::rectangle,
+                                         .background_antialias = false};
+    const auto cleared = resolve(*tree, sheet, {}, overrides);
+    check(cleared["a"].background_shape == tessera::FillShape::rectangle && !cleared["a"].background_antialias,
+          "Instance declarations must restore rectangle and hard coverage explicitly");
+    overrides[0].background_shape = static_cast<tessera::FillShape>(255);
+    check(has(tessera::validate(overrides[0]), "unknown_value", "/background_shape"),
+          "Unknown fill shapes must reject with a located diagnostic");
+}
+
 void test_shadows() {
     const auto tree = menu();
     const tessera::BoxShadow shadow{{-2, 4}, 8, {.2f, .3f, .4f, .5f}};
@@ -348,6 +368,7 @@ int main() {
         test_gradients();
         test_shadows();
         test_outlines();
+        test_fill_shapes();
         test_inheritance();
         test_states();
         test_overrides();

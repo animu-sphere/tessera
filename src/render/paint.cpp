@@ -77,9 +77,20 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
                     for (std::size_t i = 0; i < fill.stop_count(); ++i) visible |= fill.stop(i).color.a > 0;
                 },
                 gradient);
-            if (visible) commands.commands.push_back(DrawRect{box.border_box, {}, style.corner_radius, gradient});
+            if (visible)
+                commands.commands.push_back(DrawRect{box.border_box,
+                                                     {},
+                                                     style.corner_radius,
+                                                     gradient,
+                                                     style.background_shape,
+                                                     style.background_antialias});
         } else if (background.a > 0) {
-            commands.commands.push_back(DrawRect{box.border_box, background, style.corner_radius});
+            commands.commands.push_back(DrawRect{box.border_box,
+                                                 background,
+                                                 style.corner_radius,
+                                                 {},
+                                                 style.background_shape,
+                                                 style.background_antialias});
         }
         if (style.box_shadow && style.box_shadow->inset && style.box_shadow->color.a > 0) {
             const auto& shadow = *style.box_shadow;

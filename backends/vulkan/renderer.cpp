@@ -568,32 +568,60 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                 } else {
                     auto rect = command.rect;
                     std::array<float, 2> stroke_fringe{};
-                    if constexpr (std::is_same_v<T, DrawStroke>) {
-                        const auto& t = state.transform;
-                        const double det = (double(t.a) * t.d - double(t.b) * t.c) * frame.device_scale;
-                        const double fx = (std::abs(double(t.d)) + std::abs(double(t.c))) / std::abs(det) * .5;
-                        const double fy = (std::abs(double(t.b)) + std::abs(double(t.a))) / std::abs(det) * .5;
-                        const auto expanded = detail::expanded_stroke_bounds(rect, fx, fy);
-                        const double period = double(command.dash_length) + command.gap_length;
-                        const double perimeter = 2 * double(rect.size.width) + 2 * double(rect.size.height);
-                        const float shader_det = t.a * t.d - t.b * t.c;
-                        const float shader_scaled_det = shader_det * frame.device_scale;
-                        bool precise = std::isnormal(shader_det) && std::isnormal(shader_scaled_det) &&
-                                       std::isnormal(1 / frame.device_scale);
-                        for (float value : {command.width, command.corner_radius, command.dash_length,
-                                            command.gap_length, t.a, t.b, t.c, t.d})
-                            precise &= value == 0 || std::abs(value) >= std::numeric_limits<float>::min();
-                        for (float value : {rect.size.width, rect.size.height})
-                            precise &= value == 0 || value >= std::numeric_limits<float>::min();
-                        if (!expanded || !representable(fx) || !representable(fy) ||
-                            !representable(perimeter + period) || !precise ||
-                            (command.gap_length > 0 && perimeter / period > 1048576)) {
-                            errors.push_back(error("geometry_overflow", path,
-                                                   "Stroke bounds, coverage or dash period exceed shader precision."));
+                    bool smooth = std::is_same_v<T, DrawStroke>;
+                    bool reconstruct = smooth;
+                    if constexpr (std::is_same_v<T, DrawRect>) {
+                        smooth = command.antialias;
+                        reconstruct = smooth || command.shape == FillShape::ellipse;
+                        if (command.shape == FillShape::ellipse &&
+                            ((command.rect.size.width > 0 &&
+                              command.rect.size.width < std::numeric_limits<float>::min()) ||
+                             (command.rect.size.height > 0 &&
+                              command.rect.size.height < std::numeric_limits<float>::min()))) {
+                            errors.push_back(error("geometry_overflow", path + "/shape",
+                                                   "Ellipse dimensions must not require subnormal shader arithmetic."));
                             return;
                         }
-                        rect = *expanded;
-                        stroke_fringe = {float(fx), float(fy)};
+                    }
+                    if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawStroke>) {
+                        if (reconstruct) {
+                            const auto& t = state.transform;
+                            const double det = (double(t.a) * t.d - double(t.b) * t.c) * frame.device_scale;
+                            const double fx = (std::abs(double(t.d)) + std::abs(double(t.c))) / std::abs(det) * .5;
+                            const double fy = (std::abs(double(t.b)) + std::abs(double(t.a))) / std::abs(det) * .5;
+                            const auto expanded = detail::expanded_stroke_bounds(rect, fx, fy);
+                            const float shader_det = t.a * t.d - t.b * t.c;
+                            const float shader_scaled_det = shader_det * frame.device_scale;
+                            bool precise = std::isnormal(shader_det) && std::isnormal(shader_scaled_det) &&
+                                           std::isnormal(1 / frame.device_scale);
+                            for (float value : {command.corner_radius, t.a, t.b, t.c, t.d})
+                                precise &= value == 0 || std::abs(value) >= std::numeric_limits<float>::min();
+                            for (float value : {rect.size.width, rect.size.height})
+                                precise &= value == 0 || value >= std::numeric_limits<float>::min();
+                            if constexpr (std::is_same_v<T, DrawRect>) {
+                                if (smooth && rect.size.width > 0 && rect.size.height > 0)
+                                    precise &= representable(1 + fx / rect.size.width) &&
+                                               representable(1 + fy / rect.size.height);
+                            }
+                            if constexpr (std::is_same_v<T, DrawStroke>) {
+                                const double period = double(command.dash_length) + command.gap_length;
+                                const double perimeter = 2 * double(rect.size.width) + 2 * double(rect.size.height);
+                                precise &= representable(perimeter + period) &&
+                                           (command.gap_length == 0 || perimeter / period <= 1048576);
+                                for (float value : {command.width, command.dash_length, command.gap_length})
+                                    precise &= value == 0 || value >= std::numeric_limits<float>::min();
+                            }
+                            if (!expanded || !representable(fx) || !representable(fy) || !precise) {
+                                errors.push_back(
+                                    error("geometry_overflow", path,
+                                          "Smooth bounds, coverage or dash period exceed shader precision."));
+                                return;
+                            }
+                            if (smooth) {
+                                rect = *expanded;
+                                stroke_fringe = {float(fx), float(fy)};
+                            }
+                        }
                     }
                     if constexpr (std::is_same_v<T, DrawShadow>) {
                         rect = *detail::shadow_bounds(rect, command.softness, command.inset);
@@ -689,6 +717,8 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                     }
                     data.color = {linear(color.r), linear(color.g), linear(color.b), color.a};
                     if constexpr (std::is_same_v<T, DrawRect>) {
+                        data.transform1[3] =
+                            float((command.shape == FillShape::ellipse ? 1 : 0) + (command.antialias ? 2 : 0));
                         if (command.gradient) {
                             std::visit(
                                 [&](const auto& g) {
@@ -711,8 +741,11 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                                         const double length2 = dx * dx + dy * dy;
                                         const double x = w * dx / length2, y = h * dy / length2;
                                         const double offset = -(double(g.start.x) * x + double(g.start.y) * y);
+                                        const double fringe_x = command.antialias ? stroke_fringe[0] / w : 0;
+                                        const double fringe_y = command.antialias ? stroke_fringe[1] / h : 0;
                                         if (!representable(x) || !representable(y) || !representable(offset) ||
-                                            !representable(std::abs(x) + std::abs(y) + std::abs(offset))) {
+                                            !representable(std::abs(x) * (1 + fringe_x) + std::abs(y) * (1 + fringe_y) +
+                                                           std::abs(offset))) {
                                             errors.push_back(
                                                 error("geometry_overflow", path + "/gradient",
                                                       "Gradient projection exceeds representable coordinates."));

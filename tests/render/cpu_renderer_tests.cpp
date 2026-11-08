@@ -146,6 +146,58 @@ void strokes() {
     check(capture(frames, {{thin}}, {16, 16}) == capture(frames, {}, {16, 16}), "Zero-area strokes must paint nothing");
 }
 
+void analytic_fills() {
+    CpuFrameCapture frames;
+    DrawRect circle{{{1, 1}, {4, 4}}, {1, 1, 1, 1}, 0, {}, FillShape::ellipse, true};
+    auto image = capture(frames, {{circle}});
+    check(pixel(image, 1, 1)[3] == 96 && pixel(image, 2, 2)[3] == 255 && pixel(image, 0, 0)[3] == 0,
+          "Circle must retain exact six-of-sixteen corner coverage");
+    circle.corner_radius = 100;
+    check(capture(frames, {{circle}}) == image, "Ellipse geometry must not depend on rectangle corner radius");
+    circle.antialias = false;
+    check(pixel(capture(frames, {{circle}}), 1, 1)[3] == 0,
+          "Hard ellipse coverage must remain an explicit center-sampled alternative");
+    DrawRect thin{{{1.25f, 1}, {.25f, 4}}, {1, 1, 1, 1}, 0, {}, FillShape::rectangle, true};
+    check(pixel(capture(frames, {{thin}}), 1, 2)[3] == 64,
+          "Quarter-pixel smooth fills must retain coverage instead of disappearing");
+    thin.rect = {{1.5f, 1}, {3, 4}};
+    check(pixel(capture(frames, {{thin}}), 1, 2)[3] == 128 && pixel(capture(frames, {{thin}}), 4, 2)[3] == 128,
+          "Smooth fill bounds must include both half-pixel coverage fringes");
+    DrawRect rounded{{{1, 1}, {4, 4}}, {1, 1, 1, 1}, 100, {}, FillShape::rectangle, true};
+    circle.antialias = true;
+    check(capture(frames, {{rounded}}) == image, "Clamped rounded rectangle must match its inscribed circle");
+    for (auto size : {Size{4, 4}, Size{6, 2}, Size{2, 6}})
+        for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+            DrawRect ellipse{{{1.25f, 1.25f}, size}, {0, 0, 1, .5f}, 0, {}, FillShape::ellipse, true};
+            const auto actual = capture(frames, {{ellipse}}, {10, 10}, scale);
+            for (unsigned y = 0; y < actual.extent.height; ++y)
+                for (unsigned x = 0; x < actual.extent.width; ++x) {
+                    unsigned count = 0;
+                    for (unsigned sy = 0; sy < 4; ++sy)
+                        for (unsigned sx = 0; sx < 4; ++sx) {
+                            const double px = ((x + (sx + .5) / 4) / scale - 1.25) / size.width;
+                            const double py = ((y + (sy + .5) / 4) / scale - 1.25) / size.height;
+                            count += px >= 0 && px < 1 && py >= 0 && py < 1 &&
+                                     (px - .5) * (px - .5) + (py - .5) * (py - .5) <= .25;
+                        }
+                    check(pixel(actual, x, y)[3] == std::uint8_t(std::lround(count * .5 / 16 * 255)),
+                          "Ellipse pixels must match the independent normalized quadratic oracle at four scales");
+                }
+            auto gradient = ellipse;
+            gradient.gradient = LinearGradient{{0, 0}, {1, 0}, {0, 0, 1, .5f}, {0, 0, 1, .5f}};
+            check(capture(frames, {{gradient}}, {10, 10}, scale) == actual,
+                  "Premultiplied gradient coverage must attenuate RGB and alpha exactly once");
+            const auto clipped = capture(frames, {{PushClip{{{3, 0}, {7, 10}}}, ellipse, PopClip{}}}, {10, 10}, scale);
+            for (unsigned y = 0; y < actual.extent.height; ++y)
+                for (unsigned x = 0; x < actual.extent.width; ++x)
+                    check(pixel(clipped, x, y) ==
+                              ((x + .5) / scale >= 3 ? pixel(actual, x, y) : std::array<std::uint8_t, 4>{}),
+                          "Clips must preserve whole-pixel center trimming and unshifted ellipse coverage");
+        }
+    circle.rect.size.width = 0;
+    check(capture(frames, {{circle}}) == capture(frames, {}), "Empty ellipse must not divide by zero or paint");
+}
+
 void linear_gradients() {
     CpuFrameCapture frames;
     DrawRect rect{{{0, 0}, {8, 8}}, {}, 3, LinearGradient{{.25f, 0}, {.75f, 0}, {1, 0, 0, 0}, {0, 0, 1, 1}}};
@@ -590,6 +642,7 @@ int main() {
     try {
         pixels_and_geometry();
         strokes();
+        analytic_fills();
         linear_gradients();
         multi_stop_gradients();
         radial_gradients();
