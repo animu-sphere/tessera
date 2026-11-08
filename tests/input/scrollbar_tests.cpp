@@ -136,9 +136,8 @@ struct Fixture {
     // Three units into the thumb along the main axis, centered across it.
     Point point(float shift = 0) const {
         const auto bounds = geometry().bounds;
-        return axis == horizontal
-                   ? Point{bounds.origin.x + 3 + shift, bounds.origin.y + bounds.size.height / 2}
-                   : Point{bounds.origin.x + bounds.size.width / 2, bounds.origin.y + 3 + shift};
+        return axis == horizontal ? Point{bounds.origin.x + 3 + shift, bounds.origin.y + bounds.size.height / 2}
+                                  : Point{bounds.origin.x + bounds.size.width / 2, bounds.origin.y + 3 + shift};
     }
     Point moved(Point point, float shift) const {
         main_axis(axis, point) += shift;
@@ -243,8 +242,7 @@ void capture_lifecycle(ScrollbarAxis axis, float scale) {
     const auto start = f.geometry();
     point = f.moved(point, 20);
     auto moved = send(PointerMove{{1}, point});
-    equal(f.along(moved.update->offset),
-          20 * start.maximum / (f.along(start.track.size) - f.along(start.bounds.size)),
+    equal(f.along(moved.update->offset), 20 * start.maximum / (f.along(start.track.size) - f.along(start.bounds.size)),
           "Logical drag mapping/grab offset differs");
     const auto old_thumb = start.thumb;
     f.apply(moved);

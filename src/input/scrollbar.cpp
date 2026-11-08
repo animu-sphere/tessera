@@ -41,13 +41,18 @@ Result<std::optional<ScrollbarGeometry>> scrollbar_geometry(const HitTestInput& 
     const auto before = input.tree->find(std::string(id) + "-before");
     const auto thumb = input.tree->find(std::string(id) + "-thumb");
     if (!before || !thumb || input.tree->children(*root) != std::vector<NodeHandle>{*before, *thumb})
-        return {std::nullopt,
-                {{"scrollbar_structure", Severity::error, "/id",
-                  "Keep the generated scrollbar before/thumb children."}}};
+        return {
+            std::nullopt,
+            {{"scrollbar_structure", Severity::error, "/id", "Keep the generated scrollbar before/thumb children."}}};
     // The generated track direction names the axis; an altered direction fails the viewport check below.
-    const auto axis = input.styles[root->index].direction == FlexDirection::row ? ScrollbarAxis::horizontal
-                                                                                : ScrollbarAxis::vertical;
-    ScrollbarGeometry view{axis, *container, *thumb, track->content_box(), {}, scroll->scroll->offset,
+    const auto axis =
+        input.styles[root->index].direction == FlexDirection::row ? ScrollbarAxis::horizontal : ScrollbarAxis::vertical;
+    ScrollbarGeometry view{axis,
+                           *container,
+                           *thumb,
+                           track->content_box(),
+                           {},
+                           scroll->scroll->offset,
                            along(axis, scroll->scroll_limit())};
     const auto* handle = box(*thumb);
     if (handle) view.bounds = handle->border_box;
@@ -97,9 +102,10 @@ Result<ScrollbarDispatchResult> ScrollbarDispatcher::refresh(const HitTestInput&
     const auto& view = **geometry.value;
     result.update = ScrollUpdate{view.container, view.offset};
     const auto* node = input.tree->get(view.thumb);
-    if (drag_ && (!view.enabled || drag_->axis != view.axis || drag_->thumb_size != along(view.axis, view.bounds.size) ||
-                  drag_->track_size != along(view.axis, view.track.size) || drag_->maximum != view.maximum ||
-                  node->events.at("activate") != drag_->action))
+    if (drag_ &&
+        (!view.enabled || drag_->axis != view.axis || drag_->thumb_size != along(view.axis, view.bounds.size) ||
+         drag_->track_size != along(view.axis, view.track.size) || drag_->maximum != view.maximum ||
+         node->events.at("activate") != drag_->action))
         reset();
     return {result, {}};
 }
