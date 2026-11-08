@@ -122,6 +122,7 @@ struct ListItem {
     bool disabled = false;
 };
 using MenuItem = ListItem;
+using RadioOption = ListItem;
 struct TreeItem {
     std::string key;
     std::string label;
@@ -166,6 +167,7 @@ private:
     friend Element Dialog(Value<std::string>, std::vector<Element>, DialogProps);
     friend Element ListView(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps);
     friend Element TreeView(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps);
+    friend Element RadioGroup(std::string, std::optional<std::string>, std::vector<RadioOption>, CollectionProps);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -219,6 +221,13 @@ Element HorizontalScrollbar(std::string label, float viewport, ScrollGeometry, s
 // Arrow navigation moves focus, Activate selects; tree Left/Right collapse/expand.
 Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem>, CollectionProps = {});
 Element TreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem>, CollectionProps = {});
+// Controlled single choice; nullopt means no option is checked. Each option is a radio
+// button with a "(o)"/"( )" marker; only its label names it. IDs: <id>-title,
+// <id>-option-<key> and <id>-label-<key>. A Column unless Props::style sets a direction.
+// Tab enters at the checked option; arrows move focus with wrapping and request the
+// newly focused option's action. Activate requests the focused option's action.
+Element RadioGroup(std::string label, std::optional<std::string> selected, std::vector<RadioOption> options,
+                   CollectionProps = {});
 // Controlled inline dropdown: host commands own expansion and selected key.
 // With a node ID, generated controls use <id>-trigger / <id>-option-<key>.
 // Options are ordinary buttons in layout, reached through normal focus/scroll.

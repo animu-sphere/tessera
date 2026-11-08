@@ -13,6 +13,7 @@ Run the owner tests for changed guarantees and one consumer smoke for the applic
 | Focus, pointer cancellation and scroll | [focus](../../tests/input/focus_tests.cpp), [pointer](../../tests/input/pointer_tests.cpp), [scroll](../../tests/input/scroll_tests.cpp), [scrollbar](../../tests/input/scrollbar_tests.cpp) | Reachable application operation |
 | Modal scope and bounded dialog geometry | [modal](../../tests/input/modal_tests.cpp) | [Reset confirmation](../../examples/modal-dialog/main.cpp) |
 | Collection order and logical ancestry | [collection](../../tests/input/collection_tests.cpp) | [Browser](../../examples/tree-list/main.cpp) selection/details |
+| Radio choice, roving Tab and selection-follows-focus | [radio group](../../tests/input/radio_group_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Visibility |
 | Menu triggers, placement and dismissal | [menu](../../tests/input/menu_tests.cpp), [popup](../../tests/input/popup_tests.cpp) | [Asset actions](../../examples/menu-context/main.cpp) |
 | Accepted settings after rejected staging | [Diagnostics](../../tests/integrations/renderer_diagnostics_tests.cpp), [Settings](../../examples/settings/main.cpp) | New branch and retained unrelated state |
 | CPU pixels and replay | [CPU](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [runner](../../tests/inspection/offscreen_runner_tests.cpp) | Images only for changed drawing behavior |

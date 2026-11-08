@@ -27,6 +27,8 @@ enum class SemanticRole : std::uint8_t {
     menu,
     menu_item,
     scrollbar, // A Box with scrollbar=true; activation requests host-owned scrolling.
+    radio_group,
+    radio, // A radio_group option; `selected` is its checked state.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 
@@ -52,7 +54,7 @@ struct SemanticNode {
     bool focusable = false;                // Focus eligibility, as FocusDispatcher decides it.
     bool focused = false;                  // The supplied focus is this eligible node.
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
-    std::optional<bool> selected;          // Collection items only; independent of focus.
+    std::optional<bool> selected;          // Collection items and radios only; independent of focus.
     std::optional<bool> expanded;          // Tree branches only; absent for leaves.
     bool operator==(const SemanticNode&) const = default;
 };

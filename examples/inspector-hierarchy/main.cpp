@@ -38,11 +38,14 @@ void require(bool condition, const char* message) {
 }
 constexpr ui::SliderRange amount_range{0, 100, 5};
 constexpr ui::SplitPaneLimits pane_limits{140, 320, 8};
+const std::vector<std::pair<std::string, std::string>> visibility_choices{
+    {"inherited", "Inherited"}, {"visible", "Visible"}, {"hidden", "Hidden"}};
 struct Item {
     std::string id;
     TextEditState name;
     bool enabled = true;
     int amount = 50;
+    std::string visibility = "inherited";
     bool operator==(const Item&) const = default;
 };
 enum class OpenMenu { none, actions, context };
@@ -80,6 +83,7 @@ ValidationContext action_context(const State& state) {
     ValidationContext context{
         {"scene.toggle", "item.name", "item.enabled", "item.amount", "item.rename", "menu.open", "panes.resize"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
+    for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
     return context;
 }
 CommandRegistry command_registry(const ValidationContext& context) {
@@ -160,6 +164,24 @@ StyleSheet appearance(const State& state) {
     sheet.rules.push_back(
         {StyleSelector::of_id(selected, {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}});
     sheet.rules.push_back({StyleSelector::of_id(selected, {.focus = true}), {.border_color = Color{.55f, .72f, 1, 1}}});
+    sheet.rules.push_back({StyleSelector::of_id("visibility-title"), {.display = Display::none}});
+    for (const auto& [key, label] : visibility_choices) {
+        const auto id = "visibility-option-" + key;
+        sheet.rules.push_back({StyleSelector::of_id(id),
+                               {.align = Align::center,
+                                .min_height = 26.f,
+                                .border = Edges{1, 1, 1, 1},
+                                .padding = Edges{2, 8, 2, 6},
+                                .border_color = Color{0, 0, 0, 0},
+                                .corner_radius = 6.f}});
+        sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
+        sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(id, {.focus = true}),
+             {.border_color = Color{.2f, .4f, .85f, 1}, .outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}}}});
+    }
+    sheet.rules.push_back(
+        {StyleSelector::of_id("visibility-option-" + state.item().visibility), {.color = Color{.12f, .26f, .6f, 1}}});
     for (const auto* menu : {"actions-menu", "item-menu"}) {
         sheet.rules.push_back({StyleSelector::of_id(std::string(menu) + "-title"),
                                {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}});
@@ -175,6 +197,8 @@ ui::Element Form(const State& state, Size viewport) {
         children.push_back({item.id, item.name.text, "select." + item.id});
     }
     const auto& item = state.item();
+    std::vector<ui::RadioOption> visibility;
+    for (const auto& [key, label] : visibility_choices) visibility.push_back({key, label, "visibility." + key});
     const auto control = [](const char* id) { return ui::Props{.id = id, .classes = {"control"}}; };
     const std::vector<ui::MenuItem> commands{{"rename", "Edit display name", "item.rename"},
                                              {"enabled", "Toggle enabled", "item.enabled"}};
@@ -219,11 +243,15 @@ ui::Element Form(const State& state, Size viewport) {
                             ui::Slider("Amount", item.amount, amount_range, "item.amount",
                                        {.node = {.id = "amount",
                                                  .classes = {"control"},
-                                                 .style = {.padding = Edges{6, 0, 6, 0}}}})},
+                                                 .style = {.padding = Edges{6, 0, 6, 0}}}}),
+                            ui::Text("Visibility", {.classes = {"muted"}}),
+                            ui::RadioGroup("Visibility", item.visibility, std::move(visibility),
+                                           {.node = {.id = "visibility", .style = {.gap = 2.f}}})},
                            {.id = "properties",
                             .style = {.grid_columns =
                                           std::vector<GridTrack>{GridTrack{.maximum = 72}, GridTrack::fraction(1, 202)},
-                                      .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{}},
+                                      .grid_rows =
+                                          std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{}, GridTrack{}},
                                       .column_gap = 8.f,
                                       .row_gap = 12.f}})},
                       {.id = "item-card",
@@ -376,6 +404,8 @@ public:
             candidate.item().name = std::move(*next.value);
         } else if (command == "item.enabled")
             candidate.item().enabled = !candidate.item().enabled;
+        else if (command.starts_with("visibility."))
+            candidate.item().visibility = command.substr(11);
         else if (command == "item.amount") {
             candidate.item().amount = amount.value_or(std::min(100, candidate.item().amount + amount_range.step));
         } else if (command == "panes.resize") {
@@ -1541,6 +1571,8 @@ void analytic_fill_smoke() {
 
 void shadow_card_smoke() {
     App app;
+    // Leave room below the card, which now includes the Visibility choices.
+    app.resize({960, 480});
     const auto& box = app.view.box("item-card");
     const auto fill =
         std::find_if(app.view.paint.commands.begin(), app.view.paint.commands.end(), [&](const auto& command) {
@@ -1678,7 +1710,65 @@ void outline_smoke() {
     }
 }
 
+void visibility_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    const auto semantics = [&] { return app.view.inspection.semantics.nodes; };
+    const auto entry = [&](std::string_view id) {
+        const auto nodes = semantics();
+        const auto found =
+            std::find_if(nodes.begin(), nodes.end(), [&](const SemanticNode& node) { return node.id == id; });
+        require(found != nodes.end(), "Visibility observation is missing");
+        return *found;
+    };
+    const auto group = entry("visibility");
+    const auto inherited = entry("visibility-option-inherited");
+    require(group.role == SemanticRole::radio_group && group.name == "Visibility" &&
+                inherited.role == SemanticRole::radio && inherited.name == "Inherited" && inherited.selected == true &&
+                entry("visibility-option-hidden").selected == false,
+            "Visibility must expose a named radio group with the accepted choice checked");
+    app.focus_id("amount");
+    input(KeyDown{Key::tab});
+    require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("visibility-option-inherited"),
+            "Tab must enter Visibility at the checked option");
+    const auto executions = app.executions;
+    input(KeyDown{Key::down});
+    require(app.state.item().visibility == "visible" && app.executions == executions + 1 &&
+                take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("visibility-option-visible") &&
+                entry("visibility-option-visible").selected == true &&
+                entry("visibility-option-inherited").selected == false,
+            "An arrow must move focus and select through one ordinary command");
+    input(KeyDown{Key::up});
+    input(KeyDown{Key::up});
+    require(app.state.item().visibility == "hidden", "Arrows must wrap through the options");
+    input(KeyDown{Key::tab, {.shift = true}});
+    require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("amount") &&
+                app.state.item().visibility == "hidden",
+            "Shift+Tab must leave the group without changing the choice");
+    const auto point = app.view.reachable("visibility-option-visible");
+    input(PointerDown{{1}, point}, CommandSource::pointer);
+    input(PointerUp{{1}, point}, CommandSource::pointer);
+    require(app.state.item().visibility == "visible" &&
+                take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("visibility-option-visible"),
+            "A pointer press must focus and select an option");
+    const auto label = [&](std::string_view key) {
+        return app.view.styles[app.view.tree->find("visibility-label-" + std::string(key))->index].color;
+    };
+    require(label("visible") != label("hidden"), "The checked option label must be emphasized");
+    app.action("hierarchy-item-sphere");
+    require(app.state.item().visibility == "inherited" && entry("visibility-option-inherited").selected == true,
+            "Another item must show its own visibility");
+    app.action("visibility-option-hidden");
+    app.action("hierarchy-item-cube");
+    require(app.state.item().visibility == "visible", "Returning to an item must retain its visibility");
+    app.action("hierarchy-item-sphere");
+    require(app.state.item().visibility == "hidden", "Each item must retain an independent visibility");
+}
 void smoke() {
+    visibility_smoke();
     appearance_smoke();
     gradient_card_smoke();
     analytic_fill_smoke();
@@ -1940,6 +2030,14 @@ int native(bool smoke) {
             host.message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(point.x, point.y));
             host.message(WM_LBUTTONUP, 0, MAKELPARAM(point.x, point.y));
         };
+        // Wheel a scroll view back to its top without moving focus.
+        auto wheel_top = [&](const char* id) {
+            const auto center = host.physical(app.view.center(id));
+            POINT screen{center.x, center.y};
+            require(ClientToScreen(host.handle, &screen) != FALSE, "Cannot map native wheel position");
+            host.message(WM_MOUSEWHEEL, MAKEWPARAM(0, 20 * WHEEL_DELTA), MAKELPARAM(screen.x, screen.y));
+            require(app.view.box(id).scroll->offset.y == 0, "Native wheel must reach the top of the scroll view");
+        };
         auto seek = [&](const char* id) {
             for (int i = 0; i < 32; ++i) {
                 if (take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id)) return;
@@ -2099,6 +2197,9 @@ int native(bool smoke) {
         };
         host.message(WM_IME_STARTCOMPOSITION);
         host.message(WM_IME_COMPOSITION, 0, GCS_COMPSTR | GCS_CURSORPOS);
+        // The taller Inspector card may be scrolled; the wheel neither moves focus nor ends the session.
+        wheel_top("inspector");
+        require(host.composing(), "Native wheel must keep the composition session");
         // The visible selected-item button takes press focus without changing selection.
         click("selected");
         require(notifications.back() == CPS_COMPLETE && app.state.selected == "cube" &&
@@ -2117,14 +2218,17 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_SPACE, 1);
         seek("amount");
         host.message(WM_KEYDOWN, VK_RIGHT, 1);
+        seek("visibility-option-inherited");
+        host.message(WM_KEYDOWN, VK_DOWN, 1);
+        require(app.state.item().visibility == "visible", "Native arrows must select the next Visibility option");
+        host.message(WM_KEYDOWN, VK_DOWN, 1);
         const auto cube = app.state.item();
-        require(cube.name.text == "Cube!" && !cube.enabled && cube.amount == 55, "Native fields must accept edits");
-        // Tab traversal revealed the last Hierarchy row; wheel back so the rows are under the pointer.
-        const auto hierarchy = host.physical(app.view.center("hierarchy"));
-        POINT wheel{hierarchy.x, hierarchy.y};
-        require(ClientToScreen(host.handle, &wheel) != FALSE, "Cannot map native wheel position");
-        host.message(WM_MOUSEWHEEL, MAKEWPARAM(0, 20 * WHEEL_DELTA), MAKELPARAM(wheel.x, wheel.y));
-        require(app.view.box("hierarchy").scroll->offset.y == 0 && app.state.item() == cube,
+        require(cube.name.text == "Cube!" && !cube.enabled && cube.amount == 55 && cube.visibility == "hidden",
+                "Native fields must accept edits");
+        // Tab traversal revealed the last Hierarchy row and the Visibility choices; wheel both back.
+        wheel_top("hierarchy");
+        wheel_top("inspector");
+        require(app.state.item() == cube,
                 "Native wheel must reveal the first Hierarchy rows without changing selection");
         click("hierarchy-item-sphere");
         require(app.state.selected == "sphere" && app.state.item().name.text == "Sphere",
