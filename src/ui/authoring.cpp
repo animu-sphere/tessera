@@ -422,6 +422,52 @@ Element TreeView(std::string label, std::optional<std::string> selected, std::ve
                                        "tree");
 }
 
+Element RadioGroup(std::string label, std::optional<std::string> selected, std::vector<RadioOption> options,
+                   CollectionProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    const auto source = props.node.source;
+    auto error = [&](const char* code, const char* message) {
+        data->diagnostics.push_back({code, Severity::error, {}, message});
+    };
+    if (prefix.empty()) error("radio_group_id", "Give the RadioGroup a stable nonempty author ID.");
+    if (label.empty()) error("radio_group_label", "Give the RadioGroup a nonempty label.");
+    if (options.size() > max_document_nodes)
+        error("radio_group_limit", "Keep RadioGroup options within document node limits.");
+    auto part = [&](std::string id) { return Props{.id = std::move(id), .source = source}; };
+    std::set<std::string> keys;
+    bool found_selection = !selected;
+    data->children.push_back(Text(std::move(label), part(prefix + "-title")));
+    for (std::size_t i = 0; i < options.size() && i < max_document_nodes; ++i) {
+        auto& option = options[i];
+        if (option.key.empty() || !keys.insert(option.key).second)
+            error("radio_group_keys", "Supply unique nonempty RadioGroup option keys.");
+        if (option.label.empty()) error("radio_group_option_label", "Give each RadioGroup option a nonempty label.");
+        const bool checked = selected == option.key;
+        found_selection = found_selection || checked;
+        auto entry = std::make_shared<detail::ElementData>();
+        entry->props = part(prefix + "-option-" + option.key);
+        entry->props.style.direction = FlexDirection::row;
+        entry->props.style.gap = 6.f;
+        entry->action = std::move(option.action);
+        entry->disabled = option.disabled;
+        entry->properties["collection_role"] = std::string("radio");
+        entry->properties["selected"] = checked;
+        entry->properties["labelled_by"] = NodeReference{prefix + "-label-" + option.key};
+        entry->children.push_back(Text(checked ? "(o)" : "( )", {.source = source}));
+        entry->children.push_back(Text(std::move(option.label), part(prefix + "-label-" + option.key)));
+        data->children.push_back(Element(std::move(entry)));
+    }
+    if (!found_selection) error("radio_group_selection", "Select an existing RadioGroup option key or use nullopt.");
+    data->props = std::move(props.node);
+    if (!data->props.style.direction) data->props.style.direction = FlexDirection::column;
+    if (!data->props.style.gap) data->props.style.gap = 4.f;
+    data->disabled = props.disabled;
+    data->properties["collection_role"] = std::string("radio_group");
+    data->properties["labelled_by"] = NodeReference{prefix + "-title"};
+    return Element(std::move(data));
+}
+
 Element Grid(std::vector<Element> children, Props props) {
     if (props.style.display != Display::none) props.style.display = Display::grid;
     auto data = std::make_shared<detail::ElementData>();

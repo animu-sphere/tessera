@@ -187,13 +187,13 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             return flag && *flag;
         };
         const auto role = detail::collection_role(node);
-        if (node.properties.contains(property_names::collection_role) && role != "list" && role != "tree" &&
-            role != "menu" && !detail::collection_item(role))
+        if (node.properties.contains(property_names::collection_role) && !detail::collection_owner_role(role) &&
+            !detail::collection_item(role))
             error("collection_role", path + "/properties/collection_role",
-                  "Choose list, tree, menu, list_item, tree_item, or menu_item.");
+                  "Choose list, tree, menu, radio_group, list_item, tree_item, menu_item, or radio.");
         const auto parent_role = parent ? detail::collection_role(*parent) : std::string_view{};
         if ((role == "list_item" && parent_role != "list") || (role == "tree_item" && parent_role != "tree") ||
-            (role == "menu_item" && parent_role != "menu"))
+            (role == "menu_item" && parent_role != "menu") || (role == "radio" && parent_role != "radio_group"))
             error("collection_parent", path, "Place collection items directly under their matching collection.");
         if (role == "menu" && (!node.id || !node.properties.contains(property_names::popup_anchor)))
             error("menu_popup", path, "Give the root-sibling Menu a stable ID and popup_anchor.");
@@ -204,18 +204,22 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         if (role == "tree_item" || parent_role == "tree") tree_entries.push_back({&node, parent, path});
         if (node.properties.contains(property_names::tree_parent) && role != "tree_item")
             error("collection_state", path + "/properties/tree_parent", "Only tree items have a logical tree parent.");
-        if (node.properties.contains(property_names::selected) && role != "list_item" && role != "tree_item")
-            error("collection_state", path + "/properties/selected", "Only list/tree items have selection state.");
+        if (node.properties.contains(property_names::selected) && role != "list_item" && role != "tree_item" &&
+            role != "radio")
+            error("collection_state", path + "/properties/selected",
+                  "Only list/tree items and radios have selection state.");
         if (node.properties.contains(property_names::expanded) && role != "tree_item")
             error("collection_state", path + "/properties/expanded", "Only tree items have expansion state.");
         if (const auto* selected = effective_property(node, property_names::selected);
             selected && std::get_if<bool>(selected) && std::get<bool>(*selected) && detail::collection_item(role) &&
             ++selected_counts[parent] > 1)
             error("collection_selection", path + "/properties/selected", "Select at most one item in each collection.");
-        if ((role == "tree" || role == "list" || role == "menu") && node.events.contains("activate"))
+        if (detail::collection_owner_role(role) && node.events.contains("activate"))
             error("collection_action", path + "/events/activate", "Put actions on collection items.");
         if (role == "menu_item" && !node.events.contains("activate"))
             error("menu_action", path + "/events/activate", "Give each menu item a registered command action.");
+        if (role == "radio" && !node.events.contains("activate"))
+            error("radio_action", path + "/events/activate", "Give each radio a registered selection action.");
         if (marked(property_names::scrollbar) &&
             (marked(property_names::modal) || marked(property_names::separator) || !role.empty()))
             error("scrollbar_role", path + "/properties/scrollbar",

@@ -32,8 +32,8 @@ The implemented semantic property vocabulary is deliberately small:
 | `popup_x`, `popup_y` | Anchored popup Box only | Paired finite numbers within float range | Root-logical point placement, overriding side/gap and shifted inside the boundary |
 | `separator` | Box only | Boolean, absent means false | Projects a separator role; an eligible `activate` binding requests host adjustment |
 | `scrollbar` | Box only | Boolean, absent means false; cannot combine with another role marker | Projects a scrollbar role; an eligible `activate` binding requests host scrolling |
-| `collection_role` | Box only | `list`, `tree`, `menu`, `list_item`, `tree_item`, `menu_item`; absent means none | Bounded collection/menu semantics and collection-order navigation |
-| `selected` | List/tree item Box | Optional boolean | Controlled selection observation, independent of focus |
+| `collection_role` | Box only | `list`, `tree`, `menu`, `radio_group`, `list_item`, `tree_item`, `menu_item`, `radio`; absent means none | Bounded collection/menu semantics and collection-order navigation |
+| `selected` | List/tree item or radio Box | Optional boolean | Controlled selection (radio checked) observation, independent of focus |
 | `expanded` | Tree item Box | Optional boolean; absence means leaf | Controlled branch observation and applicable expansion action |
 | `tree_parent` | Tree item Box | Optional `NodeReference` | Earlier logical ancestor in the same flat tree; preserves semantic hierarchy, disabled ancestry and parent/child navigation |
 

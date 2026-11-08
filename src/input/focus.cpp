@@ -23,7 +23,7 @@ bool is_command(const InputEvent& event) {
 std::uint32_t collection_owner(const HitTestInput& input, std::uint32_t box) {
     while (box != no_layout_parent) {
         const auto role = detail::collection_role(*input.tree->get(input.layout->boxes[box].node));
-        if (role == "tree" || role == "list" || role == "menu") return box;
+        if (detail::collection_owner_role(role)) return box;
         box = input.layout->boxes[box].parent;
     }
     return no_layout_parent;
@@ -47,6 +47,23 @@ bool navigate_collection(const HitTestInput& input, const detail::Targeting& tar
             items.push_back(candidate);
     const auto at = std::find(items.begin(), items.end(), from);
     if (at == items.end()) return false;
+    if (role == "radio") {
+        // Every arrow moves through the group, wrapping, and selection follows focus.
+        auto target = at;
+        if (const auto* key = std::get_if<KeyDown>(&event.data))
+            target = key->key == Key::home ? items.begin() : std::prev(items.end());
+        else if (const auto direction = std::get<Navigate>(event.data).direction;
+                 direction == Direction::up || direction == Direction::left)
+            target = at == items.begin() ? std::prev(items.end()) : std::prev(at);
+        else
+            target = std::next(at) == items.end() ? items.begin() : std::next(at);
+        if (target == at) return true;
+        focused = boxes[*target].node;
+        const auto& option = *input.tree->get(*focused);
+        if (const auto action = option.events.find("activate"); action != option.events.end())
+            actions.push_back({"activate", action->second, *focused});
+        return true;
+    }
     if (const auto* key = std::get_if<KeyDown>(&event.data)) {
         focused = boxes[key->key == Key::home ? items.front() : items.back()].node;
         return true;
@@ -84,6 +101,42 @@ bool navigate_collection(const HitTestInput& input, const detail::Targeting& tar
         }
     }
     return true;
+}
+
+// Sequential focus enters each radio group once: at its selected focusable radio, else its first one.
+// The focused radio's own group contributes no stop, so Tab and Shift+Tab leave the group.
+std::vector<std::uint32_t> tab_stops(const HitTestInput& input, const std::vector<std::uint32_t>& candidates,
+                                     std::optional<NodeHandle> focused, const detail::Targeting& targeting) {
+    const auto& boxes = input.layout->boxes;
+    const auto radio = [&](std::uint32_t box) {
+        return detail::collection_role(*input.tree->get(boxes[box].node)) == "radio";
+    };
+    const auto from = focused ? targeting.box(*focused) : no_layout_parent;
+    const auto current = from != no_layout_parent && radio(from) ? collection_owner(input, from) : no_layout_parent;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> entries; // Group owner, entry radio.
+    for (const auto candidate : candidates) {
+        if (!radio(candidate)) continue;
+        const auto owner = collection_owner(input, candidate);
+        const auto* selected = effective_property(*input.tree->get(boxes[candidate].node), property_names::selected);
+        const bool checked = selected && std::get<bool>(*selected);
+        const auto found =
+            std::find_if(entries.begin(), entries.end(), [&](const auto& e) { return e.first == owner; });
+        if (found == entries.end())
+            entries.emplace_back(owner, candidate);
+        else if (checked)
+            found->second = candidate;
+    }
+    std::vector<std::uint32_t> result;
+    for (const auto candidate : candidates) {
+        if (radio(candidate)) {
+            const auto owner = collection_owner(input, candidate);
+            const auto entry =
+                std::find_if(entries.begin(), entries.end(), [&](const auto& e) { return e.first == owner; });
+            if (owner == current || entry->second != candidate) continue;
+        }
+        result.push_back(candidate);
+    }
+    return result;
 }
 
 // Layout box indices of focusable nodes, in tree preorder.
@@ -245,21 +298,21 @@ Result<FocusDispatchResult> FocusDispatcher::dispatch(const HitTestInput& input,
             [&](const auto& data) {
                 using T = std::decay_t<decltype(data)>;
                 if constexpr (std::is_same_v<T, FocusNext>) {
-                    if (focusable.empty()) return;
-                    const auto next = !focused
-                                          ? focusable.end()
-                                          : std::find_if(focusable.begin(), focusable.end(), [&](std::uint32_t index) {
-                                                return boxes[index].node.index > focused->index;
-                                            });
-                    focused = boxes[next == focusable.end() ? focusable.front() : *next].node;
+                    const auto stops = tab_stops(input, focusable, focused, targeting);
+                    if (stops.empty()) return;
+                    const auto next =
+                        !focused ? stops.end() : std::find_if(stops.begin(), stops.end(), [&](std::uint32_t index) {
+                            return boxes[index].node.index > focused->index;
+                        });
+                    focused = boxes[next == stops.end() ? stops.front() : *next].node;
                 } else if constexpr (std::is_same_v<T, FocusPrevious>) {
-                    if (focusable.empty()) return;
+                    const auto stops = tab_stops(input, focusable, focused, targeting);
+                    if (stops.empty()) return;
                     const auto previous =
-                        !focused ? focusable.rend()
-                                 : std::find_if(focusable.rbegin(), focusable.rend(), [&](std::uint32_t index) {
-                                       return boxes[index].node.index < focused->index;
-                                   });
-                    focused = boxes[previous == focusable.rend() ? focusable.back() : *previous].node;
+                        !focused ? stops.rend() : std::find_if(stops.rbegin(), stops.rend(), [&](std::uint32_t index) {
+                            return boxes[index].node.index < focused->index;
+                        });
+                    focused = boxes[previous == stops.rend() ? stops.back() : *previous].node;
                 } else if constexpr (std::is_same_v<T, Navigate>) {
                     if (navigate_collection(input, targeting, focusable, event, focused, actions)) return;
                     if (!focused) {
