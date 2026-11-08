@@ -2033,6 +2033,30 @@ std::vector<std::uint8_t> ui_boundary_mask(const tessera::UiDrawList& list, tess
                     mask[std::size_t(y) * extent.width + x] = 255;
         }
     };
+    // Hard rounded coverage keeps a pixel whose center has signed distance <= 0 from the clamped
+    // rounded box (CPU in double, GPU in float). Centers within `tolerance` device pixels of that
+    // boundary can round either way; straight edges remain covered by `mark`.
+    const double tolerance = std::max(epsilon, std::ldexp(1.0, -10));
+    const auto mark_rounded = [&](tessera::Rect rect, double radius) {
+        const double w = rect.size.width, h = rect.size.height, r = std::min(radius, std::min(w, h) * 0.5);
+        if (r <= 0 || w <= 0 || h <= 0) return;
+        const double left = double(rect.origin.x) * scale, top = double(rect.origin.y) * scale;
+        const auto limit = [](double value, std::uint32_t maximum) {
+            return static_cast<std::uint32_t>(std::clamp(std::ceil(value - 0.5), 0.0, double(maximum)));
+        };
+        const auto x0 = limit(std::max(clip.left, left - tolerance), extent.width);
+        const auto x1 = limit(std::min(clip.right, left + w * scale + tolerance), extent.width);
+        const auto y0 = limit(std::max(clip.top, top - tolerance), extent.height);
+        const auto y1 = limit(std::min(clip.bottom, top + h * scale + tolerance), extent.height);
+        for (auto y = y0; y < y1; ++y)
+            for (auto x = x0; x < x1; ++x) {
+                const double lx = (x + 0.5) / scale - rect.origin.x, ly = (y + 0.5) / scale - rect.origin.y;
+                const double qx = std::abs(lx - w * 0.5) - (w * 0.5 - r), qy = std::abs(ly - h * 0.5) - (h * 0.5 - r);
+                const double distance =
+                    std::hypot(std::max(qx, 0.0), std::max(qy, 0.0)) + std::min(std::max(qx, qy), 0.0) - r;
+                if (std::abs(distance) * scale <= tolerance) mask[std::size_t(y) * extent.width + x] = 255;
+            }
+    };
     for (const auto& command : list.commands) {
         if (const auto* pushed = std::get_if<tessera::PushClip>(&command)) {
             clips.push_back(clip);
@@ -2047,16 +2071,22 @@ std::vector<std::uint8_t> ui_boundary_mask(const tessera::UiDrawList& list, tess
         } else if (const auto* image = std::get_if<tessera::DrawImage>(&command))
             mark(image->rect);
         else if (const auto* rect = std::get_if<tessera::DrawRect>(&command)) {
-            check(rect->corner_radius == 0, "Extend the UI comparison oracle before adding rounded geometry");
+            check(rect->shape == tessera::FillShape::rectangle && !rect->antialias && !rect->procedural,
+                  "Extend the UI comparison oracle before adding ellipse, smooth or procedural fills");
             mark(rect->rect);
+            mark_rounded(rect->rect, rect->corner_radius);
         } else if (const auto* border = std::get_if<tessera::DrawBorder>(&command)) {
-            check(border->corner_radius == 0, "Extend the UI comparison oracle before adding rounded borders");
             mark(border->rect);
+            mark_rounded(border->rect, border->corner_radius);
             const auto& w = border->widths;
             const tessera::Rect inner{
                 {border->rect.origin.x + w.left, border->rect.origin.y + w.top},
                 {border->rect.size.width - w.left - w.right, border->rect.size.height - w.top - w.bottom}};
-            if (inner.size.width > 0 && inner.size.height > 0) mark(inner);
+            if (inner.size.width > 0 && inner.size.height > 0) {
+                mark(inner);
+                mark_rounded(
+                    inner, std::max(0.0, double(border->corner_radius) - std::max({w.top, w.right, w.bottom, w.left})));
+            }
         } else
             check(false, "UI comparison supports atlas-lowered, untransformed paint only");
     }
@@ -2070,6 +2100,15 @@ void latest_ui_fixtures(Host& host) {
           "UI boundary oracle must exclude only pixel centers on subpixel-ambiguous edges");
     const auto separated = ui_boundary_mask({{tessera::DrawRect{{{0.51f, 0}, {2, 4}}, {1, 1, 1, 1}}}}, {4, 4}, 1, 8);
     check(std::count(separated.begin(), separated.end(), 255) == 0, "UI boundary oracle masks stable pixels");
+    // Rounded geometry masks only pixel centers near its arcs. A 4x4 circle has none; a radius-5
+    // corner centered at (5.5, 5.5) passes through pixel (2, 1)'s center (a 3-4-5 offset), while
+    // pixel (2, 2) lies inside and (3, 3) deeper inside, away from the straight edges.
+    const auto circle = ui_boundary_mask({{tessera::DrawRect{{{0, 0}, {4, 4}}, {1, 1, 1, 1}, 2}}}, {4, 4}, 1, 8);
+    check(std::count(circle.begin(), circle.end(), 255) == 0,
+          "UI rounded oracle must keep pixel centers away from the arc");
+    const auto arc = ui_boundary_mask({{tessera::DrawRect{{{0.5f, 0.5f}, {20, 20}}, {1, 1, 1, 1}, 5}}}, {12, 12}, 1, 8);
+    check(arc[1 * 12 + 2] == 255 && arc[2 * 12 + 2] == 0 && arc[3 * 12 + 3] == 0,
+          "UI rounded oracle must mask pixel centers on the arc only");
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(host.physical, &properties);
     std::cout << "UI raster subpixel precision bits=" << properties.limits.subPixelPrecisionBits << '\n';
