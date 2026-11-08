@@ -5,13 +5,17 @@
 
 namespace tessera {
 
+// Derived from the generated track: VerticalScrollbar adjusts Y, HorizontalScrollbar adjusts X.
+enum class ScrollbarAxis : std::uint8_t { vertical, horizontal };
+
 struct ScrollbarGeometry {
+    ScrollbarAxis axis = ScrollbarAxis::vertical;
     NodeHandle container;
     NodeHandle thumb;
     Rect track;
     Rect bounds;
     Point offset;
-    float maximum = 0;
+    float maximum = 0; // Main-axis scroll limit.
     bool enabled = false;
 };
 // Both IDs refer to one coherent accepted presentation. Missing/hidden controls
@@ -45,6 +49,7 @@ private:
         float thumb_size;
         float track_size;
         float maximum;
+        ScrollbarAxis axis;
         std::string action;
     };
     std::string id_, scroll_id_;
