@@ -230,6 +230,67 @@ void radial_gradients() {
     check(pixel(capture(frames, {{rect}}), 0, 0)[3] == 0, "Zero-area radial fills must paint nothing");
 }
 
+void box_shadows() {
+    CpuFrameCapture frames;
+    const DrawShadow shadow{{{6, 6}, {8, 8}}, {0, 0, 0, .5f}, 0, 4};
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        const auto image = capture(frames, {{shadow}}, {20, 20}, scale);
+        check(image == capture(frames, {{shadow}}, {20, 20}, scale), "Soft shadow captures must be deterministic");
+        const auto y = image.extent.height / 2;
+        for (unsigned x = 0; x < image.extent.width; ++x) {
+            const double lx = (x + .5) / scale;
+            const double distance = std::max({6 - lx, lx - 14, 0.0});
+            const double t = std::clamp(distance / 4, 0.0, 1.0);
+            const auto alpha = static_cast<std::uint8_t>(std::floor(.5 * (1 - t * t * (3 - 2 * t)) * 255 + .5));
+            check(pixel(image, x, y) == std::array<std::uint8_t, 4>{0, 0, 0, alpha},
+                  "Shadow alpha must use exact logical distance and finite smoothstep falloff");
+        }
+        const auto clipped = capture(frames, {{PushClip{{{4, 0}, {12, 20}}}, shadow, PopClip{}}}, {20, 20}, scale);
+        for (unsigned x = 0; x < image.extent.width; ++x) {
+            const double lx = (x + .5) / scale;
+            check(pixel(clipped, x, y) == (lx >= 4 && lx < 16 ? pixel(image, x, y) : std::array<std::uint8_t, 4>{}),
+                  "Clipping must not restart or rescale shadow falloff");
+        }
+        auto rounded = shadow;
+        rounded.corner_radius = 4;
+        const auto rounded_image = capture(frames, {{rounded}}, {20, 20}, scale);
+        rounded.corner_radius = 100;
+        check(rounded_image == capture(frames, {{rounded}}, {20, 20}, scale),
+              "Shadow caster radius must clamp to half the smaller dimension");
+        rounded.softness = 0;
+        check(capture(frames, {{rounded}}, {20, 20}, scale) ==
+                  capture(frames, {{DrawRect{rounded.rect, rounded.color, rounded.corner_radius}}}, {20, 20}, scale),
+              "Zero softness must retain existing hard rounded coverage");
+    }
+    auto offset = shadow;
+    offset.rect.origin.x = 5;
+    const auto image = capture(frames, {{offset}}, {20, 20});
+    const auto mirrored = capture(frames, {{PushTransform{{-1, 0, 0, 1, 20, 0}}, offset, PopTransform{}}}, {20, 20});
+    for (unsigned y = 0; y < 20; ++y)
+        for (unsigned x = 0; x < 20; ++x)
+            check(pixel(image, x, y) == pixel(mirrored, 19 - x, y),
+                  "Transforms must carry the shadow caster and its outer bounds together");
+    auto blue = shadow;
+    blue.color = {0, 0, 1, .5f};
+    const auto blended = capture(frames, {{DrawRect{{{0, 0}, {20, 20}}, {1, 0, 0, 1}}, blue}}, {20, 20});
+    check(pixel(blended, 10, 10) == std::array<std::uint8_t, 4>{188, 0, 188, 255},
+          "Shadow source-over must blend straight alpha in linear light");
+    const auto covered = capture(frames, {{blue, DrawRect{blue.rect, {1, 1, 1, 1}}}}, {20, 20});
+    check(pixel(covered, 10, 10) == std::array<std::uint8_t, 4>{255, 255, 255, 255},
+          "Later caster fills must cover their shadow");
+    auto empty = shadow;
+    empty.rect.size.width = 0;
+    check(capture(frames, {{empty}}, {20, 20}) == capture(frames, {}, {20, 20}),
+          "Zero-area casters must paint no halo");
+    auto invalid = shadow;
+    invalid.softness = std::numeric_limits<float>::max();
+    const UiDrawList invalid_list{{invalid}};
+    const auto rejected = frames.capture({0, {20, 20}, 1, {20, 20}, &invalid_list});
+    check(!rejected && has(rejected.diagnostics, "geometry_overflow", "/commands/0/rect"),
+          "Invalid expanded shadow geometry must reject before capture");
+    check(capture(frames, {{offset}}, {20, 20}) == image, "Rejected shadow capture must permit a deterministic retry");
+}
+
 void images_and_lifetime() {
     CpuFrameCapture frames;
     std::vector<std::uint8_t> texels{0, 0, 0, 255, 255, 255, 255, 255};
@@ -403,6 +464,7 @@ int main() {
         linear_gradients();
         multi_stop_gradients();
         radial_gradients();
+        box_shadows();
         images_and_lifetime();
         rejection_is_atomic();
         glyphs_and_runner();

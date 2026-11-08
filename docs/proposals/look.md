@@ -1,6 +1,6 @@
 # Look and visual rendering
 
-> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
+> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), and [distance-based outer shadows](../architecture/rendering.md#implemented-box-shadows). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
 
 ## Goal and scope
 
@@ -42,7 +42,7 @@ These are extension points, not a requirement to redesign current `DrawRect` or 
 
 ### A. Visual basics
 
-The [Inspector property card](../guides/inspector-hierarchy.md#gradient-property-card) now uses a multi-stop radial gradient through ordinary styles and both CPU/Vulkan rendering, alongside existing linear fills and their original two-color shorthand. Add shadow, stroke quality or text decoration where useful.
+The [Inspector property card](../guides/inspector-hierarchy.md#gradient-property-card) uses a multi-stop radial gradient and a finite distance-based outer shadow through ordinary styles and CPU/Vulkan rendering, alongside existing linear fills and their original two-color shorthand. Add blurred/inset shadows, stroke quality or text decoration where useful.
 
 Define stop ordering/ranges, degenerate geometry, interpolation and alpha before implementation. Preserve rounded-corner clipping, existing border widths, paint order and continuous coordinates. Check transparent stops and fractional scales. A first consumer can be one card rather than a new application.
 

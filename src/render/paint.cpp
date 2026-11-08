@@ -3,6 +3,8 @@
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -45,6 +47,23 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         if (!box.visible || opacity == 0) continue;
 
         UiDrawList commands;
+        if (style.box_shadow && style.box_shadow->color.a > 0) {
+            const auto& shadow = *style.box_shadow;
+            const double x = double(box.border_box.origin.x) + shadow.offset.x,
+                         y = double(box.border_box.origin.y) + shadow.offset.y;
+            if (std::abs(x) > std::numeric_limits<float>::max() || std::abs(y) > std::numeric_limits<float>::max()) {
+                diagnostics.push_back({"geometry_overflow",
+                                       Severity::error,
+                                       "/nodes/" + std::to_string(box.node.index) + "/box_shadow/offset",
+                                       "Offset shadow origin must fit finite float coordinates.",
+                                       {}});
+            } else {
+                commands.commands.push_back(DrawShadow{{{float(x), float(y)}, box.border_box.size},
+                                                       faded(shadow.color, opacity),
+                                                       style.corner_radius,
+                                                       shadow.softness});
+            }
+        }
         const auto background = faded(style.background, opacity);
         if (style.background_gradient) {
             auto gradient = *style.background_gradient;

@@ -78,9 +78,16 @@ struct PushTransform {
 struct PopTransform {
     bool operator==(const PopTransform&) const = default;
 };
+struct DrawShadow {
+    Rect rect; // Offset caster box, before expansion by softness.
+    Color color;
+    float corner_radius = 0;
+    float softness = 0;
+    bool operator==(const DrawShadow&) const = default;
+};
 
-using DrawCommand =
-    std::variant<DrawRect, DrawBorder, DrawImage, DrawGlyphRun, PushClip, PopClip, PushTransform, PopTransform>;
+using DrawCommand = std::variant<DrawRect, DrawBorder, DrawImage, DrawGlyphRun, PushClip, PopClip, PushTransform,
+                                 PopTransform, DrawShadow>;
 
 // Commands paint in order; later commands appear above earlier ones.
 // Clips and transforms share one LIFO stack that must be balanced.

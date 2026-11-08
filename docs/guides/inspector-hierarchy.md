@@ -51,6 +51,18 @@ Center and positive ellipse radii are normalized to the card's border box. The s
 
 The native app uses the CPU implementation. This adds no special widget, authored image resource or interaction path. The window-free smoke checks that the authored radial card changes actual pixels compared with both its two-color endpoints and a linear substitute, with rounded coverage at scales 1, 1.25, 1.5 and 2; ordinary application Replay preserves the resolved geometry and stops while edits, scrolling and resizing retain their existing behavior.
 
+## Card shadow
+
+The same card now casts a subtle blue-gray shadow below its radial highlight:
+
+```cpp
+.box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}}
+```
+
+The offset and softness are logical units. This single [distance-based outer shadow](../architecture/rendering.md#implemented-box-shadows) has finite smooth falloff, not a Gaussian blur. It follows the card's 12-unit corner radius, paints before the fill/border and uses the ordinary pane/window clip. The existing layout and hit-test/scroll bounds stay unchanged, so the pane edges trim the halo and its lower portion occupies the existing gap beneath the card.
+
+An explicit empty `optional<BoxShadow>` clears the style or theme effect. CPU and Vulkan reference/batch render the same contract without an image or offscreen pass. The window-free smoke compares actual shadow/no-shadow pixels at scales 1, 1.25, 1.5 and 2 and checks that the opaque radial interior stays unchanged; ordinary Replay reproduces the shadow together with retained edits, scrolling and resizing.
+
 ## Host and observation boundary
 
 The host owns all item data, selection, disclosure, scroll offsets, input dispatchers and command sequences. Item actions resolve against the accepted semantic tree and command snapshot. A candidate copies host state, applies the public text transform where needed, and stages lowering, eligibility, styles, layout, paint and inspection. Only a successful command outcome accepts that candidate and publishes the session. A stale/foreign text owner or rejected text measurement leaves the accepted values and inspection unchanged; retry uses the retained edit revision.

@@ -100,6 +100,51 @@ void order_geometry_opacity_and_ownership() {
           "Returned draw list must outlive all borrowed inputs");
 }
 
+void box_shadows() {
+    Fixture f(box({box()}));
+    f.styles[0].overflow = tessera::Overflow::clip;
+    f.styles[0].padding = {4, 4, 4, 4};
+    f.styles[0].opacity = .5f;
+    auto& style = f.styles[1];
+    style.width = Dimension::points(20);
+    style.height = Dimension::points(20);
+    style.overflow = tessera::Overflow::clip;
+    style.border = {1, 1, 1, 1};
+    style.border_color = {0, 0, 0, 1};
+    style.corner_radius = 4;
+    style.background_gradient = tessera::RadialGradient{.start_color = {1, 1, 1, 1}, .end_color = {0, 0, 1, 1}};
+    style.opacity = .5f;
+    f.compute();
+    const auto box = f.layout.boxes[1];
+    style.box_shadow = tessera::BoxShadow{{-2, 4}, 8, {.2f, .3f, .4f, .5f}};
+    f.compute();
+    check(f.layout.boxes[1].border_box == box.border_box && f.layout.boxes[1].clip == box.clip,
+          "Shadows must not expand allocation, scroll geometry or hit-test clips");
+    const auto list = f.paint();
+    check(list.commands.size() == 5 && std::get<tessera::PushClip>(list.commands[0]).rect == *box.clip &&
+              std::get<tessera::DrawShadow>(list.commands[1]) ==
+                  tessera::DrawShadow{{{box.border_box.origin.x - 2, box.border_box.origin.y + 4}, box.border_box.size},
+                                      {.2f, .3f, .4f, .125f},
+                                      4,
+                                      8} &&
+              std::holds_alternative<tessera::DrawRect>(list.commands[2]) &&
+              std::holds_alternative<tessera::DrawBorder>(list.commands[3]) &&
+              std::holds_alternative<tessera::PopClip>(list.commands[4]),
+          "Shadow must precede fill/border under the ancestor clip, with multiplied opacity and owned data");
+    style.box_shadow->color.a = 0;
+    check(f.paint().commands.size() == 4, "Transparent shadows must emit nothing");
+    style.box_shadow->color.a = 1;
+    style.visibility = tessera::Visibility::hidden;
+    f.compute();
+    check(f.paint().commands.empty(), "Hidden casters must not emit shadows");
+    style.visibility = tessera::Visibility::visible;
+    style.box_shadow->softness = std::numeric_limits<float>::max();
+    f.compute();
+    const auto rejected = tessera::build_paint_list(f.input());
+    check(!rejected && has(rejected.diagnostics, "geometry_overflow", "/nodes/1/commands/0/rect"),
+          "Expanded shadow overflow must reject the whole paint list");
+}
+
 void gradient_backgrounds() {
     Fixture f(box({box()}));
     f.styles[0].opacity = .5f;
@@ -335,6 +380,7 @@ int main() {
     try {
         order_geometry_opacity_and_ownership();
         gradient_backgrounds();
+        box_shadows();
         visibility_display_and_empty();
         clip_runs();
         invalid_input_and_topology();

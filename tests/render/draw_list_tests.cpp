@@ -65,6 +65,28 @@ void invalid_lists() {
     check(has(tessera::validate(deep), "stack_limit", "/commands/64"), "Excessive stack depth accepted");
 }
 
+void shadows() {
+    tessera::DrawShadow shadow{{{4, 4}, {20, 10}}, {.2f, .3f, .4f, .5f}, 4, 8};
+    check(tessera::validate(tessera::UiDrawList{{shadow}}).empty(), "Valid shadow rejected");
+    shadow.softness = -1;
+    shadow.corner_radius = NAN;
+    shadow.color.a = 2;
+    auto errors = tessera::validate(tessera::UiDrawList{{shadow}});
+    check(errors.size() == 3 && has(errors, "out_of_range", "/commands/0/softness") &&
+              has(errors, "invalid_number", "/commands/0/corner_radius") &&
+              has(errors, "out_of_range", "/commands/0/color/a"),
+          "Shadow commands must validate geometry and color with exact locations");
+    shadow = {{{4, 4}, {20, 10}}, {}, 0, std::numeric_limits<float>::max()};
+    check(has(tessera::validate(tessera::UiDrawList{{shadow}}), "geometry_overflow", "/commands/0/rect"),
+          "Unrepresentable expanded shadow bounds must reject before backend execution");
+    shadow.softness = std::numeric_limits<float>::infinity();
+    errors = tessera::validate(tessera::UiDrawList{{shadow}});
+    check(errors.size() == 1 && has(errors, "invalid_number", "/commands/0/softness"),
+          "Nonfinite softness must report once");
+    shadow.softness = 0;
+    check(tessera::validate(tessera::UiDrawList{{shadow}}).empty(), "Hard shadows must be valid");
+}
+
 void frame_info() {
     check(tessera::validate(tessera::FrameInfo{1, {800, 600}, 1.5f}).empty(), "Valid frame rejected");
     const auto errors = tessera::validate(tessera::FrameInfo{});
@@ -139,6 +161,7 @@ int main() {
         invalid_lists();
         frame_info();
         gradients();
+        shadows();
         std::cout << "Draw-list order/stack/resource-handle and frame checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

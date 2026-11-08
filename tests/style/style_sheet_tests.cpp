@@ -127,6 +127,36 @@ void test_gradients() {
           "Radial style geometry must validate before resolution");
 }
 
+void test_shadows() {
+    const auto tree = menu();
+    const tessera::BoxShadow shadow{{-2, 4}, 8, {.2f, .3f, .4f, .5f}};
+    tessera::StyleDeclarations declarations;
+    declarations.box_shadow = shadow;
+    tessera::StyleSheet sheet{
+        {{tessera::StyleSelector::of_id("panel"), declarations}, {tessera::StyleSelector::of_id("a"), declarations}}};
+    auto resolved = resolve(*tree, sheet);
+    check(resolved["panel"].box_shadow == shadow && resolved["a"].box_shadow == shadow &&
+              !resolved["a-label"].box_shadow && !resolved["b"].box_shadow,
+          "Shadows must resolve through ordinary rules without inheriting");
+    tessera::StyleDeclarations cleared;
+    cleared.box_shadow = std::optional<tessera::BoxShadow>{};
+    sheet.rules.push_back({tessera::StyleSelector::of_id("a", {.focus = true}), cleared});
+    check(!resolve(*tree, sheet, {.focused = *tree->find("a")})["a"].box_shadow,
+          "State rules must explicitly clear a shadow");
+    std::vector<tessera::StyleDeclarations> overrides(tree->size());
+    overrides[tree->find("panel")->index] = cleared;
+    check(!resolve(*tree, sheet, {}, overrides)["panel"].box_shadow,
+          "Instance overrides must clear shadows without changing other nodes");
+    declarations.box_shadow->value().offset.x = NAN;
+    declarations.box_shadow->value().softness = -1;
+    declarations.box_shadow->value().color.a = 2;
+    const auto diagnostics = tessera::validate(declarations);
+    check(diagnostics.size() == 3 && has(diagnostics, "invalid_number", "/box_shadow/offset/x") &&
+              has(diagnostics, "out_of_range", "/box_shadow/softness") &&
+              has(diagnostics, "out_of_range", "/box_shadow/color/a"),
+          "Shadow geometry and colors must reject with exact style locations");
+}
+
 void test_inheritance() {
     const auto tree = menu();
     using S = tessera::StyleSelector;
@@ -286,6 +316,7 @@ int main() {
     try {
         test_selectors_and_order();
         test_gradients();
+        test_shadows();
         test_inheritance();
         test_states();
         test_overrides();

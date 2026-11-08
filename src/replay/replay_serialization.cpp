@@ -164,7 +164,7 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                              "border",  "padding",    "gap",          "grow",          "shrink",     "visibility",
                              "opacity", "background", "border_color", "corner_radius", "text",       "color"},
                {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap",
-                "grid_horizontal", "grid_vertical", "background_gradient"});
+                "grid_horizontal", "grid_vertical", "background_gradient", "box_shadow"});
     ResolvedStyle s;
     s.display = choice<Display>(o.at("display"), path + "/display", display_names);
     s.direction = choice<FlexDirection>(o.at("direction"), path + "/direction", direction_names);
@@ -231,6 +231,13 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
         }
     }
     s.border_color = color(o.at("border_color"), path + "/border_color");
+    if (const auto field = o.find("box_shadow"); field != o.end()) {
+        const auto at = path + "/box_shadow";
+        const auto& shadow = object(field->second, at, {"offset", "softness", "color"});
+        s.box_shadow =
+            BoxShadow{point(shadow.at("offset"), at + "/offset"), real(shadow.at("softness"), at + "/softness"),
+                      color(shadow.at("color"), at + "/color")};
+    }
     s.corner_radius = real(o.at("corner_radius"), path + "/corner_radius");
     const auto text_path = path + "/text";
     const auto& text = object(o.at("text"), text_path, {"font", "size", "line_height", "weight"});
@@ -615,6 +622,12 @@ JsonValue style_json(const ResolvedStyle& s) {
                 result["background_gradient"] = JsonValue{std::move(gradient)};
             },
             *s.background_gradient);
+    }
+    if (s.box_shadow) {
+        const auto& shadow = *s.box_shadow;
+        result["box_shadow"] = JsonValue{Object{{"offset", point_json(shadow.offset)},
+                                                {"softness", real_json(shadow.softness)},
+                                                {"color", color_json(shadow.color)}}};
     }
     return JsonValue{std::move(result)};
 }

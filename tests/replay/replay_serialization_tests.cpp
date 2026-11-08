@@ -320,6 +320,29 @@ void gradient_styles_round_trip() {
     check(load(save(source)) == source, "Radial two-color shorthand must round-trip");
 }
 
+void shadow_styles_round_trip() {
+    auto source = recording();
+    source.styles[0].box_shadow = tessera::BoxShadow{{-2, 4}, 7, {.2f, .3f, .4f, .5f}};
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::ReplayResize{{160, 100}});
+    for (auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        source.version = version;
+        const auto json = save(source);
+        check(load(json) == source && save(load(json)) == json &&
+                  tessera::compare_replay(play(source), play(load(json))).empty(),
+              "Shadow styles must round-trip initial/reloaded views and reproduce paint in Replay v1/v2");
+        auto rejected = tessera::load_replay(changed(json, "\"softness\":7", "\"softness\":-1"));
+        check(!rejected && has(rejected.diagnostics, "out_of_range", "/steps/0/styles/0/box_shadow/softness"),
+              "Invalid encoded shadows must reject before playback with located diagnostics");
+        rejected = tessera::load_replay(changed(json, "\"softness\":7", "\"blur\":7"));
+        check(!rejected && has(rejected.diagnostics, "unknown_field", "/steps/0/styles/0/box_shadow/blur"),
+              "Shadow encoding must not silently accept unknown effect parameters");
+    }
+    const auto legacy = save(recording());
+    check(legacy.find("box_shadow") == std::string::npos && load(legacy) == recording(),
+          "Absent shadows must preserve legacy canonical Replay bytes");
+}
+
 void compatible_pointer_policy_round_trips() {
     for (const auto version : {tessera::replay_version, tessera::replay_host_version}) {
         auto source = recording();
@@ -560,6 +583,7 @@ int main() {
         stack_styles_round_trip();
         grid_styles_round_trip();
         gradient_styles_round_trip();
+        shadow_styles_round_trip();
         loading_rejects_malformed_input();
         compatible_pointer_policy_round_trips();
         saving_rejects_invalid_recordings();

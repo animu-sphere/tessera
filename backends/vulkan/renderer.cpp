@@ -1,5 +1,6 @@
 #include <tessera/vulkan/renderer.hpp>
 #include "placeholder_glyph.hpp"
+#include "../../src/detail/shadow.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -564,8 +565,24 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                         packets.push_back(packet);
                     }
                 } else {
+                    auto rect = command.rect;
+                    if constexpr (std::is_same_v<T, DrawShadow>) {
+                        rect = *detail::shadow_bounds(rect, command.softness);
+                        const double softness = command.softness;
+                        const double radius =
+                            std::min(double(command.corner_radius),
+                                     std::min(command.rect.size.width, command.rect.size.height) * .5);
+                        const double inverse = softness > 0 ? 1 / softness : 0;
+                        if ((softness > 0 &&
+                             (!representable(inverse) || inverse < std::numeric_limits<float>::min())) ||
+                            !representable(std::hypot(radius + softness, radius + softness))) {
+                            errors.push_back(error("geometry_overflow", path + "/softness",
+                                                   "Shadow distance or softness exceeds shader precision."));
+                            return;
+                        }
+                    }
                     std::array<double, 4> transformed;
-                    if (!bounds(command.rect, state.transform, frame.device_scale, transformed)) {
+                    if (!bounds(rect, state.transform, frame.device_scale, transformed)) {
                         errors.push_back(error("geometry_overflow", path,
                                                "Transformed primitive exceeds representable coordinates."));
                         return;
@@ -623,6 +640,10 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                         if constexpr (std::is_same_v<T, DrawBorder>)
                             data.widths = {command.widths.top, command.widths.right, command.widths.bottom,
                                            command.widths.left};
+                        if constexpr (std::is_same_v<T, DrawShadow>) {
+                            data.params[1] = 9;
+                            data.source = {command.softness, command.softness > 0 ? 1 / command.softness : 0, 0, 0};
+                        }
                     }
                     data.color = {linear(color.r), linear(color.g), linear(color.b), color.a};
                     if constexpr (std::is_same_v<T, DrawRect>) {

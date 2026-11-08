@@ -4,8 +4,8 @@ struct Primitive {
     float4 rect;
     float4 color; // Linear RGB, straight alpha.
     float4 widths; // Border edges, bitmap rows 0-3, gradient end color, or stop-buffer first/count.
-    float4 source; // Image rectangle, placeholder rows 4-6, linear projection, or radial center/inverse radii.
-    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5/6 linear, 7/8 radial), framebuffer width, height
+    float4 source; // Image rectangle, placeholder rows 4-6, gradient geometry, or shadow softness/inverse.
+    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5/6 linear, 7/8 radial, 9 shadow), framebuffer width, height
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
 [[vk::binding(0, 0)]] Texture2D<float4> image;
@@ -30,6 +30,8 @@ VertexOutput makeVertex(uint id, Primitive data) {
                                float2(0,1), float2(1,0), float2(1,1)};
     VertexOutput output;
     output.local = corners[id] * data.rect.zw;
+    if (data.params.y == 9)
+        output.local = corners[id] * (data.rect.zw + 2 * data.source.x) - data.source.x;
     float2 p = output.local + data.rect.xy;
     float2 logical = float2(dot(data.transform0.xy, p) + data.transform0.z,
                             dot(data.transform1.xy, p) + data.transform1.z);
@@ -67,6 +69,20 @@ bool roundedContains(float2 p, float2 size, float radius) {
 }
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
+    if (input.params.y == 9) {
+        if (input.source.x == 0) {
+            if (!roundedContains(input.local, input.rect.zw, input.params.x)) discard;
+            return input.color;
+        }
+        float r = min(input.params.x, min(input.rect.z, input.rect.w) * 0.5);
+        float2 q = abs(input.local - input.rect.zw * 0.5) - (input.rect.zw * 0.5 - r);
+        float2 positive = max(q, 0);
+        float m = max(positive.x, positive.y);
+        float distance = (m > 0 ? m * length(positive / m) : 0) + min(max(q.x, q.y), 0) - r;
+        float t = saturate(distance * input.source.y);
+        float coverage = 1 - t * t * (3 - 2 * t);
+        return float4(input.color.rgb, input.color.a * coverage);
+    }
     if (input.params.y == 3) {
         uint2 cell = min(uint2(input.local / input.rect.zw * float2(5,7)), uint2(4,6));
         uint row = cell.y < 4 ? uint(input.widths[cell.y]) : uint(input.source[cell.y - 4]);
