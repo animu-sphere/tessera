@@ -168,6 +168,53 @@ void procedural_fills() {
     check(f.paint().commands.empty(), "An invisible procedural fill with a transparent fallback paints nothing");
 }
 
+tessera::DrawRect fill_at(Fixture& f, double host_time) {
+    auto input = f.input();
+    input.host_time = host_time;
+    const auto result = tessera::build_paint_list(input);
+    check(result && result.diagnostics.empty(), "Valid timed paint rejected");
+    return std::get<tessera::DrawRect>(result.value->commands[0]);
+}
+
+void procedural_motion() {
+    Fixture f(box({box()}));
+    auto& style = f.styles[0];
+    style.width = Dimension::points(40);
+    style.height = Dimension::points(20);
+    style.background = {0, 0, 1, 1};
+    style.background_procedural = tessera::ProceduralFill{"example.wave", {.25f}, 1.5f};
+    f.compute();
+    const auto layout = f.layout;
+    check(fill_at(f, 120).procedural->time == 1.5f && !tessera::time_dependent(f.paint()),
+          "A zero time rate must keep the declared static time at every host time");
+    style.background_procedural->time_rate = -.5f;
+    const auto moving = fill_at(f, 4);
+    check(moving.procedural->time == -.5f && moving.procedural->time_rate == -.5f &&
+              tessera::time_dependent(tessera::UiDrawList{{moving}}),
+          "Paint must evaluate phase + rate * host time and keep the rate as a motion request");
+    check(fill_at(f, 0).procedural->time == 1.5f, "Host time 0 must draw the declared phase");
+    // Shader time is evaluated in double and rounded once, so long-running hosts lose only float rounding.
+    check(fill_at(f, 86400.25).procedural->time == float(1.5 - .5 * 86400.25),
+          "Large host times must round the evaluated time once");
+    check(f.layout == layout && fill_at(f, 9).rect == moving.rect && fill_at(f, 9).color == moving.color,
+          "Host time must change only the fill's evaluated time, not layout, geometry or fallback");
+
+    auto input = f.input();
+    input.host_time = std::numeric_limits<double>::infinity();
+    auto rejected = tessera::build_paint_list(input);
+    check(!rejected && has(rejected.diagnostics, "invalid_number", "/host_time"), "Nonfinite host time accepted");
+    input.host_time = 1e300;
+    rejected = tessera::build_paint_list(input);
+    check(!rejected && has(rejected.diagnostics, "time_overflow", "/nodes/0/background_procedural/time"),
+          "An evaluated time beyond float range must reject paint without a partial list");
+    style.background_procedural->time_rate = 0;
+    check(static_cast<bool>(tessera::build_paint_list(input)), "Static fills must ignore host time");
+    style.background_procedural->time_rate = std::numeric_limits<float>::quiet_NaN();
+    rejected = tessera::build_paint_list(f.input());
+    check(!rejected && has(rejected.diagnostics, "invalid_number", "/styles/0/background_procedural/time_rate"),
+          "Resolved styles must validate the time rate");
+}
+
 void box_shadows() {
     Fixture f(box({box()}));
     f.styles[0].overflow = tessera::Overflow::clip;
@@ -501,6 +548,7 @@ int main() {
         outlines();
         fill_shapes();
         procedural_fills();
+        procedural_motion();
         visibility_display_and_empty();
         clip_runs();
         invalid_input_and_topology();

@@ -112,6 +112,7 @@ public:
                 value.parameters[i]);
         }
         finite(value.time, path + "/time");
+        finite(value.time_rate, path + "/time_rate");
         range(value.opacity, path + "/opacity", 0, 1, "an opacity in [0, 1]");
     }
 
