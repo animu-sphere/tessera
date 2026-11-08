@@ -1,6 +1,7 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/ui/property_metadata.hpp>
 #include <array>
+#include <charconv>
 #include <set>
 #include <algorithm>
 #include <cmath>
@@ -18,8 +19,10 @@ struct ElementData {
     std::optional<std::array<std::string, 2>> checked_text;
     std::optional<std::array<StyleDeclarations, 2>> checked_styles;
     std::optional<Value<bool>> disabled;
+    // Controlled editing observation, presented as the value Text, the selection Text, or
+    // the input owner's semantic edit_value.
     std::optional<Value<TextEditState>> editing;
-    bool selection = false;
+    enum class EditPart : std::uint8_t { value, selection, owner } edit_part = EditPart::value;
     std::optional<std::string> action;
     std::map<std::string, std::string, std::less<>> events;
     std::map<std::string, Property, std::less<>> properties;
@@ -41,16 +44,21 @@ struct Lowerer {
     bool editing_value(const ElementData& data, const TextEditState& state, UiNode& node, const std::string& path) {
         // Reuse the logical editor's complete observation validation. Lowering
         // never mutates editing state; an open composition presents its preedit.
+        using Part = ElementData::EditPart;
         auto display = display_text_edit(state);
         if (!display) {
-            for (auto& error : display.diagnostics) {
-                error.path = path + "/properties/text";
-                errors.push_back(std::move(error));
-            }
-            return false;
+            // The generated value/selection Text report the failure once each; the owner is silent.
+            if (data.edit_part != Part::owner)
+                for (auto& error : display.diagnostics) {
+                    error.path = path + "/properties/text";
+                    errors.push_back(std::move(error));
+                }
+            return data.edit_part == Part::owner;
         }
         const auto& shown = *display.value;
-        if (!data.selection)
+        if (data.edit_part == Part::owner)
+            node.properties["edit_value"] = shown.text;
+        else if (data.edit_part == Part::value)
             node.properties["text"] = shown.text;
         else if (shown.composing)
             node.properties["text"] = "Composition " + std::to_string(shown.preedit_begin) + ":" +
@@ -95,7 +103,7 @@ struct Lowerer {
         }
         if (data.checked_text) node.properties["text"] = (*data.checked_text)[checked.value_or(false)];
         if (data.editing) {
-            node.properties["text"] = std::string{};
+            node.properties[data.edit_part == ElementData::EditPart::owner ? "edit_value" : "text"] = std::string{};
             if (const auto* literal = std::get_if<TextEditState>(&data.editing->value_))
                 (void)editing_value(data, *literal, node, path);
         }
@@ -157,7 +165,7 @@ struct Lowerer {
                 property = "disabled";
                 node.properties["disabled"] = data.disabled->snapshot(runtime);
             }
-            if (data.editing) {
+            if (data.editing && data.edit_part != ElementData::EditPart::owner) {
                 property = "text";
                 if (!editing_value(data, data.editing->snapshot(runtime), node, result.sources.nodes[current].pointer))
                     return false;
@@ -171,6 +179,9 @@ struct Lowerer {
         }
         for (auto& child : node.children)
             if (!values(runtime, child, index, checked)) return false;
+        // The owner's value is read after its generated Text, which locates any binding failure.
+        if (data.editing && data.edit_part == ElementData::EditPart::owner)
+            (void)editing_value(data, data.editing->snapshot(runtime), node, result.sources.nodes[current].pointer);
         return true;
     }
 };
@@ -337,23 +348,148 @@ Element Switch(Value<std::string> label, Value<bool> on, std::string action, Swi
     data->children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = data->props.source}));
     return Element(std::move(data));
 }
-Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps props) {
+namespace {
+// Shared TextInput/NumberInput owner: a focusable Box named by its generated <id>-label
+// Text whose semantic edit_value is the presented text.
+std::shared_ptr<detail::ElementData> edit_owner(const char* role, const char* name, const Value<TextEditState>& value,
+                                                std::string action, Props node, Value<bool> disabled) {
     auto data = std::make_shared<detail::ElementData>();
-    data->props = std::move(props.node);
-    data->props.style.direction = FlexDirection::column;
-    data->disabled = std::move(props.disabled);
+    if (node.id.value_or("").empty())
+        data->diagnostics.push_back({std::string(role) + "_id",
+                                     Severity::error,
+                                     {},
+                                     std::string("Give the ") + name + " a stable nonempty author ID."});
+    data->props = std::move(node);
+    data->disabled = std::move(disabled);
     data->action = std::move(action);
-    data->children.push_back(Text(std::move(label), {.source = data->props.source}));
-    for (bool selection : {false, true}) {
-        auto child = std::make_shared<detail::ElementData>();
-        child->kind = NodeKind::text;
-        child->props.source = data->props.source;
-        child->editing = value;
-        child->selection = selection;
-        data->children.push_back(Element(std::move(child)));
-    }
+    data->editing = value;
+    data->edit_part = detail::ElementData::EditPart::owner;
+    data->properties["edit_role"] = std::string(role);
+    data->properties["labelled_by"] = NodeReference{data->props.id.value_or("") + "-label"};
+    return data;
+}
+std::shared_ptr<detail::ElementData> edit_part_text(const Value<TextEditState>& value,
+                                                    detail::ElementData::EditPart part, std::optional<std::string> id,
+                                                    const std::optional<SourceLocation>& source) {
+    auto child = std::make_shared<detail::ElementData>();
+    child->kind = NodeKind::text;
+    child->props.id = std::move(id);
+    child->props.source = source;
+    child->editing = value;
+    child->edit_part = part;
+    return child;
+}
+} // namespace
+
+Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps props) {
+    using Part = detail::ElementData::EditPart;
+    auto data = edit_owner("text_input", "TextInput", value, std::move(action), std::move(props.node),
+                           std::move(props.disabled));
+    data->props.style.direction = FlexDirection::column;
+    const auto prefix = data->props.id.value_or("");
+    const auto source = data->props.source;
+    data->children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = source}));
+    data->children.push_back(Element(edit_part_text(value, Part::value, prefix + "-value", source)));
+    data->children.push_back(Element(edit_part_text(value, Part::selection, std::nullopt, source)));
     return Element(std::move(data));
 }
+
+Element NumberInput(Value<std::string> label, Value<TextEditState> draft, std::string action, NumberInputProps props) {
+    using Part = detail::ElementData::EditPart;
+    auto data = edit_owner("number_input", "NumberInput", draft, std::move(action), std::move(props.node),
+                           std::move(props.disabled));
+    auto& style = data->props.style;
+    style.direction = FlexDirection::row;
+    if (!style.align) style.align = Align::center;
+    if (!style.gap) style.gap = 6.f;
+    const auto prefix = data->props.id.value_or("");
+    const auto source = data->props.source;
+    data->children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = source}));
+    auto field = std::make_shared<detail::ElementData>();
+    field->props = {.id = prefix + "-field",
+                    .style = {.direction = FlexDirection::row, .align = Align::center, .grow = 1.f, .shrink = 1.f},
+                    .source = source};
+    field->children.push_back(Element(edit_part_text(draft, Part::value, prefix + "-value", source)));
+    data->children.push_back(Element(std::move(field)));
+    for (const auto& [part, glyph] : {std::pair{"-decrease", "-"}, std::pair{"-increase", "+"}})
+        data->children.push_back(Column({Text(glyph, {.source = source})}, {.id = prefix + part,
+                                                                            .style = {.justify = Justify::center,
+                                                                                      .align = Align::center,
+                                                                                      .width = Dimension::points(20),
+                                                                                      .shrink = 0.f},
+                                                                            .source = source}));
+    return Element(std::move(data));
+}
+
+namespace {
+Result<double> number_failure(std::string code, std::string message) {
+    return {std::nullopt, {{std::move(code), Severity::error, "/text", std::move(message), {}}}};
+}
+std::vector<Diagnostic> check_range(NumberRange range) {
+    if (!std::isfinite(range.minimum) || !std::isfinite(range.maximum) || range.minimum > range.maximum ||
+        !std::isfinite(range.step) || range.step <= 0)
+        return {{"number_range",
+                 Severity::error,
+                 "/range",
+                 "Use finite bounds with minimum <= maximum and a finite positive step.",
+                 {}}};
+    return {};
+}
+std::size_t fraction_digits(double value) {
+    const auto text = format_number(value);
+    const auto point = text.find('.');
+    return point == std::string::npos ? 0 : text.size() - point - 1;
+}
+} // namespace
+
+std::string format_number(double value) {
+    if (value == 0) return "0";
+    if (!std::isfinite(value)) return {};
+    std::array<char, 400> buffer{};
+    const auto written = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value, std::chars_format::fixed);
+    return written.ec == std::errc{} ? std::string(buffer.data(), written.ptr) : std::string{};
+}
+
+Result<double> parse_number(NumberRange range, std::string_view text) {
+    if (auto errors = check_range(range); !errors.empty()) return {std::nullopt, std::move(errors)};
+    const auto bounds = " from " + format_number(range.minimum) + " to " + format_number(range.maximum) + ".";
+    std::size_t at = text.starts_with('-') ? 1 : 0;
+    const auto digits = [&] {
+        const auto begin = at;
+        while (at < text.size() && text[at] >= '0' && text[at] <= '9') ++at;
+        return at - begin;
+    };
+    const auto first = at;
+    const auto whole = digits();
+    bool valid = whole > 0 && !(whole > 1 && text[first] == '0');
+    if (valid && at < text.size() && text[at] == '.') {
+        ++at;
+        valid = digits() > 0;
+    }
+    if (!valid || at != text.size())
+        return number_failure("number_syntax", "Enter a plain decimal such as -1.25" + bounds);
+    double parsed = 0;
+    const auto converted = std::from_chars(text.data(), text.data() + text.size(), parsed);
+    if (converted.ec != std::errc{} || !std::isfinite(parsed) || parsed < range.minimum || parsed > range.maximum)
+        return number_failure("number_out_of_range", "Enter a number" + bounds);
+    return {parsed == 0 ? 0.0 : parsed, {}};
+}
+
+Result<double> step_number(NumberRange range, double value, int steps) {
+    if (auto errors = check_range(range); !errors.empty()) return {std::nullopt, std::move(errors)};
+    if (!std::isfinite(value)) return number_failure("number_value", "Step from a finite value.");
+    double next = std::clamp(value + static_cast<double>(steps) * range.step, range.minimum, range.maximum);
+    // Drop binary noise such as 0.1 + 0.2 by keeping the decimal places of the value and step.
+    const auto digits = std::max(fraction_digits(value), fraction_digits(range.step));
+    if (next != range.minimum && next != range.maximum && digits <= 17) {
+        std::array<char, 400> buffer{};
+        const auto written = std::to_chars(buffer.data(), buffer.data() + buffer.size(), next, std::chars_format::fixed,
+                                           static_cast<int>(digits));
+        if (written.ec == std::errc{}) (void)std::from_chars(buffer.data(), written.ptr, next);
+    }
+    return {next == 0 ? 0.0 : next, {}};
+}
+
 Element Row(std::vector<Element> children, Props props) {
     props.style.direction = FlexDirection::row;
     auto data = std::make_shared<detail::ElementData>();

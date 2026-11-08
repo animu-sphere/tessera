@@ -43,6 +43,8 @@ The optional Box-only boolean `properties.separator` defaults to false without b
 
 The Box-only string `properties.toggle_role` is additive v1 vocabulary: `checkbox` or `switch`, absent meaning none. A toggle requires a boolean `selected` (its checked state) and an activate action, and cannot combine with a collection role, `modal`, `separator` or `scrollbar`. It projects the [controlled Checkbox/Switch](../../docs/guides/checkbox-switch.md) roles; it does not mutate host state. Existing documents retain their encoding, and older readers reject the unknown property.
 
+The Box-only strings `properties.edit_role` and `properties.edit_value` are additive v1 vocabulary. `edit_role` is `text_input` or `number_input`; `edit_value` is the input's presented text. Each requires the other and an activate action, and an edit role cannot combine with `toggle_role`, a collection role, `modal`, `separator` or `scrollbar`. They project the [TextInput/NumberInput](../../docs/guides/text-number-input.md) roles and `value`; they do not encode editing state or mutate host state. Existing documents retain their encoding, and older readers reject the unknown properties.
+
 The Box-only boolean `properties.scrollbar` is likewise additive v1 vocabulary, absent meaning false without materialization. A true marker cannot combine with `separator`, `modal` or a collection role. It projects the [controlled scrollbar](../../docs/guides/scrollbar.md) role and ordinary eligible activate action; it does not encode or mutate host scroll state. Existing documents retain their encoding, and older readers reject the unknown marker.
 
 The additive popup vocabulary also remains version 1:

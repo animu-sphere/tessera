@@ -26,6 +26,49 @@ std::string expected(PropertyType type) {
     return "a supported value";
 }
 
+// Toggle and edit role markers for one Box; returns whether it declares a toggle role.
+bool check_control_roles(const UiNode& node, const std::string& path, bool collection,
+                         std::vector<Diagnostic>& errors) {
+    const auto error = [&](const char* code, std::string at, const char* message) {
+        errors.push_back({code, Severity::error, std::move(at), message, {}});
+    };
+    const auto marked = [&](std::string_view name) {
+        const auto* value = effective_property(node, name);
+        const auto* flag = value ? std::get_if<bool>(value) : nullptr;
+        return flag && *flag;
+    };
+    const bool other = collection || marked(property_names::modal) || marked(property_names::separator) ||
+                       marked(property_names::scrollbar);
+    const auto toggle_found = node.properties.find(property_names::toggle_role);
+    const auto* toggle_name =
+        toggle_found == node.properties.end() ? nullptr : std::get_if<std::string>(&toggle_found->second);
+    const bool toggle = toggle_found != node.properties.end();
+    if (toggle_name && *toggle_name != "checkbox" && *toggle_name != "switch")
+        error("toggle_role", path + "/properties/toggle_role", "Choose checkbox or switch.");
+    if (toggle && other)
+        error("toggle_role", path + "/properties/toggle_role",
+              "Do not combine a toggle role with a collection role or another semantic role marker.");
+    if (toggle && !node.properties.contains(property_names::selected))
+        error("toggle_state", path + "/properties/selected", "Give each checkbox or switch a checked state.");
+    if (toggle && !node.events.contains("activate"))
+        error("toggle_action", path + "/events/activate", "Give each checkbox or switch a registered command.");
+    const auto edit_found = node.properties.find(property_names::edit_role);
+    const auto* edit_name =
+        edit_found == node.properties.end() ? nullptr : std::get_if<std::string>(&edit_found->second);
+    const bool edit = edit_found != node.properties.end();
+    if (edit_name && *edit_name != "text_input" && *edit_name != "number_input")
+        error("edit_role", path + "/properties/edit_role", "Choose text_input or number_input.");
+    if (edit && (toggle || other))
+        error("edit_role", path + "/properties/edit_role",
+              "Do not combine an edit role with a toggle, collection role or another semantic role marker.");
+    if (edit != node.properties.contains(property_names::edit_value))
+        error("edit_value", path + "/properties/edit_value",
+              "Give each text or number input its presented value, and values only to inputs.");
+    if (edit && !node.events.contains("activate"))
+        error("edit_action", path + "/events/activate", "Give each text or number input a registered command.");
+    return toggle;
+}
+
 } // namespace
 
 std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, const UiNode& root,
@@ -204,20 +247,8 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         if (role == "tree_item" || parent_role == "tree") tree_entries.push_back({&node, parent, path});
         if (node.properties.contains(property_names::tree_parent) && role != "tree_item")
             error("collection_state", path + "/properties/tree_parent", "Only tree items have a logical tree parent.");
-        const auto toggle_found = node.properties.find(property_names::toggle_role);
-        const auto* toggle_name =
-            toggle_found == node.properties.end() ? nullptr : std::get_if<std::string>(&toggle_found->second);
-        const bool toggle = toggle_found != node.properties.end();
-        if (toggle_name && *toggle_name != "checkbox" && *toggle_name != "switch")
-            error("toggle_role", path + "/properties/toggle_role", "Choose checkbox or switch.");
-        if (toggle && (!role.empty() || marked(property_names::modal) || marked(property_names::separator) ||
-                       marked(property_names::scrollbar)))
-            error("toggle_role", path + "/properties/toggle_role",
-                  "Do not combine a toggle role with a collection role or another semantic role marker.");
-        if (toggle && !node.properties.contains(property_names::selected))
-            error("toggle_state", path + "/properties/selected", "Give each checkbox or switch a checked state.");
-        if (toggle && !node.events.contains("activate"))
-            error("toggle_action", path + "/events/activate", "Give each checkbox or switch a registered command.");
+        // Kept out of this recursive frame so deep documents stay within the stack.
+        const bool toggle = check_control_roles(node, path, !role.empty(), errors);
         if (node.properties.contains(property_names::selected) && role != "list_item" && role != "tree_item" &&
             role != "radio" && !toggle)
             error("collection_state", path + "/properties/selected",

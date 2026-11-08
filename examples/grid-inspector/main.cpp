@@ -30,8 +30,9 @@ ui::Element Inspector(ui::Value<TextEditState> name, ui::Value<TextEditState> ca
             .node = {.id = id, .style = {.padding = Edges{4, 4, 4, 4}, .background = Color{0.8f, 0.9f, 1, 1}}}};
     };
     return ui::Grid(
-        {ui::Text("Display name", {.id = "name-label"}),
-         ui::TextInput("Name", name, "inspector.name", input_props("name")), ui::Text("Kind", {.id = "category-label"}),
+        {ui::Text("Display name", {.id = "name-caption"}),
+         ui::TextInput("Name", name, "inspector.name", input_props("name")),
+         ui::Text("Kind", {.id = "category-caption"}),
          ui::TextInput("Group", category, "inspector.category", input_props("category"))},
         {.id = "inspector",
          .style = {.overflow = Overflow::clip,
@@ -211,8 +212,8 @@ private:
 void verify_columns(Host& host) {
     const auto first = host.view.bounds("name");
     const auto second = host.view.bounds("category");
-    const auto label = host.view.bounds("name-label");
-    require(label.origin.x == 8 && host.view.bounds("category-label").origin.x == 8 && first.origin.x == 96 &&
+    const auto label = host.view.bounds("name-caption");
+    require(label.origin.x == 8 && host.view.bounds("category-caption").origin.x == 8 && first.origin.x == 96 &&
                 second.origin.x == first.origin.x && second.size.width == first.size.width &&
                 first.origin.x + first.size.width == host.viewport.width - 8 &&
                 second.origin.y == first.origin.y + first.size.height + 8,

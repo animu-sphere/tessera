@@ -28,6 +28,8 @@ inline constexpr std::string_view popup_y = "popup_y";
 inline constexpr std::string_view separator = "separator";
 inline constexpr std::string_view scrollbar = "scrollbar";
 inline constexpr std::string_view toggle_role = "toggle_role";
+inline constexpr std::string_view edit_role = "edit_role";
+inline constexpr std::string_view edit_value = "edit_value";
 } // namespace property_names
 
 // Mirrors the `Property` alternatives; no coercion between types.

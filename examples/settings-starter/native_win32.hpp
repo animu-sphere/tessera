@@ -92,6 +92,9 @@ public:
     std::function<tessera::CapturedImage()> capture;
     std::function<std::optional<tessera::Rect>()> focused;
     std::function<bool()> editing;
+    // Optional: whether the focused editor accepts IME composition; defaults to editing().
+    // A numeric field can take committed WM_CHAR text while leaving the IME detached.
+    std::function<bool()> ime_editing;
     std::function<void(tessera::Size)> resized;
     std::function<bool(tessera::Point)> resize_cursor;
     // Optional IME composition boundary. Without `composition`, Windows keeps its
@@ -260,7 +263,7 @@ private:
     // Attach the IME only to the focused editor and end a session whose editor lost focus.
     void sync_ime() {
         if (!composition || !handle) return;
-        const bool wanted = editing();
+        const bool wanted = ime_editing ? ime_editing() : editing();
         if (!wanted) abandon_ime();
         if (wanted != ime_associated) {
             ImmAssociateContextEx(handle, nullptr, wanted ? IACE_DEFAULT : 0);
@@ -399,6 +402,9 @@ private:
             case VK_ESCAPE:
                 mapped = tessera::Key::escape;
                 break;
+            case VK_RETURN: // Unshifted Return outside an editor became Activate above.
+                mapped = tessera::Key::enter;
+                break;
             case VK_F10:
                 mapped = tessera::Key::f10;
                 break;
@@ -526,7 +532,7 @@ private:
                 if (composition && w) l &= ~static_cast<LPARAM>(ISC_SHOWUICOMPOSITIONWINDOW);
                 break;
             case WM_IME_STARTCOMPOSITION:
-                if (!composition || !editing()) break;
+                if (!composition || !(ime_editing ? ime_editing() : editing())) break;
                 ime_session = true;
                 ime_open = false;
                 place_ime();

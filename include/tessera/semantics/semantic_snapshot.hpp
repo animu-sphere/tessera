@@ -24,6 +24,7 @@ struct SemanticRecord {
     std::vector<SemanticAction> actions;
     std::optional<bool> selected;
     std::optional<bool> expanded;
+    std::optional<std::string> value;
     bool operator==(const SemanticRecord&) const = default;
 };
 
