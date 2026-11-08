@@ -46,7 +46,7 @@ For the repository target, use `build/Debug/tessera_settings_starter.exe` with t
 
 - Click a category or control. A primary press focuses it; TextInput clicks focus without executing an empty edit. A dotted outline marks fully visible logical focus.
 - Tab and Shift+Tab traverse all controls and reveal them inside each pane. Enter or Space activates buttons, Checkboxes and Dropdown choices. In Username, Space inserts text and Enter leaves the draft unchanged.
-- Type in Username. Control+A selects the whole field; Left/Right, Home/End, Shift-selection, Backspace and Delete use the existing revisioned editing commands. Committed UTF-16 `WM_CHAR` pairs become one UTF-8 insertion. Clipboard and composition/IME integration are outside this host.
+- Type in Username. Control+A selects the whole field; Left/Right, Home/End, Shift-selection, Backspace and Delete use the existing revisioned editing commands. Committed UTF-16 `WM_CHAR` pairs become one UTF-8 insertion. The starter wires no clipboard or IME composition; with the host's opt-in composition callback left unset, Windows keeps its default IME window and committed text still arrives as `WM_CHAR`.
 - Wheel over either pane to scroll independently; horizontal wheel messages scroll horizontally. Choose Theme inline, or Escape to dismiss its choices. On Volume, arrows step and Home/End select limits; drag its track to adjust it.
 - Apply appends one in-memory settings copy. Cancel restores the most recently applied copy while retaining the selected category. Saves last only for this process.
 

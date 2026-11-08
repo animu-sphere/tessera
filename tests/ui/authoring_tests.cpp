@@ -452,6 +452,15 @@ void controlled_text_input() {
     check(second.sources.nodes[2].property_arguments.at("text") == origin &&
               second.sources.nodes[3].property_arguments.at("text") == origin,
           "Field projections lost origins");
+    auto composing = take(edit_text(next, {1, next.revision, TextCompositionStart{}}));
+    composing =
+        take(edit_text(composing, {1, composing.revision, TextCompositionUpdate{composing.composition->id, "ご", 3}}));
+    ui.update([&] { state.write(composing); });
+    const auto composed = take(ui.lower(field, actions));
+    check(composed.document.root.children[1].properties.at("text") == Property{std::string("日ご")} &&
+              composed.document.root.children[2].properties.at("text") ==
+                  Property{std::string("Composition 3:6 caret 6")},
+          "Open composition must present preedit over the captured selection");
     next.caret = 4;
     ui.update([&] { state.write(next); });
     const auto invalid = ui.lower(field, actions);

@@ -33,19 +33,24 @@ struct Lowerer {
     std::vector<Diagnostic> errors;
 
     bool editing_value(const ElementData& data, const TextEditState& state, UiNode& node, const std::string& path) {
-        // Reuse the logical editor's complete state validation without accepting
-        // its returned next revision. Lowering never mutates editing state.
-        auto checked = edit_text(state, {state.owner, state.revision, TextEditSelection{state.anchor, state.caret}});
-        if (!checked) {
-            for (auto& error : checked.diagnostics) {
+        // Reuse the logical editor's complete observation validation. Lowering
+        // never mutates editing state; an open composition presents its preedit.
+        auto display = display_text_edit(state);
+        if (!display) {
+            for (auto& error : display.diagnostics) {
                 error.path = path + "/properties/text";
                 errors.push_back(std::move(error));
             }
             return false;
         }
-        node.properties["text"] = data.selection
-                                      ? "Selection " + std::to_string(state.anchor) + ":" + std::to_string(state.caret)
-                                      : state.text;
+        const auto& shown = *display.value;
+        if (!data.selection)
+            node.properties["text"] = shown.text;
+        else if (shown.composing)
+            node.properties["text"] = "Composition " + std::to_string(shown.preedit_begin) + ":" +
+                                      std::to_string(shown.preedit_end) + " caret " + std::to_string(shown.caret);
+        else
+            node.properties["text"] = "Selection " + std::to_string(state.anchor) + ":" + std::to_string(state.caret);
         return true;
     }
 

@@ -77,11 +77,100 @@ void rejected_requests() {
     apply(full, TextEditInsert{std::string(max_text_edit_bytes, 'y')});
     check(full.text.size() == max_text_edit_bytes, "Bounds account for selected replacement bytes");
 }
+void japanese_composition() {
+    auto state = *make_text_edit_state(21, "名前😀").value;
+    apply(state, TextEditSelection{3, 6}); // Replace 前 through the composition.
+    const auto selected = state;
+    apply(state, TextCompositionStart{});
+    check(state.composition && state.composition->id == state.revision && state.composition->begin == 3 &&
+              state.composition->end == 6 && state.text == selected.text && state.anchor == 3 && state.caret == 6,
+          "Start captures the selection without changing committed bytes");
+    const auto id = state.composition->id;
+    apply(state, TextCompositionUpdate{id, "にほ", 6});
+    apply(state, TextCompositionUpdate{id, "にほんご", 12});
+    check(state.text == "名前😀" && state.composition->preedit == "にほんご", "Updates change only preedit");
+    auto shown = *display_text_edit(state).value;
+    check(shown.composing && shown.text == "名にほんご😀" && shown.preedit_begin == 3 && shown.preedit_end == 15 &&
+              shown.caret == 15 && shown.anchor == 15,
+          "Display splices preedit over the captured range");
+    apply(state, TextCompositionUpdate{id, "日本語", 3});
+    check(display_text_edit(state).value->caret == 6, "Display caret follows the preedit caret");
+    apply(state, TextCompositionCommit{id, "日本語"});
+    check(!state.composition && state.text == "名日本語😀" && state.anchor == 12 && state.caret == 12,
+          "Commit replaces the original range once");
+    check(!edit_text(state, {21, state.revision, TextCompositionCommit{id, "x"}}) &&
+              has(edit_text(state, {21, state.revision, TextCompositionCommit{id, "x"}}).diagnostics, "no_composition",
+                  "/edit/composition"),
+          "A duplicate commit for a closed composition fails");
+    const auto plain = *display_text_edit(state).value;
+    check(!plain.composing && plain.text == state.text && plain.caret == 12, "Display without composition");
+
+    const auto before = state;
+    apply(state, TextCompositionStart{});
+    const auto second = state.composition->id;
+    check(second != id, "Composition IDs are never reused within an owner");
+    apply(state, TextCompositionUpdate{second, "😀", 4});
+    apply(state, TextCompositionCancel{second});
+    check(!state.composition && state.text == before.text && state.anchor == before.anchor &&
+              state.caret == before.caret && state.revision == before.revision + 3,
+          "Cancel discards preedit without a committed edit");
+}
+void composition_rejections() {
+    auto state = *make_text_edit_state(31, "ab").value;
+    apply(state, TextCompositionStart{});
+    const auto open = state;
+    const auto id = open.composition->id;
+    auto reject = [&](decltype(TextEditRequest::operation) operation, std::string_view code, std::string_view path,
+                      TextEditPolicy policy = {}, std::uint64_t revision = 0) {
+        auto result = edit_text(open, {31, revision ? revision : open.revision, std::move(operation)}, policy);
+        check(!result && has(result.diagnostics, code, path), "Located composition rejection required");
+    };
+    reject(TextEditInsert{"x"}, "composition_active", "/edit/operation");
+    reject(TextEditMove{}, "composition_active", "/edit/operation");
+    reject(TextEditSelection{0, 0}, "composition_active", "/edit/operation");
+    reject(TextCompositionStart{}, "composition_active", "/edit/operation");
+    reject(TextCompositionUpdate{id + 1, "x"}, "stale_composition", "/edit/composition");
+    reject(TextCompositionUpdate{id, "x"}, "stale_revision", "/edit/revision", {}, open.revision - 1);
+    reject(TextCompositionUpdate{id, "\xe3\x81", 0}, "invalid_utf8", "/edit/preedit");
+    reject(TextCompositionUpdate{id, "a\nb", 0}, "multiline_text", "/edit/preedit");
+    reject(TextCompositionUpdate{id, "あ", 1}, "invalid_composition", "/edit/caret");
+    reject(TextCompositionUpdate{id, "あ", 4}, "invalid_composition", "/edit/caret");
+    reject(TextCompositionUpdate{id, std::string(max_text_edit_bytes - 1, 'x')}, "text_too_long", "/edit/preedit");
+    reject(TextCompositionCommit{id, std::string(max_text_edit_bytes - 1, 'x')}, "text_too_long", "/edit/text");
+    reject(TextCompositionUpdate{id, "x"}, "read_only_editor", "/edit", {true, true});
+    reject(TextCompositionCommit{id, "x"}, "disabled_editor", "/edit", {false});
+    check(bool(edit_text(open, {31, open.revision, TextCompositionCancel{id}}, {false})) &&
+              bool(edit_text(open, {31, open.revision, TextCompositionCancel{id}}, {true, true})),
+          "Cancel closes a session under disabled or read-only policy");
+    check(
+        has(edit_text(*make_text_edit_state(31, "ab").value, {31, 1, TextCompositionStart{}}, {true, true}).diagnostics,
+            "read_only_editor", "/edit"),
+        "Read-only editors reject composition start");
+    check(has(edit_text(*make_text_edit_state(31, "ab").value, {31, 1, TextCompositionCancel{1}}).diagnostics,
+              "no_composition", "/edit/composition"),
+          "Cancel without composition fails");
+    auto malformed = open;
+    malformed.composition->begin = 1;
+    check(has(validate(malformed), "invalid_composition", "/edit/state/composition") && !display_text_edit(malformed),
+          "Composition must retain the captured selection");
+    malformed = open;
+    malformed.composition->id = open.revision + 1;
+    check(has(validate(malformed), "invalid_composition", "/edit/state/composition"),
+          "Composition cannot start after its observation");
+    malformed = open;
+    malformed.composition->preedit = "あ";
+    malformed.composition->caret = 2;
+    check(has(validate(malformed), "invalid_composition", "/edit/state/composition/caret"),
+          "Observed preedit caret must lie on a scalar boundary");
+    check(validate(open).empty(), "Open composition observations validate");
+}
 }
 int main() {
     try {
         scalar_edits();
         rejected_requests();
+        japanese_composition();
+        composition_rejections();
     } catch (const std::exception& failure) {
         std::cerr << failure.what() << '\n';
         return 1;

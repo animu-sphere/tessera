@@ -6,15 +6,21 @@
 #endif
 #include <windows.h>
 #include <windowsx.h>
+#include <imm.h>
 #include <tessera/input/event.hpp>
 #include <tessera/commands/commands.hpp>
 #include <tessera/render/cpu_renderer.hpp>
+#ifdef _MSC_VER
+#pragma comment(lib, "imm32.lib")
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <exception>
 #include <functional>
+#include <optional>
 #include <stdexcept>
+#include <string>
 
 namespace settings_native {
 inline void check(bool ok, const char* message) {
@@ -25,10 +31,15 @@ inline void check(bool ok, const char* message) {
 // coverage for those scalar IDs, rather than claiming a native shaping/IME service.
 class Glyphs final : public tessera::GlyphRasterizer {
 public:
+    // Optional cells per scalar. Two-cell scalars use a CJK-capable face so an
+    // application's wide placeholder cells show whole glyphs.
+    std::function<unsigned(std::uint32_t)> cells;
     std::uint64_t face_revision(tessera::FontId font) const override { return font.value == 0 ? 1 : 0; }
     tessera::Result<tessera::GlyphBitmap> rasterize(const tessera::GlyphRasterRequest& request) override {
         const int size = static_cast<int>(std::lround(request.pixel_size_64 / 64.f));
-        const int width = std::max(1, static_cast<int>(std::ceil(size * .5f)));
+        const bool wide = cells && cells(request.glyph) == 2;
+        const int cell = std::max(1, static_cast<int>(std::ceil(size * .5f)));
+        const int width = wide ? cell * 2 : cell;
         const int height = size + 4;
         HDC dc = CreateCompatibleDC(nullptr);
         check(dc != nullptr, "Cannot create glyph DC");
@@ -36,9 +47,9 @@ public:
         info.bmiHeader = {sizeof(BITMAPINFOHEADER), width, -height, 1, 32, BI_RGB};
         void* bits = nullptr;
         HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
-        HFONT font =
-            CreateFontW(-size, width, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                        CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, FIXED_PITCH, L"Consolas");
+        const wchar_t* face = !wide ? L"Consolas" : request.glyph >= 0x1f000 ? L"Segoe UI Emoji" : L"MS Gothic";
+        HFONT font = CreateFontW(-size, wide ? 0 : cell, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, FIXED_PITCH, face);
         if (!bitmap || !font) {
             if (bitmap) DeleteObject(bitmap);
             if (font) DeleteObject(font);
@@ -83,6 +94,24 @@ public:
     std::function<bool()> editing;
     std::function<void(tessera::Size)> resized;
     std::function<bool(tessera::Point)> resize_cursor;
+    // Optional IME composition boundary. Without `composition`, Windows keeps its
+    // default composition window and committed text arrives as WM_CHAR. With it,
+    // the IME is attached only while editing(); the host hides the default
+    // composition window and delivers one normalized UTF-8 session instead.
+    enum class ImeKind : std::uint8_t { start, update, commit, cancel };
+    struct ImeEvent {
+        ImeKind kind = ImeKind::start;
+        std::string text;      // Update preedit or commit result.
+        std::size_t caret = 0; // UTF-8 byte offset within an update's preedit.
+    };
+    std::function<void(ImeEvent)> composition;
+    // Logical preedit caret rectangle for composition/candidate placement.
+    std::function<std::optional<tessera::Rect>()> caret;
+    // Platform IME access; smoke substitutes injected strings without an IME.
+    std::function<std::optional<std::wstring>(DWORD)> ime_string; // GCS_COMPSTR or GCS_RESULTSTR.
+    std::function<LONG()> ime_cursor;                             // GCS_CURSORPOS in UTF-16 units.
+    std::function<void(DWORD)> ime_notify;                        // CPS_COMPLETE or CPS_CANCEL.
+    std::optional<RECT> ime_area;                                 // Last physical client placement.
     HWND handle = nullptr;
     unsigned presentations = 0;
     const wchar_t* title = L"Tessera Settings - drag boundary: resize, Tab: focus, wheel: scroll";
@@ -106,6 +135,7 @@ public:
                                  bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr,
                                  type.hInstance, this);
         check(handle != nullptr, "Cannot create Settings window");
+        sync_ime();
         ShowWindow(handle, smoke ? SW_SHOWNOACTIVATE : SW_SHOW);
         UpdateWindow(handle);
         if (smoke && !failure) {
@@ -133,6 +163,21 @@ public:
         UpdateWindow(handle);
         if (failure) std::rethrow_exception(failure);
     }
+    bool composing() const { return ime_session; }
+    bool ime_attached() const { return ime_associated; }
+    // Strict UTF-16 to UTF-8; malformed surrogates fail.
+    static std::optional<std::string> utf8(std::wstring_view text) {
+        if (text.empty()) return std::string{};
+        const int size = static_cast<int>(text.size());
+        const int bytes =
+            WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), size, nullptr, 0, nullptr, nullptr);
+        if (bytes <= 0) return std::nullopt;
+        std::string result(static_cast<std::size_t>(bytes), '\0');
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), size, result.data(), bytes, nullptr,
+                                nullptr) != bytes)
+            return std::nullopt;
+        return result;
+    }
     POINT physical(tessera::Point point) const {
         const auto view = mapping();
         return {static_cast<LONG>(std::lround(view.x + point.x * view.scale)),
@@ -145,6 +190,9 @@ private:
     };
     std::exception_ptr failure;
     wchar_t high_surrogate = 0;
+    bool ime_session = false;   // Between an accepted WM_IME_STARTCOMPOSITION and its end.
+    bool ime_open = false;      // A start was delivered without its commit/cancel.
+    bool ime_associated = true; // The window's default input context is attached.
     Mapping mapping() const {
         const float scale = static_cast<float>(GetDpiForWindow(handle)) / 96;
         return {0, 0, scale};
@@ -165,6 +213,102 @@ private:
              std::move(event)},
             source);
         InvalidateRect(handle, nullptr, FALSE);
+        sync_ime();
+    }
+    std::optional<std::wstring> read_ime(DWORD kind) {
+        if (ime_string) return ime_string(kind);
+        const HIMC context = ImmGetContext(handle);
+        if (!context) return std::nullopt;
+        std::optional<std::wstring> result;
+        const LONG bytes = ImmGetCompositionStringW(context, kind, nullptr, 0);
+        if (bytes >= 0) {
+            std::wstring text(static_cast<std::size_t>(bytes) / sizeof(wchar_t), L'\0');
+            if (bytes == 0 || ImmGetCompositionStringW(context, kind, text.data(), bytes) == bytes)
+                result = std::move(text);
+        }
+        ImmReleaseContext(handle, context);
+        return result;
+    }
+    LONG read_cursor() {
+        if (ime_cursor) return ime_cursor();
+        const HIMC context = ImmGetContext(handle);
+        if (!context) return 0;
+        const LONG cursor = ImmGetCompositionStringW(context, GCS_CURSORPOS, nullptr, 0);
+        ImmReleaseContext(handle, context);
+        return std::max<LONG>(0, cursor & 0xffff);
+    }
+    void notify_ime(DWORD action) {
+        if (ime_notify) return ime_notify(action);
+        if (const HIMC context = ImmGetContext(handle)) {
+            ImmNotifyIME(context, NI_COMPOSITIONSTR, action, 0);
+            ImmReleaseContext(handle, context);
+        }
+    }
+    void deliver(ImeEvent event) {
+        if (event.kind == ImeKind::start) ime_open = true;
+        if (event.kind == ImeKind::commit || event.kind == ImeKind::cancel) ime_open = false;
+        composition(std::move(event));
+        InvalidateRect(handle, nullptr, FALSE);
+    }
+    // End the platform session and tell the application once; never commits preedit.
+    void abandon_ime() {
+        if (!ime_session) return;
+        ime_session = false;
+        if (ime_open) deliver({ImeKind::cancel});
+        notify_ime(CPS_CANCEL);
+    }
+    // Attach the IME only to the focused editor and end a session whose editor lost focus.
+    void sync_ime() {
+        if (!composition || !handle) return;
+        const bool wanted = editing();
+        if (!wanted) abandon_ime();
+        if (wanted != ime_associated) {
+            ImmAssociateContextEx(handle, nullptr, wanted ? IACE_DEFAULT : 0);
+            ime_associated = wanted;
+        }
+    }
+    void place_ime() {
+        if (!caret) return;
+        const auto rect = caret();
+        if (!rect) return;
+        const auto a = physical(rect->origin);
+        const auto b = physical({rect->origin.x + rect->size.width, rect->origin.y + rect->size.height});
+        ime_area = RECT{a.x, a.y, b.x, b.y};
+        const HIMC context = ImmGetContext(handle);
+        if (!context) return;
+        COMPOSITIONFORM form{CFS_POINT, {a.x, a.y}, {}};
+        ImmSetCompositionWindow(context, &form);
+        CANDIDATEFORM candidate{0, CFS_EXCLUDE, {a.x, b.y}, *ime_area};
+        ImmSetCandidateWindow(context, &candidate);
+        ImmReleaseContext(handle, context);
+    }
+    void compose(LPARAM flags) {
+        if (flags & GCS_RESULTSTR) {
+            const auto result = read_ime(GCS_RESULTSTR);
+            const auto text = result ? utf8(*result) : std::nullopt;
+            if (!ime_open) deliver({ImeKind::start});
+            // Malformed platform UTF-16 cancels rather than committing altered bytes.
+            deliver(text ? ImeEvent{ImeKind::commit, *text} : ImeEvent{ImeKind::cancel});
+        }
+        if (flags & GCS_COMPSTR) {
+            const auto preedit = read_ime(GCS_COMPSTR);
+            const auto text = preedit ? utf8(*preedit) : std::nullopt;
+            if (text && (ime_open || !text->empty())) {
+                auto cursor = std::min<std::size_t>(static_cast<std::size_t>(read_cursor()), preedit->size());
+                if (cursor > 0 && cursor < preedit->size() && (*preedit)[cursor] >= 0xdc00 &&
+                    (*preedit)[cursor] <= 0xdfff)
+                    --cursor; // Never split a supplementary character.
+                const auto offset = utf8(std::wstring_view(*preedit).substr(0, cursor));
+                if (!ime_open) deliver({ImeKind::start});
+                deliver({ImeKind::update, *text, offset ? offset->size() : text->size()});
+            } else if (!text && ime_open) {
+                deliver({ImeKind::cancel});
+            }
+        } else if (!(flags & GCS_RESULTSTR) && ime_open) {
+            deliver({ImeKind::update}); // The IME cleared its composition string.
+        }
+        sync_ime();
+        if (ime_session) place_ime();
     }
     void cancel_pointer() {
         high_surrogate = 0;
@@ -185,7 +329,7 @@ private:
             count = 2;
         }
         high_surrogate = 0;
-        if (unit < 0x20 || unit == 0x7f || !editing()) return;
+        if (unit < 0x20 || unit == 0x7f || ime_session || !editing()) return;
         const auto mods = modifiers();
         if ((mods.control || mods.alt || mods.super) && !(mods.control && mods.alt && !mods.super)) return;
         std::string utf8(8, '\0');
@@ -197,6 +341,7 @@ private:
         }
     }
     bool keyboard(WPARAM key, LPARAM flags) {
+        if (ime_session) return false; // The IME owns keys until its session ends.
         const auto mods = modifiers();
         const bool repeat = (flags & (LPARAM{1} << 30)) != 0;
         if (!mods.control && !mods.alt && !mods.super) {
@@ -335,6 +480,8 @@ private:
                 return 0;
             case WM_LBUTTONDOWN:
             case WM_RBUTTONDOWN:
+                // Ask the IME to finish first; its result commits before the press can move focus.
+                if (ime_session) notify_ime(CPS_COMPLETE);
                 high_surrogate = 0;
                 SetFocus(handle);
                 SetCapture(handle);
@@ -375,10 +522,34 @@ private:
             case WM_CHAR:
                 character(static_cast<wchar_t>(w));
                 return 0;
+            case WM_IME_SETCONTEXT:
+                if (composition && w) l &= ~static_cast<LPARAM>(ISC_SHOWUICOMPOSITIONWINDOW);
+                break;
+            case WM_IME_STARTCOMPOSITION:
+                if (!composition || !editing()) break;
+                ime_session = true;
+                ime_open = false;
+                place_ime();
+                return 0;
+            case WM_IME_COMPOSITION:
+                if (!ime_session) break;
+                compose(l);
+                return 0;
+            case WM_IME_ENDCOMPOSITION:
+                if (!ime_session) break;
+                ime_session = false;
+                if (ime_open) deliver({ImeKind::cancel});
+                return 0;
+            case WM_IME_CHAR:
+                if (ime_session) return 0;
+                break;
             case WM_CAPTURECHANGED:
                 send(tessera::PointerCancel{{1}}, tessera::CommandSource::pointer);
                 return 0;
             case WM_KILLFOCUS:
+                abandon_ime();
+                cancel_pointer();
+                return 0;
             case WM_CANCELMODE:
                 cancel_pointer();
                 return 0;

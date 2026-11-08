@@ -180,7 +180,8 @@ Element Button(Value<std::string> label, std::string action, ButtonProps = {});
 // composition exposes "[x]" / "[ ]" in its ordinary button semantic name.
 Element Checkbox(Value<std::string> label, Value<bool> checked, std::string action, CheckboxProps = {});
 // Controlled single-line observation: label, committed text, then byte selection
-// as ordinary Text children. The host routes edits through this activate owner.
+// as ordinary Text children; an open composition presents its preedit instead.
+// The host routes edits through this activate owner.
 Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps = {});
 Element Row(std::vector<Element> children, Props = {});
 Element Column(std::vector<Element> children, Props = {});

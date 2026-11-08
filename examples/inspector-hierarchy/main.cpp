@@ -13,6 +13,7 @@
 #include <iostream>
 #include <map>
 #include <stdexcept>
+#include "cell_text.hpp"
 #ifdef _WIN32
 #include "../settings-starter/native_win32.hpp"
 #include "clipboard_win32.hpp"
@@ -303,7 +304,7 @@ void accept_visuals(View& view, Visuals visuals) {
     view.paint = std::move(visuals.paint);
 }
 struct TextService final : TextShaper {
-    PlaceholderTextShaper delegate;
+    inspector_text::CellTextShaper delegate;
     bool reject = false;
     Result<TextMetrics> measure(std::string_view text, const TextStyle& style,
                                 const TextConstraints& constraints) override {
@@ -315,6 +316,12 @@ struct TextService final : TextShaper {
     Result<GlyphRun> shape(std::string_view text, const TextStyle& style, const TextConstraints& constraints) override {
         return delegate.shape(text, style, constraints);
     }
+};
+// One host-normalized IME step for the focused name editor; UTF-8 bytes only.
+struct ImeStep {
+    enum class Kind : std::uint8_t { start, update, commit, cancel } kind = Kind::start;
+    std::string text;      // Update preedit or commit result.
+    std::size_t caret = 0; // Byte offset within an update's preedit.
 };
 class App final : public CommandHost {
 public:
@@ -431,6 +438,10 @@ public:
     void input(InputEvent event, CommandSource source = CommandSource::keyboard) {
         const auto diagnostics = validate(event);
         require(diagnostics.empty(), "Invalid normalized Inspector input");
+        // Input that can move focus, selection or menus first closes the preedit; it never commits.
+        if (!std::holds_alternative<PointerMove>(event.data) && !std::holds_alternative<PointerUp>(event.data) &&
+            !std::holds_alternative<PointerCancel>(event.data) && !std::holds_alternative<Scroll>(event.data))
+            cancel_composition(source);
         auto focused = take(focus.refresh(view.hit())).focused;
         auto transition = take(context_menu.dispatch(view.hit(), event, focused));
         if (!transition.consumed && !transition.dismiss) transition = take(menu.dispatch(view.hit(), event, focused));
@@ -627,8 +638,96 @@ public:
         return outcome;
     }
     bool resizing() const { return splitter.dragging(); }
+    bool composing() const { return state.item().name.composition.has_value(); }
+    // Platform sessions address only the focused, eligible name editor that started them.
+    void ime(ImeStep step, CommandSource source = CommandSource::keyboard) {
+        using Kind = ImeStep::Kind;
+        if (step.kind == Kind::start) {
+            cancel_composition(source); // A restarted platform session replaces any open preedit.
+            ime_ignored = !eligible_name();
+            if (ime_ignored) {
+                edit_diagnostics = {{"ime_target", Severity::error, "/composition",
+                                     "Composition needs the focused, eligible name editor."}};
+                report("Composition", state.selected, edit_diagnostics);
+                return;
+            }
+            ime_item = state.selected;
+        } else if (ime_ignored) {
+            return;
+        }
+        if (step.kind == Kind::cancel) return cancel_composition(source);
+        const auto name = state.item().name;
+        const auto id = name.composition ? name.composition->id : 0;
+        std::optional<decltype(TextEditRequest::operation)> operation;
+        if (state.selected != ime_item || !eligible_name()) {
+            edit_diagnostics = {{"stale_composition", Severity::error, "/composition",
+                                 "Composition target changed during the platform session."}};
+        } else {
+            if (step.kind == Kind::start)
+                operation = TextCompositionStart{};
+            else if (step.kind == Kind::update)
+                operation = TextCompositionUpdate{id, std::move(step.text), step.caret};
+            else
+                operation = TextCompositionCommit{id, std::move(step.text)};
+            edit_diagnostics = try_edit({name.owner, name.revision, std::move(*operation)}, source).diagnostics;
+        }
+        // A rejected commit still ends the platform session: drop preedit, keep committed bytes.
+        if (step.kind == Kind::commit && !edit_diagnostics.empty()) {
+            auto rejected = std::move(edit_diagnostics);
+            cancel_composition(source);
+            edit_diagnostics = std::move(rejected);
+        }
+        report("Composition", state.selected, edit_diagnostics);
+    }
+    // Logical caret rectangle in the presented name, for platform candidate placement.
+    std::optional<Rect> caret_rect() {
+        const auto name = view.tree->find("name");
+        if (!name) return {};
+        const auto parts = view.tree->children(*name);
+        if (parts.size() < 2) return {};
+        const auto found = std::find_if(view.layout.boxes.begin(), view.layout.boxes.end(),
+                                        [&](const LayoutBox& box) { return box.node == parts[1]; });
+        if (found == view.layout.boxes.end() || !found->visible) return {};
+        const auto content = found->content_box();
+        const auto& style = view.styles[parts[1].index].text;
+        const auto shown = take(display_text_edit(state.item().name));
+        const auto run = take(text.shape(shown.text, style, {content.size.width}));
+        const float advance = style.size * PlaceholderTextShaper::advance_em;
+        Point pen{0, run.metrics.baseline};
+        for (const auto& glyph : run.glyphs) {
+            if (glyph.cluster >= shown.caret) {
+                pen = glyph.position;
+                break;
+            }
+            pen = {glyph.position.x + static_cast<float>(inspector_text::cells(glyph.id)) * advance, glyph.position.y};
+        }
+        const float top = pen.y - run.metrics.baseline;
+        return Rect{{content.origin.x + pen.x, content.origin.y + top}, {1, run.metrics.line_height}};
+    }
 
 private:
+    bool eligible_name() {
+        return state.menu == OpenMenu::none && take(focus.refresh(view.hit())).focused == view.tree->find("name") &&
+               static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate"));
+    }
+    void cancel_composition(CommandSource source) {
+        const auto name = state.item().name;
+        if (!name.composition) return;
+        const auto outcome = try_edit({name.owner, name.revision, TextCompositionCancel{name.composition->id}}, source);
+        if (outcome.status != CommandOutcomeStatus::success) {
+            // Presentation failed; drop preedit anyway so no stale session survives,
+            // and replace the view once a presentation succeeds.
+            state.item().name.composition.reset();
+            ++state.item().name.revision;
+            auto next = state;
+            auto candidate_focus = focus;
+            if (auto candidate = stage(next, viewport, offsets, candidate_focus, false)) {
+                state = std::move(next);
+                focus = std::move(candidate_focus);
+                accept(std::move(*candidate.value));
+            }
+        }
+    }
     bool clipboard_key(const KeyDown& key, CommandSource source) {
         if ((key.key != Key::c && key.key != Key::v && key.key != Key::x) ||
             key.modifiers != Modifiers{.control = true} || key.repeat || state.menu != OpenMenu::none ||
@@ -709,6 +808,8 @@ private:
     MenuDispatcher menu{"actions-menu"}, context_menu{"item-menu"};
     Offsets offsets;
     std::optional<TextEditRequest> edit;
+    std::string ime_item;
+    bool ime_ignored = false;
     std::optional<int> amount;
     std::optional<float> split;
     std::optional<PointerId> slider_pointer;
@@ -838,6 +939,112 @@ private:
     }
 };
 
+void composition_smoke() {
+    using Kind = ImeStep::Kind;
+    App app;
+    const auto click = [&](const char* id) {
+        const auto point = app.view.center(id);
+        app.input({0us, PointerDown{{1}, point}}, CommandSource::pointer);
+        app.input({0us, PointerUp{{1}, point}}, CommandSource::pointer);
+    };
+    const auto value_box = [&] {
+        const auto parts = app.view.tree->children(*app.view.tree->find("name"));
+        const auto found = std::find_if(app.view.layout.boxes.begin(), app.view.layout.boxes.end(),
+                                        [&](const LayoutBox& box) { return box.node == parts[1]; });
+        require(found != app.view.layout.boxes.end(), "Name value has no layout");
+        return std::pair{found->content_box(), app.view.styles[parts[1].index].text.size * .5f};
+    };
+    app.focus_id("name");
+    app.input({0us, KeyDown{Key::end}});
+    const auto executions = app.executions;
+    app.ime({Kind::start});
+    require(app.composing() && app.state.item().name.text == "Cube" && app.edit_diagnostics.empty(),
+            "Composition start must open preedit without changing committed bytes");
+    app.ime({Kind::update, "\xe3\x81\xab\xe3\x81\xbb", 6});                          // niho preedit
+    app.ime({Kind::update, "\xe3\x81\xab\xe3\x81\xbb\xe3\x82\x93\xe3\x81\x94", 12}); // nihongo preedit
+    require(app.state.item().name.text == "Cube" && app.observed_name("hierarchy-item-cube") == "Cube" &&
+                app.observed_name("name").find("Cube\xe3\x81\xab\xe3\x81\xbb\xe3\x82\x93\xe3\x81\x94") !=
+                    std::string::npos &&
+                app.executions == executions + 3,
+            "Preedit must appear only in the name editor through ordinary edit commands");
+    const auto [content, advance] = value_box();
+    auto caret = app.caret_rect();
+    require(caret && caret->origin.x == content.origin.x + 12 * advance && caret->origin.y == content.origin.y,
+            "Candidate placement must follow the preedit caret across two-cell Japanese glyphs");
+    const std::string japanese = "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e"; // Japanese kanji
+    app.ime({Kind::update, japanese, 3});
+    caret = app.caret_rect();
+    require(caret && caret->origin.x == content.origin.x + 6 * advance, "Preedit caret may sit inside the preedit");
+    app.ime({Kind::commit, japanese});
+    auto name = app.state.item().name;
+    require(!name.composition && name.text == "Cube" + japanese && name.anchor == 13 && name.caret == 13 &&
+                app.observed_name("hierarchy-item-cube") == "Cube" + japanese && app.feedback.empty(),
+            "Commit must replace the captured range once and reach the Hierarchy");
+
+    app.input({0us, KeyDown{Key::a, {.control = true}}});
+    app.ime({Kind::start});
+    app.ime({Kind::update, "x", 1});
+    app.ime({Kind::cancel});
+    require(app.state.item().name.text == name.text && app.state.item().name.anchor == 0 &&
+                app.state.item().name.caret == 13 && !app.composing(),
+            "Cancel must keep the committed bytes and selection");
+    const std::string katakana = "\xe3\x83\x86\xe3\x82\xb9\xe3\x83\x88"; // katakana
+    app.ime({Kind::start});
+    app.ime({Kind::update, katakana, 9});
+    app.ime({Kind::commit, katakana});
+    require(app.state.item().name.text == katakana, "Commit must replace the selected committed text");
+    name = app.state.item().name;
+    app.ime({Kind::update, "late", 4});
+    require(app.state.item().name == name && app.edit_diagnostics.front().code == "no_composition" &&
+                app.feedback.starts_with("Composition could not finish."),
+            "Late platform steps for a closed composition must fail without editing");
+
+    app.ime({Kind::start});
+    app.ime({Kind::update, "\xe3\x81\x94", 3});
+    app.input({0us, KeyDown{Key::tab}});
+    require(!app.state.item().name.composition && app.state.item().name.text == katakana &&
+                take(app.focus.refresh(app.view.hit())).focused != app.view.tree->find("name"),
+            "Focus traversal must cancel preedit before moving focus");
+    app.ime({Kind::start});
+    app.ime({Kind::update, "x", 1});
+    require(app.edit_diagnostics.front().code == "ime_target" && !app.composing() &&
+                app.state.item().name.text == katakana,
+            "A session outside the name editor must be ignored");
+    app.focus_id("name");
+    app.ime({Kind::start});
+    app.ime({Kind::update, "\xe3\x81\x94", 3});
+    click("hierarchy-item-sphere");
+    require(app.state.selected == "sphere" && !app.state.items[1].name.composition &&
+                app.state.items[1].name.text == katakana,
+            "A pointer press must cancel preedit before changing selection");
+    app.ime({Kind::commit, "late"});
+    require(app.state.items[2].name.text == "Sphere" && app.state.items[1].name.text == katakana,
+            "A stale commit must not redirect to the newly selected item");
+
+    app.focus_id("name");
+    app.input({0us, KeyDown{Key::a, {.control = true}}});
+    app.input({0us, tessera::TextInput{std::string(max_text_edit_bytes - 3, 'x')}});
+    name = app.state.item().name;
+    app.ime({Kind::start});
+    app.ime({Kind::commit, "\xe3\x81\x82\xe3\x82\x8a"}); // Two scalars exceed the remaining three bytes.
+    require(app.state.item().name.text == name.text && !app.composing() &&
+                app.edit_diagnostics.front().code == "text_too_long" &&
+                app.feedback.find("4096 UTF-8 bytes") != std::string::npos,
+            "A rejected commit must close preedit and retain committed bytes with feedback");
+    app.input({0us, KeyDown{Key::a, {.control = true}}});
+    app.input({0us, tessera::TextInput{"Sphere"}});
+    app.ime({Kind::start});
+    app.text.reject = true;
+    const auto open = app.state.item().name;
+    app.ime({Kind::update, "\xe3\x81\x82", 3});
+    require(app.state.item().name == open && app.edit_diagnostics.front().code == "inspector_measurement",
+            "Rejected preedit presentation must retain the accepted composition");
+    app.text.reject = false;
+    app.ime({Kind::update, "\xe3\x81\x82", 3});
+    app.ime({Kind::commit, "\xe3\x81\x82"});
+    require(app.state.item().name.text == "Sphere\xe3\x81\x82" && app.feedback.empty(),
+            "Composition must recover after a rejected presentation");
+}
 void edit_rejection_smoke() {
     App app;
     app.focus_id("name");
@@ -1466,6 +1673,7 @@ void smoke() {
     inset_name_smoke();
     outline_smoke();
     edit_rejection_smoke();
+    composition_smoke();
     clipboard_smoke();
     cut_smoke();
     App app;
@@ -1638,16 +1846,31 @@ int native(bool smoke) {
     app.clipboard_read = [&] { return inspector_clipboard::read(window.handle); };
     app.clipboard_write = [&](std::string_view text) { return inspector_clipboard::write(window.handle, text); };
     window.title = L"Tessera Hierarchy / Inspector - select an item, edit its properties";
-    window.input = [&](InputEvent event, CommandSource source) {
-        const auto previous_feedback = app.feedback;
-        app.input(std::move(event), source);
-        if (app.feedback == previous_feedback) return;
+    glyphs.cells = inspector_text::cells;
+    const auto feedback = [&](const std::string& previous) {
+        if (app.feedback == previous) return;
         // Feedback uses fixed ASCII phrases and remains available if text measurement failed.
         const auto title = app.feedback.empty() ? std::wstring(window.title)
                                                 : L"Tessera Hierarchy / Inspector - " +
                                                       std::wstring(app.feedback.begin(), app.feedback.end());
         SetWindowTextW(window.handle, title.c_str());
     };
+    window.input = [&](InputEvent event, CommandSource source) {
+        const auto previous = app.feedback;
+        app.input(std::move(event), source);
+        feedback(previous);
+    };
+    window.composition = [&](settings_native::Window::ImeEvent event) {
+        using Kind = settings_native::Window::ImeKind;
+        const auto previous = app.feedback;
+        app.ime({event.kind == Kind::start    ? ImeStep::Kind::start
+                 : event.kind == Kind::update ? ImeStep::Kind::update
+                 : event.kind == Kind::commit ? ImeStep::Kind::commit
+                                              : ImeStep::Kind::cancel,
+                 std::move(event.text), event.caret});
+        feedback(previous);
+    };
+    window.caret = [&] { return app.caret_rect(); };
     window.capture = [&] {
         return take(frames.capture({app.view.commands.generation(), app.viewport, 1,
                                     take(capture_extent(app.viewport, 1)), &app.view.paint, 0us}));
@@ -1687,6 +1910,10 @@ int native(bool smoke) {
             require(SetKeyboardState(original) != FALSE, "Cannot restore smoke keyboard state");
         };
         const std::wstring unicode{L'\x65e5', L'\x672c', L'\xd83d', L'\xde00'};
+        const char* japanese = "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e"; // Japanese kanji
+        tessera::GlyphRasterRequest wide{{0}, 0x65e5, 16 * 64}, narrow{{0}, 'N', 16 * 64};
+        require(take(glyphs.rasterize(wide)).width == 2 * take(glyphs.rasterize(narrow)).width,
+                "Native glyphs must give wide Japanese scalars two cells");
         const std::string utf8 = "\xe6\x97\xa5\xe6\x9c\xac\xf0\x9f\x98\x80";
         require(take(inspector_clipboard::decode(unicode)) == utf8 &&
                     take(inspector_clipboard::encode(utf8)) == unicode &&
@@ -1789,6 +2016,87 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_BACK, 1);
         require(app.state.item().name.text.size() == 4092 && app.edit_diagnostics.empty() && caption() == window.title,
                 "Backspace after a rejected native edit must recover and clear feedback");
+        control_key('A');
+        clipboard = "Cube!";
+        control_key('V');
+        // Injected IME session: the window reads strings from these services instead of an IME.
+        std::wstring composition_string, result_string;
+        LONG cursor = 0;
+        std::vector<DWORD> notifications;
+        host.ime_string = [&](DWORD kind) -> std::optional<std::wstring> {
+            return kind == GCS_RESULTSTR ? result_string : composition_string;
+        };
+        host.ime_cursor = [&] { return cursor; };
+        host.ime_notify = [&](DWORD action) { notifications.push_back(action); };
+        control_key('A');
+        host.message(WM_CHAR, 'N');
+        require(host.ime_attached() && !host.composing(), "The focused name editor must attach the IME");
+        host.message(WM_IME_STARTCOMPOSITION);
+        composition_string = L"\x306b\x307b\x3093\x3054"; // nihongo preedit
+        cursor = 4;
+        host.message(WM_IME_COMPOSITION, 0, GCS_COMPSTR | GCS_CURSORPOS);
+        require(host.composing() && app.state.item().name.text == "N" &&
+                    app.state.item().name.composition->preedit == "\xe3\x81\xab\xe3\x81\xbb\xe3\x82\x93\xe3\x81\x94" &&
+                    app.state.item().name.composition->caret == 12,
+                "Native composition must deliver UTF-8 preedit and caret without committing");
+        const auto preedit_caret = *app.caret_rect();
+        const auto placed = host.physical(preedit_caret.origin);
+        require(host.ime_area && host.ime_area->left == placed.x && host.ime_area->top == placed.y,
+                "Native candidate placement must use the logical preedit caret");
+        const auto during = app.state.item().name;
+        host.message(WM_KEYDOWN, VK_TAB, 1);
+        host.message(WM_CHAR, 'z');
+        host.message(WM_KEYDOWN, VK_RETURN, 1);
+        require(app.state.item().name == during && window.editing(),
+                "Keys and characters during composition must stay with the IME");
+        result_string = L"\x65e5\x672c\x8a9e"; // Japanese kanji
+        host.message(WM_IME_COMPOSITION, 0, GCS_RESULTSTR);
+        host.message(WM_IME_ENDCOMPOSITION);
+        require(!host.composing() && !app.composing() && app.state.item().name.text == "N" + std::string(japanese),
+                "Native result must commit once and end the session");
+        host.message(WM_IME_STARTCOMPOSITION);
+        composition_string = L"\xd83d\xde00\x3042"; // Emoji and hiragana, with a cursor inside the surrogate pair.
+        cursor = 1;
+        host.message(WM_IME_COMPOSITION, 0, GCS_COMPSTR | GCS_CURSORPOS);
+        require(app.state.item().name.composition->caret == 0, "Native caret must not split a surrogate pair");
+        host.message(WM_IME_ENDCOMPOSITION);
+        require(!app.composing() && app.state.item().name.text == "N" + std::string(japanese),
+                "Ending without a result must cancel preedit");
+        host.message(WM_IME_STARTCOMPOSITION);
+        result_string = std::wstring{L'\xd800'};
+        host.message(WM_IME_COMPOSITION, 0, GCS_RESULTSTR);
+        host.message(WM_IME_ENDCOMPOSITION);
+        require(!app.composing() && app.state.item().name.text == "N" + std::string(japanese),
+                "Malformed native result must cancel instead of committing");
+        host.message(WM_IME_STARTCOMPOSITION);
+        composition_string = L"\x3042";
+        cursor = 1;
+        host.message(WM_IME_COMPOSITION, 0, GCS_COMPSTR | GCS_CURSORPOS);
+        host.message(WM_KILLFOCUS);
+        require(!host.composing() && !app.composing() && notifications.back() == CPS_CANCEL &&
+                    app.state.item().name.text == "N" + std::string(japanese),
+                "Window focus loss must cancel the platform session and preedit");
+        // A pointer press first completes the platform session, as a real IME would synchronously.
+        host.ime_notify = [&](DWORD action) {
+            notifications.push_back(action);
+            if (action != CPS_COMPLETE) return;
+            result_string = L"\x3042";
+            host.message(WM_IME_COMPOSITION, 0, GCS_RESULTSTR);
+            host.message(WM_IME_ENDCOMPOSITION);
+        };
+        host.message(WM_IME_STARTCOMPOSITION);
+        host.message(WM_IME_COMPOSITION, 0, GCS_COMPSTR | GCS_CURSORPOS);
+        // The visible selected-item button takes press focus without changing selection.
+        click("selected");
+        require(notifications.back() == CPS_COMPLETE && app.state.selected == "cube" &&
+                    app.state.item().name.text == "N" + std::string(japanese) + "\xe3\x81\x82" && !app.composing() &&
+                    !host.composing() && !window.editing() && !host.ime_attached(),
+                "A press must commit the completed result before moving focus and detaching the IME");
+        seek("name");
+        require(host.ime_attached(), "Returning to the name editor must reattach the IME");
+        host.ime_string = {};
+        host.ime_cursor = {};
+        host.ime_notify = {};
         control_key('A');
         clipboard = "Cube!";
         control_key('V');

@@ -24,13 +24,44 @@ std::size_t next(const std::string& text, std::size_t offset) {
         } while (!boundary(text, offset));
     return offset;
 }
-Result<TextEditState> validate_text(const std::string& text) {
+Result<TextEditState> validate_text(const std::string& text, const std::string& path = "/edit/text") {
     if (text.size() > max_text_edit_bytes)
-        return error("text_too_long", "/edit/text", "String editor accepts at most 4096 UTF-8 bytes.");
-    if (!detail::valid_utf8(text)) return error("invalid_utf8", "/edit/text", "Expected valid UTF-8 committed text.");
+        return error("text_too_long", path, "String editor accepts at most 4096 UTF-8 bytes.");
+    if (!detail::valid_utf8(text)) return error("invalid_utf8", path, "Expected valid UTF-8 text.");
     if (text.find_first_of("\r\n") != std::string::npos)
-        return error("multiline_text", "/edit/text", "Single-line editor rejects CR and LF.");
+        return error("multiline_text", path, "Single-line editor rejects CR and LF.");
     return {TextEditState{}, {}};
+}
+// Whether replacing [begin, end) with `replacement` bytes stays within the buffer limit.
+bool fits(const TextEditState& state, std::size_t begin, std::size_t end, std::size_t replacement) {
+    return replacement <= max_text_edit_bytes - (state.text.size() - (end - begin));
+}
+Result<TextEditState> check_state(const TextEditState& state) {
+    if (!state.owner || !state.revision)
+        return error("invalid_state", "/edit/state", "Observation requires a live owner and revision.");
+    if (auto valid = validate_text(state.text); !valid) return valid;
+    if (!boundary(state.text, state.anchor) || !boundary(state.text, state.caret))
+        return error("invalid_selection", "/edit/state", "Observed selection must lie on UTF-8 scalar boundaries.");
+    if (const auto& composition = state.composition) {
+        const auto begin = std::min(state.anchor, state.caret), end = std::max(state.anchor, state.caret);
+        if (!composition->id || composition->id > state.revision || composition->begin != begin ||
+            composition->end != end)
+            return error("invalid_composition", "/edit/state/composition",
+                         "Composition must name its starting revision and the retained selection.");
+        if (auto valid = validate_text(composition->preedit, "/edit/state/composition/preedit"); !valid) return valid;
+        if (!boundary(composition->preedit, composition->caret))
+            return error("invalid_composition", "/edit/state/composition/caret",
+                         "Preedit caret must lie on a UTF-8 scalar boundary.");
+        if (!fits(state, begin, end, composition->preedit.size()))
+            return error("text_too_long", "/edit/state/composition/preedit",
+                         "Composed text exceeds the 4096-byte buffer limit.");
+    }
+    return {TextEditState{}, {}};
+}
+std::uint64_t composition_id(const TextEditRequest& request) {
+    if (const auto* update = std::get_if<TextCompositionUpdate>(&request.operation)) return update->id;
+    if (const auto* commit = std::get_if<TextCompositionCommit>(&request.operation)) return commit->id;
+    return std::get<TextCompositionCancel>(request.operation).id;
 }
 }
 Result<TextEditState> make_text_edit_state(std::uint64_t owner, std::string text) {
@@ -39,39 +70,63 @@ Result<TextEditState> make_text_edit_state(std::uint64_t owner, std::string text
     const auto end = text.size();
     return {TextEditState{owner, 1, std::move(text), end, end}, {}};
 }
+std::vector<Diagnostic> validate(const TextEditState& state) { return check_state(state).diagnostics; }
+Result<TextEditDisplay> display_text_edit(const TextEditState& state) {
+    if (auto valid = check_state(state); !valid) return {std::nullopt, std::move(valid.diagnostics)};
+    if (!state.composition) return {TextEditDisplay{state.text, state.anchor, state.caret}, {}};
+    const auto& composition = *state.composition;
+    TextEditDisplay display;
+    display.text = state.text.substr(0, composition.begin) + composition.preedit + state.text.substr(composition.end);
+    display.preedit_begin = composition.begin;
+    display.preedit_end = composition.begin + composition.preedit.size();
+    display.anchor = display.caret = composition.begin + composition.caret;
+    display.composing = true;
+    return {std::move(display), {}};
+}
 Result<TextEditState> edit_text(const TextEditState& state, const TextEditRequest& request, TextEditPolicy policy) {
-    if (!state.owner || !state.revision)
-        return error("invalid_state", "/edit/state", "Observation requires a live owner and revision.");
-    if (auto valid = validate_text(state.text); !valid) return valid;
-    if (!boundary(state.text, state.anchor) || !boundary(state.text, state.caret))
-        return error("invalid_selection", "/edit/state", "Observed selection must lie on UTF-8 scalar boundaries.");
+    if (auto valid = check_state(state); !valid) return valid;
     if (request.owner != state.owner)
         return error("stale_owner", "/edit/owner", "Request does not address this editing lifetime.");
     if (request.revision != state.revision)
         return error("stale_revision", "/edit/revision",
                      "Request must address the observed text and selection revision.");
-    if (!policy.enabled) return error("disabled_editor", "/edit", "Disabled editor rejects editing and selection.");
-    const bool mutation = std::holds_alternative<TextEditInsert>(request.operation) ||
-                          std::holds_alternative<TextEditErase>(request.operation);
+    const auto& operation = request.operation;
+    const bool cancel = std::holds_alternative<TextCompositionCancel>(operation);
+    const bool continues = cancel || std::holds_alternative<TextCompositionUpdate>(operation) ||
+                           std::holds_alternative<TextCompositionCommit>(operation);
+    if (!cancel && !policy.enabled)
+        return error("disabled_editor", "/edit", "Disabled editor rejects editing and selection.");
+    const bool mutation = std::holds_alternative<TextEditInsert>(operation) ||
+                          std::holds_alternative<TextEditErase>(operation) ||
+                          std::holds_alternative<TextCompositionStart>(operation) || (continues && !cancel);
     if (mutation && policy.read_only)
         return error("read_only_editor", "/edit", "Read-only editor rejects text changes.");
+    if (continues) {
+        if (!state.composition)
+            return error("no_composition", "/edit/composition", "No composition is open for this editor.");
+        if (composition_id(request) != state.composition->id)
+            return error("stale_composition", "/edit/composition", "Request addresses a closed composition.");
+    } else if (state.composition) {
+        return error("composition_active", "/edit/operation",
+                     "Commit or cancel the open composition before other edits.");
+    }
     if (state.revision == std::numeric_limits<std::uint64_t>::max())
         return error("revision_exhausted", "/edit/revision", "Revision cannot wrap; recreate with a fresh owner.");
     auto result = state;
     auto begin = std::min(state.anchor, state.caret), end = std::max(state.anchor, state.caret);
-    if (const auto* select = std::get_if<TextEditSelection>(&request.operation)) {
+    if (const auto* select = std::get_if<TextEditSelection>(&operation)) {
         if (!boundary(state.text, select->anchor) || !boundary(state.text, select->caret))
             return error("invalid_selection", "/edit/selection",
                          "Selection must be in bounds at UTF-8 scalar boundaries.");
         result.anchor = select->anchor;
         result.caret = select->caret;
-    } else if (const auto* insert = std::get_if<TextEditInsert>(&request.operation)) {
+    } else if (const auto* insert = std::get_if<TextEditInsert>(&operation)) {
         if (auto valid = validate_text(insert->text); !valid) return valid;
-        if (insert->text.size() > max_text_edit_bytes - (state.text.size() - (end - begin)))
+        if (!fits(state, begin, end, insert->text.size()))
             return error("text_too_long", "/edit/text", "Replacement exceeds the 4096-byte buffer limit.");
         result.text.replace(begin, end - begin, insert->text);
         result.anchor = result.caret = begin + insert->text.size();
-    } else if (const auto* erase = std::get_if<TextEditErase>(&request.operation)) {
+    } else if (const auto* erase = std::get_if<TextEditErase>(&operation)) {
         if (erase->direction != TextErase::backward && erase->direction != TextErase::forward)
             return error("invalid_operation", "/edit/operation", "Unknown erase direction.");
         if (begin == end) {
@@ -82,14 +137,13 @@ Result<TextEditState> edit_text(const TextEditState& state, const TextEditReques
         }
         result.text.erase(begin, end - begin);
         result.anchor = result.caret = begin;
-    } else {
-        const auto& move = std::get<TextEditMove>(request.operation);
-        switch (move.direction) {
+    } else if (const auto* move = std::get_if<TextEditMove>(&operation)) {
+        switch (move->direction) {
             case TextMove::left:
-                result.caret = !move.extend && begin != end ? begin : previous(state.text, state.caret);
+                result.caret = !move->extend && begin != end ? begin : previous(state.text, state.caret);
                 break;
             case TextMove::right:
-                result.caret = !move.extend && begin != end ? end : next(state.text, state.caret);
+                result.caret = !move->extend && begin != end ? end : next(state.text, state.caret);
                 break;
             case TextMove::home:
                 result.caret = 0;
@@ -100,7 +154,26 @@ Result<TextEditState> edit_text(const TextEditState& state, const TextEditReques
             default:
                 return error("invalid_operation", "/edit/operation", "Unknown caret direction.");
         }
-        if (!move.extend) result.anchor = result.caret;
+        if (!move->extend) result.anchor = result.caret;
+    } else if (std::holds_alternative<TextCompositionStart>(operation)) {
+        result.composition = TextComposition{state.revision + 1, begin, end, {}, 0};
+    } else if (const auto* update = std::get_if<TextCompositionUpdate>(&operation)) {
+        if (auto valid = validate_text(update->preedit, "/edit/preedit"); !valid) return valid;
+        if (!boundary(update->preedit, update->caret))
+            return error("invalid_composition", "/edit/caret", "Preedit caret must lie on a UTF-8 scalar boundary.");
+        if (!fits(state, begin, end, update->preedit.size()))
+            return error("text_too_long", "/edit/preedit", "Composed text exceeds the 4096-byte buffer limit.");
+        result.composition->preedit = update->preedit;
+        result.composition->caret = update->caret;
+    } else if (const auto* commit = std::get_if<TextCompositionCommit>(&operation)) {
+        if (auto valid = validate_text(commit->text); !valid) return valid;
+        if (!fits(state, begin, end, commit->text.size()))
+            return error("text_too_long", "/edit/text", "Replacement exceeds the 4096-byte buffer limit.");
+        result.text.replace(begin, end - begin, commit->text);
+        result.anchor = result.caret = begin + commit->text.size();
+        result.composition.reset();
+    } else {
+        result.composition.reset();
     }
     ++result.revision;
     return {std::move(result), {}};
