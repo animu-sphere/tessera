@@ -73,7 +73,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 17, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 18, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");
@@ -113,6 +113,7 @@ void descriptor_table() {
 
 // Every descriptor/kind/type combination must agree with validation and JSON v1 encoding.
 void validation_and_encoding_agreement() {
+    const tessera::ValidationContext toggle_actions{{"toggle"}};
     for (const auto& descriptor : tessera::property_descriptors()) {
         const auto child_index = descriptor.name == "tree_parent" ? 1u : 0u;
         const auto path =
@@ -131,23 +132,30 @@ void validation_and_encoding_agreement() {
                     value = std::string("tree_item");
                     encoding = "\"tree_item\"";
                 }
+                if (descriptor.name == "toggle_role" && type == tessera::PropertyType::string) {
+                    // A valid toggle also needs its checked state and command.
+                    value = std::string("switch");
+                    encoding = "\"switch\"";
+                    candidate.root.children[child_index].properties["selected"] = false;
+                    candidate.root.children[child_index].events["activate"] = "toggle";
+                }
                 if (descriptor.name == "tree_parent" && type == tessera::PropertyType::reference) {
                     value = tessera::NodeReference{"parent"};
                     encoding = R"({"ref":"parent"})";
                 }
                 candidate.root.children[child_index].properties.insert_or_assign(std::string(descriptor.name), value);
-                const auto errors = tessera::validate(candidate);
+                const auto errors = tessera::validate(candidate, toggle_actions);
                 if (!tessera::contains(descriptor.accepted, kind)) {
                     check(has(errors, "unknown_property", path), "Unaccepted node kind must reject the property");
                 } else if (type != descriptor.type) {
                     check(has(errors, "property_type", path), "Mismatched type must be rejected without coercion");
                 } else {
                     check(errors.empty(), "Descriptor-typed value must validate");
-                    const auto saved = tessera::save_document(candidate);
+                    const auto saved = tessera::save_document(candidate, toggle_actions);
                     check(saved && saved.value->find('"' + std::string(descriptor.name) + "\":" + encoding) !=
                                        std::string::npos,
                           "Encoded name/value differs from the descriptor");
-                    const auto loaded = tessera::load_document(*saved.value);
+                    const auto loaded = tessera::load_document(*saved.value, toggle_actions);
                     check(loaded && *loaded.value == candidate, "Descriptor-typed value must round trip");
                 }
             }

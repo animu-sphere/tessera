@@ -1,5 +1,6 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/ui/property_metadata.hpp>
+#include <array>
 #include <set>
 #include <algorithm>
 #include <cmath>
@@ -11,7 +12,11 @@ struct ElementData {
     NodeKind kind = NodeKind::box;
     Props props;
     std::optional<Value<std::string>> text;
-    std::optional<Value<bool>> checked_marker;
+    // A toggle owner's controlled checked value, projected as its `selected` property. Its
+    // generated parts choose text or styles from the same snapshot: [unchecked, checked].
+    std::optional<Value<bool>> checked;
+    std::optional<std::array<std::string, 2>> checked_text;
+    std::optional<std::array<StyleDeclarations, 2>> checked_styles;
     std::optional<Value<bool>> disabled;
     std::optional<Value<TextEditState>> editing;
     bool selection = false;
@@ -55,7 +60,8 @@ struct Lowerer {
         return true;
     }
 
-    bool describe(const Element& element, UiNode& node, const std::string& path, std::size_t depth) {
+    bool describe(const Element& element, UiNode& node, const std::string& path, std::size_t depth,
+                  std::optional<bool> checked = {}) {
         if (!element.data_) {
             errors.push_back({"authoring_empty_element", Severity::error, path,
                               "Supply a constructed element, not a moved-from description."});
@@ -82,10 +88,12 @@ struct Lowerer {
             const auto* literal = std::get_if<std::string>(&data.text->value_);
             node.properties["text"] = literal ? *literal : std::string{};
         }
-        if (data.checked_marker) {
-            const auto* literal = std::get_if<bool>(&data.checked_marker->value_);
-            node.properties["text"] = std::string(literal && *literal ? "[x]" : "[ ]");
+        if (data.checked) {
+            const auto* literal = std::get_if<bool>(&data.checked->value_);
+            checked = literal && *literal;
+            node.properties["selected"] = *checked;
         }
+        if (data.checked_text) node.properties["text"] = (*data.checked_text)[checked.value_or(false)];
         if (data.editing) {
             node.properties["text"] = std::string{};
             if (const auto* literal = std::get_if<TextEditState>(&data.editing->value_))
@@ -112,8 +120,9 @@ struct Lowerer {
                 source.event_arguments[event] = *data.props.source;
             }
         result.sources.nodes.push_back(std::move(source));
-        result.styles.push_back(data.props.style);
-        auto style_errors = validate(data.props.style, path + "/style");
+        const auto& style = data.checked_styles ? (*data.checked_styles)[checked.value_or(false)] : data.props.style;
+        result.styles.push_back(style);
+        auto style_errors = validate(style, path + "/style");
         for (auto& error : style_errors) {
             if (data.props.source) error.source = DiagnosticSource{*data.props.source, DiagnosticOrigin::argument};
             errors.push_back(std::move(error));
@@ -121,13 +130,14 @@ struct Lowerer {
         // Do not reserve from an unbounded child count before the traversal guard.
         for (std::size_t i = 0; i < data.children.size(); ++i) {
             node.children.emplace_back();
-            if (!describe(data.children[i], node.children.back(), path + "/children/" + std::to_string(i), depth + 1))
+            if (!describe(data.children[i], node.children.back(), path + "/children/" + std::to_string(i), depth + 1,
+                          checked))
                 return false;
         }
         return true;
     }
 
-    bool values(const ReactiveRuntime& runtime, UiNode& node, std::size_t& index) {
+    bool values(const ReactiveRuntime& runtime, UiNode& node, std::size_t& index, std::optional<bool> checked = {}) {
         const auto current = index++;
         const auto& data = *elements[current];
         std::string property;
@@ -136,10 +146,13 @@ struct Lowerer {
                 property = "text";
                 node.properties["text"] = data.text->snapshot(runtime);
             }
-            if (data.checked_marker) {
-                property = "text";
-                node.properties["text"] = std::string(data.checked_marker->snapshot(runtime) ? "[x]" : "[ ]");
+            if (data.checked) {
+                property = "selected";
+                checked = data.checked->snapshot(runtime);
+                node.properties["selected"] = *checked;
             }
+            if (data.checked_text && checked) node.properties["text"] = (*data.checked_text)[*checked];
+            if (data.checked_styles && checked) result.styles[current] = (*data.checked_styles)[*checked];
             if (data.disabled) {
                 property = "disabled";
                 node.properties["disabled"] = data.disabled->snapshot(runtime);
@@ -157,7 +170,7 @@ struct Lowerer {
             return false;
         }
         for (auto& child : node.children)
-            if (!values(runtime, child, index)) return false;
+            if (!values(runtime, child, index, checked)) return false;
         return true;
     }
 };
@@ -257,19 +270,71 @@ Element Button(Value<std::string> label, std::string action, ButtonProps props) 
     data->children.push_back(Text(std::move(label), {.source = data->props.source}));
     return Element(std::move(data));
 }
-Element Checkbox(Value<std::string> label, Value<bool> checked, std::string action, CheckboxProps props) {
-    auto marker = std::make_shared<detail::ElementData>();
-    marker->kind = NodeKind::text;
-    marker->props.source = props.node.source;
-    marker->checked_marker = std::move(checked);
+namespace {
+// Shared Checkbox/Switch owner: a focusable row named by its generated <id>-label Text.
+std::shared_ptr<detail::ElementData> toggle_owner(const char* role, const char* name, Value<bool> checked,
+                                                  std::string action, CheckboxProps& props) {
     auto data = std::make_shared<detail::ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    if (prefix.empty())
+        data->diagnostics.push_back({std::string(role) + "_id",
+                                     Severity::error,
+                                     {},
+                                     std::string("Give the ") + name + " a stable nonempty author ID."});
     data->props = std::move(props.node);
     data->props.style.direction = FlexDirection::row;
     if (!data->props.style.gap) data->props.style.gap = 8.f;
     data->disabled = std::move(props.disabled);
     data->action = std::move(action);
+    data->checked = std::move(checked);
+    data->properties["toggle_role"] = std::string(role);
+    data->properties["labelled_by"] = NodeReference{prefix + "-label"};
+    return data;
+}
+}
+
+Element Checkbox(Value<std::string> label, Value<bool> checked, std::string action, CheckboxProps props) {
+    auto data = toggle_owner("checkbox", "Checkbox", std::move(checked), std::move(action), props);
+    auto marker = std::make_shared<detail::ElementData>();
+    marker->kind = NodeKind::text;
+    marker->props.source = data->props.source;
+    marker->checked_text = std::array<std::string, 2>{"[ ]", "[x]"};
     data->children.push_back(Element(std::move(marker)));
-    data->children.push_back(Text(std::move(label), {.source = data->props.source}));
+    data->children.push_back(
+        Text(std::move(label), {.id = data->props.id.value_or("") + "-label", .source = data->props.source}));
+    return Element(std::move(data));
+}
+
+Element Switch(Value<std::string> label, Value<bool> on, std::string action, SwitchProps props) {
+    auto data = toggle_owner("switch", "Switch", std::move(on), std::move(action), props);
+    if (!data->props.style.align) data->props.style.align = Align::center;
+    const auto prefix = data->props.id.value_or("");
+    StyleDeclarations track{.direction = FlexDirection::row,
+                            .justify = Justify::start,
+                            .align = Align::center,
+                            .width = Dimension::points(32),
+                            .height = Dimension::points(18),
+                            .padding = Edges{3, 3, 3, 3},
+                            .shrink = 0.f,
+                            .background = Color{0.62f, 0.66f, 0.72f, 1},
+                            .corner_radius = 9.f};
+    auto checked_track = track;
+    checked_track.justify = Justify::end;
+    checked_track.background = Color{0.25f, 0.5f, 0.85f, 1};
+    auto thumb = Column({}, {.id = prefix + "-thumb",
+                             .style = {.width = Dimension::points(12),
+                                       .height = Dimension::points(12),
+                                       .shrink = 0.f,
+                                       .background = Color{1, 1, 1, 1},
+                                       .background_shape = FillShape::ellipse,
+                                       .background_antialias = true},
+                             .source = data->props.source});
+    auto part = std::make_shared<detail::ElementData>();
+    part->props = {.id = prefix + "-track", .source = data->props.source};
+    part->checked_styles = std::array<StyleDeclarations, 2>{std::move(track), std::move(checked_track)};
+    part->children.push_back(std::move(thumb));
+    data->children.push_back(Element(std::move(part)));
+    data->children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = data->props.source}));
     return Element(std::move(data));
 }
 Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps props) {

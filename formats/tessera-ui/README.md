@@ -41,6 +41,8 @@ Identifiers reject U+0000–U+001F and U+007F; no other normalization is perform
 
 The optional Box-only boolean `properties.separator` defaults to false without being materialized. When true it projects a separator role through [semantics](../../docs/architecture/semantics.md); its registered `activate` action, when eligible, requests host adjustment. This additive vocabulary introduces no widget node kind or callback. Older builds that do not recognize the marker reject it as an unknown property; migrate explicitly when exchanging documents with those builds.
 
+The Box-only string `properties.toggle_role` is additive v1 vocabulary: `checkbox` or `switch`, absent meaning none. A toggle requires a boolean `selected` (its checked state) and an activate action, and cannot combine with a collection role, `modal`, `separator` or `scrollbar`. It projects the [controlled Checkbox/Switch](../../docs/guides/checkbox-switch.md) roles; it does not mutate host state. Existing documents retain their encoding, and older readers reject the unknown property.
+
 The Box-only boolean `properties.scrollbar` is likewise additive v1 vocabulary, absent meaning false without materialization. A true marker cannot combine with `separator`, `modal` or a collection role. It projects the [controlled scrollbar](../../docs/guides/scrollbar.md) role and ordinary eligible activate action; it does not encode or mutate host scroll state. Existing documents retain their encoding, and older readers reject the unknown marker.
 
 The additive popup vocabulary also remains version 1:

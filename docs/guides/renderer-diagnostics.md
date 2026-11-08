@@ -102,7 +102,7 @@ Use `invoke("msaa-4", source, text)` for semantic activation or route pointer re
 
 ## Toggle outlines
 
-`Panel` composes a controlled Checkbox labeled `Outlines` with stable ID `outlines-toggle` under controls disclosure. `Host::outlines()` observes accepted Boolean and independent eligibility, initially false and true. Its ordinary button semantic name includes `[ ]` or `[x]`. The [consumer contract](../integrations/renderer-diagnostics.md#implemented-outlines-control-boundary) owns validation, retention and accounting.
+`Panel` composes a controlled Checkbox labeled `Outlines` with stable ID `outlines-toggle` under controls disclosure. `Host::outlines()` observes accepted Boolean and independent eligibility, initially false and true. It projects a `checkbox` named `Outlines` whose `selected` state is the accepted Boolean. The [consumer contract](../integrations/renderer-diagnostics.md#implemented-outlines-control-boundary) owns validation, retention and accounting.
 
 Use `invoke("outlines-toggle", source, text)` or route pointer release, normalized keyboard/gamepad traversal/navigation and activation to that owner. Parameter-free activation inverts the accepted Boolean. `request_outlines("outlines", true, source)` followed by `execute` requests an exact typed Boolean through the same executor. Check the outer result and outcome; numbers/strings, wrong field identity and activation arguments reject. An equal-value set accepts a presentation with one handler attempt and no value change.
 

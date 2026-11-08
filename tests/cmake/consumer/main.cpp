@@ -24,7 +24,8 @@ int main() {
         authored.value->document.root.children[0].properties.at("text") != tessera::Property{std::string("Ready!")})
         return 42;
     const auto checked = form.state("checked", true);
-    const auto checkbox = form.lower(tessera::authoring::Checkbox("Feature", checked, "toggle"), {{"toggle"}});
+    const auto checkbox = form.lower(
+        tessera::authoring::Checkbox("Feature", checked, "toggle", {.node = {.id = "feature"}}), {{"toggle"}});
     if (!checkbox ||
         checkbox.value->document.root.children[0].properties.at("text") != tessera::Property{std::string("[x]")})
         return 43;

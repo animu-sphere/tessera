@@ -46,6 +46,7 @@ struct Item {
     bool enabled = true;
     int amount = 50;
     std::string visibility = "inherited";
+    bool shadows = true;
     bool operator==(const Item&) const = default;
 };
 enum class OpenMenu { none, actions, context };
@@ -80,8 +81,8 @@ State initial_state() {
     return state;
 }
 ValidationContext action_context(const State& state) {
-    ValidationContext context{
-        {"scene.toggle", "item.name", "item.enabled", "item.amount", "item.rename", "menu.open", "panes.resize"}};
+    ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.shadows",
+                               "item.rename", "menu.open", "panes.resize"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
     return context;
@@ -246,12 +247,14 @@ ui::Element Form(const State& state, Size viewport) {
                                                  .style = {.padding = Edges{6, 0, 6, 0}}}}),
                             ui::Text("Visibility", {.classes = {"muted"}}),
                             ui::RadioGroup("Visibility", item.visibility, std::move(visibility),
-                                           {.node = {.id = "visibility", .style = {.gap = 2.f}}})},
+                                           {.node = {.id = "visibility", .style = {.gap = 2.f}}}),
+                            ui::Text("Shadows", {.classes = {"muted"}}),
+                            ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})},
                            {.id = "properties",
                             .style = {.grid_columns =
                                           std::vector<GridTrack>{GridTrack{.maximum = 72}, GridTrack::fraction(1, 202)},
-                                      .grid_rows =
-                                          std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{}, GridTrack{}},
+                                      .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{},
+                                                                          GridTrack{}, GridTrack{}},
                                       .column_gap = 8.f,
                                       .row_gap = 12.f}})},
                       {.id = "item-card",
@@ -406,6 +409,8 @@ public:
             candidate.item().enabled = !candidate.item().enabled;
         else if (command.starts_with("visibility."))
             candidate.item().visibility = command.substr(11);
+        else if (command == "item.shadows")
+            candidate.item().shadows = !candidate.item().shadows;
         else if (command == "item.amount") {
             candidate.item().amount = amount.value_or(std::min(100, candidate.item().amount + amount_range.step));
         } else if (command == "panes.resize") {
@@ -666,12 +671,14 @@ public:
         (void)take(focus.focus(view.hit(), *view.tree->find(id)));
         refresh(true);
     }
-    std::string observed_name(std::string id) const {
+    const SemanticNode& observed(std::string id) const {
         const auto target = take(resolve_target(view.inspection, AuthorIdTarget{std::move(id)}));
         const auto semantic = view.inspection.elements[target.index].semantic;
         require(semantic.has_value(), "Inspector observation has no semantic entry");
-        return view.inspection.semantics.nodes[*semantic].name;
+        return view.inspection.semantics.nodes[*semantic];
     }
+    std::string observed_name(std::string id) const { return observed(std::move(id)).name; }
+    std::optional<bool> observed_checked(std::string id) const { return observed(std::move(id)).selected; }
     ReplayReload recorded_view() const { return {view.tree->document(), view.styles}; }
     CommandOutcome try_edit(TextEditRequest request, CommandSource source = CommandSource::keyboard) {
         edit = std::move(request);
@@ -1767,8 +1774,52 @@ void visibility_smoke() {
     app.action("hierarchy-item-sphere");
     require(app.state.item().visibility == "hidden", "Each item must retain an independent visibility");
 }
+void shadows_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    const auto& on = app.observed("shadows");
+    require(on.role == SemanticRole::switch_ && on.name == "Cast shadows" && on.selected == true &&
+                on.actions == std::vector<SemanticAction>{{"activate", "item.shadows"}},
+            "Shadows must expose a named switch with the accepted on state");
+    const auto track = app.view.box("shadows-track").border_box;
+    const auto on_thumb = app.view.box("shadows-thumb").border_box;
+    const auto on_color = app.view.styles[app.view.tree->find("shadows-track")->index].background;
+    app.focus_id("visibility-option-inherited");
+    input(KeyDown{Key::tab});
+    require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("shadows"),
+            "Tab must reach the switch after Visibility");
+    const auto executions = app.executions;
+    input(Activate{});
+    require(!app.state.item().shadows && app.executions == executions + 1 && app.observed_checked("shadows") == false,
+            "Activate must toggle the switch through one ordinary command");
+    // Focus reveal may scroll the card, so compare the thumb with its own track.
+    const auto off_track = app.view.box("shadows-track").border_box;
+    const auto off_thumb = app.view.box("shadows-thumb").border_box;
+    require(off_track.size == track.size && off_thumb.origin.x - off_track.origin.x == 3 &&
+                on_thumb.origin.x - track.origin.x == track.size.width - 3 - on_thumb.size.width &&
+                off_thumb.origin.y - off_track.origin.y == on_thumb.origin.y - track.origin.y &&
+                app.view.styles[app.view.tree->find("shadows-track")->index].background != on_color,
+            "An off switch must move its thumb to the start and change its track color without resizing the track");
+    input(Navigate{Direction::right});
+    require(!app.state.item().shadows, "Arrows must not toggle the switch");
+    const auto point = app.view.reachable("shadows-track");
+    input(PointerDown{{1}, point}, CommandSource::pointer);
+    input(PointerUp{{1}, point}, CommandSource::pointer);
+    require(app.state.item().shadows && app.observed_checked("shadows") == true,
+            "A pointer press on the track must toggle the switch");
+    app.action("shadows");
+    app.action("hierarchy-item-sphere");
+    require(app.state.item().shadows && app.observed_checked("shadows") == true,
+            "Another item must show its own shadows value");
+    app.action("hierarchy-item-cube");
+    require(!app.state.item().shadows, "Returning to an item must retain its shadows value");
+}
 void smoke() {
     visibility_smoke();
+    shadows_smoke();
     appearance_smoke();
     gradient_card_smoke();
     analytic_fill_smoke();
@@ -1913,7 +1964,7 @@ void smoke() {
     const auto target = take(resolve_target(app.view.inspection, AuthorIdTarget{"hierarchy-item-cube"}));
     const auto semantic = app.view.inspection.elements[target.index].semantic;
     require(semantic && app.view.inspection.semantics.nodes[*semantic].selected == true &&
-                app.observed_name("enabled").find("[x]") != std::string::npos &&
+                app.observed_name("enabled") == "Enabled" && app.observed_checked("enabled") == true &&
                 app.observed_name("amount").find("55") != std::string::npos,
             "Shared inspection and semantics must expose selection and edited properties");
     const auto loaded = take(load_replay(take(save_replay(replay.recording()))));
@@ -1929,7 +1980,7 @@ void smoke() {
                         }),
             "Replay must retain the selected item's edited display name");
     for (const auto& [id, value] :
-         std::vector<std::pair<std::string, std::string>>{{"enabled", "[x]"}, {"amount", "55"}})
+         std::vector<std::pair<std::string, std::string>>{{"enabled", "Enabled"}, {"amount", "55"}})
         require(
             std::any_of(nodes.begin(), nodes.end(),
                         [&](const auto& node) { return node.id == id && node.name.find(value) != std::string::npos; }),
@@ -2222,8 +2273,11 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_DOWN, 1);
         require(app.state.item().visibility == "visible", "Native arrows must select the next Visibility option");
         host.message(WM_KEYDOWN, VK_DOWN, 1);
+        seek("shadows");
+        host.message(WM_KEYDOWN, VK_SPACE, 1);
         const auto cube = app.state.item();
-        require(cube.name.text == "Cube!" && !cube.enabled && cube.amount == 55 && cube.visibility == "hidden",
+        require(cube.name.text == "Cube!" && !cube.enabled && cube.amount == 55 && cube.visibility == "hidden" &&
+                    !cube.shadows,
                 "Native fields must accept edits");
         // Tab traversal revealed the last Hierarchy row and the Visibility choices; wheel both back.
         wheel_top("hierarchy");

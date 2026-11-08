@@ -8,7 +8,7 @@ Start with the build and copy commands in [Getting Started](getting-started.md).
 
 `ui::Value<T>` accepts an exact-type literal, state handle or computed handle. In the source, the Checkbox receives the enabled observation and the summary Text receives a computed string. `Props::id` supplies document-scoped identity; `Props::style` supplies ordinary typed style declarations. Row and Column select their flex direction; gap, padding, background and other declarations resolve through the shared [style cascade](../architecture/styling.md#implemented-prototype-style-resolution). Repeated explicit IDs in one lowered form are invalid.
 
-The Checkbox's `app.toggle` string declares an activate action. It does not register a callback or change its controlled value. The [Checkbox contract](../architecture/ui-model.md#implemented-c-form-authoring) projects it as an ordinary button whose content name includes `[ ]` or `[x]` and its label.
+The Checkbox's `app.toggle` string declares an activate action. It does not register a callback or change its controlled value. The [Checkbox contract](../architecture/ui-model.md#implemented-c-form-authoring) projects it as a `checkbox` named by its label, with its checked state in `selected`.
 
 ## Keep one session alive
 

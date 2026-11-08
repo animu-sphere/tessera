@@ -252,6 +252,12 @@ std::string name(const Presentation& presentation, std::string id) {
     require(semantic.has_value(), "Missing semantic observation");
     return presentation.inspection.semantics.nodes[*semantic].name;
 }
+std::optional<bool> checked(const Presentation& presentation, std::string id) {
+    const auto target = take(resolve_target(presentation.inspection, AuthorIdTarget{std::move(id)}));
+    const auto semantic = presentation.inspection.elements[target.index].semantic;
+    require(semantic.has_value(), "Missing semantic observation");
+    return presentation.inspection.semantics.nodes[*semantic].selected;
+}
 // Placeholder glyph bit marks. Rasterizer -> cache -> capture borrowing order.
 struct SyntheticGlyphs final : GlyphRasterizer {
     std::uint64_t face_revision(FontId font) const override { return font.value == 0 ? 1 : 0; }
@@ -929,7 +935,8 @@ int main(int argc, char** argv) {
                                                           std::to_string(host.username.caret),
                         "Edit observation differs");
             if (host.selected == "feature")
-                require(name(accepted, "toggle") == (host.draft.feature ? "[x] Enable feature" : "[ ] Enable feature"),
+                require(name(accepted, "toggle") == "Enable feature" &&
+                            checked(accepted, "toggle") == host.draft.feature,
                         "Checkbox differs");
             if (host.selected == "about")
                 require(name(accepted, "section-help") == "Apply saves the whole draft.", "Help differs");

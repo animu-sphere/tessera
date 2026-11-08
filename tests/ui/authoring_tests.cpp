@@ -365,9 +365,9 @@ void controlled_checkbox() {
           "Generated checked marker needs its caller's source origin");
     Session foreign;
     const auto wrong = foreign.state("checked", true);
-    auto rejected = ui.lower(Checkbox("Foreign", wrong, "toggle", {.node = {.source = origin}}), actions);
-    check(!rejected && rejected.diagnostics[0].source &&
-              rejected.diagnostics[0].path == "/root/children/0/properties/text" &&
+    auto rejected =
+        ui.lower(Checkbox("Foreign", wrong, "toggle", {.node = {.id = "foreign", .source = origin}}), actions);
+    check(!rejected && rejected.diagnostics[0].source && rejected.diagnostics[0].path == "/root/properties/selected" &&
               rejected.diagnostics[0].source->location == origin,
           "Foreign checked observation needs a located rejection");
     int reads = 0;
@@ -375,11 +375,12 @@ void controlled_checkbox() {
         ++reads;
         return true;
     });
-    check(!ui.lower(Checkbox(std::string("\xff"), pending, "toggle"), actions) && reads == 0,
+    check(!ui.lower(Checkbox(std::string("\xff"), pending, "toggle", {.node = {.id = "invalid"}}), actions) &&
+              reads == 0,
           "Invalid Checkbox label must reject before checked evaluation");
-    check(!ui.lower(Checkbox("Unknown", true, "unknown", {.node = {.source = origin}}), actions),
+    check(!ui.lower(Checkbox("Unknown", true, "unknown", {.node = {.id = "unknown", .source = origin}}), actions),
           "Unregistered Checkbox command accepted");
-    auto deepest = Checkbox("Bounded", true, "toggle");
+    auto deepest = Checkbox("Bounded", true, "toggle", {.node = {.id = "bounded"}});
     for (std::size_t i = 2; i < max_document_depth; ++i) deepest = Column({deepest});
     check(bool(ui.lower(deepest, actions)) && !ui.lower(Column({deepest}), actions),
           "Generated Checkbox children must count against depth bounds");
