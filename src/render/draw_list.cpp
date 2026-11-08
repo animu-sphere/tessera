@@ -1,6 +1,7 @@
 #include <tessera/render/draw_list.hpp>
 #include <tessera/render/renderer.hpp>
 #include "../detail/checks.hpp"
+#include "../detail/shadow.hpp"
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -35,13 +36,23 @@ std::vector<Diagnostic> validate(const UiDrawList& list) {
         std::visit(
             [&](const auto& command) {
                 using T = std::decay_t<decltype(command)>;
-                if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawBorder>) {
+                if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawBorder> ||
+                              std::is_same_v<T, DrawShadow>) {
                     check.rect(command.rect, path + "/rect");
                     check.color(command.color, path + "/color");
                     check.non_negative(command.corner_radius, path + "/corner_radius");
                     if constexpr (std::is_same_v<T, DrawRect>)
                         if (command.gradient) check.gradient(*command.gradient, path + "/gradient");
                     if constexpr (std::is_same_v<T, DrawBorder>) check.edges(command.widths, path + "/widths");
+                    if constexpr (std::is_same_v<T, DrawShadow>) {
+                        check.non_negative(command.softness, path + "/softness");
+                        if (std::isfinite(command.softness) && command.softness >= 0 &&
+                            std::isfinite(command.rect.origin.x) && std::isfinite(command.rect.origin.y) &&
+                            std::isfinite(command.rect.size.width) && std::isfinite(command.rect.size.height) &&
+                            !detail::shadow_bounds(command.rect, command.softness))
+                            check.error("geometry_overflow", path + "/rect",
+                                        "Expanded shadow bounds must fit finite float coordinates.");
+                    }
                 } else if constexpr (std::is_same_v<T, DrawImage>) {
                     check.rect(command.rect, path + "/rect");
                     if (command.image.value == 0)

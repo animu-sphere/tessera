@@ -215,6 +215,34 @@ void exact_types_and_destinations() {
     check(!resolve_styles({ui.get(), &wrong, {}, {}, &theme}), "Infinity is allowed only at a valid destination");
 }
 
+void shadow_tokens() {
+    const auto ui = tree();
+    const BoxShadow shadow{{-2, 4}, 8, {.2f, .3f, .4f, .5f}};
+    Theme theme{{{"shadow", ThemeValue{std::optional<BoxShadow>{shadow}}}}};
+    StyleSheet sheet{{{StyleSelector::of_id("button"), {}, {binding("box_shadow", "shadow")}}}};
+    auto result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).box_shadow == shadow && !result.value->at(2).box_shadow,
+          "Typed shadow tokens must reach their destination without inheriting");
+    theme.variables[0].value = ThemeValue{std::optional<BoxShadow>{}};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && !result.value->at(1).box_shadow, "Empty shadow tokens must clear the effect");
+    auto invalid = shadow;
+    invalid.softness = -1;
+    theme.variables[0].value = ThemeValue{std::optional<BoxShadow>{invalid}};
+    check(has(validate(theme), "out_of_range", "/theme/variables/0/value/softness"),
+          "Invalid shadow tokens must reject even before use");
+    theme.variables[0].value = ThemeValue{1.f};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(!result && has(result.diagnostics, "theme_type", "/sheet/rules/0/variables/0/variable"),
+          "Shadow bindings must not accept numeric tokens");
+    StyleSheet fallback{{{StyleSelector::of_id("button"),
+                          {},
+                          {binding("box_shadow", "missing", ThemeValue{std::optional<BoxShadow>{shadow}})}}}};
+    result = resolve_styles({ui.get(), &fallback});
+    check(result && result.value->at(1).box_shadow == shadow,
+          "Missing shadow variables must use the explicitly typed fallback");
+}
+
 void diagnostic_and_candidate_boundaries() {
     const auto ui = tree();
     StyleSheet sheet;
@@ -394,6 +422,7 @@ void component_presentation_and_rejected_switch() {
 
 int main() {
     try {
+        shadow_tokens();
         cascade_and_inheritance();
         exact_types_and_destinations();
         diagnostic_and_candidate_boundaries();

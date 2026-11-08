@@ -145,7 +145,8 @@ ui::Element Form(const State& state, Size viewport) {
                                                                        .radius = {.85f, .95f},
                                                                        .stops = {{0, {.96f, .99f, 1, 1}},
                                                                                  {.42f, {.84f, .92f, 1, 1}},
-                                                                                 {1, {.98f, .9f, .98f, 1}}}}}}),
+                                                                                 {1, {.98f, .9f, .98f, 1}}}},
+                                 .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}}}}),
                   ui::Text("Edits are kept per item.", {.id = "help"}),
                   ui::Text("Name: Ctrl+A/C/X/V, text, arrows, Home/End, Backspace/Delete.")},
                  {.id = "inspector", .style = {.height = Dimension::points(height), .gap = 12.f}}),
@@ -1058,8 +1059,58 @@ void gradient_card_smoke() {
     }
 }
 
+void shadow_card_smoke() {
+    App app;
+    const auto& box = app.view.box("item-card");
+    const auto fill =
+        std::find_if(app.view.paint.commands.begin(), app.view.paint.commands.end(), [&](const auto& command) {
+            const auto* rect = std::get_if<DrawRect>(&command);
+            return rect && rect->rect == box.border_box && rect->gradient;
+        });
+    require(fill != app.view.paint.commands.end() && fill != app.view.paint.commands.begin() &&
+                std::holds_alternative<DrawShadow>(*(fill - 1)),
+            "Inspector card must paint its shadow immediately before its ordinary gradient");
+    const auto shadow = std::get<DrawShadow>(*(fill - 1));
+    require(shadow.rect == Rect{{box.border_box.origin.x, box.border_box.origin.y + 4}, box.border_box.size} &&
+                shadow.softness == 8 && shadow.corner_radius == 12 && shadow.color.a == .18f,
+            "Inspector must retain the authored shadow geometry and opacity");
+    CpuFrameCapture frames;
+    for (float scale : {1.f, 1.25f, 1.5f, 2.f}) {
+        UiDrawList plain{{DrawRect{{{}, app.viewport}, {.95f, .95f, .98f, 1}}}};
+        if (box.clip) plain.commands.push_back(PushClip{*box.clip});
+        auto decorated = plain;
+        decorated.commands.push_back(shadow);
+        plain.commands.push_back(*fill);
+        decorated.commands.push_back(*fill);
+        if (box.clip) {
+            plain.commands.push_back(PopClip{});
+            decorated.commands.push_back(PopClip{});
+        }
+        const auto extent = take(capture_extent(app.viewport, scale));
+        const auto baseline = take(frames.capture({0, app.viewport, scale, extent, &plain}));
+        const auto actual = take(frames.capture({0, app.viewport, scale, extent, &decorated}));
+        std::size_t outside_changes = 0;
+        for (unsigned y = 0; y < extent.height; ++y)
+            for (unsigned x = 0; x < extent.width; ++x) {
+                const auto at = (std::size_t(y) * extent.width + x) * 4;
+                const double lx = (x + .5) / scale, ly = (y + .5) / scale;
+                if (ly >= box.border_box.origin.y + box.border_box.size.height &&
+                    actual.pixels[at] != baseline.pixels[at])
+                    ++outside_changes;
+                if (lx > box.border_box.origin.x + 12 &&
+                    lx < box.border_box.origin.x + box.border_box.size.width - 12 &&
+                    ly > box.border_box.origin.y + 12 && ly < box.border_box.origin.y + box.border_box.size.height - 12)
+                    require(actual.pixels[at] == baseline.pixels[at],
+                            "Opaque card fill must retain its pixels above the shadow");
+            }
+        require(outside_changes >= 16,
+                "Inspector shadow must visibly darken actual pixels below the card at every scale");
+    }
+}
+
 void smoke() {
     gradient_card_smoke();
+    shadow_card_smoke();
     edit_rejection_smoke();
     clipboard_smoke();
     cut_smoke();

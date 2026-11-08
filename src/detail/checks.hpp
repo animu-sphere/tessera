@@ -3,6 +3,7 @@
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
 #include <tessera/style/gradient.hpp>
+#include <tessera/style/shadow.hpp>
 #include <tessera/ui/document.hpp>
 #include <cmath>
 #include <string>
@@ -66,6 +67,11 @@ public:
     }
     void gradient(const Gradient& value, const std::string& path) {
         std::visit([&](const auto& fill) { gradient_fill(fill, path); }, value);
+    }
+    void shadow(const BoxShadow& value, const std::string& path) {
+        point(value.offset, path + "/offset");
+        non_negative(value.softness, path + "/softness");
+        color(value.color, path + "/color");
     }
 
 private:
