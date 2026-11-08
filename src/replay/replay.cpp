@@ -553,9 +553,9 @@ std::string format(const ReplayAction& action) {
 }
 
 std::string format(const ReplaySemanticNode& entry) {
-    static constexpr const char* roles[] = {"root",      "button",    "text",        "separator", "dialog",
-                                            "list",      "tree",      "list_item",   "tree_item", "menu",
-                                            "menu_item", "scrollbar", "radio_group", "radio"};
+    static constexpr const char* roles[] = {
+        "root",      "button", "text",      "separator", "dialog",      "list",  "tree",     "list_item",
+        "tree_item", "menu",   "menu_item", "scrollbar", "radio_group", "radio", "checkbox", "switch"};
     std::string result = std::string(roles[static_cast<int>(entry.role)]) + " '" + entry.name + "' " +
                          (entry.id ? "'" + *entry.id + "' " : "") + "#" + std::to_string(entry.node);
     if (!entry.enabled) result += ", disabled";

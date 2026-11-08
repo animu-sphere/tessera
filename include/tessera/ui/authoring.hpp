@@ -52,6 +52,7 @@ struct CheckboxProps {
     Props node;
     Value<bool> disabled = false;
 };
+using SwitchProps = CheckboxProps;
 struct TextInputProps {
     Props node;
     Value<bool> disabled = false;
@@ -154,6 +155,7 @@ private:
     friend Element Text(Value<std::string>, Props);
     friend Element Button(Value<std::string>, std::string, ButtonProps);
     friend Element Checkbox(Value<std::string>, Value<bool>, std::string, CheckboxProps);
+    friend Element Switch(Value<std::string>, Value<bool>, std::string, SwitchProps);
     friend Element TextInput(Value<std::string>, Value<TextEditState>, std::string, TextInputProps);
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
@@ -177,9 +179,14 @@ private:
 Element Text(Value<std::string>, Props = {});
 // An ordinary activate action; the host maps it to a CommandRegistry descriptor.
 Element Button(Value<std::string> label, std::string action, ButtonProps = {});
-// Controlled value: activation only requests a host command. The Box/Text
-// composition exposes "[x]" / "[ ]" in its ordinary button semantic name.
+// Controlled value: activation only requests a host command. A row with a
+// presentational "[x]" / "[ ]" marker Text and its <id>-label Text; it projects a
+// checkbox named by the label with `selected` as its checked state. Requires a stable ID.
 Element Checkbox(Value<std::string> label, Value<bool> checked, std::string action, CheckboxProps = {});
+// The same controlled contract as an on/off switch: a 32x18 rounded <id>-track whose
+// <id>-thumb sits at the start when off and the end when on, then the <id>-label Text.
+// Projects a switch role; the track turns blue when on. Requires a stable ID.
+Element Switch(Value<std::string> label, Value<bool> on, std::string action, SwitchProps = {});
 // Controlled single-line observation: label, committed text, then byte selection
 // as ordinary Text children; an open composition presents its preedit instead.
 // The host routes edits through this activate owner.

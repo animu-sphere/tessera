@@ -27,6 +27,11 @@ template<class T> T take(Result<T> result) {
     }
     return std::move(*result.value);
 }
+// Observed names, with a checkbox's checked state recorded beside its label.
+template<class Node> std::string checked_name(const Node& node) {
+    if (node.role != SemanticRole::checkbox) return node.name;
+    return (node.selected == true ? "checked " : "unchecked ") + node.name;
+}
 const ValidationContext actions{{"settings.toggle", "settings.edit", "settings.apply", "settings.section.account",
                                  "settings.section.feature", "settings.section.about", "settings.appearance"}};
 constexpr Size viewport{480, 240};
@@ -281,9 +286,10 @@ void verify(const Snapshot& snapshot, bool enabled) {
     for (const auto& semantic : snapshot.inspection.semantics.nodes)
         if (semantic.id == "toggle") {
             found = true;
-            require(semantic.role == SemanticRole::button && semantic.name == std::string(marker) + " Enable feature" &&
-                        semantic.enabled && semantic.focusable && semantic.actions.size() == 1,
-                    "Checkbox composition must expose checked text and ordinary activation eligibility");
+            require(semantic.role == SemanticRole::checkbox && semantic.name == "Enable feature" &&
+                        semantic.selected == enabled && semantic.enabled && semantic.focusable &&
+                        semantic.actions.size() == 1,
+                    "Checkbox composition must expose its label, checked state and ordinary activation eligibility");
         }
     require(found, "Checkbox missing from inspection");
     const auto& marker_source = snapshot.inspection.elements[control.index + 1].source;
@@ -761,7 +767,7 @@ void run_sections() {
     auto observations = [](const Snapshot& snapshot) {
         Names values;
         for (const auto& node : snapshot.inspection.semantics.nodes)
-            if (node.id) values.emplace(*node.id, node.name);
+            if (node.id) values.emplace(*node.id, checked_name(node));
         return values;
     };
     std::vector<UiDrawList> paints;
@@ -784,7 +790,7 @@ void run_sections() {
                                                  std::to_string(username.anchor) + ":" + std::to_string(username.caret),
                     "Restored field observation differs");
         if (sections.selected == "feature")
-            require(values.at("toggle") == (draft.feature ? "[x] Enable feature" : "[ ] Enable feature"),
+            require(values.at("toggle") == (draft.feature ? "checked Enable feature" : "unchecked Enable feature"),
                     "Restored Checkbox observation differs");
         std::vector<std::string> order;
         for (const auto& element : accepted.inspection.elements)
@@ -1077,7 +1083,7 @@ void run_sections() {
     for (const auto& observation : first.output.semantics) {
         Names values;
         for (const auto& node : observation.nodes)
-            if (node.id) values.emplace(*node.id, node.name);
+            if (node.id) values.emplace(*node.id, checked_name(node));
         require(values == names[std::min(observation.generation, names.size() - 1)],
                 "Section replay inspection differs");
     }
@@ -1786,7 +1792,7 @@ void run_apply() {
     auto observations = [](const Snapshot& snapshot) {
         Names values;
         for (const auto& node : snapshot.inspection.semantics.nodes)
-            if (node.id) values.emplace(*node.id, node.name);
+            if (node.id) values.emplace(*node.id, checked_name(node));
         return values;
     };
     auto remember = [&] {
@@ -1795,7 +1801,7 @@ void run_apply() {
                     values.at("summary") ==
                         "User " + draft.username + (draft.feature ? "; feature enabled" : "; feature disabled") &&
                     values.at("save-result") == result && values.at("apply") == "Apply" &&
-                    values.at("toggle") == (draft.feature ? "[x] Enable feature" : "[ ] Enable feature"),
+                    values.at("toggle") == (draft.feature ? "checked Enable feature" : "unchecked Enable feature"),
                 "Settings draft, saved result and inspection disagree");
         require(values.at("username") == "Username " + username.text + " Selection " + std::to_string(username.anchor) +
                                              ":" + std::to_string(username.caret),
@@ -2051,7 +2057,7 @@ void run_apply() {
     for (const auto& observation : first.output.semantics) {
         Names values;
         for (const auto& node : observation.nodes)
-            if (node.id) values.emplace(*node.id, node.name);
+            if (node.id) values.emplace(*node.id, checked_name(node));
         require(values == names[std::min(observation.generation, names.size() - 1)], "Apply replay semantics differ");
     }
     const std::vector<std::string> expected_actions{"settings.toggle", "settings.apply", "settings.apply",
@@ -2237,7 +2243,8 @@ int main() {
             for (const auto& node : observation.nodes)
                 if (node.id == "toggle") {
                     found_check = true;
-                    require(node.name == (enabled_generation ? "[x] Enable feature" : "[ ] Enable feature"),
+                    require(node.role == SemanticRole::checkbox && node.name == "Enable feature" &&
+                                node.selected == enabled_generation,
                             "Replay checked observation differs from accepted host state");
                 }
             for (const auto& node : observation.nodes)

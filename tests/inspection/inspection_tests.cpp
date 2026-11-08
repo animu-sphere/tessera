@@ -96,6 +96,7 @@ void capture_joins_one_generation() {
         {"scrollbar", tessera::Property{false}, false},
         {"selected", std::nullopt, false},
         {"separator", tessera::Property{false}, false},
+        {"toggle_role", std::nullopt, false},
         {"tree_parent", std::nullopt, false}};
     check(start.properties == box_properties, "Box properties follow descriptors with absence values");
     check(elements[1].properties.size() == 5 && elements[1].properties[4].name == "text" &&

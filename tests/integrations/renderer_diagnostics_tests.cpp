@@ -40,6 +40,14 @@ std::string name(const panel::View& view, const std::string& id) {
     require(semantic.has_value(), "Missing semantics " + id);
     return view.inspection.semantics.nodes[*semantic].name;
 }
+// A Checkbox is named by its label and carries its value as checked state.
+bool checkbox(const panel::View& view, const std::string& id, const std::string& label, bool checked) {
+    const auto target = take(resolve_target(view.inspection, AuthorIdTarget{id}));
+    const auto semantic = view.inspection.elements[target.index].semantic;
+    require(semantic.has_value(), "Missing semantics " + id);
+    const auto& node = view.inspection.semantics.nodes[*semantic];
+    return node.role == SemanticRole::checkbox && node.name == label && node.selected == checked;
+}
 bool visible(const panel::View& view, const std::string& id) {
     const auto& bounds = box(view, id);
     return bounds.clip && intersect(bounds.border_box, *bounds.clip) == bounds.border_box;
@@ -215,14 +223,13 @@ struct Fixture {
                             host->material_view().enabled,
                         "Material view semantic eligibility differs");
             }
-            require(name(view, "scene-lights-toggle") ==
-                        (host->scene_lights().accepted ? "[x] Scene lights" : "[ ] Scene lights"),
-                    "Scene lights marker/name differs");
+            require(checkbox(view, "scene-lights-toggle", "Scene lights", host->scene_lights().accepted),
+                    "Scene lights checked state/name differs");
             require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("scene-lights-toggle"),
                                                               "activate")) == host->scene_lights().enabled,
                     "Scene lights semantic eligibility differs");
-            require(name(view, "outlines-toggle") == (host->outlines().accepted ? "[x] Outlines" : "[ ] Outlines"),
-                    "Outlines marker/name differs");
+            require(checkbox(view, "outlines-toggle", "Outlines", host->outlines().accepted),
+                    "Outlines checked state/name differs");
             require(static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("outlines-toggle"),
                                                               "activate")) == host->outlines().enabled,
                     "Outlines semantic eligibility differs");

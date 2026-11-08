@@ -14,7 +14,7 @@ static_assert(std::is_same_v<PropertyAlternative<PropertyType::reference>, NodeR
 
 std::span<const PropertyDescriptor> property_descriptors() noexcept {
     using enum PropertyStages;
-    static const std::array<PropertyDescriptor, 17> descriptors{{
+    static const std::array<PropertyDescriptor, 18> descriptors{{
         {property_names::collection_role, PropertyType::string, NodeKinds::box, NodeKinds::none, std::nullopt,
          input | semantics, PropertyCategory::accessibility},
         {property_names::disabled, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{false},
@@ -47,6 +47,8 @@ std::span<const PropertyDescriptor> property_descriptors() noexcept {
          PropertyCategory::accessibility},
         {property_names::text, PropertyType::string, NodeKinds::text, NodeKinds::text, std::nullopt,
          layout | paint | semantics, PropertyCategory::content},
+        {property_names::toggle_role, PropertyType::string, NodeKinds::box, NodeKinds::none, std::nullopt, semantics,
+         PropertyCategory::accessibility},
         {property_names::tree_parent, PropertyType::reference, NodeKinds::box, NodeKinds::none, std::nullopt,
          input | semantics, PropertyCategory::accessibility},
     }};

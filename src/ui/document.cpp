@@ -204,10 +204,24 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         if (role == "tree_item" || parent_role == "tree") tree_entries.push_back({&node, parent, path});
         if (node.properties.contains(property_names::tree_parent) && role != "tree_item")
             error("collection_state", path + "/properties/tree_parent", "Only tree items have a logical tree parent.");
+        const auto toggle_found = node.properties.find(property_names::toggle_role);
+        const auto* toggle_name =
+            toggle_found == node.properties.end() ? nullptr : std::get_if<std::string>(&toggle_found->second);
+        const bool toggle = toggle_found != node.properties.end();
+        if (toggle_name && *toggle_name != "checkbox" && *toggle_name != "switch")
+            error("toggle_role", path + "/properties/toggle_role", "Choose checkbox or switch.");
+        if (toggle && (!role.empty() || marked(property_names::modal) || marked(property_names::separator) ||
+                       marked(property_names::scrollbar)))
+            error("toggle_role", path + "/properties/toggle_role",
+                  "Do not combine a toggle role with a collection role or another semantic role marker.");
+        if (toggle && !node.properties.contains(property_names::selected))
+            error("toggle_state", path + "/properties/selected", "Give each checkbox or switch a checked state.");
+        if (toggle && !node.events.contains("activate"))
+            error("toggle_action", path + "/events/activate", "Give each checkbox or switch a registered command.");
         if (node.properties.contains(property_names::selected) && role != "list_item" && role != "tree_item" &&
-            role != "radio")
+            role != "radio" && !toggle)
             error("collection_state", path + "/properties/selected",
-                  "Only list/tree items and radios have selection state.");
+                  "Only list/tree items, radios and toggles have selection state.");
         if (node.properties.contains(property_names::expanded) && role != "tree_item")
             error("collection_state", path + "/properties/expanded", "Only tree items have expansion state.");
         if (const auto* selected = effective_property(node, property_names::selected);
