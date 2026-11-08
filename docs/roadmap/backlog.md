@@ -7,7 +7,7 @@ Use the selected Inspector / Hierarchy application to identify the next user-vis
 ## Near-term editing and development experience
 
 - Clipboard follow-ups: asynchronous results and additional consumers beyond the [Inspector's synchronous name copy/cut/paste](../guides/inspector-hierarchy.md#host-and-observation-boundary).
-- Japanese input: basic Windows IME composition/commit through TextInput, starting with a concrete input scenario.
+- Japanese input follow-ups: physical IME validation, clause decoration, reconversion and core caret geometry after the [Inspector composition](../guides/inspector-hierarchy.md#japanese-ime-composition).
 - Observation: make selection, focus, layout and command results easier to trace through existing [inspection](../architecture/inspection.md).
 - Failed updates beyond name editing: select a concrete non-text operation that needs recoverable rejection feedback.
 - Focused reload/development aids: shorten one edit -> update -> inspect round trip when manual repetition becomes a bottleneck.

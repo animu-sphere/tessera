@@ -447,11 +447,13 @@ CommandArguments edit_arguments(const TextEditRequest& edit) {
                 args["caret"] = static_cast<double>(operation.caret);
             } else if constexpr (std::is_same_v<T, TextEditErase>) {
                 args["kind"] = std::string{operation.direction == TextErase::backward ? "backward" : "forward"};
-            } else {
+            } else if constexpr (std::is_same_v<T, TextEditMove>) {
                 constexpr const char* moves[]{"left", "right", "home", "end"};
                 const auto index = static_cast<unsigned>(operation.direction);
                 args["kind"] = std::string{index < 4 ? moves[index] : "invalid"};
                 args["extend"] = operation.extend;
+            } else {
+                args["kind"] = std::string{"invalid"}; // Numeric fields accept no IME composition.
             }
         },
         edit.operation);
