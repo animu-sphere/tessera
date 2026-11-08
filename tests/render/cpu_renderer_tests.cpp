@@ -198,6 +198,32 @@ void analytic_fills() {
     check(capture(frames, {{circle}}) == capture(frames, {}), "Empty ellipse must not divide by zero or paint");
 }
 
+void procedural_fallbacks() {
+    CpuFrameCapture frames;
+    DrawRect plain{{{1.25f, 1}, {5.5f, 4}}, {.2f, .6f, .4f, .75f}, 100, {}, FillShape::ellipse, true};
+    auto requested = plain;
+    requested.procedural = ProceduralFill{"example.wave", {Color{1, 0, 0, 1}}, 2};
+    check(capture(frames, {{requested}}) == capture(frames, {{plain}}),
+          "The CPU reference must draw the declared fallback, not execute or approximate the shader");
+    requested.color = {};
+    check(capture(frames, {{requested}}) == capture(frames, {}), "A transparent fallback must omit the fill");
+    requested.gradient = LinearGradient{{0, 0}, {1, 0}, {1, 0, 0, 1}, {0, 0, 1, 1}};
+    plain.color = {};
+    plain.gradient = requested.gradient;
+    check(capture(frames, {{requested}}) == capture(frames, {{plain}}), "A gradient fallback must match its gradient");
+
+    CpuRenderer renderer;
+    std::vector<std::uint8_t> pixels(8 * 8 * 4);
+    renderer.set_target({{8, 8}, pixels});
+    check(renderer.submit({1, {8, 8}, 1}, {{requested, plain, requested}}).empty() &&
+              renderer.procedural_fallbacks() == 2,
+          "Every procedural request must be reported as a CPU fallback");
+    requested.procedural->opacity = 2;
+    check(has(renderer.submit({2, {8, 8}, 1}, {{requested}}), "out_of_range", "/commands/0/procedural/opacity") &&
+              renderer.procedural_fallbacks() == 2,
+          "Rejected submissions must keep the last successful fallback count");
+}
+
 void linear_gradients() {
     CpuFrameCapture frames;
     DrawRect rect{{{0, 0}, {8, 8}}, {}, 3, LinearGradient{{.25f, 0}, {.75f, 0}, {1, 0, 0, 0}, {0, 0, 1, 1}}};
@@ -643,6 +669,7 @@ int main() {
         pixels_and_geometry();
         strokes();
         analytic_fills();
+        procedural_fallbacks();
         linear_gradients();
         multi_stop_gradients();
         radial_gradients();

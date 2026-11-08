@@ -436,8 +436,11 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
             },
             list.commands[i]);
     }
-    for (const auto& command : list.commands)
+    procedural_fallbacks_ = 0;
+    for (const auto& command : list.commands) {
         if (auto image = std::get_if<DrawImage>(&command)) images_.at(image->image.value).last_frame = frame.frame;
+        if (auto rect = std::get_if<DrawRect>(&command); rect && rect->procedural) ++procedural_fallbacks_;
+    }
     submitted_ = frame.frame;
     return {};
 }

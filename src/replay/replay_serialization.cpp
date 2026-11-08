@@ -158,13 +158,14 @@ Modifiers modifiers(const JsonValue& value, const std::string& path) {
 }
 
 ResolvedStyle style(const JsonValue& value, const std::string& path) {
-    const auto& o = object(
-        value, path,
-        {"display",    "direction",  "justify",    "align",      "overflow",     "width",         "height", "min_width",
-         "min_height", "max_width",  "max_height", "margin",     "border",       "padding",       "gap",    "grow",
-         "shrink",     "visibility", "opacity",    "background", "border_color", "corner_radius", "text",   "color"},
-        {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap", "grid_horizontal",
-         "grid_vertical", "background_gradient", "box_shadow", "outline", "background_shape", "background_antialias"});
+    const auto& o =
+        object(value, path, {"display", "direction",  "justify",      "align",         "overflow",   "width",
+                             "height",  "min_width",  "min_height",   "max_width",     "max_height", "margin",
+                             "border",  "padding",    "gap",          "grow",          "shrink",     "visibility",
+                             "opacity", "background", "border_color", "corner_radius", "text",       "color"},
+               {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap",
+                "grid_horizontal", "grid_vertical", "background_gradient", "box_shadow", "outline", "background_shape",
+                "background_antialias", "background_procedural"});
     ResolvedStyle s;
     if (const auto field = o.find("background_shape"); field != o.end())
         s.background_shape = choice<FillShape>(field->second, path + "/background_shape",
@@ -234,6 +235,28 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                 std::visit([&](auto& g) { g.stops.push_back(parsed); }, *s.background_gradient);
             }
         }
+    }
+    if (const auto field = o.find("background_procedural"); field != o.end()) {
+        const auto at = path + "/background_procedural";
+        const auto& fill = object(field->second, at, {"shader", "parameters", "time", "opacity"});
+        ProceduralFill parsed{string(fill.at("shader"), at + "/shader"),
+                              {},
+                              real(fill.at("time"), at + "/time"),
+                              real(fill.at("opacity"), at + "/opacity")};
+        const auto& values = array(fill.at("parameters"), at + "/parameters");
+        if (values.size() > max_procedural_parameters)
+            fail("procedural_parameter_limit", at + "/parameters", "Use at most 16 procedural parameters.");
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            const auto where = at + "/parameters/" + std::to_string(i);
+            const auto& typed = as<Object>(values[i], where, "an object");
+            if (typed.contains("number"))
+                parsed.parameters.push_back(real(object(values[i], where, {"number"}).at("number"), where + "/number"));
+            else if (typed.contains("point"))
+                parsed.parameters.push_back(point(object(values[i], where, {"point"}).at("point"), where + "/point"));
+            else
+                parsed.parameters.push_back(color(object(values[i], where, {"color"}).at("color"), where + "/color"));
+        }
+        s.background_procedural = std::move(parsed);
     }
     s.border_color = color(o.at("border_color"), path + "/border_color");
     if (const auto field = o.find("box_shadow"); field != o.end()) {
@@ -658,6 +681,26 @@ JsonValue style_json(const ResolvedStyle& s) {
     }
     if (s.background_shape != FillShape::rectangle) result["background_shape"] = JsonValue{std::string("ellipse")};
     if (s.background_antialias) result["background_antialias"] = JsonValue{true};
+    if (s.background_procedural) {
+        const auto& fill = *s.background_procedural;
+        Array parameters;
+        for (const auto& value : fill.parameters)
+            std::visit(
+                [&](const auto& v) {
+                    using V = std::decay_t<decltype(v)>;
+                    if constexpr (std::is_same_v<V, float>)
+                        parameters.push_back(JsonValue{Object{{"number", real_json(v)}}});
+                    else if constexpr (std::is_same_v<V, Point>)
+                        parameters.push_back(JsonValue{Object{{"point", point_json(v)}}});
+                    else
+                        parameters.push_back(JsonValue{Object{{"color", color_json(v)}}});
+                },
+                value);
+        result["background_procedural"] = JsonValue{Object{{"shader", text(fill.shader)},
+                                                           {"parameters", JsonValue{std::move(parameters)}},
+                                                           {"time", real_json(fill.time)},
+                                                           {"opacity", real_json(fill.opacity)}}};
+    }
     return JsonValue{std::move(result)};
 }
 JsonValue styles_json(const std::vector<ResolvedStyle>& values) {

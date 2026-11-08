@@ -4,6 +4,7 @@
 #include <tessera/style/color.hpp>
 #include <tessera/style/fill_shape.hpp>
 #include <tessera/style/gradient.hpp>
+#include <tessera/style/procedural_fill.hpp>
 #include <tessera/text/text.hpp>
 #include <tessera/ui/document.hpp>
 #include <cstddef>
@@ -42,6 +43,9 @@ struct DrawRect {
     std::optional<Gradient> gradient; // Replaces color when present.
     FillShape shape = FillShape::rectangle;
     bool antialias = false;
+    // Runs a backend-registered shader inside the same shape instead of color/gradient. When the
+    // backend lacks that shader, color/gradient is the declared fallback (alpha 0 omits the fill).
+    std::optional<ProceduralFill> procedural;
     bool operator==(const DrawRect&) const = default;
 };
 // Border painted inside rect.

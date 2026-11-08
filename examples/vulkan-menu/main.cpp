@@ -147,6 +147,14 @@ struct Menu {
     static constexpr tessera::Color screen = rgb(18, 20, 26), panel = rgb(34, 39, 52), label = rgb(255, 255, 255);
     static constexpr tessera::Color idle = rgb(47, 74, 128), hover = rgb(66, 104, 176), pressed = rgb(32, 50, 88);
     static constexpr tessera::Color outline = rgb(90, 120, 180), focus_ring = rgb(255, 214, 102);
+    // Backdrop drawn by aurora.slang; `screen` stays the declared fallback without that shader.
+    static constexpr const char* aurora = "tessera.example.aurora";
+    static constexpr tessera::Color aurora_bottom = rgb(34, 24, 58), aurora_glow{.25f, .78f, .67f, .55f};
+    static constexpr float aurora_cycles = 1.5f, aurora_time = 0.75f;
+    static constexpr tessera::Point aurora_band{.32f, .2f}; // Center and thickness, height fractions.
+    static constexpr std::array<tessera::ProceduralValueKind, 5> aurora_kinds{
+        tessera::ProceduralValueKind::color, tessera::ProceduralValueKind::color, tessera::ProceduralValueKind::color,
+        tessera::ProceduralValueKind::number, tessera::ProceduralValueKind::point};
     std::unique_ptr<tessera::UiTree> tree;
     std::vector<std::uint32_t> parents;
     tessera::StyleSheet sheet;
@@ -235,6 +243,8 @@ struct Menu {
             s.justify = tessera::Justify::center;
             s.align = tessera::Align::center;
             s.background = screen;
+            s.background_procedural = tessera::ProceduralFill{
+                aurora, {screen, aurora_bottom, aurora_glow, aurora_cycles, aurora_band}, aurora_time};
             s.text.font = menu_font;
         });
         rule(S::of_id("panel"), [](auto& s) {
@@ -612,6 +622,13 @@ struct App {
         renderer = std::make_unique<tessera::VulkanRenderer>(
             tessera::VulkanContext{physical, device, present_pass, format.format, vertex, fragment, image,
                                    atlas_pages_per_slot * frames_in_flight, !menu.glyph_cache, batch});
+        // Build-time Slang artifact; a failed registration leaves the declared solid fallback.
+        const auto aurora = shader("procedural.aurora.spv");
+        const auto registered = renderer->register_procedural_fill({Menu::aurora, aurora, Menu::aurora_kinds});
+        if (!registered.empty()) {
+            print(registered);
+            if (smoke) throw std::runtime_error("Aurora procedural fill registration failed");
+        }
         if (menu.glyph_cache) {
             VkFormatProperties properties;
             vkGetPhysicalDeviceFormatProperties(physical, VK_FORMAT_R8G8B8A8_UNORM, &properties);
@@ -927,10 +944,16 @@ struct App {
         const auto diagnostics = renderer->submit(frame, atlas ? atlas->draw_list : menu.paint);
         if (smoke && diagnostics.empty()) {
             const auto stats = renderer->submission_stats();
-            // Placeholder: two solid batches. Real glyphs alternate solid/image batches.
-            if ((!atlas && stats.draw_calls != 2) || stats.primitives <= stats.draw_calls ||
-                stats.upload_bytes != stats.primitives * 112 || renderer->pending_uploads() > frames_in_flight)
+            // Placeholder: the procedural backdrop, then two solid batches. Real glyphs alternate
+            // solid/image batches. Uploads add three 32-byte records for the five aurora parameters
+            // after an alignment of at most 256 bytes.
+            const auto vertices = stats.primitives * 112;
+            if ((!atlas && stats.draw_calls != 3) || stats.primitives <= stats.draw_calls ||
+                stats.upload_bytes < vertices + 96 || stats.upload_bytes >= vertices + 96 + 256 ||
+                renderer->pending_uploads() > frames_in_flight)
                 fail("Menu adjacent batching or upload retirement counters disagree");
+            if (stats.procedural_fills != 1 || stats.procedural_fallbacks != 0)
+                fail("Menu aurora backdrop did not execute its registered procedural fill");
             for (const auto& page : slot.atlas) {
                 const auto unbound = renderer->unbind_image(page.handle);
                 const auto rebound = renderer->bind_image(page.handle, page.view, glyph_sampler);
@@ -1129,6 +1152,44 @@ struct App {
         std::cout << "Native glyph scale=" << scale << " max linear error=" << maximum_error
                   << "; Latin/Japanese ink samples=" << ink[0] << '/' << ink[1] << '\n';
     }
+    // Independent double-precision evaluation of aurora.slang at backdrop pixel centers outside the
+    // panel. Fallback would show the flat screen color, so the glow band must differ from it.
+    void verify_aurora(const std::vector<std::uint8_t>& pixels, const std::string& name, tessera::Rect panel) {
+        const auto linear = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+        const auto encode = [](double c) {
+            c = std::clamp(c, 0.0, 1.0);
+            return c <= 0.0031308 ? c * 12.92 : 1.055 * std::pow(c, 1 / 2.4) - 0.055;
+        };
+        const auto size = menu.viewport;
+        double farthest = 0;
+        for (const double fx : {.01, .5})
+            for (const double fy : {.01, .2, .3, .36, .45, .8, .99}) {
+                const auto px = unsigned(panel.origin.x * fx * scale), py = unsigned(size.height * fy * scale);
+                if (px >= extent.width || py >= extent.height) continue;
+                const double u = (px + .5) / scale / size.width, v = (py + .5) / scale / size.height;
+                const auto band = Menu::aurora_band;
+                const double center =
+                    band.x + band.y * .5 * std::sin(6.283185307 * u * Menu::aurora_cycles + Menu::aurora_time);
+                const double d = (v - center) / band.y;
+                const double intensity = std::exp(-d * d) * Menu::aurora_glow.a;
+                const tessera::Color top = Menu::screen, bottom = Menu::aurora_bottom, glow = Menu::aurora_glow;
+                const std::array<double, 3> expected{
+                    linear(top.r) + (linear(bottom.r) - linear(top.r)) * v + linear(glow.r) * intensity,
+                    linear(top.g) + (linear(bottom.g) - linear(top.g)) * v + linear(glow.g) * intensity,
+                    linear(top.b) + (linear(bottom.b) - linear(top.b)) * v + linear(glow.b) * intensity};
+                const auto at = (std::size_t(py) * extent.width + px) * 4;
+                const float flat[3]{Menu::screen.r, Menu::screen.g, Menu::screen.b};
+                for (int c = 0; c < 3; ++c) {
+                    const auto want = int(std::lround(encode(expected[c]) * 255));
+                    if (std::abs(int(pixels[at + c]) - want) > 3)
+                        return fail("Aurora backdrop mismatch in " + name + " at pixel " + std::to_string(px) + ',' +
+                                    std::to_string(py) + " channel " + std::to_string(c) + ": got " +
+                                    std::to_string(pixels[at + c]) + " expected " + std::to_string(want));
+                    farthest = std::max(farthest, std::abs(double(pixels[at + c]) - flat[c] * 255));
+                }
+            }
+        if (farthest < 20) fail("Aurora backdrop is indistinguishable from its solid fallback in " + name);
+    }
     // Checks presented pixels against the styles that produced this frame's paint.
     void verify_capture() {
         capture_next = false;
@@ -1167,8 +1228,8 @@ struct App {
                 fail(std::string(what) + " pixel mismatch in " + name + " at logical " + std::to_string(x) + ',' +
                      std::to_string(y));
         };
-        expect(2, 2, Menu::screen, "Screen background");
         const auto panel = menu.box("panel").border_box;
+        verify_aurora(pixels, name, panel);
         expect(panel.origin.x + 6, panel.origin.y + panel.size.height / 2, Menu::panel, "Panel padding");
         for (const char* id : {"start", "quit"}) {
             const auto button = menu.box(id).border_box;

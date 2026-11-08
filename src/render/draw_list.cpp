@@ -44,6 +44,7 @@ std::vector<Diagnostic> validate(const UiDrawList& list) {
                     if constexpr (std::is_same_v<T, DrawRect>) {
                         check.enumeration(command.shape, FillShape::ellipse, path + "/shape");
                         if (command.gradient) check.gradient(*command.gradient, path + "/gradient");
+                        if (command.procedural) check.procedural(*command.procedural, path + "/procedural");
                     }
                     if constexpr (std::is_same_v<T, DrawBorder>) check.edges(command.widths, path + "/widths");
                     if constexpr (std::is_same_v<T, DrawStroke>)

@@ -31,6 +31,9 @@ public:
     std::vector<Diagnostic> unbind_image(ImageHandle);
     std::vector<Diagnostic> submit(const FrameInfo&, const UiDrawList&) override;
     void retire(std::uint64_t completed_frame) override;
+    // Procedural fill commands in the last successful submission. This reference backend executes no
+    // shaders: each drew its declared color/gradient fallback, or nothing for a transparent one.
+    std::uint64_t procedural_fallbacks() const { return procedural_fallbacks_; }
 
 private:
     friend class CpuFrameCapture;
@@ -43,7 +46,7 @@ private:
     };
     CpuTarget target_;
     std::map<std::uint64_t, Image> images_;
-    std::uint64_t submitted_ = 0, retired_ = 0;
+    std::uint64_t submitted_ = 0, retired_ = 0, procedural_fallbacks_ = 0;
 };
 
 // Owns a transparent target per call and returns completed, owned bytes. Optional

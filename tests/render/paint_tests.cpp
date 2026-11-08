@@ -135,6 +135,39 @@ void fill_shapes() {
           "Resolved paint must own its shape after style replacement");
 }
 
+void procedural_fills() {
+    Fixture f(box({box()}));
+    auto& style = f.styles[0];
+    style.width = Dimension::points(40);
+    style.height = Dimension::points(20);
+    style.background = {1, 0, 0, .8f};
+    style.opacity = .5f;
+    style.corner_radius = 7;
+    style.background_shape = tessera::FillShape::ellipse;
+    style.background_antialias = true;
+    style.background_procedural =
+        tessera::ProceduralFill{"example.wave", {.25f, tessera::Point{1, 2}, tessera::Color{0, 0, 1, 1}}, 1.5f, .6f};
+    f.compute();
+    auto paint = f.paint();
+    const auto fill = std::get<tessera::DrawRect>(paint.commands[0]);
+    check(fill.procedural && fill.procedural->shader == "example.wave" && fill.procedural->time == 1.5f &&
+              std::abs(fill.procedural->opacity - .3f) < 1e-6f && fill.procedural->parameters.size() == 3 &&
+              fill.color.a == .4f && fill.shape == tessera::FillShape::ellipse && fill.antialias &&
+              fill.corner_radius == 7 && fill.rect == f.layout.boxes[0].border_box,
+          "Procedural fill must keep shape, coverage, faded fallback and inherited opacity in one command");
+    style.background_gradient = tessera::LinearGradient{.start_color = {1, 1, 1, 1}, .end_color = {0, 0, 1, 1}};
+    const auto gradient = std::get<tessera::DrawRect>(f.paint().commands[0]);
+    check(gradient.procedural && gradient.gradient &&
+              std::get<tessera::LinearGradient>(*gradient.gradient).start_color.a == .5f,
+          "A gradient background must become the procedural fill's declared fallback");
+    style.background_gradient.reset();
+    style.background = {};
+    check(std::get<tessera::DrawRect>(f.paint().commands[0]).procedural.has_value(),
+          "A transparent fallback must still request the procedural fill");
+    style.background_procedural->opacity = 0;
+    check(f.paint().commands.empty(), "An invisible procedural fill with a transparent fallback paints nothing");
+}
+
 void box_shadows() {
     Fixture f(box({box()}));
     f.styles[0].overflow = tessera::Overflow::clip;
@@ -467,6 +500,7 @@ int main() {
         box_shadows();
         outlines();
         fill_shapes();
+        procedural_fills();
         visibility_display_and_empty();
         clip_runs();
         invalid_input_and_topology();

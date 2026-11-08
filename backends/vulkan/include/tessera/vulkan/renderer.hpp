@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <span>
+#include <string_view>
 
 namespace tessera {
 
@@ -27,6 +28,16 @@ struct VulkanSubmissionStats {
     std::uint64_t primitives = 0;
     std::uint64_t draw_calls = 0;
     std::uint64_t upload_bytes = 0;
+    std::uint64_t procedural_fills = 0;     // Procedural DrawRects executed by a registered shader.
+    std::uint64_t procedural_fallbacks = 0; // Unregistered ones, drawn with their declared fallback.
+};
+inline constexpr std::size_t max_vulkan_procedural_fills = 64;
+// A build-time compiled fill-v1 artifact (see tessera_add_procedural_fill). Spans are borrowed for
+// the call; the host trusts the artifact's code, which is not sandboxed.
+struct VulkanProceduralFill {
+    std::string_view shader;                         // Logical identity matched by ProceduralFill::shader.
+    std::span<const std::uint32_t> fragment_spirv;   // Must expose fragment entry point proceduralMain.
+    std::span<const ProceduralValueKind> parameters; // Declared kinds, in slot order.
 };
 struct VulkanTarget {
     VkCommandBuffer commands = VK_NULL_HANDLE; // Recording inside the compatible render pass.
@@ -44,6 +55,10 @@ public:
     // Handles cannot be rebound while their last referencing frame is in flight.
     std::vector<Diagnostic> bind_image(ImageHandle, VkImageView, VkSampler, ImageAlpha = ImageAlpha::straight);
     std::vector<Diagnostic> unbind_image(ImageHandle);
+    // Creates the fill's pipelines. Replacing or unregistering a shader used by an unretired frame
+    // fails with resource_in_use. Submissions naming an unregistered shader draw the fallback.
+    std::vector<Diagnostic> register_procedural_fill(const VulkanProceduralFill&);
+    std::vector<Diagnostic> unregister_procedural_fill(std::string_view shader);
     std::vector<Diagnostic> submit(const FrameInfo&, const UiDrawList&) override;
     void retire(std::uint64_t completed_frame) override;
     // Last successful submission; rejection leaves these counters unchanged.

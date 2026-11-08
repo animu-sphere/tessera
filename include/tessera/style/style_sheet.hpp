@@ -62,6 +62,7 @@ struct StyleDeclarations {
     std::optional<std::optional<Outline>> outline;
     std::optional<FillShape> background_shape;
     std::optional<bool> background_antialias;
+    std::optional<std::optional<ProceduralFill>> background_procedural;
     bool operator==(const StyleDeclarations&) const = default;
 };
 

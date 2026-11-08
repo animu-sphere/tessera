@@ -1,5 +1,6 @@
 #include <tessera/vulkan/renderer.hpp>
 #include "placeholder_glyph.hpp"
+#include "../../src/detail/checks.hpp"
 #include "../../src/detail/shadow.hpp"
 #include "../../src/detail/stroke.hpp"
 #include <algorithm>
@@ -40,11 +41,13 @@ struct Packet {
     Primitive primitive{};
     VkRect2D scissor{};
     std::uint64_t image = 0;
-    bool premultiplied = false; // Fixed by the image binding, so equal handles agree.
+    bool premultiplied = false;       // Fixed by the image binding, so equal handles agree.
+    const void* procedural = nullptr; // Registered fill whose pipelines draw this packet.
 };
 bool compatible(const Packet& a, const Packet& b) {
-    return a.image == b.image && a.scissor.offset.x == b.scissor.offset.x && a.scissor.offset.y == b.scissor.offset.y &&
-           a.scissor.extent.width == b.scissor.extent.width && a.scissor.extent.height == b.scissor.extent.height;
+    return a.image == b.image && a.procedural == b.procedural && a.scissor.offset.x == b.scissor.offset.x &&
+           a.scissor.offset.y == b.scissor.offset.y && a.scissor.extent.width == b.scissor.extent.width &&
+           a.scissor.extent.height == b.scissor.extent.height;
 }
 // A pixel is inside the clip when its center is: edges [low, high) cover pixels ceil(low - 0.5) up
 // to ceil(high - 0.5), the same sample rule as primitive rasterization and pixel-center pointer mapping.
@@ -96,6 +99,32 @@ bool bounds(const Rect& rect, const Affine2D& t, float scale, std::array<double,
     }
     return true;
 }
+// fill-v1 artifacts expose fragment `proceduralMain` and declare no image or sampler types.
+std::optional<std::string> fill_abi_problem(std::span<const std::uint32_t> code) {
+    bool entry = false;
+    for (std::size_t i = 5; i < code.size();) {
+        const std::uint32_t count = code[i] >> 16, opcode = code[i] & 0xffff;
+        if (count == 0 || count > code.size() - i) return "Malformed SPIR-V instruction stream.";
+        if (opcode == 15 && count >= 4 && code[i + 1] == 4) { // OpEntryPoint Fragment
+            std::string name;
+            bool end = false;
+            for (std::size_t w = i + 3; w < i + count && !end; ++w)
+                for (int b = 0; b < 4 && !end; ++b) {
+                    const char c = char((code[w] >> (8 * b)) & 0xff);
+                    if (c == 0)
+                        end = true;
+                    else
+                        name.push_back(c);
+                }
+            entry |= name == "proceduralMain";
+        }
+        if (opcode == 25 || opcode == 26 || opcode == 27) // OpTypeImage, OpTypeSampler, OpTypeSampledImage
+            return "Profile fill-v1 does not permit image or sampler access.";
+        i += count;
+    }
+    if (!entry) return "Expose the fragment entry point proceduralMain (TESSERA_PROCEDURAL_FILL).";
+    return std::nullopt;
+}
 }
 
 struct VulkanRenderer::Impl {
@@ -107,6 +136,15 @@ struct VulkanRenderer::Impl {
     VkPipeline solid = VK_NULL_HANDLE, textured = VK_NULL_HANDLE;
     VkPipeline batch_solid = VK_NULL_HANDLE, batch_textured = VK_NULL_HANDLE;
     VkPipeline premultiplied = VK_NULL_HANDLE, batch_premultiplied = VK_NULL_HANDLE;
+    // Retained so procedural fills registered later share the primitive vertex stages.
+    VkRenderPass render_pass = VK_NULL_HANDLE;
+    VkShaderModule vertex_module = VK_NULL_HANDLE, batch_module = VK_NULL_HANDLE;
+    struct Fill {
+        VkPipeline pipeline = VK_NULL_HANDLE, batch = VK_NULL_HANDLE;
+        std::vector<ProceduralValueKind> kinds;
+        std::uint64_t last_use = 0;
+    };
+    std::map<std::string, Fill, std::less<>> fills;
     VkPhysicalDeviceMemoryProperties memory{};
     VkPhysicalDeviceLimits limits{};
     VulkanTarget target;
@@ -137,7 +175,15 @@ struct VulkanRenderer::Impl {
     std::unique_ptr<Upload> empty_gradients;
     VulkanSubmissionStats stats;
 
+    void destroy(Fill& fill) {
+        if (fill.batch) vkDestroyPipeline(device, fill.batch, nullptr);
+        if (fill.pipeline) vkDestroyPipeline(device, fill.pipeline, nullptr);
+        fill.batch = fill.pipeline = VK_NULL_HANDLE;
+    }
     ~Impl() {
+        for (auto& entry : fills) destroy(entry.second);
+        if (batch_module) vkDestroyShaderModule(device, batch_module, nullptr);
+        if (vertex_module) vkDestroyShaderModule(device, vertex_module, nullptr);
         if (batch_premultiplied) vkDestroyPipeline(device, batch_premultiplied, nullptr);
         if (premultiplied) vkDestroyPipeline(device, premultiplied, nullptr);
         if (batch_textured) vkDestroyPipeline(device, batch_textured, nullptr);
@@ -382,10 +428,11 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
         if (batch) vkDestroyShaderModule(p.device, batch, nullptr);
         throw;
     }
-    vkDestroyShaderModule(p.device, vertex, nullptr);
     vkDestroyShaderModule(p.device, fragment, nullptr);
     vkDestroyShaderModule(p.device, image, nullptr);
-    if (batch) vkDestroyShaderModule(p.device, batch, nullptr);
+    p.render_pass = context.render_pass;
+    p.vertex_module = vertex;
+    p.batch_module = batch;
 }
 VulkanRenderer::~VulkanRenderer() = default;
 void VulkanRenderer::set_target(VulkanTarget target) { impl_->target = target; }
@@ -448,6 +495,56 @@ std::vector<Diagnostic> VulkanRenderer::unbind_image(ImageHandle handle) {
     p.images.erase(found);
     return {};
 }
+std::vector<Diagnostic> VulkanRenderer::register_procedural_fill(const VulkanProceduralFill& fill) {
+    auto& p = *impl_;
+    std::vector<Diagnostic> errors;
+    detail::Checker check(errors);
+    check.procedural(ProceduralFill{std::string(fill.shader)}, "");
+    if (fill.parameters.size() > max_procedural_parameters)
+        check.error("procedural_parameter_limit", "/parameters", "Declare at most 16 procedural parameters.");
+    for (std::size_t i = 0; i < fill.parameters.size(); ++i)
+        check.enumeration(fill.parameters[i], ProceduralValueKind::color, "/parameters/" + std::to_string(i));
+    const auto code = fill.fragment_spirv;
+    if (code.size() < 5 || code[0] != 0x07230203)
+        check.error("invalid_shader", "/fragment_spirv", "Provide compiled SPIR-V shader words.");
+    else if (const auto problem = fill_abi_problem(code))
+        check.error("procedural_abi", "/fragment_spirv", *problem);
+    const auto found = p.fills.find(fill.shader);
+    if (found != p.fills.end() && found->second.last_use > p.completed)
+        check.error("resource_in_use", "/shader", "Retire the last referencing frame before replacing this fill.");
+    if (found == p.fills.end() && p.fills.size() == max_vulkan_procedural_fills)
+        check.error("procedural_fill_limit", "/shader", "Unregister a retired procedural fill first.");
+    if (!errors.empty()) return errors;
+    Impl::Fill created{VK_NULL_HANDLE, VK_NULL_HANDLE, {fill.parameters.begin(), fill.parameters.end()}, 0};
+    const auto module = p.shader(code);
+    try {
+        created.pipeline = p.pipeline(p.render_pass, p.vertex_module, module, "proceduralMain");
+        if (p.batch_module) created.batch = p.pipeline(p.render_pass, p.batch_module, module, "proceduralMain", true);
+    } catch (...) {
+        p.destroy(created);
+        vkDestroyShaderModule(p.device, module, nullptr);
+        throw;
+    }
+    vkDestroyShaderModule(p.device, module, nullptr);
+    if (found != p.fills.end()) {
+        p.destroy(found->second);
+        found->second = std::move(created);
+    } else {
+        p.fills.emplace(std::string(fill.shader), std::move(created));
+    }
+    return {};
+}
+std::vector<Diagnostic> VulkanRenderer::unregister_procedural_fill(std::string_view shader) {
+    auto& p = *impl_;
+    const auto found = p.fills.find(shader);
+    if (found == p.fills.end())
+        return {error("unknown_shader", "/shader", "Procedural fill is not registered with this renderer.")};
+    if (found->second.last_use > p.completed)
+        return {error("resource_in_use", "/shader", "Retire the last referencing frame before unregistering.")};
+    p.destroy(found->second);
+    p.fills.erase(found);
+    return {};
+}
 void VulkanRenderer::retire(std::uint64_t frame) {
     impl_->completed = std::max(impl_->completed, std::min(frame, impl_->last_frame));
     impl_->uploads.erase(impl_->uploads.begin(), impl_->uploads.upper_bound(impl_->completed));
@@ -481,6 +578,8 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
     std::vector<Packet> packets;
     std::vector<GradientStopData> gradient_stops;
     std::vector<std::uint64_t> referenced_images;
+    std::vector<Impl::Fill*> referenced_fills;
+    std::uint64_t procedural_fills = 0, procedural_fallbacks = 0;
     for (std::size_t i = 0; i < list.commands.size(); ++i) {
         const auto path = "/commands/" + std::to_string(i);
         std::visit(
@@ -649,6 +748,35 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                         return;
                     }
                     Packet packet;
+                    [[maybe_unused]] Impl::Fill* fill = nullptr;
+                    if constexpr (std::is_same_v<T, DrawRect>) {
+                        if (command.procedural) {
+                            const auto found = p.fills.find(command.procedural->shader);
+                            if (found == p.fills.end()) {
+                                ++procedural_fallbacks;
+                            } else {
+                                fill = &found->second;
+                                const auto& values = command.procedural->parameters;
+                                const auto at = path + "/procedural/parameters";
+                                if (values.size() != fill->kinds.size()) {
+                                    errors.push_back(
+                                        error("procedural_parameter_mismatch", at,
+                                              "Supply exactly the parameters the registered fill declares."));
+                                    return;
+                                }
+                                for (std::size_t v = 0; v < values.size(); ++v)
+                                    if (kind_of(values[v]) != fill->kinds[v]) {
+                                        errors.push_back(
+                                            error("procedural_parameter_mismatch", at + "/" + std::to_string(v),
+                                                  "Parameter kind differs from the registered declaration."));
+                                        return;
+                                    }
+                                referenced_fills.push_back(fill);
+                                ++procedural_fills;
+                                packet.procedural = fill;
+                            }
+                        }
+                    }
                     if constexpr (std::is_same_v<T, DrawImage>) {
                         if (!p.images.contains(command.image.value)) {
                             errors.push_back(error("invalid_handle", path + "/image",
@@ -719,7 +847,39 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                     if constexpr (std::is_same_v<T, DrawRect>) {
                         data.transform1[3] =
                             float((command.shape == FillShape::ellipse ? 1 : 0) + (command.antialias ? 2 : 0));
-                        if (command.gradient) {
+                        if (fill) {
+                            const auto& values = command.procedural->parameters;
+                            const auto capacity = std::min<VkDeviceSize>(
+                                p.limits.maxStorageBufferRange / sizeof(GradientStopData), 1u << 24);
+                            const std::size_t records = (values.size() + 1) / 2;
+                            if (records > capacity - gradient_stops.size() ||
+                                2 * gradient_stops.size() + values.size() > (std::size_t(1) << 24)) {
+                                errors.push_back(error("fill_data_limit", path + "/procedural/parameters",
+                                                       "Frame fill data exceeds the device storage-buffer or "
+                                                       "exact-index limit."));
+                                return;
+                            }
+                            data.params[1] = 12;
+                            data.widths = {float(2 * gradient_stops.size()), float(values.size()),
+                                           command.procedural->time, command.procedural->opacity};
+                            // Two float4 slots per stop record; colors become linear light, straight alpha.
+                            std::vector<std::array<float, 4>> slots;
+                            for (const auto& value : values)
+                                std::visit(
+                                    [&](const auto& v) {
+                                        using V = std::decay_t<decltype(v)>;
+                                        if constexpr (std::is_same_v<V, float>)
+                                            slots.push_back({v, 0, 0, 0});
+                                        else if constexpr (std::is_same_v<V, Point>)
+                                            slots.push_back({v.x, v.y, 0, 0});
+                                        else
+                                            slots.push_back({linear(v.r), linear(v.g), linear(v.b), v.a});
+                                    },
+                                    value);
+                            if (slots.size() % 2) slots.push_back({});
+                            for (std::size_t r = 0; r < slots.size(); r += 2)
+                                gradient_stops.push_back({slots[r], slots[r + 1]});
+                        } else if (command.gradient) {
                             std::visit(
                                 [&](const auto& g) {
                                     constexpr bool radial = std::is_same_v<std::decay_t<decltype(g)>, RadialGradient>;
@@ -805,7 +965,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         upload = owned.get();
         p.uploads.emplace(frame.frame, std::move(owned));
     }
-    VulkanSubmissionStats stats{packets.size(), 0, upload ? upload->bytes : 0};
+    VulkanSubmissionStats stats{packets.size(), 0, upload ? upload->bytes : 0, procedural_fills, procedural_fallbacks};
     // All diagnostics and allocations precede command recording and resource-use changes.
     const VkViewport viewport{0, 0, float(extent.width), float(extent.height), 0, 1};
     vkCmdSetViewport(p.target.commands, 0, 1, &viewport);
@@ -824,7 +984,9 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         std::size_t end = first + 1;
         if (batch)
             while (end < packets.size() && compatible(packet, packets[end])) ++end;
-        const auto pipeline = !packet.image          ? (batch ? p.batch_solid : p.solid)
+        const auto* fill = static_cast<const Impl::Fill*>(packet.procedural);
+        const auto pipeline = fill                   ? (batch ? fill->batch : fill->pipeline)
+                              : !packet.image        ? (batch ? p.batch_solid : p.solid)
                               : packet.premultiplied ? (batch ? p.batch_premultiplied : p.premultiplied)
                                                      : (batch ? p.batch_textured : p.textured);
         if (pipeline != bound) {
@@ -845,6 +1007,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         first = end;
     }
     for (auto image : referenced_images) p.images.at(image).last_use = frame.frame;
+    for (auto* fill : referenced_fills) fill->last_use = frame.frame;
     p.last_frame = frame.frame;
     p.stats = stats;
     return {};
