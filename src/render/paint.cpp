@@ -2,6 +2,7 @@
 #include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
+#include "../detail/paint_order.hpp"
 #include "../detail/stroke.hpp"
 #include <algorithm>
 #include <cmath>
@@ -40,13 +41,18 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
     if (!diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
     UiDrawList list;
     std::optional<Rect> clip; // Currently pushed in `list`.
+    const auto& boxes = input.layout->boxes;
+    // Opacity composes down tree preorder; emission follows the z_index paint order.
     std::vector<float> opacities;
-    opacities.reserve(input.layout->boxes.size());
+    opacities.reserve(boxes.size());
+    for (const auto& box : boxes)
+        opacities.push_back(input.styles[box.node.index].opacity *
+                            (box.parent == no_layout_parent ? 1 : opacities[box.parent]));
     bool failed = false;
-    for (const auto& box : input.layout->boxes) {
+    for (const auto index : detail::paint_order(*input.tree, input.styles, *input.layout)) {
+        const auto& box = boxes[index];
         const auto& style = input.styles[box.node.index];
-        const float opacity = style.opacity * (box.parent == no_layout_parent ? 1 : opacities[box.parent]);
-        opacities.push_back(opacity);
+        const float opacity = opacities[index];
         if (!box.visible || opacity == 0) continue;
 
         UiDrawList commands;

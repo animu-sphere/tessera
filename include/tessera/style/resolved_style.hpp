@@ -110,6 +110,10 @@ struct ResolvedStyle {
     std::optional<float> right;
     std::optional<float> bottom;
 
+    // Paint and hit order among siblings: a parent's displayed children paint in ascending z_index, ties in tree
+    // order, each with its whole subtree. Root layers ignore it. Layout geometry, focus and semantics keep tree order.
+    std::int32_t z_index = 0;
+
     // Replaces background when present; not inherited.
     std::optional<Gradient> background_gradient;
     std::optional<BoxShadow> box_shadow;

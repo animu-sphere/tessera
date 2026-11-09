@@ -386,13 +386,14 @@ void test_placement_declarations() {
     placed.top = std::optional<float>{-4.0f};
     placed.right = std::optional<float>{6.0f};
     placed.flex_wrap = tessera::FlexWrap::wrap;
+    placed.z_index = std::int32_t{-2};
     tessera::ResolvedStyle style;
     style.left = 1.0f;
     tessera::apply(placed, style);
     check(style.grid_column_span == 2 && style.grid_row_span == 3 && style.position == tessera::Position::absolute &&
               style.top == -4.0f && style.right == 6.0f && style.left == 1.0f && !style.bottom &&
-              style.flex_wrap == tessera::FlexWrap::wrap,
-          "Placement declarations must replace only the declared span, position, offsets and wrapping");
+              style.flex_wrap == tessera::FlexWrap::wrap && style.z_index == -2,
+          "Placement declarations must replace only the declared span, position, offsets, wrapping and z_index");
     tessera::StyleDeclarations cleared;
     cleared.left = std::optional<float>{};
     cleared.position = tessera::Position::flow;

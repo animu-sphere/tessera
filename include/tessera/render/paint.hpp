@@ -20,7 +20,8 @@ struct PaintInput {
 
 std::vector<Diagnostic> validate(const PaintInput&);
 
-// Owned background/border/glyph commands in tree preorder, in root logical coordinates.
+// Owned background/border/glyph commands in tree preorder with siblings ordered by z_index, in root logical
+// coordinates.
 // Ancestor opacity multiplies command alpha; this is not offscreen group composition.
 // Hidden boxes suppress only their own commands. Recorded layout clips become PushClip/PopClip
 // around each box's commands; other overflow is not clipped.
