@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Stage Replay views through layout and paint validation before replacing the current snapshot.
+
 - Restore Replay's pending step inputs together when a step fails before commit.
 
 - Reuse the validated replacement tree when settling a Replay host update, keeping the ordinary reload and rollback path.
