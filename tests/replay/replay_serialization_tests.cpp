@@ -291,6 +291,30 @@ void span_and_absolute_styles_round_trip() {
           "Default span and position fields must not change legacy canonical recordings");
 }
 
+void wrap_styles_round_trip() {
+    auto source = recording();
+    auto& row = source.styles[0];
+    row.direction = tessera::FlexDirection::row;
+    row.flex_wrap = tessera::FlexWrap::wrap;
+    row.gap = 4;
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::ReplayResize{{60, 100}});
+    source.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
+    source.steps.push_back(tessera::InputEvent{2us, tessera::Activate{}});
+    const auto json = save(source);
+    check(load(json) == source && save(load(json)) == json, "Flex wrapping must round-trip in initial/reloaded views");
+    check(tessera::compare_replay(play(source), play(load(json))).empty(),
+          "Restored wrapping must preserve geometry, paint, semantics and actions after resizing");
+    const auto invalid = tessera::load_replay(changed(json, "\"flex_wrap\":\"wrap\"", "\"flex_wrap\":\"reverse\""));
+    check(!invalid && has(invalid.diagnostics, "unknown_value", "/steps/0/styles/0/flex_wrap"),
+          "Unknown encoded wrap values must report their field");
+    source.version = tessera::replay_host_version;
+    check(load(save(source)) == source, "Flex wrapping must round-trip under host-state replay v2");
+    const auto legacy = save(recording());
+    check(legacy.find("flex_wrap") == std::string::npos && load(legacy) == recording(),
+          "The default no_wrap must not change legacy canonical recordings");
+}
+
 void gradient_styles_round_trip() {
     auto source = recording();
     source.styles[0].background_gradient = tessera::LinearGradient{{.25f, 0}, {.75f, 1}, {1, 0, 0, 0}, {0, 0, 1, .75f}};
@@ -724,6 +748,7 @@ int main() {
         stack_styles_round_trip();
         grid_styles_round_trip();
         span_and_absolute_styles_round_trip();
+        wrap_styles_round_trip();
         gradient_styles_round_trip();
         shadow_styles_round_trip();
         outline_styles_round_trip();

@@ -31,7 +31,7 @@ Label, Spacer/Separator and InspectorRow, selected from application use. See [au
 
 - Positioned-ancestor containing boxes and z-index for absolute children; percentage sizing, aspect ratio and responsive rules.
 - Grid explicit child cell selection, implicit tracks or advanced allocation.
-- Additional intrinsic sizing, Flex wrapping, align-self and baseline alignment.
+- Additional intrinsic sizing, column/reverse Flex wrapping, align-content, align-self and baseline alignment.
 - Anchor nesting extensions for nested menus or submenus.
 - Docking and virtualized layouts for larger workspaces.
 

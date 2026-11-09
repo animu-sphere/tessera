@@ -129,6 +129,7 @@ void exact_types_and_destinations() {
         {"top", std::optional<float>{0.0f}},
         {"right", std::optional<float>{}},
         {"bottom", std::optional<float>{5.0f}},
+        {"flex_wrap", FlexWrap::wrap},
         {"background_gradient", std::optional<Gradient>{LinearGradient{{0, 0}, {1, 1}, red, blue}}}};
     Theme theme;
     StyleRule rule{StyleSelector::of_id("button"), {}};
@@ -176,6 +177,7 @@ void exact_types_and_destinations() {
     expected.left = -2.0f;
     expected.top = 0.0f;
     expected.bottom = 5.0f;
+    expected.flex_wrap = FlexWrap::wrap;
     check(result.value->at(1) == expected, "Every token reaches the declared style destination");
     theme.variables[24].value = ThemeValue{std::optional<float>{}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});

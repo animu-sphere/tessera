@@ -29,6 +29,7 @@ tessera_add_contract_test(authoring tests/ui/authoring_tests.cpp)
 tessera_add_contract_test(stack tests/layout/stack_tests.cpp)
 tessera_add_contract_test(grid tests/layout/grid_tests.cpp)
 tessera_add_contract_test(absolute tests/layout/absolute_tests.cpp)
+tessera_add_contract_test(flex_wrap tests/layout/flex_wrap_tests.cpp)
 tessera_add_contract_test(document tests/serialization/document_tests.cpp)
 target_compile_definitions(tessera_document_tests PRIVATE
     TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")

@@ -92,6 +92,7 @@ E choice(const JsonValue& value, const std::string& path, const std::array<std::
 constexpr std::array<std::string_view, 4> display_names{"flex", "none", "stack", "grid"};
 constexpr std::array<std::string_view, 3> track_names{"auto", "points", "fraction"};
 constexpr std::array<std::string_view, 2> direction_names{"column", "row"};
+constexpr std::array<std::string_view, 2> wrap_names{"no_wrap", "wrap"};
 constexpr std::array<std::string_view, 4> justify_names{"start", "center", "end", "space_between"};
 constexpr std::array<std::string_view, 4> align_names{"start", "center", "end", "stretch"};
 constexpr std::array<std::string_view, 3> overflow_names{"visible", "clip", "scroll"};
@@ -170,7 +171,8 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                              "height",  "min_width",  "min_height",   "max_width",     "max_height", "margin",
                              "border",  "padding",    "gap",          "grow",          "shrink",     "visibility",
                              "opacity", "background", "border_color", "corner_radius", "text",       "color"},
-               {"stack_horizontal",
+               {"flex_wrap",
+                "stack_horizontal",
                 "stack_vertical",
                 "grid_columns",
                 "grid_rows",
@@ -199,6 +201,8 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
         s.background_antialias = boolean(field->second, path + "/background_antialias");
     s.display = choice<Display>(o.at("display"), path + "/display", display_names);
     s.direction = choice<FlexDirection>(o.at("direction"), path + "/direction", direction_names);
+    if (const auto field = o.find("flex_wrap"); field != o.end())
+        s.flex_wrap = choice<FlexWrap>(field->second, path + "/flex_wrap", wrap_names);
     s.justify = choice<Justify>(o.at("justify"), path + "/justify", justify_names);
     s.align = choice<Align>(o.at("align"), path + "/align", align_names);
     if (const auto field = o.find("stack_horizontal"); field != o.end())
@@ -669,6 +673,7 @@ JsonValue style_json(const ResolvedStyle& s) {
                                   {"line_height", s.text.line_height ? real_json(*s.text.line_height) : text("normal")},
                                   {"weight", number(s.text.weight)}}}},
         {"color", color_json(s.color)}};
+    if (s.flex_wrap != FlexWrap::no_wrap) result["flex_wrap"] = name(s.flex_wrap, wrap_names);
     if (s.stack_horizontal != Align::stretch) result["stack_horizontal"] = name(s.stack_horizontal, align_names);
     if (s.stack_vertical != Align::stretch) result["stack_vertical"] = name(s.stack_vertical, align_names);
     if (!s.grid_columns.empty()) result["grid_columns"] = tracks_json(s.grid_columns);

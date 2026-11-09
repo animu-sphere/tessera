@@ -49,6 +49,7 @@ void apply(const StyleDeclarations& d, ResolvedStyle& s) {
     };
     set(d.display, s.display);
     set(d.direction, s.direction);
+    set(d.flex_wrap, s.flex_wrap);
     set(d.justify, s.justify);
     set(d.align, s.align);
     set(d.stack_horizontal, s.stack_horizontal);

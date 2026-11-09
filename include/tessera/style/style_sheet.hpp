@@ -27,6 +27,7 @@ struct TextDeclarations {
 struct StyleDeclarations {
     std::optional<Display> display;
     std::optional<FlexDirection> direction;
+    std::optional<FlexWrap> flex_wrap;
     std::optional<Justify> justify;
     std::optional<Align> align;
     std::optional<Overflow> overflow;
@@ -110,7 +111,7 @@ struct StyleSelector {
 using ThemeValue =
     std::variant<float, Color, Dimension, Edges, FontId, std::optional<float>, std::uint16_t, Display, FlexDirection,
                  Justify, Align, Overflow, Visibility, std::vector<GridTrack>, std::optional<Gradient>,
-                 std::optional<BoxShadow>, std::optional<Outline>, FillShape, bool, Position>;
+                 std::optional<BoxShadow>, std::optional<Outline>, FillShape, bool, Position, FlexWrap>;
 struct ThemeReference {
     std::string name;
     std::optional<ThemeValue> fallback; // Used only when this name is absent.
