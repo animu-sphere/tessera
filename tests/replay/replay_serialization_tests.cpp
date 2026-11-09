@@ -315,6 +315,32 @@ void wrap_styles_round_trip() {
           "The default no_wrap must not change legacy canonical recordings");
 }
 
+void z_index_styles_round_trip() {
+    auto source = recording();
+    source.styles[0].display = tessera::Display::stack;
+    source.styles[1].z_index = 2;
+    source.styles[3].z_index = std::numeric_limits<std::int32_t>::min();
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::ReplayResize{{60, 100}});
+    source.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
+    source.steps.push_back(tessera::InputEvent{2us, tessera::Activate{}});
+    const auto json = save(source);
+    check(load(json) == source && save(load(json)) == json, "z_index must round-trip in initial/reloaded views");
+    check(tessera::compare_replay(play(source), play(load(json))).empty(),
+          "Restored z_index must preserve geometry, paint, semantics and actions after resizing");
+    auto invalid = tessera::load_replay(changed(json, "\"z_index\":2", "\"z_index\":2.5"));
+    check(!invalid && has(invalid.diagnostics, "schema_type", "/steps/0/styles/1/z_index"),
+          "Encoded z_index values must be integers");
+    invalid = tessera::load_replay(changed(json, "\"z_index\":2", "\"z_index\":2147483648"));
+    check(!invalid && has(invalid.diagnostics, "schema_type", "/steps/0/styles/1/z_index"),
+          "Encoded z_index values must fit a signed 32-bit integer");
+    source.version = tessera::replay_host_version;
+    check(load(save(source)) == source, "z_index must round-trip under host-state replay v2");
+    const auto legacy = save(recording());
+    check(legacy.find("z_index") == std::string::npos && load(legacy) == recording(),
+          "The default z_index must not change legacy canonical recordings");
+}
+
 void gradient_styles_round_trip() {
     auto source = recording();
     source.styles[0].background_gradient = tessera::LinearGradient{{.25f, 0}, {.75f, 1}, {1, 0, 0, 0}, {0, 0, 1, .75f}};
@@ -749,6 +775,7 @@ int main() {
         grid_styles_round_trip();
         span_and_absolute_styles_round_trip();
         wrap_styles_round_trip();
+        z_index_styles_round_trip();
         gradient_styles_round_trip();
         shadow_styles_round_trip();
         outline_styles_round_trip();

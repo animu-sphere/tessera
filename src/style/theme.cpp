@@ -61,6 +61,7 @@ Assignment assign(StyleDeclarations& d, std::string_view property, const ThemeVa
     FIELD("top", top)
     FIELD("right", right)
     FIELD("bottom", bottom)
+    FIELD("z_index", z_index)
     FIELD("overflow", overflow)
     FIELD("width", width)
     FIELD("height", height)
@@ -95,7 +96,7 @@ Assignment assign(StyleDeclarations& d, std::string_view property, const ThemeVa
 void value_check(const ThemeValue& value, const std::string& path, std::vector<Diagnostic>& errors) {
     // Float tokens permit zero and +infinity, with the destination's stricter
     // constraints checked on binding. Other types use their ordinary rules.
-    constexpr std::array<std::string_view, 21> representative{"max_width",
+    constexpr std::array<std::string_view, 22> representative{"max_width",
                                                               "background",
                                                               "width",
                                                               "padding",
@@ -115,7 +116,8 @@ void value_check(const ThemeValue& value, const std::string& path, std::vector<D
                                                               "background_shape",
                                                               "background_antialias",
                                                               "position",
-                                                              "flex_wrap"};
+                                                              "flex_wrap",
+                                                              "z_index"};
     StyleDeclarations d;
     const auto field = representative[value.index()];
     assign(d, field, &value);

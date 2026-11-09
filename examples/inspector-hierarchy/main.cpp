@@ -219,9 +219,11 @@ StyleSheet appearance(const State& state) {
                                 .corner_radius = 6.f}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
-        sheet.rules.push_back(
-            {StyleSelector::of_id(std::move(id), {.focus = true}),
-             {.border_color = Color{.2f, .4f, .85f, 1}, .outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}, 4.f, 2.f}}});
+        // A focused row stacks above a raised selected neighbor, so its shadow never covers the focus ring.
+        sheet.rules.push_back({StyleSelector::of_id(std::move(id), {.focus = true}),
+                               {.border_color = Color{.2f, .4f, .85f, 1},
+                                .z_index = 2,
+                                .outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}, 4.f, 2.f}}});
     };
     for (const auto& item : state.items) row("hierarchy-item-" + item.id);
     // Position components share the control decoration; the Grid label column already names the vector.
@@ -244,8 +246,12 @@ StyleSheet appearance(const State& state) {
             {StyleSelector::of_id(id + "-label"), {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}});
     }
     const auto selected = "hierarchy-item-" + state.selected;
-    sheet.rules.push_back(
-        {StyleSelector::of_id(selected), {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}}});
+    // The selected row is raised: its elevation shadow falls on the next row and stays above that row's hover fill.
+    sheet.rules.push_back({StyleSelector::of_id(selected),
+                           {.background = Color{.2f, .34f, .67f, 1},
+                            .color = Color{1, 1, 1, 1},
+                            .z_index = 1,
+                            .box_shadow = BoxShadow{{0, 2}, 6, {.12f, .22f, .46f, .35f}}}});
     sheet.rules.push_back(
         {StyleSelector::of_id(selected, {.hover = true}), {.background = Color{.16f, .28f, .56f, 1}}});
     sheet.rules.push_back(
@@ -2657,6 +2663,71 @@ void placement_smoke() {
     require(!app.view.tree->find("modified-badge") && app.view.box("item-card").border_box == card,
             "Reset must clear the badge without moving the card");
 }
+// The selected Hierarchy row is raised above its siblings and the focused row above it; compares actual pixels
+// with the same view painted with every z_index cleared.
+void stacking_smoke() {
+    App app;
+    const auto style = [&](std::string_view id) -> const ResolvedStyle& {
+        return app.view.styles[app.view.tree->find(id)->index];
+    };
+    const auto cube = app.view.box("hierarchy-item-cube").border_box;
+    const auto sphere = app.view.box("hierarchy-item-sphere").border_box;
+    require(app.state.selected == "cube" && style("hierarchy-item-cube").z_index == 1 &&
+                style("hierarchy-item-sphere").z_index == 0 && style("hierarchy-item-cube").box_shadow &&
+                sphere.origin.y - (cube.origin.y + cube.size.height) == 4,
+            "The selected row must be raised with an elevation shadow above a 4-unit gap");
+    CpuFrameCapture frames;
+    const auto capture = [&](const std::vector<ResolvedStyle>& styles) {
+        auto paint = take(build_paint_list({app.view.tree.get(), styles, &app.view.layout, &app.text}));
+        std::erase_if(paint.commands,
+                      [](const auto& command) { return std::holds_alternative<DrawGlyphRun>(command); });
+        return take(frames.capture({0, app.viewport, 1, take(capture_extent(app.viewport, 1)), &paint}));
+    };
+    const auto flat = [&] {
+        auto styles = app.view.styles;
+        for (auto& entry : styles) entry.z_index = 0;
+        return styles;
+    };
+    // Counts differing pixels between two captures inside a logical band.
+    const auto changes = [](const CapturedImage& a, const CapturedImage& b, const Rect& band) {
+        std::size_t result = 0;
+        for (unsigned y = unsigned(band.origin.y); y < unsigned(band.origin.y + band.size.height); ++y)
+            for (unsigned x = unsigned(band.origin.x); x < unsigned(band.origin.x + band.size.width); ++x) {
+                const auto at = (std::size_t(y) * a.extent.width + x) * 4;
+                if (a.pixels[at] != b.pixels[at] || a.pixels[at + 1] != b.pixels[at + 1] ||
+                    a.pixels[at + 2] != b.pixels[at + 2])
+                    ++result;
+            }
+        return result;
+    };
+    const Rect overlap{{sphere.origin.x + 8, sphere.origin.y}, {sphere.size.width - 16, 4}};
+    const Rect body{{sphere.origin.x + 8, sphere.origin.y + 6}, {sphere.size.width - 16, sphere.size.height - 12}};
+    const Point covered{sphere.origin.x + sphere.size.width / 2, sphere.origin.y + 1};
+    const auto hovered_layout = app.view.layout;
+    app.input({0us, PointerMove{{1}, covered}}, CommandSource::pointer);
+    require(app.view.layout == hovered_layout && style("hierarchy-item-sphere").background == Color{.9f, .94f, 1, 1} &&
+                take(hit_test(app.view.hit(), covered)).target == app.view.tree->find("hierarchy-item-sphere"),
+            "Raising a row must not move rows or steal hits from the hovered row beneath its shadow");
+    auto raised = capture(app.view.styles);
+    auto lowered = capture(flat());
+    require(changes(raised, lowered, overlap) >= 32 && changes(raised, lowered, body) == 0,
+            "The raised selection shadow must stay above the next row's hover fill, and only there");
+    app.input({0us, PointerMove{{1}, app.view.center("actions")}}, CommandSource::pointer);
+    app.focus_id("hierarchy-item-sphere");
+    require(style("hierarchy-item-sphere").z_index == 2 && style("hierarchy-item-cube").z_index == 1,
+            "The focused row must stack above the raised selection");
+    raised = capture(app.view.styles);
+    auto partial = app.view.styles;
+    partial[app.view.tree->find("hierarchy-item-sphere")->index].z_index = 0;
+    lowered = capture(partial);
+    const Rect ring{{sphere.origin.x + 8, sphere.origin.y - 3}, {sphere.size.width - 16, 3}};
+    require(changes(raised, lowered, ring) >= 16,
+            "The focus ring must paint above the selected row's shadow in the gap between them");
+    app.action("hierarchy-item-sphere");
+    require(style("hierarchy-item-sphere").z_index == 2 && style("hierarchy-item-cube").z_index == 0 &&
+                !style("hierarchy-item-cube").box_shadow && style("hierarchy-item-sphere").box_shadow,
+            "Elevation must follow the selection");
+}
 void smoke() {
     sections_smoke();
     placement_smoke();
@@ -2670,6 +2741,7 @@ void smoke() {
     gradient_card_smoke();
     analytic_fill_smoke();
     shadow_card_smoke();
+    stacking_smoke();
     inset_name_smoke();
     outline_smoke();
     edit_rejection_smoke();

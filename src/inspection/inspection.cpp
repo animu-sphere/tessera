@@ -1,6 +1,8 @@
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/ui/property_metadata.hpp>
 #include "../detail/checks.hpp"
+#include "../detail/paint_order.hpp"
+#include <algorithm>
 #include <charconv>
 #include <utility>
 
@@ -141,7 +143,24 @@ Result<NodeHandle> resolve_target(const InspectionSnapshot& snapshot, const Insp
         const auto position = std::get<PointTarget>(target).position;
         check.point(position, "/target/position");
         if (!errors.empty()) return {std::nullopt, std::move(errors)};
-        for (auto i = elements.size(); i-- > 0;) {
+        // Topmost painted first: the reverse of the z_index paint order over the observed hierarchy.
+        const auto layer = [](const InspectionElement& element) {
+            return std::any_of(element.properties.begin(), element.properties.end(), [](const auto& property) {
+                const auto* modal = property.value ? std::get_if<bool>(&*property.value) : nullptr;
+                return (property.name == property_names::popup_anchor && property.authored) ||
+                       (property.name == property_names::modal && modal && *modal);
+            });
+        };
+        const auto parent = [&](std::uint32_t i) {
+            return elements[i].parent == no_inspection_parent ? detail::no_order_parent : elements[i].parent;
+        };
+        const auto order = detail::stacking_order(elements.size(), parent, [&](std::uint32_t i) {
+            const auto at = elements[i].parent;
+            return detail::stacking_key(at != no_inspection_parent && elements[at].parent == no_inspection_parent,
+                                        layer(elements[i]), elements[i].style.z_index);
+        });
+        for (auto it = order.rbegin(); it != order.rend(); ++it) {
+            const auto i = *it;
             if (!included[i]) continue;
             const auto& geometry = elements[i].geometry;
             if (geometry && geometry->visible && inside(geometry->border_box, position) &&

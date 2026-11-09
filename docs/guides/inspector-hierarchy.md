@@ -18,7 +18,7 @@ Use `Release` for the other configuration. Without arguments the executable runs
 
 ## Operate
 
-- Select Cube or another row in the [TreeView](tree-list.md). Arrows move focus, Enter/Space selects, and Left/Right collapses/expands Scene. Disclosure never changes controlled selection.
+- Select Cube or another row in the [TreeView](tree-list.md). Arrows move focus, Enter/Space selects, and Left/Right collapses/expands Scene. Disclosure never changes controlled selection. The selected row casts a small shadow onto the next row, even while that row is hovered; see [Selection elevation](#selection-elevation).
 - Tab to the General/Display [tabs](tabs-toolbar.md) above the properties; Left/Right switch sections. General holds Display name, Enabled, Amount, Scale and Position; Display holds Visibility, Cast shadows and Purpose. See [Property sections](#property-sections).
 - Tab into the General [Grid Inspector](grid.md). Edit Display name with committed text, exact Ctrl+A, arrows, Shift selection, Home/End and Backspace/Delete. Text editing consumes supported keys before tree navigation.
 - With Display name focused, exact non-repeating Ctrl+C copies the selected committed bytes, Ctrl+X copies and then deletes the selection, and Ctrl+V replaces the selection through the ordinary name-edit command. Windows interactive mode exchanges Unicode text with the OS clipboard. Empty selection copy/cut and empty text paste do nothing. Paste rejects CR/LF, embedded NUL, malformed Unicode and results above 4096 UTF-8 bytes, preserving the accepted name and selection; diagnostics print to stderr and the window remains usable.
@@ -135,6 +135,19 @@ Focused controls use a solid 1.5-unit blue outside outline with a one-unit gap. 
 This ordinary optional style emits the [smooth stroke command](../architecture/rendering.md#implemented-outlines-and-dashed-strokes); CPU and Vulkan reference/batch share the built-in behavior. Dash phase continues around the corners, rather than restarting per edge. The existing inside focus border and selected fill remain, so selection and focus are still distinct. Blur removes the old outline through ordinary style resolution.
 
 Outlines occupy existing outside space without changing control geometry, input bounds, editing, selection, scrolling or pane minima. Ancestor clips trim them; focus reveal still follows the layout box rather than expanding scroll allocation for decoration. The window-free smoke checks resolved solid/dashed styles, actual partially covered edge and opaque interior pixels at scales 1, 1.25, 1.5 and 2, stable geometry/data and removal on focus movement. The injected native smoke presents the full CPU-rendered form; GPU owner comparisons cover the primitive, not this application's glyphs.
+
+## Selection elevation
+
+The selected Hierarchy row is raised with ordinary styles:
+
+```cpp
+{.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}, .z_index = 1,
+ .box_shadow = BoxShadow{{0, 2}, 6, {.12f, .22f, .46f, .35f}}}
+```
+
+The shadow reaches four units past the 4-unit row gap into the next row. Without stacking, the next row paints later, so its hover fill would hide that part of the shadow. With [`z_index`](../architecture/layout.md#implemented-stacking-order) 1, the selected row paints after its siblings and the shadow stays visible over the hover fill. The focus rule shared by Hierarchy and menu rows adds `z_index` 2, so a focused row below the selection draws its dashed ring over the shadow in the gap. Rows keep their layout, Tab/arrow order and semantics. Pointer input still reaches the hovered row under the shadow, because only border boxes hit.
+
+The window-free smoke checks the resolved values and the 4-unit gap. It compares actual CPU pixels with the same view painted with every `z_index` cleared. While Sphere is hovered under Cube's shadow, the overlap band differs and Sphere's interior does not; the hit still reaches Sphere and the layout is unchanged. With Sphere focused, its ring differs in the gap. Selecting Sphere moves the elevation to it.
 
 ## Gradient property card
 

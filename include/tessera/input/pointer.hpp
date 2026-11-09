@@ -26,7 +26,7 @@ struct HitTestResult {
 };
 
 std::vector<Diagnostic> validate(const HitTestInput&);
-// Reverse preorder, half-open border boxes. Visibility is local; disabled is inherited.
+// Reverse paint order (preorder with siblings ordered by z_index), half-open border boxes. Visibility is local; disabled is inherited.
 // An active Modal excludes all nodes outside its subtree.
 // Transparent/zero-opacity boxes remain eligible. pointer_events:false excludes a
 // subtree from pointer hits only. No implicit clips or transforms.

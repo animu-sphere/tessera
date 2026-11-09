@@ -187,6 +187,7 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                 "top",
                 "right",
                 "bottom",
+                "z_index",
                 "background_gradient",
                 "box_shadow",
                 "outline",
@@ -231,6 +232,10 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
     for (const auto key : inset_names)
         if (const auto field = o.find(std::string(key)); field != o.end())
             inset_field(s, key) = real(field->second, path + "/" + std::string(key));
+    if (const auto field = o.find("z_index"); field != o.end())
+        s.z_index = static_cast<std::int32_t>(
+            integer(field->second, path + "/z_index", std::numeric_limits<std::int32_t>::min(),
+                    std::numeric_limits<std::int32_t>::max(), "a signed 32-bit integer"));
     s.overflow = choice<Overflow>(o.at("overflow"), path + "/overflow", overflow_names);
     s.width = dimension(o.at("width"), path + "/width");
     s.height = dimension(o.at("height"), path + "/height");
@@ -687,6 +692,7 @@ JsonValue style_json(const ResolvedStyle& s) {
     if (s.position != Position::flow) result["position"] = name(s.position, position_names);
     for (const auto key : inset_names)
         if (const auto& value = inset_field(s, key)) result[std::string(key)] = real_json(*value);
+    if (s.z_index != 0) result["z_index"] = number(s.z_index);
     if (s.background_gradient) {
         std::visit(
             [&](const auto& g) {

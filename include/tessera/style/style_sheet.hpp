@@ -65,6 +65,7 @@ struct StyleDeclarations {
     std::optional<std::optional<float>> top;
     std::optional<std::optional<float>> right;
     std::optional<std::optional<float>> bottom;
+    std::optional<std::int32_t> z_index;
     std::optional<std::optional<Gradient>> background_gradient;
     std::optional<std::optional<BoxShadow>> box_shadow;
     std::optional<std::optional<Outline>> outline;
@@ -111,7 +112,7 @@ struct StyleSelector {
 using ThemeValue =
     std::variant<float, Color, Dimension, Edges, FontId, std::optional<float>, std::uint16_t, Display, FlexDirection,
                  Justify, Align, Overflow, Visibility, std::vector<GridTrack>, std::optional<Gradient>,
-                 std::optional<BoxShadow>, std::optional<Outline>, FillShape, bool, Position, FlexWrap>;
+                 std::optional<BoxShadow>, std::optional<Outline>, FillShape, bool, Position, FlexWrap, std::int32_t>;
 struct ThemeReference {
     std::string name;
     std::optional<ThemeValue> fallback; // Used only when this name is absent.

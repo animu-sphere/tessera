@@ -4,6 +4,7 @@
 #include <tessera/ui/property_metadata.hpp>
 #include "modal.hpp"
 #include "collection.hpp"
+#include "paint_order.hpp"
 #include <string_view>
 
 namespace tessera::detail {
@@ -19,7 +20,9 @@ inline bool inside(const Rect& rect, Point point) {
 // paint generation or renderer state.
 class Targeting {
 public:
-    explicit Targeting(const HitTestInput& input) : input_(input), by_node_(input.tree->size(), no_layout_parent) {
+    explicit Targeting(const HitTestInput& input)
+        : input_(input), by_node_(input.tree->size(), no_layout_parent),
+          paint_order_(paint_order(*input.tree, input.styles, *input.layout)) {
         const auto& boxes = input.layout->boxes;
         disabled_.reserve(boxes.size());
         pointer_events_.reserve(boxes.size());
@@ -42,10 +45,10 @@ public:
     }
 
     std::optional<NodeHandle> hit(Point point) const {
-        const auto& boxes = input_.layout->boxes;
-        for (std::size_t i = boxes.size(); i > 0; --i) {
-            const auto& box = boxes[i - 1];
-            if (eligible(i - 1) && pointer_events_[i - 1] && inside(box.border_box, point) &&
+        // Topmost first: the reverse of the z_index paint order.
+        for (auto at = paint_order_.rbegin(); at != paint_order_.rend(); ++at) {
+            const auto& box = input_.layout->boxes[*at];
+            if (eligible(*at) && pointer_events_[*at] && inside(box.border_box, point) &&
                 (!box.clip || inside(*box.clip, point)))
                 return box.node;
         }
@@ -101,6 +104,7 @@ private:
     std::vector<bool> disabled_;
     std::vector<bool> pointer_events_;
     std::vector<bool> scope_;
+    std::vector<std::uint32_t> paint_order_;
     std::uint32_t modal_ = no_layout_parent;
 };
 
