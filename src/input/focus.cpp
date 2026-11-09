@@ -47,13 +47,16 @@ bool navigate_collection(const HitTestInput& input, const detail::Targeting& tar
             items.push_back(candidate);
     const auto at = std::find(items.begin(), items.end(), from);
     if (at == items.end()) return false;
-    if (role == "radio") {
-        // Every arrow moves through the group, wrapping, and selection follows focus.
+    if (detail::roving_item(role)) {
+        // Arrows move through the group, wrapping, and selection follows focus. Tabs use only
+        // Left/Right; Up/Down leave a tab to ordinary geometric movement, for example into its panel.
         auto target = at;
         if (const auto* key = std::get_if<KeyDown>(&event.data))
             target = key->key == Key::home ? items.begin() : std::prev(items.end());
         else if (const auto direction = std::get<Navigate>(event.data).direction;
-                 direction == Direction::up || direction == Direction::left)
+                 role == "tab" && (direction == Direction::up || direction == Direction::down))
+            return false;
+        else if (direction == Direction::up || direction == Direction::left)
             target = at == items.begin() ? std::prev(items.end()) : std::prev(at);
         else
             target = std::next(at) == items.end() ? items.begin() : std::next(at);
@@ -103,22 +106,65 @@ bool navigate_collection(const HitTestInput& input, const detail::Targeting& tar
     return true;
 }
 
-// Sequential focus enters each radio group once: at its selected focusable radio, else its first one.
-// The focused radio's own group contributes no stop, so Tab and Shift+Tab leave the group.
+// The nearest toolbar ancestor of a focusable control, or no_layout_parent.
+std::uint32_t toolbar_owner(const HitTestInput& input, std::uint32_t box) {
+    for (box = input.layout->boxes[box].parent; box != no_layout_parent; box = input.layout->boxes[box].parent)
+        if (detail::collection_role(*input.tree->get(input.layout->boxes[box].node)) == "toolbar") return box;
+    return no_layout_parent;
+}
+
+// Left/Right and Home/End move focus among one toolbar's eligible controls in preorder, wrapping,
+// without requesting any action. Up/Down keep ordinary geometric movement.
+bool navigate_toolbar(const HitTestInput& input, const detail::Targeting& targeting,
+                      const std::vector<std::uint32_t>& candidates, const InputEvent& event,
+                      std::optional<NodeHandle>& focused) {
+    if (!focused) return false;
+    const auto from = targeting.box(*focused);
+    if (from == no_layout_parent) return false;
+    const auto owner = toolbar_owner(input, from);
+    if (owner == no_layout_parent) return false;
+    std::vector<std::uint32_t> controls;
+    for (const auto candidate : candidates)
+        if (toolbar_owner(input, candidate) == owner) controls.push_back(candidate);
+    const auto at = std::find(controls.begin(), controls.end(), from);
+    if (at == controls.end()) return false;
+    auto target = at;
+    if (const auto* key = std::get_if<KeyDown>(&event.data))
+        target = key->key == Key::home ? controls.begin() : std::prev(controls.end());
+    else if (const auto direction = std::get<Navigate>(event.data).direction; direction == Direction::left)
+        target = at == controls.begin() ? std::prev(controls.end()) : std::prev(at);
+    else if (direction == Direction::right)
+        target = std::next(at) == controls.end() ? controls.begin() : std::next(at);
+    else
+        return false;
+    focused = input.layout->boxes[*target].node;
+    return true;
+}
+
+// Sequential focus enters each roving group once. Radio groups and tab lists enter at their selected
+// focusable item, else their first one; toolbars at their first focusable control. The focused node's
+// own group contributes no stop, so Tab and Shift+Tab leave the group.
 std::vector<std::uint32_t> tab_stops(const HitTestInput& input, const std::vector<std::uint32_t>& candidates,
                                      std::optional<NodeHandle> focused, const detail::Targeting& targeting) {
     const auto& boxes = input.layout->boxes;
-    const auto radio = [&](std::uint32_t box) {
-        return detail::collection_role(*input.tree->get(boxes[box].node)) == "radio";
+    const auto group = [&](std::uint32_t box) {
+        if (detail::roving_item(detail::collection_role(*input.tree->get(boxes[box].node))))
+            return collection_owner(input, box);
+        return toolbar_owner(input, box);
     };
     const auto from = focused ? targeting.box(*focused) : no_layout_parent;
-    const auto current = from != no_layout_parent && radio(from) ? collection_owner(input, from) : no_layout_parent;
-    std::vector<std::pair<std::uint32_t, std::uint32_t>> entries; // Group owner, entry radio.
-    for (const auto candidate : candidates) {
-        if (!radio(candidate)) continue;
-        const auto owner = collection_owner(input, candidate);
-        const auto* selected = effective_property(*input.tree->get(boxes[candidate].node), property_names::selected);
-        const bool checked = selected && std::get<bool>(*selected);
+    const auto current = from != no_layout_parent ? group(from) : no_layout_parent;
+    std::vector<std::uint32_t> owners(candidates.size());
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> entries; // Group owner, entry candidate.
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        const auto candidate = candidates[i];
+        const auto owner = owners[i] = group(candidate);
+        if (owner == no_layout_parent) continue;
+        const auto& node = *input.tree->get(boxes[candidate].node);
+        const auto* selected = effective_property(node, property_names::selected);
+        // Toggles inside a toolbar also carry `selected`; only roving items enter at their selection.
+        const bool checked =
+            detail::roving_item(detail::collection_role(node)) && selected && std::get<bool>(*selected);
         const auto found =
             std::find_if(entries.begin(), entries.end(), [&](const auto& e) { return e.first == owner; });
         if (found == entries.end())
@@ -127,9 +173,9 @@ std::vector<std::uint32_t> tab_stops(const HitTestInput& input, const std::vecto
             found->second = candidate;
     }
     std::vector<std::uint32_t> result;
-    for (const auto candidate : candidates) {
-        if (radio(candidate)) {
-            const auto owner = collection_owner(input, candidate);
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        const auto candidate = candidates[i];
+        if (const auto owner = owners[i]; owner != no_layout_parent) {
             const auto entry =
                 std::find_if(entries.begin(), entries.end(), [&](const auto& e) { return e.first == owner; });
             if (owner == current || entry->second != candidate) continue;
@@ -315,6 +361,7 @@ Result<FocusDispatchResult> FocusDispatcher::dispatch(const HitTestInput& input,
                     focused = boxes[previous == stops.rend() ? stops.back() : *previous].node;
                 } else if constexpr (std::is_same_v<T, Navigate>) {
                     if (navigate_collection(input, targeting, focusable, event, focused, actions)) return;
+                    if (navigate_toolbar(input, targeting, focusable, event, focused)) return;
                     if (!focused) {
                         if (!focusable.empty()) focused = boxes[focusable.front()].node;
                     } else if (const auto next =
@@ -322,7 +369,8 @@ Result<FocusDispatchResult> FocusDispatcher::dispatch(const HitTestInput& input,
                         focused = boxes[*next].node;
                     }
                 } else if constexpr (std::is_same_v<T, KeyDown>) {
-                    (void)navigate_collection(input, targeting, focusable, event, focused, actions);
+                    if (!navigate_collection(input, targeting, focusable, event, focused, actions))
+                        (void)navigate_toolbar(input, targeting, focusable, event, focused);
                 } else if constexpr (std::is_same_v<T, Activate>) {
                     request(focused, "activate");
                 } else if constexpr (std::is_same_v<T, Cancel>) {

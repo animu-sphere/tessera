@@ -669,6 +669,84 @@ Element RadioGroup(std::string label, std::optional<std::string> selected, std::
     return Element(std::move(data));
 }
 
+Element Tabs(std::string label, std::string selected, std::vector<TabOption> tabs, std::vector<Element> panel,
+             CollectionProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    const auto source = props.node.source;
+    auto error = [&](const char* code, const char* message) {
+        data->diagnostics.push_back({code, Severity::error, {}, message});
+    };
+    if (prefix.empty()) error("tabs_id", "Give the Tabs a stable nonempty author ID.");
+    if (label.empty()) error("tabs_label", "Give the Tabs a nonempty label.");
+    if (tabs.empty()) error("tabs_empty", "Supply at least one tab.");
+    if (tabs.size() > max_document_nodes) error("tabs_limit", "Keep tabs within document node limits.");
+    auto part = [&](std::string id) { return Props{.id = std::move(id), .source = source}; };
+    auto list = std::make_shared<detail::ElementData>();
+    list->props = part(prefix + "-list");
+    list->props.style.direction = FlexDirection::row;
+    list->props.style.gap = 2.f;
+    list->disabled = props.disabled;
+    list->properties["collection_role"] = std::string("tab_list");
+    list->properties["labelled_by"] = NodeReference{prefix + "-title"};
+    auto title = part(prefix + "-title");
+    title.style.display = Display::none;
+    list->children.push_back(Text(std::move(label), std::move(title)));
+    std::set<std::string> keys;
+    bool found_selection = false;
+    for (std::size_t i = 0; i < tabs.size() && i < max_document_nodes; ++i) {
+        auto& tab = tabs[i];
+        if (tab.key.empty() || !keys.insert(tab.key).second) error("tabs_keys", "Supply unique nonempty tab keys.");
+        if (tab.label.empty()) error("tabs_tab_label", "Give each tab a nonempty label.");
+        const bool current = selected == tab.key;
+        found_selection = found_selection || current;
+        auto entry = std::make_shared<detail::ElementData>();
+        entry->props = part(prefix + "-tab-" + tab.key);
+        entry->props.style.border = Edges{0, 0, 2, 0};
+        entry->props.style.padding = Edges{4, 10, 4, 10};
+        entry->props.style.border_color = current ? Color{0.25f, 0.5f, 0.85f, 1} : Color{0, 0, 0, 0};
+        entry->action = std::move(tab.action);
+        entry->disabled = tab.disabled;
+        entry->properties["collection_role"] = std::string("tab");
+        entry->properties["selected"] = current;
+        entry->properties["labelled_by"] = NodeReference{prefix + "-label-" + tab.key};
+        entry->children.push_back(Text(std::move(tab.label), part(prefix + "-label-" + tab.key)));
+        list->children.push_back(Element(std::move(entry)));
+    }
+    if (!tabs.empty() && !found_selection) error("tabs_selection", "Select an existing tab key.");
+    data->children.push_back(Element(std::move(list)));
+    auto content = std::make_shared<detail::ElementData>();
+    content->props = part(prefix + "-panel");
+    content->props.style.direction = FlexDirection::column;
+    content->children = std::move(panel);
+    data->children.push_back(Element(std::move(content)));
+    data->props = std::move(props.node);
+    if (!data->props.style.direction) data->props.style.direction = FlexDirection::column;
+    if (!data->props.style.gap) data->props.style.gap = 8.f;
+    return Element(std::move(data));
+}
+
+Element Toolbar(std::string label, std::vector<Element> controls, Props props) {
+    auto data = std::make_shared<detail::ElementData>();
+    const auto prefix = props.id.value_or("");
+    if (prefix.empty())
+        data->diagnostics.push_back(
+            {"toolbar_id", Severity::error, {}, "Give the Toolbar a stable nonempty author ID."});
+    if (label.empty())
+        data->diagnostics.push_back({"toolbar_label", Severity::error, {}, "Give the Toolbar a nonempty label."});
+    Props title{.id = prefix + "-title", .source = props.source};
+    title.style.display = Display::none;
+    data->children.push_back(Text(std::move(label), std::move(title)));
+    for (auto& control : controls) data->children.push_back(std::move(control));
+    data->props = std::move(props);
+    data->props.style.direction = FlexDirection::row;
+    if (!data->props.style.align) data->props.style.align = Align::center;
+    if (!data->props.style.gap) data->props.style.gap = 4.f;
+    data->properties["collection_role"] = std::string("toolbar");
+    data->properties["labelled_by"] = NodeReference{prefix + "-title"};
+    return Element(std::move(data));
+}
+
 Element Grid(std::vector<Element> children, Props props) {
     if (props.style.display != Display::none) props.style.display = Display::grid;
     auto data = std::make_shared<detail::ElementData>();

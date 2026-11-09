@@ -43,6 +43,7 @@ constexpr std::uint64_t scale_owner_base = 1000;
 constexpr ui::SplitPaneLimits pane_limits{140, 320, 8};
 const std::vector<std::pair<std::string, std::string>> visibility_choices{
     {"inherited", "Inherited"}, {"visible", "Visible"}, {"hidden", "Hidden"}};
+const std::vector<std::pair<std::string, std::string>> sections{{"general", "General"}, {"display", "Display"}};
 struct Item {
     std::string id;
     TextEditState name;
@@ -59,6 +60,7 @@ struct State {
     std::vector<Item> items;
     std::string selected = "cube";
     bool expanded = true;
+    std::string section = "general"; // Shown Inspector tab; shared by every item.
     float split = 220;
     OpenMenu menu = OpenMenu::none;
     Point position;
@@ -89,9 +91,10 @@ State initial_state() {
 }
 ValidationContext action_context(const State& state) {
     ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.scale", "item.shadows",
-                               "item.rename", "menu.open", "panes.resize"}};
+                               "item.rename", "item.reset", "menu.open", "panes.resize"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
+    for (const auto& [key, label] : sections) context.actions.insert("section." + key);
     return context;
 }
 CommandRegistry command_registry(const ValidationContext& context) {
@@ -194,6 +197,17 @@ StyleSheet appearance(const State& state) {
     }
     sheet.rules.push_back(
         {StyleSelector::of_id("visibility-option-" + state.item().visibility), {.color = Color{.12f, .26f, .6f, 1}}});
+    // Tabs carry their own bottom indicator; the application adds feedback that leaves it intact.
+    for (const auto& [key, label] : sections) {
+        const auto id = "sections-tab-" + key;
+        sheet.rules.push_back({StyleSelector::of_id(id), {.color = Color{.32f, .4f, .54f, 1}}});
+        sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
+        sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(id, {.focus = true}), {.outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}}}});
+    }
+    sheet.rules.push_back(
+        {StyleSelector::of_id("sections-tab-" + state.section), {.color = Color{.12f, .26f, .6f, 1}}});
     for (const auto* menu : {"actions-menu", "item-menu"}) {
         sheet.rules.push_back({StyleSelector::of_id(std::string(menu) + "-title"),
                                {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}});
@@ -218,9 +232,46 @@ ui::Element Form(const State& state, Size viewport) {
         return ui::PopupProps{.node = {.id = id, .classes = {"popup"}, .style = {.width = Dimension::points(220)}},
                               .open = state.menu == kind};
     };
+    std::vector<ui::Element> properties;
+    std::vector<GridTrack> rows;
+    if (state.section == "general") {
+        properties = {
+            ui::Text("Display name", {.classes = {"muted"}}),
+            ui::TextInput("Name", item.name, "item.name", {.node = control("name")}),
+            ui::Row({ui::Column({}, {.id = "enabled-indicator",
+                                     .style = {.width = Dimension::points(8),
+                                               .height = Dimension::points(8),
+                                               .background =
+                                                   item.enabled ? Color{.15f, .6f, .4f, 1} : Color{.55f, .6f, .68f, 1},
+                                               .background_shape = FillShape::ellipse,
+                                               .background_antialias = true}}),
+                     ui::Text("Enabled", {.classes = {"muted"}})},
+                    {.style = {.align = Align::center, .gap = 4.f}}),
+            ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
+            ui::Text("Amount", {.classes = {"muted"}}),
+            ui::Slider("Amount", item.amount, amount_range, "item.amount",
+                       {.node = {.id = "amount", .classes = {"control"}, .style = {.padding = Edges{6, 0, 6, 0}}}}),
+            ui::Text(item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *",
+                     {.id = "scale-caption", .classes = {"muted"}}),
+            ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")})};
+        rows.resize(4);
+    } else {
+        properties = {ui::Text("Visibility", {.classes = {"muted"}}),
+                      ui::RadioGroup("Visibility", item.visibility, std::move(visibility),
+                                     {.node = {.id = "visibility", .style = {.gap = 2.f}}}),
+                      ui::Text("Shadows", {.classes = {"muted"}}),
+                      ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})};
+        rows.resize(2);
+    }
+    std::vector<ui::TabOption> tabs;
+    for (const auto& [key, label] : sections) tabs.push_back({key, label, "section." + key});
     return ui::Column(
         {ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
-                  ui::Button("Item actions", "menu.open", {.node = control("actions")})},
+                  ui::Toolbar("Item tools",
+                              {ui::Button("Item actions", "menu.open", {.node = control("actions")}),
+                               ui::Button("Rename", "item.rename", {.node = control("tool-rename")}),
+                               ui::Button("Reset", "item.reset", {.node = control("tool-reset")})},
+                              {.id = "item-tools"})},
                  {.style = {.align = Align::center, .gap = 16.f}}),
          ui::HorizontalSplitPane(
              ui::TreeView("Hierarchy", state.selected,
@@ -236,54 +287,30 @@ ui::Element Form(const State& state, Size viewport) {
                                               .corner_radius = 10.f}}}),
              ui::ScrollView(
                  {ui::Text("Inspector", {.id = "inspector-title", .classes = {"section-title"}}),
-                  ui::Column(
-                      {ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
-                       ui::Grid(
-                           {ui::Text("Display name", {.classes = {"muted"}}),
-                            ui::TextInput("Name", item.name, "item.name", {.node = control("name")}),
-                            ui::Row({ui::Column({}, {.id = "enabled-indicator",
-                                                     .style = {.width = Dimension::points(8),
-                                                               .height = Dimension::points(8),
-                                                               .background = item.enabled ? Color{.15f, .6f, .4f, 1}
-                                                                                          : Color{.55f, .6f, .68f, 1},
-                                                               .background_shape = FillShape::ellipse,
-                                                               .background_antialias = true}}),
-                                     ui::Text("Enabled", {.classes = {"muted"}})},
-                                    {.style = {.align = Align::center, .gap = 4.f}}),
-                            ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
-                            ui::Text("Amount", {.classes = {"muted"}}),
-                            ui::Slider("Amount", item.amount, amount_range, "item.amount",
-                                       {.node = {.id = "amount",
-                                                 .classes = {"control"},
-                                                 .style = {.padding = Edges{6, 0, 6, 0}}}}),
-                            ui::Text(item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *",
-                                     {.id = "scale-caption", .classes = {"muted"}}),
-                            ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")}),
-                            ui::Text("Visibility", {.classes = {"muted"}}),
-                            ui::RadioGroup("Visibility", item.visibility, std::move(visibility),
-                                           {.node = {.id = "visibility", .style = {.gap = 2.f}}}),
-                            ui::Text("Shadows", {.classes = {"muted"}}),
-                            ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})},
-                           {.id = "properties",
-                            .style = {.grid_columns =
-                                          std::vector<GridTrack>{GridTrack{.maximum = 72}, GridTrack::fraction(1, 202)},
-                                      .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{},
-                                                                          GridTrack{}, GridTrack{}, GridTrack{}},
-                                      .column_gap = 8.f,
-                                      .row_gap = 12.f}})},
-                      {.id = "item-card",
-                       .style = {.border = Edges{1, 1, 1, 1},
-                                 .padding = Edges{12, 12, 12, 12},
-                                 .gap = 12.f,
-                                 .border_color = Color{.72f, .8f, .92f, 1},
-                                 .corner_radius = 12.f,
-                                 .background_gradient = RadialGradient{.center = {.25f, .2f},
-                                                                       .radius = {.85f, .95f},
-                                                                       .stops = {{0, {.96f, .99f, 1, 1}},
-                                                                                 {.42f, {.84f, .92f, 1, 1}},
-                                                                                 {1, {.98f, .9f, .98f, 1}}}},
-                                 .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
-                                 .background_antialias = true}}),
+                  ui::Column({ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
+                              ui::Tabs("Property sections", state.section, std::move(tabs),
+                                       {ui::Grid(std::move(properties),
+                                                 {.id = "properties",
+                                                  .style = {.grid_columns =
+                                                                std::vector<GridTrack>{GridTrack{.maximum = 72},
+                                                                                       GridTrack::fraction(1, 202)},
+                                                            .grid_rows = std::move(rows),
+                                                            .column_gap = 8.f,
+                                                            .row_gap = 12.f}})},
+                                       {.node = {.id = "sections", .style = {.gap = 12.f}}})},
+                             {.id = "item-card",
+                              .style = {.border = Edges{1, 1, 1, 1},
+                                        .padding = Edges{12, 12, 12, 12},
+                                        .gap = 12.f,
+                                        .border_color = Color{.72f, .8f, .92f, 1},
+                                        .corner_radius = 12.f,
+                                        .background_gradient = RadialGradient{.center = {.25f, .2f},
+                                                                              .radius = {.85f, .95f},
+                                                                              .stops = {{0, {.96f, .99f, 1, 1}},
+                                                                                        {.42f, {.84f, .92f, 1, 1}},
+                                                                                        {1, {.98f, .9f, .98f, 1}}}},
+                                        .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
+                                        .background_antialias = true}}),
                   ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
                               ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
                               ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}}),
@@ -453,7 +480,20 @@ public:
             candidate.item().enabled = !candidate.item().enabled;
         else if (command.starts_with("visibility."))
             candidate.item().visibility = command.substr(11);
-        else if (command == "item.shadows")
+        else if (command.starts_with("section."))
+            candidate.section = command.substr(8);
+        else if (command == "item.reset") {
+            // Restore every property except the display name; a pending Scale draft is discarded.
+            auto& item = candidate.item();
+            item.enabled = true;
+            item.amount = 50;
+            item.scale = 1;
+            item.scale_draft.text = ui::format_number(1);
+            item.scale_draft.anchor = item.scale_draft.caret = item.scale_draft.text.size();
+            ++item.scale_draft.revision;
+            item.visibility = "inherited";
+            item.shadows = true;
+        } else if (command == "item.shadows")
             candidate.item().shadows = !candidate.item().shadows;
         else if (command == "item.scale") {
             require(scale_request.has_value(), "Scale input needs an owned request");
@@ -469,8 +509,11 @@ public:
         else if (command != "item.rename")
             throw std::runtime_error("Unknown Inspector command");
         if (command == "item.rename" || command == "item.enabled") candidate.menu = OpenMenu::none;
+        // The name editor lives on the General tab; accepting Rename focuses it in the new view.
+        if (command == "item.rename") candidate.section = "general";
         auto candidate_focus = focus;
-        if (command == "item.rename") (void)take(candidate_focus.focus(view.hit(), *view.tree->find("name")));
+        if (const auto name = view.tree->find("name"); command == "item.rename" && name)
+            (void)take(candidate_focus.focus(view.hit(), *name));
         auto prepared = stage(candidate, viewport, offsets, candidate_focus, true);
         if (prepared && prepare_paint) {
             auto diagnostics = prepare_paint(prepared.value->paint);
@@ -771,6 +814,11 @@ public:
         for (const auto& request : dispatched.actions) checked(operate(request, source));
         refresh(true);
     }
+    // False when the control is absent, for example on the other Inspector tab.
+    bool focused_on(std::string_view id) {
+        const auto node = view.tree->find(id);
+        return node && take(focus.refresh(view.hit())).focused == node;
+    }
     void focus_id(std::string_view id) {
         (void)take(focus.focus(view.hit(), *view.tree->find(id)));
         refresh(true);
@@ -874,7 +922,7 @@ public:
 
 private:
     bool eligible_name() {
-        return state.menu == OpenMenu::none && take(focus.refresh(view.hit())).focused == view.tree->find("name") &&
+        return state.menu == OpenMenu::none && focused_on("name") &&
                static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate"));
     }
     void cancel_composition(CommandSource source) {
@@ -898,13 +946,10 @@ private:
     bool clipboard_key(const KeyDown& key, CommandSource source) {
         if ((key.key != Key::c && key.key != Key::v && key.key != Key::x) ||
             key.modifiers != Modifiers{.control = true} || key.repeat || state.menu != OpenMenu::none ||
-            take(focus.refresh(view.hit())).focused != view.tree->find("name"))
+            !focused_on("name"))
             return false;
         clipboard_diagnostics.clear();
-        const auto eligible = [&] {
-            return state.menu == OpenMenu::none && take(focus.refresh(view.hit())).focused == view.tree->find("name") &&
-                   static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate"));
-        };
+        const auto eligible = [&] { return eligible_name(); };
         if (!eligible()) return true;
         const auto selected = state.selected;
         const auto name = state.item().name;
@@ -1851,13 +1896,14 @@ void visibility_smoke() {
         require(found != nodes.end(), "Visibility observation is missing");
         return *found;
     };
+    app.action("sections-tab-display");
     const auto group = entry("visibility");
     const auto inherited = entry("visibility-option-inherited");
     require(group.role == SemanticRole::radio_group && group.name == "Visibility" &&
                 inherited.role == SemanticRole::radio && inherited.name == "Inherited" && inherited.selected == true &&
                 entry("visibility-option-hidden").selected == false,
             "Visibility must expose a named radio group with the accepted choice checked");
-    app.focus_id("scale");
+    app.focus_id("sections-tab-display");
     input(KeyDown{Key::tab});
     require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("visibility-option-inherited"),
             "Tab must enter Visibility at the checked option");
@@ -1872,7 +1918,7 @@ void visibility_smoke() {
     input(KeyDown{Key::up});
     require(app.state.item().visibility == "hidden", "Arrows must wrap through the options");
     input(KeyDown{Key::tab, {.shift = true}});
-    require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("scale") &&
+    require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("sections-tab-display") &&
                 app.state.item().visibility == "hidden",
             "Shift+Tab must leave the group without changing the choice");
     const auto point = app.view.reachable("visibility-option-visible");
@@ -1900,6 +1946,7 @@ void shadows_smoke() {
     auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
         app.input({++time, event}, source);
     };
+    app.action("sections-tab-display");
     const auto& on = app.observed("shadows");
     require(on.role == SemanticRole::switch_ && on.name == "Cast shadows" && on.selected == true &&
                 on.actions == std::vector<SemanticAction>{{"activate", "item.shadows"}},
@@ -2036,7 +2083,138 @@ void scale_smoke() {
     require(app.state.item() == pending && app.observed_value("scale") == "1" && caption() == "Scale *",
             "Returning to an item must retain its accepted Scale and pending draft");
 }
+void sections_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    const auto focused = [&](std::string_view id) {
+        return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id);
+    };
+    const auto& list = app.observed("sections-list");
+    require(list.role == SemanticRole::tab_list && list.name == "Property sections",
+            "Sections must expose a named tab list");
+    const auto& general = app.observed("sections-tab-general");
+    require(general.role == SemanticRole::tab && general.name == "General" && general.selected == true &&
+                app.observed_checked("sections-tab-display") == false && app.view.tree->find("name") &&
+                !app.view.tree->find("visibility"),
+            "General must be selected and show only its properties");
+    app.focus_id("selected");
+    input(KeyDown{Key::tab});
+    require(focused("sections-tab-general"), "Tab must enter the sections at the selected tab");
+    input(KeyDown{Key::tab});
+    require(focused("name"), "Tab must continue into the shown panel");
+    input(KeyDown{Key::tab, {.shift = true}});
+    require(focused("sections-tab-general"), "Shift+Tab must return to the selected tab");
+    const auto indicator = [&](std::string_view id) {
+        return app.view.styles[app.view.tree->find(id)->index].border_color;
+    };
+    const auto executions = app.executions;
+    input(KeyDown{Key::right});
+    require(app.state.section == "display" && app.executions == executions + 1 && focused("sections-tab-display") &&
+                app.observed_checked("sections-tab-display") == true && !app.view.tree->find("name") &&
+                app.view.tree->find("visibility") && app.view.tree->find("shadows"),
+            "Right must select Display through one command and replace the panel");
+    require(indicator("sections-tab-display") != indicator("sections-tab-general"),
+            "Only the selected tab shows its indicator");
+    input(KeyDown{Key::tab});
+    require(focused("visibility-option-inherited"), "Tab must reach the Display panel");
+    app.focus_id("sections-tab-display");
+    input(KeyDown{Key::right});
+    require(app.state.section == "general" && focused("sections-tab-general"), "Right must wrap to General");
+    input(KeyDown{Key::left});
+    require(app.state.section == "display", "Left must wrap to Display");
+    input(KeyDown{Key::down});
+    require(focused("visibility-option-inherited") && app.state.section == "display",
+            "Down must leave the tabs into the panel without selecting");
+    const auto point = app.view.reachable("sections-tab-general");
+    input(PointerDown{{1}, point}, CommandSource::pointer);
+    input(PointerUp{{1}, point}, CommandSource::pointer);
+    require(app.state.section == "general" && focused("sections-tab-general"),
+            "A pointer press must focus and select a tab");
+    app.action("sections-tab-display");
+    app.action("hierarchy-item-sphere");
+    require(app.state.section == "display" && app.view.tree->find("visibility"),
+            "The shown section must survive item selection");
+    app.focus_id("visibility-option-inherited");
+    app.action("tool-rename");
+    require(app.state.section == "general" && focused("name"), "Rename must show General and focus the name editor");
+}
+void toolbar_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    const auto focused = [&](std::string_view id) {
+        return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id);
+    };
+    const auto& tools = app.observed("item-tools");
+    require(tools.role == SemanticRole::toolbar && tools.name == "Item tools" && tools.actions.empty() &&
+                app.observed("tool-reset").role == SemanticRole::button &&
+                app.view.inspection.semantics.nodes[app.observed("tool-reset").parent].id == "item-tools",
+            "The header must expose a named toolbar of ordinary buttons");
+    app.focus_id("hierarchy-item-scene");
+    input(KeyDown{Key::tab, {.shift = true}});
+    require(focused("actions"), "Shift+Tab must enter the toolbar at its first control");
+    input(KeyDown{Key::tab});
+    require(focused("hierarchy-item-scene"), "Tab must leave the toolbar after one stop");
+    app.focus_id("actions");
+    const auto executions = app.executions;
+    input(KeyDown{Key::right});
+    require(focused("tool-rename") && app.executions == executions && app.state.menu == OpenMenu::none,
+            "Right must move to Rename without running a command");
+    input(KeyDown{Key::right});
+    input(KeyDown{Key::right});
+    require(focused("actions") && app.executions == executions, "Right must wrap to the first tool");
+    input(KeyDown{Key::left});
+    require(focused("tool-reset"), "Left must wrap to the last tool");
+    input(KeyDown{Key::home});
+    require(focused("actions"), "Home must reach the first tool");
+    input(KeyDown{Key::end});
+    require(focused("tool-reset"), "End must reach the last tool");
+
+    const auto name = app.state.item().name;
+    app.action("enabled");
+    app.action("amount");
+    require(app.try_scale(ScaleStep{5}).status == CommandOutcomeStatus::success, "Scale must step before reset");
+    app.action("sections-tab-display");
+    app.action("visibility-option-hidden");
+    app.action("shadows");
+    const auto edited = app.state.item();
+    require(!edited.enabled && edited.amount == 55 && edited.scale == 1.5 && edited.visibility == "hidden" &&
+                !edited.shadows,
+            "Reset fixture must change every property");
+    app.focus_id("tool-reset");
+    const auto before_reset = app.executions;
+    input(Activate{});
+    const auto reset = app.state.item();
+    require(app.executions == before_reset + 1 && reset.name == name && reset.enabled && reset.amount == 50 &&
+                reset.scale == 1 && reset.scale_draft.text == "1" &&
+                reset.scale_draft.revision == edited.scale_draft.revision + 1 && reset.visibility == "inherited" &&
+                reset.shadows && focused("tool-reset"),
+            "Reset must restore every property except the name through one command");
+    app.action("shadows");
+    app.action("hierarchy-item-sphere");
+    app.action("shadows");
+    const auto point = app.view.reachable("tool-reset");
+    input(PointerDown{{1}, point}, CommandSource::pointer);
+    input(PointerUp{{1}, point}, CommandSource::pointer);
+    require(app.state.item().shadows, "A pointer press must reset the selected item");
+    app.action("hierarchy-item-cube");
+    require(!app.state.item().shadows, "Reset must leave other items unchanged");
+    app.focus_id("tool-rename");
+    input(Activate{});
+    require(app.state.section == "general" && focused("name") && app.state.menu == OpenMenu::none,
+            "The toolbar Rename shares the menu command");
+    app.focus_id("actions");
+    input(Activate{});
+    require(app.state.menu == OpenMenu::actions, "The menu trigger keeps its command inside the toolbar");
+}
 void smoke() {
+    sections_smoke();
+    toolbar_smoke();
     scale_smoke();
     visibility_smoke();
     shadows_smoke();
@@ -2254,11 +2432,8 @@ int native(bool smoke) {
         return app.view.box(*app.view.tree->get(*focused)->id).border_box;
     };
     // Both inputs take committed WM_CHAR text and Return; only the name editor attaches the IME.
-    window.editing = [&] {
-        const auto focused = take(app.focus.refresh(app.view.hit())).focused;
-        return focused == app.view.tree->find("name") || focused == app.view.tree->find("scale");
-    };
-    window.ime_editing = [&] { return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("name"); };
+    window.editing = [&] { return app.focused_on("name") || app.focused_on("scale"); };
+    window.ime_editing = [&] { return app.focused_on("name"); };
     window.resized = [&](Size viewport) { app.resize(viewport); };
     window.resize_cursor = [&](Point point) {
         const auto geometry = take(split_pane_geometry(app.view.hit(), "panes"));
@@ -2313,10 +2488,25 @@ int native(bool smoke) {
             host.message(WM_MOUSEWHEEL, MAKEWPARAM(0, 20 * WHEEL_DELTA), MAKELPARAM(screen.x, screen.y));
             require(app.view.box(id).scroll->offset.y == 0, "Native wheel must reach the top of the scroll view");
         };
-        auto seek = [&](const char* id) {
+        auto seek = [&](const char* id, bool backward = false) {
             for (int i = 0; i < 32; ++i) {
                 if (take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id)) return;
-                host.message(WM_KEYDOWN, VK_TAB, 1);
+                if (backward) {
+                    BYTE original[256]{}, modified[256]{};
+                    require(GetKeyboardState(original) != FALSE, "Cannot read smoke keyboard state");
+                    std::copy(std::begin(original), std::end(original), std::begin(modified));
+                    modified[VK_SHIFT] = 0x80;
+                    require(SetKeyboardState(modified) != FALSE, "Cannot inject smoke Shift key");
+                    try {
+                        host.message(WM_KEYDOWN, VK_TAB, 1);
+                    } catch (...) {
+                        SetKeyboardState(original);
+                        throw;
+                    }
+                    require(SetKeyboardState(original) != FALSE, "Cannot restore smoke keyboard state");
+                } else {
+                    host.message(WM_KEYDOWN, VK_TAB, 1);
+                }
             }
             throw std::runtime_error("Native Tab cannot reach Inspector control");
         };
@@ -2511,6 +2701,11 @@ int native(bool smoke) {
                 "Native Escape must revert the Scale draft and clear feedback");
         click("scale-decrease");
         require(app.state.item().scale == 2.5, "A native step-part press must step Scale");
+        // Shift+Tab back from Scale reaches the tabs in four stops instead of wrapping the Hierarchy.
+        seek("sections-tab-general", true);
+        host.message(WM_KEYDOWN, VK_RIGHT, 1);
+        require(app.state.section == "display" && app.view.tree->find("visibility"),
+                "Native Right must select the Display tab");
         seek("visibility-option-inherited");
         host.message(WM_KEYDOWN, VK_DOWN, 1);
         require(app.state.item().visibility == "visible", "Native arrows must select the next Visibility option");
@@ -2536,8 +2731,8 @@ int native(bool smoke) {
         host.message(WM_RBUTTONUP, 0, MAKELPARAM(selected.x, selected.y));
         require(app.state.menu == OpenMenu::context, "Native right-click must open selected-item actions");
         host.message(WM_KEYDOWN, VK_RETURN, 1);
-        require(window.editing() && app.state.menu == OpenMenu::none,
-                "Native context Rename must focus the name editor");
+        require(window.editing() && app.state.menu == OpenMenu::none && app.state.section == "general",
+                "Native context Rename must show General and focus the name editor");
         const auto handle = host.physical(app.view.center("panes-handle"));
         host.message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(handle.x, handle.y));
         require(GetCapture() == host.handle && app.resizing(), "Native splitter must capture");
@@ -2548,6 +2743,16 @@ int native(bool smoke) {
         require(app.state.item() == cube && app.observed_name("hierarchy-item-cube") == "Cube!" &&
                     host.presentations > 5,
                 "Native resize and presentation must preserve accepted edits");
+        seek("actions");
+        host.message(WM_KEYDOWN, VK_RIGHT, 1);
+        host.message(WM_KEYDOWN, VK_RIGHT, 1);
+        require(app.focused_on("tool-reset") && app.state.item() == cube,
+                "Native arrows must move within the toolbar without running commands");
+        host.message(WM_KEYDOWN, VK_SPACE, 1);
+        const auto reset = app.state.item();
+        require(reset.name == cube.name && reset.enabled && reset.amount == 50 && reset.scale == 1 &&
+                    reset.visibility == "inherited" && reset.shadows,
+                "Native toolbar Reset must restore the properties and keep the name");
         std::cout << "Inspector native injected-message smoke passed: " << host.presentations << " presentations.\n";
     };
     if (smoke) return window.run(verify);

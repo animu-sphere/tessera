@@ -140,6 +140,7 @@ struct ListItem {
 };
 using MenuItem = ListItem;
 using RadioOption = ListItem;
+using TabOption = ListItem;
 struct TreeItem {
     std::string key;
     std::string label;
@@ -187,6 +188,8 @@ private:
     friend Element ListView(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps);
     friend Element TreeView(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps);
     friend Element RadioGroup(std::string, std::optional<std::string>, std::vector<RadioOption>, CollectionProps);
+    friend Element Tabs(std::string, std::string, std::vector<TabOption>, std::vector<Element>, CollectionProps);
+    friend Element Toolbar(std::string, std::vector<Element>, Props);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -259,6 +262,17 @@ Element TreeView(std::string label, std::optional<std::string> selected, std::ve
 // newly focused option's action. Activate requests the focused option's action.
 Element RadioGroup(std::string label, std::optional<std::string> selected, std::vector<RadioOption> options,
                    CollectionProps = {});
+// Controlled tabs: the host owns the selected key and supplies only that tab's panel content.
+// A Column with an <id>-list Row (tab_list named by the display-none <id>-title) of
+// <id>-tab-<key> tabs, each named by its <id>-label-<key> Text, then the <id>-panel Column.
+// Tab enters at the selected tab; Left/Right (wrapping) and Home/End move focus and request the
+// newly focused tab's action; Up/Down keep geometric movement. Selected tabs show a bottom border.
+Element Tabs(std::string label, std::string selected, std::vector<TabOption> tabs, std::vector<Element> panel,
+             CollectionProps = {});
+// A Row of ordinary controls projected as a toolbar named by the display-none <id>-title.
+// Requires a stable ID. Tab enters once at the first eligible control; Left/Right (wrapping)
+// and Home/End move focus without requesting actions. No collections or nested toolbars.
+Element Toolbar(std::string label, std::vector<Element> controls, Props = {});
 // Controlled inline dropdown: host commands own expansion and selected key.
 // With a node ID, generated controls use <id>-trigger / <id>-option-<key>.
 // Options are ordinary buttons in layout, reached through normal focus/scroll.

@@ -12,12 +12,15 @@ inline std::string_view collection_role(const UiNode& node) {
 }
 
 inline bool collection_item(std::string_view role) {
-    return role == "list_item" || role == "tree_item" || role == "menu_item" || role == "radio";
+    return role == "list_item" || role == "tree_item" || role == "menu_item" || role == "radio" || role == "tab";
 }
 
 inline bool collection_owner_role(std::string_view role) {
-    return role == "list" || role == "tree" || role == "menu" || role == "radio_group";
+    return role == "list" || role == "tree" || role == "menu" || role == "radio_group" || role == "tab_list";
 }
+
+// Items whose group is one sequential focus stop and whose movement requests selection.
+inline bool roving_item(std::string_view role) { return role == "radio" || role == "tab"; }
 
 // Flat layout rows retain logical ancestry for disabled state as well as semantics.
 inline bool tree_ancestor_disabled(const UiTree& tree, const UiNode& node) {

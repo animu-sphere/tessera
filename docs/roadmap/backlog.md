@@ -25,7 +25,7 @@ The [PR Core / main Integration split](../guides/development.md#ci-scopes-and-re
 
 ## Widget candidates beyond the reference application
 
-Label, Spacer/Separator, Toolbar, Tabs and InspectorRow, selected from application use. See [authoring](../proposals/cpp-authoring.md).
+Label, Spacer/Separator and InspectorRow, selected from application use. See [authoring](../proposals/cpp-authoring.md).
 
 ## Layout follow-ups
 

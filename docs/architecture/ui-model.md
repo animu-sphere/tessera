@@ -32,8 +32,8 @@ The implemented semantic property vocabulary is deliberately small:
 | `popup_x`, `popup_y` | Anchored popup Box only | Paired finite numbers within float range | Root-logical point placement, overriding side/gap and shifted inside the boundary |
 | `separator` | Box only | Boolean, absent means false | Projects a separator role; an eligible `activate` binding requests host adjustment |
 | `scrollbar` | Box only | Boolean, absent means false; cannot combine with another role marker | Projects a scrollbar role; an eligible `activate` binding requests host scrolling |
-| `collection_role` | Box only | `list`, `tree`, `menu`, `radio_group`, `list_item`, `tree_item`, `menu_item`, `radio`; absent means none | Bounded collection/menu semantics and collection-order navigation |
-| `selected` | List/tree item, radio or toggle Box | Optional boolean; required on a toggle | Controlled selection (radio/toggle checked) observation, independent of focus |
+| `collection_role` | Box only | `list`, `tree`, `menu`, `radio_group`, `tab_list`, `toolbar`, `list_item`, `tree_item`, `menu_item`, `radio`, `tab`; absent means none | Bounded collection/menu/tab/toolbar semantics and collection-order or roving navigation |
+| `selected` | List/tree item, radio, tab or toggle Box | Optional boolean; required on a toggle | Controlled selection (radio/toggle checked, tab shown) observation, independent of focus |
 | `toggle_role` | Box only | `checkbox` or `switch`; absent means none; requires `selected` and an activate action; cannot combine with another role marker | Projects a checkbox/switch role whose `selected` is its checked state |
 | `expanded` | Tree item Box | Optional boolean; absence means leaf | Controlled branch observation and applicable expansion action |
 | `tree_parent` | Tree item Box | Optional `NodeReference` | Earlier logical ancestor in the same flat tree; preserves semantic hierarchy, disabled ancestry and parent/child navigation |
