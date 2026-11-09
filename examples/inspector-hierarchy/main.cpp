@@ -9,6 +9,7 @@
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -55,6 +56,11 @@ struct Item {
     bool shadows = true;
     bool operator==(const Item&) const = default;
 };
+// True when Reset would change a property; the display name is not reset.
+bool modified(const Item& item) {
+    return !item.enabled || item.amount != 50 || item.scale != 1 || item.scale_draft.text != ui::format_number(1) ||
+           item.visibility != "inherited" || !item.shadows;
+}
 enum class OpenMenu { none, actions, context };
 struct State {
     std::vector<Item> items;
@@ -253,8 +259,11 @@ ui::Element Form(const State& state, Size viewport) {
                        {.node = {.id = "amount", .classes = {"control"}, .style = {.padding = Edges{6, 0, 6, 0}}}}),
             ui::Text(item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *",
                      {.id = "scale-caption", .classes = {"muted"}}),
-            ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")})};
-        rows.resize(4);
+            ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")}),
+            // Contextual help spans the label and control columns below Scale.
+            ui::Text("Enter applies, Esc reverts, Up/Down step.",
+                     {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}})};
+        rows.resize(5);
     } else {
         properties = {ui::Text("Visibility", {.classes = {"muted"}}),
                       ui::RadioGroup("Visibility", item.visibility, std::move(visibility),
@@ -265,6 +274,28 @@ ui::Element Form(const State& state, Size viewport) {
     }
     std::vector<ui::TabOption> tabs;
     for (const auto& [key, label] : sections) tabs.push_back({key, label, "section." + key});
+    std::vector<ui::Element> card{
+        ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
+        ui::Tabs("Property sections", state.section, std::move(tabs),
+                 {ui::Grid(std::move(properties),
+                           {.id = "properties",
+                            .style = {.grid_columns =
+                                          std::vector<GridTrack>{GridTrack{.maximum = 72}, GridTrack::fraction(1, 202)},
+                                      .grid_rows = std::move(rows),
+                                      .column_gap = 8.f,
+                                      .row_gap = 12.f}})},
+                 {.node = {.id = "sections", .style = {.gap = 12.f}}})};
+    // Straddles the card's top edge without moving the card's flow content; painted last, above it.
+    if (modified(item))
+        card.push_back(ui::Text("Modified", {.id = "modified-badge",
+                                             .style = {.padding = Edges{1, 8, 1, 8},
+                                                       .background = Color{.2f, .4f, .85f, 1},
+                                                       .corner_radius = 9.f,
+                                                       .text = {.size = 11.f, .line_height = 16.f},
+                                                       .color = Color{1, 1, 1, 1},
+                                                       .position = Position::absolute,
+                                                       .top = std::optional<float>{-9.f},
+                                                       .right = std::optional<float>{12.f}}}));
     return ui::Column(
         {ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
                   ui::Toolbar("Item tools",
@@ -287,34 +318,23 @@ ui::Element Form(const State& state, Size viewport) {
                                               .corner_radius = 10.f}}}),
              ui::ScrollView(
                  {ui::Text("Inspector", {.id = "inspector-title", .classes = {"section-title"}}),
-                  ui::Column({ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
-                              ui::Tabs("Property sections", state.section, std::move(tabs),
-                                       {ui::Grid(std::move(properties),
-                                                 {.id = "properties",
-                                                  .style = {.grid_columns =
-                                                                std::vector<GridTrack>{GridTrack{.maximum = 72},
-                                                                                       GridTrack::fraction(1, 202)},
-                                                            .grid_rows = std::move(rows),
-                                                            .column_gap = 8.f,
-                                                            .row_gap = 12.f}})},
-                                       {.node = {.id = "sections", .style = {.gap = 12.f}}})},
-                             {.id = "item-card",
-                              .style = {.border = Edges{1, 1, 1, 1},
-                                        .padding = Edges{12, 12, 12, 12},
-                                        .gap = 12.f,
-                                        .border_color = Color{.72f, .8f, .92f, 1},
-                                        .corner_radius = 12.f,
-                                        .background_gradient = RadialGradient{.center = {.25f, .2f},
-                                                                              .radius = {.85f, .95f},
-                                                                              .stops = {{0, {.96f, .99f, 1, 1}},
-                                                                                        {.42f, {.84f, .92f, 1, 1}},
-                                                                                        {1, {.98f, .9f, .98f, 1}}}},
-                                        .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
-                                        .background_antialias = true}}),
+                  ui::Column(std::move(card), {.id = "item-card",
+                                               .style = {.border = Edges{1, 1, 1, 1},
+                                                         .padding = Edges{12, 12, 12, 12},
+                                                         .gap = 12.f,
+                                                         .border_color = Color{.72f, .8f, .92f, 1},
+                                                         .corner_radius = 12.f,
+                                                         .background_gradient =
+                                                             RadialGradient{.center = {.25f, .2f},
+                                                                            .radius = {.85f, .95f},
+                                                                            .stops = {{0, {.96f, .99f, 1, 1}},
+                                                                                      {.42f, {.84f, .92f, 1, 1}},
+                                                                                      {1, {.98f, .9f, .98f, 1}}}},
+                                                         .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
+                                                         .background_antialias = true}}),
                   ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
                               ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
-                              ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}}),
-                              ui::Text("Scale: Enter applies, Esc reverts, Up/Down step.", {.classes = {"muted"}})},
+                              ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}})},
                              {.id = "help", .style = {.gap = 4.f}})},
                  {.id = "inspector",
                   .style = {.height = Dimension::points(height), .padding = Edges{0, 6, 0, 6}, .gap = 12.f}}),
@@ -2212,8 +2232,74 @@ void toolbar_smoke() {
     input(Activate{});
     require(app.state.menu == OpenMenu::actions, "The menu trigger keeps its command inside the toolbar");
 }
+void placement_smoke() {
+    App app;
+    // Leave room below the card for every General row.
+    app.resize({960, 540});
+    const auto spans = [&](const char* when) {
+        const auto grid = app.view.box("properties").content_box();
+        const auto hint = app.view.box("scale-hint").border_box;
+        const auto scale = app.view.box("scale").border_box;
+        const auto name = app.view.box("name").border_box;
+        // Starts in the label column and ends with the control column.
+        require(hint.origin.x == grid.origin.x && name.origin.x > grid.origin.x &&
+                    hint.origin.x + hint.size.width == name.origin.x + name.size.width &&
+                    hint.origin.y >= scale.origin.y + scale.size.height + 12,
+                when);
+    };
+    spans("The Scale hint must span the label and control columns in its own row");
+    app.resize({492, 540});
+    spans("The spanning hint must follow the narrow Inspector columns");
+    app.resize({960, 540});
+    require(!app.view.tree->find("modified-badge"), "An item at its reset values must show no Modified badge");
+    const auto card = app.view.box("item-card").border_box;
+    const auto selected = app.view.box("selected").border_box;
+    const auto sections = app.view.box("sections").border_box;
+    const auto glyphless = [&] {
+        auto paint = app.view.paint;
+        std::erase_if(paint.commands,
+                      [](const auto& command) { return std::holds_alternative<DrawGlyphRun>(command); });
+        return paint;
+    };
+    CpuFrameCapture frames;
+    const auto plain_paint = glyphless();
+    const auto plain = take(frames.capture({0, app.viewport, 1, take(capture_extent(app.viewport, 1)), &plain_paint}));
+    app.action("enabled");
+    const auto& placed = app.view.box("item-card");
+    const auto badge = app.view.box("modified-badge").border_box;
+    const auto padding = placed.padding_box();
+    require(placed.border_box == card && app.view.box("selected").border_box == selected &&
+                app.view.box("sections").border_box == sections,
+            "The absolute badge must not move the card or its flow content");
+    require(badge.origin.y == padding.origin.y - 9 &&
+                badge.origin.x + badge.size.width == padding.origin.x + padding.size.width - 12 &&
+                badge.origin.y < card.origin.y && badge.origin.y + badge.size.height <= selected.origin.y,
+            "The badge must straddle the card's top edge at its trailing offset without covering Selected");
+    const auto paint = glyphless();
+    const auto image = take(frames.capture({0, app.viewport, 1, take(capture_extent(app.viewport, 1)), &paint}));
+    const auto pixel = [](const CapturedImage& from, float x, float y) {
+        const auto at = (std::size_t(y) * from.extent.width + std::size_t(x)) * 4;
+        return std::array<std::uint8_t, 4>{from.pixels[at], from.pixels[at + 1], from.pixels[at + 2],
+                                           from.pixels[at + 3]};
+    };
+    const Point edge{badge.origin.x + 3, card.origin.y};
+    const Point inside{badge.origin.x + 3, badge.origin.y + badge.size.height / 2};
+    require(pixel(image, edge.x, edge.y) == pixel(image, inside.x, inside.y) &&
+                pixel(image, edge.x, edge.y) != pixel(plain, edge.x, edge.y),
+            "The later badge must paint over the card border it straddles");
+    require(take(hit_test(app.view.hit(), {edge.x, edge.y + 1})).target == app.view.tree->find("modified-badge"),
+            "Pointer hits on the badge must reach the badge, not the card below");
+    app.action("hierarchy-item-sphere");
+    require(!app.view.tree->find("modified-badge"), "The badge must follow the selected item's own values");
+    app.action("hierarchy-item-cube");
+    require(app.view.tree->find("modified-badge").has_value(), "The badge must return with the modified item");
+    app.action("tool-reset");
+    require(!app.view.tree->find("modified-badge") && app.view.box("item-card").border_box == card,
+            "Reset must clear the badge without moving the card");
+}
 void smoke() {
     sections_smoke();
+    placement_smoke();
     toolbar_smoke();
     scale_smoke();
     visibility_smoke();

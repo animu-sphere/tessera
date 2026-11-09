@@ -59,6 +59,13 @@ void apply(const StyleDeclarations& d, ResolvedStyle& s) {
     set(d.row_gap, s.row_gap);
     set(d.grid_horizontal, s.grid_horizontal);
     set(d.grid_vertical, s.grid_vertical);
+    set(d.grid_column_span, s.grid_column_span);
+    set(d.grid_row_span, s.grid_row_span);
+    set(d.position, s.position);
+    set(d.left, s.left);
+    set(d.top, s.top);
+    set(d.right, s.right);
+    set(d.bottom, s.bottom);
     set(d.overflow, s.overflow);
     set(d.width, s.width);
     set(d.height, s.height);

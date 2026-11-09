@@ -27,7 +27,18 @@ For content-sized tracks use `GridTrack{}`. For weighted flexible space use `Gri
 
 Each child can set `grid_horizontal` and `grid_vertical` to `start`, `center`, `end` or `stretch` (default). Fixed child dimensions remain fixed; automatic stretch respects margins, min/max limits and border/padding floors. The parent Grid's Flex direction/alignment/gap controls do not place cells; use `column_gap` and `row_gap`.
 
-Declare both axes, at most 256 tracks each. Children occupy cells in declared order, skipping `display: none`; hidden children retain their cells. Extra children fail with `grid_capacity` instead of creating tracks. There is no spanning, explicit child cell index, implicit placement, subgrid or cell clipping; ordinary ancestor clipping, scroll offsets, paint/hit order and focus traversal apply.
+Declare both axes, at most 256 tracks each. Children occupy cells in declared order, skipping `display: none` and [absolute](../architecture/layout.md#implemented-absolute-positioning) children; hidden children retain their cells. Extra children fail with `grid_capacity` instead of creating tracks. There is no explicit child cell index, implicit placement, subgrid or cell clipping; ordinary ancestor clipping, scroll offsets, paint/hit order and focus traversal apply.
+
+## Span rows and columns
+
+Set `grid_column_span` or `grid_row_span` on a child to occupy consecutive tracks. A full-width note below a property row spans both columns:
+
+```cpp
+ui::Text("Enter applies, Esc reverts, Up/Down step.",
+         {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}})
+```
+
+Declare a row for it like any other child. Children still fill cells row-major in declared order; a span that does not fit the rest of the current row moves to the next one, leaving earlier holes empty rather than backfilling them. A spanning child aligns within its spanned tracks plus the gaps between them, and spanning text wraps at that width. Its size grows only content-sized tracks it crosses, in equal shares; across a fractional column it relies on that column's share of the width. A span longer than the declared axis reports `grid_span` at the child; one that finds no free area reports `grid_capacity`.
 
 ## Run the application operation
 

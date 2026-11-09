@@ -2,6 +2,7 @@
 #include "../detail/checks.hpp"
 #include <cmath>
 #include <string>
+#include <utility>
 
 namespace tessera {
 
@@ -18,6 +19,7 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     check.enumeration(style.grid_horizontal, Align::stretch, path + "/grid_horizontal");
     check.enumeration(style.grid_vertical, Align::stretch, path + "/grid_vertical");
     check.enumeration(style.overflow, Overflow::scroll, path + "/overflow");
+    check.enumeration(style.position, Position::absolute, path + "/position");
     check.enumeration(style.visibility, Visibility::hidden, path + "/visibility");
 
     auto dimension = [&](const Dimension& value, const std::string& location) {
@@ -71,6 +73,13 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     };
     tracks(style.grid_columns, path + "/grid_columns");
     tracks(style.grid_rows, path + "/grid_rows");
+    for (const auto& [span, field] :
+         {std::pair{style.grid_column_span, "/grid_column_span"}, std::pair{style.grid_row_span, "/grid_row_span"}})
+        if (span < 1 || span > max_grid_span)
+            check.error("out_of_range", path + field, "Use a Grid span from 1 to 256 tracks.");
+    for (const auto& [offset, field] : {std::pair{&style.left, "/left"}, std::pair{&style.top, "/top"},
+                                        std::pair{&style.right, "/right"}, std::pair{&style.bottom, "/bottom"}})
+        if (*offset) check.finite(**offset, path + field);
 
     check.range(style.opacity, path + "/opacity", 0, 1, "an opacity in [0, 1]");
     check.color(style.background, path + "/background");
