@@ -1,6 +1,6 @@
 # TextInput and NumberInput
 
-`authoring::TextInput` and `authoring::NumberInput` present a host-owned `TextEditState` as a labelled single-line input. TextInput edits a string directly; NumberInput edits a text draft that the host parses into its own accepted number. The [Inspector](inspector-hierarchy.md#scale-number-input) uses a TextInput for the item name and a NumberInput for Scale.
+`authoring::TextInput` and `authoring::NumberInput` present a host-owned `TextEditState` as a labelled single-line input. TextInput edits a string directly; NumberInput edits a text draft that the host parses into its own accepted number. The [Inspector](inspector-hierarchy.md#scale-number-input) uses a TextInput for the item name and a NumberInput for Scale. For vec2/vec3/vec4 values, [VectorInput](vector-input.md) composes one compact number input per component.
 
 ## Compose an input
 

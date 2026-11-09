@@ -15,6 +15,7 @@ Run the owner tests for changed guarantees and one consumer smoke for the applic
 | Collection order and logical ancestry | [collection](../../tests/input/collection_tests.cpp) | [Browser](../../examples/tree-list/main.cpp) selection/details |
 | Checkbox/Switch state, semantics and activation | [toggle](../../tests/input/toggle_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Enabled/Shadows |
 | TextInput/NumberInput values, semantics and number grammar | [edit input](../../tests/input/edit_input_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Name/Scale |
+| VectorInput groups, components and Tab order | [vector input](../../tests/input/vector_input_tests.cpp), [radio group](../../tests/input/radio_group_tests.cpp) sources | [Inspector](../../examples/inspector-hierarchy/main.cpp) Position |
 | Radio choice, roving Tab and selection-follows-focus | [radio group](../../tests/input/radio_group_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Visibility |
 | Flex row wrapping | [flex wrap](../../tests/layout/flex_wrap_tests.cpp), [replay serialization](../../tests/replay/replay_serialization_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Visibility choices |
 | Grid spans and absolute positioning | [grid](../../tests/layout/grid_tests.cpp), [absolute](../../tests/layout/absolute_tests.cpp), [replay serialization](../../tests/replay/replay_serialization_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Scale hint and Modified badge |

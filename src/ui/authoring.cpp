@@ -112,6 +112,8 @@ struct Lowerer {
             node.properties.try_emplace("focusable", true);
             node.properties["disabled"] = false;
         }
+        // Owners without their own action, such as groups, still present the disabled state values() settles.
+        if (data.disabled) node.properties.try_emplace("disabled", false);
         NodeSource source;
         source.pointer = path;
         source.mapped = false;
@@ -418,6 +420,63 @@ Element NumberInput(Value<std::string> label, Value<TextEditState> draft, std::s
                                                                                       .width = Dimension::points(20),
                                                                                       .shrink = 0.f},
                                                                             .source = source}));
+    return Element(std::move(data));
+}
+
+Element VectorInput(Value<std::string> label, std::vector<VectorComponent> components, VectorInputProps props) {
+    using Part = detail::ElementData::EditPart;
+    auto data = std::make_shared<detail::ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    const auto source = props.node.source;
+    auto error = [&](const char* code, const char* message) {
+        data->diagnostics.push_back({code, Severity::error, {}, message});
+    };
+    if (prefix.empty()) error("vector_input_id", "Give the VectorInput a stable nonempty author ID.");
+    if (components.size() < 2 || components.size() > 4)
+        error("vector_input_components", "Supply two to four VectorInput components.");
+    data->children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = source}));
+    auto fields = std::make_shared<detail::ElementData>();
+    fields->props = {.id = prefix + "-fields",
+                     .style = {.direction = FlexDirection::row, .gap = 4.f, .grow = 1.f, .shrink = 1.f},
+                     .source = source};
+    std::set<std::string> keys;
+    for (auto& component : components) {
+        if (component.key.empty() || !keys.insert(component.key).second)
+            error("vector_input_keys", "Supply unique nonempty VectorInput component keys.");
+        const auto id = prefix + "-" + component.key;
+        // A zero basis with equal grow shares the fields row equally, independent of the drafts' lengths.
+        auto owner = edit_owner("number_input", "VectorInput component", component.draft, std::move(component.action),
+                                {.id = id,
+                                 .style = {.direction = FlexDirection::row,
+                                           .align = Align::center,
+                                           .width = Dimension::points(0),
+                                           .gap = 4.f,
+                                           .grow = 1.f,
+                                           .shrink = 1.f},
+                                 .source = source},
+                                false);
+        owner->children.push_back(Text(std::move(component.label), {.id = id + "-label", .source = source}));
+        auto field = std::make_shared<detail::ElementData>();
+        field->props = {.id = id + "-field",
+                        .style = {.direction = FlexDirection::row,
+                                  .align = Align::center,
+                                  .overflow = Overflow::clip,
+                                  .grow = 1.f,
+                                  .shrink = 1.f},
+                        .source = source};
+        field->children.push_back(Element(edit_part_text(component.draft, Part::value, id + "-value", source)));
+        owner->children.push_back(Element(std::move(field)));
+        fields->children.push_back(Element(std::move(owner)));
+    }
+    data->children.push_back(Element(std::move(fields)));
+    data->props = std::move(props.node);
+    auto& style = data->props.style;
+    style.direction = FlexDirection::row;
+    if (!style.align) style.align = Align::center;
+    if (!style.gap) style.gap = 6.f;
+    data->disabled = std::move(props.disabled);
+    data->properties["collection_role"] = std::string("group");
+    data->properties["labelled_by"] = NodeReference{prefix + "-label"};
     return Element(std::move(data));
 }
 

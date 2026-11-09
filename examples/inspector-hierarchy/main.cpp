@@ -41,6 +41,8 @@ constexpr ui::SliderRange amount_range{0, 100, 5};
 constexpr ui::NumberRange scale_range{0, 10, 0.1};
 // Draft owners stay distinct from every item's name owner.
 constexpr std::uint64_t scale_owner_base = 1000;
+constexpr ui::NumberRange position_range{-1000, 1000, 0.1};
+constexpr std::uint64_t position_owner_base = 2000; // + 3 * item + axis
 constexpr ui::SplitPaneLimits pane_limits{140, 320, 8};
 const std::vector<std::pair<std::string, std::string>> visibility_choices{
     {"inherited", "Inherited"}, {"visible", "Visible"}, {"hidden", "Hidden"}};
@@ -53,17 +55,51 @@ struct Item {
     TextEditState name;
     bool enabled = true;
     int amount = 50;
-    double scale = 1;          // Accepted number.
-    TextEditState scale_draft; // Pending NumberInput text; Enter applies, Escape reverts.
+    double scale = 1;                            // Accepted number.
+    TextEditState scale_draft;                   // Pending NumberInput text; Enter applies, Escape reverts.
+    std::array<double, 3> position{};            // Accepted X/Y/Z.
+    std::array<TextEditState, 3> position_draft; // Pending VectorInput component drafts.
     std::string visibility = "inherited";
     bool shadows = true;
     std::string purpose = "default";
     bool operator==(const Item&) const = default;
 };
+// Host-edited numeric drafts: Scale's NumberInput, then the Position VectorInput components. Each
+// field has its own accepted value, draft, command, range and reset value.
+struct NumberField {
+    const char* id;
+    const char* command;
+    const char* name; // Feedback label.
+    ui::NumberRange range;
+    double reset;
+};
+constexpr std::array<NumberField, 4> number_fields{{{"scale", "item.scale", "Scale", scale_range, 1},
+                                                    {"position-x", "item.position.x", "Position", position_range, 0},
+                                                    {"position-y", "item.position.y", "Position", position_range, 0},
+                                                    {"position-z", "item.position.z", "Position", position_range, 0}}};
+template<class I> auto& number_value(I& item, std::size_t field) {
+    return field == 0 ? item.scale : item.position[field - 1];
+}
+template<class I> auto& number_draft(I& item, std::size_t field) {
+    return field == 0 ? item.scale_draft : item.position_draft[field - 1];
+}
+std::optional<std::size_t> number_command(std::string_view command) {
+    for (std::size_t i = 0; i < number_fields.size(); ++i)
+        if (command == number_fields[i].command) return i;
+    return std::nullopt;
+}
+// A draft that differs from its accepted value's canonical text.
+bool pending(const Item& item, std::size_t field) {
+    return number_draft(item, field).text != ui::format_number(number_value(item, field));
+}
 // True when Reset would change a property; the display name is not reset.
 bool modified(const Item& item) {
-    return !item.enabled || item.amount != 50 || item.scale != 1 || item.scale_draft.text != ui::format_number(1) ||
-           item.visibility != "inherited" || !item.shadows || item.purpose != "default";
+    for (std::size_t i = 0; i < number_fields.size(); ++i)
+        if (number_value(item, i) != number_fields[i].reset ||
+            number_draft(item, i).text != ui::format_number(number_fields[i].reset))
+            return true;
+    return !item.enabled || item.amount != 50 || item.visibility != "inherited" || !item.shadows ||
+           item.purpose != "default";
 }
 // At most one popup is open: an item menu or the Purpose list.
 enum class OpenMenu { none, actions, context, purpose };
@@ -96,13 +132,18 @@ State initial_state() {
     for (int i = 0; i < 12; ++i)
         state.items.push_back({"extra" + std::to_string(i),
                                take(make_text_edit_state(state.items.size() + 1, "Extra " + std::to_string(i)))});
-    for (std::size_t i = 0; i < state.items.size(); ++i)
+    for (std::size_t i = 0; i < state.items.size(); ++i) {
         state.items[i].scale_draft = take(make_text_edit_state(scale_owner_base + i, ui::format_number(1)));
+        for (std::size_t axis = 0; axis < 3; ++axis)
+            state.items[i].position_draft[axis] =
+                take(make_text_edit_state(position_owner_base + 3 * i + axis, ui::format_number(0)));
+    }
     return state;
 }
 ValidationContext action_context(const State& state) {
     ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.scale", "item.shadows",
-                               "item.rename", "item.reset", "menu.open", "panes.resize", "purpose.toggle"}};
+                               "item.rename", "item.reset", "menu.open", "panes.resize", "purpose.toggle",
+                               "item.position.x", "item.position.y", "item.position.z"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
     for (const auto& [key, label] : purpose_choices) context.actions.insert("purpose." + key);
@@ -183,6 +224,25 @@ StyleSheet appearance(const State& state) {
              {.border_color = Color{.2f, .4f, .85f, 1}, .outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}, 4.f, 2.f}}});
     };
     for (const auto& item : state.items) row("hierarchy-item-" + item.id);
+    // Position components share the control decoration; the Grid label column already names the vector.
+    sheet.rules.push_back({StyleSelector::of_id("position-label"), {.display = Display::none}});
+    for (const auto* axis : {"x", "y", "z"}) {
+        const auto id = std::string("position-") + axis;
+        sheet.rules.push_back({StyleSelector::of_id(id),
+                               {.min_height = 32.f,
+                                .border = Edges{1, 1, 1, 1},
+                                .padding = Edges{6, 6, 6, 6},
+                                .background = Color{1, 1, 1, 1},
+                                .border_color = Color{.65f, .72f, .83f, 1},
+                                .corner_radius = 6.f}});
+        sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
+        sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(id, {.focus = true}),
+             {.border_color = Color{.2f, .4f, .85f, 1}, .outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(id + "-label"), {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}});
+    }
     const auto selected = "hierarchy-item-" + state.selected;
     sheet.rules.push_back(
         {StyleSelector::of_id(selected), {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}}});
@@ -271,10 +331,17 @@ ui::Element Form(const State& state, Size viewport) {
             ui::Text(item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *",
                      {.id = "scale-caption", .classes = {"muted"}}),
             ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")}),
-            // Contextual help spans the label and control columns below Scale.
+            ui::Text(pending(item, 1) || pending(item, 2) || pending(item, 3) ? "Position *" : "Position",
+                     {.id = "position-caption", .classes = {"muted"}}),
+            ui::VectorInput("Position",
+                            {{"x", "X", item.position_draft[0], "item.position.x"},
+                             {"y", "Y", item.position_draft[1], "item.position.y"},
+                             {"z", "Z", item.position_draft[2], "item.position.z"}},
+                            {.node = {.id = "position"}}),
+            // Contextual help spans the label and control columns below Scale and Position.
             ui::Text("Enter applies, Esc reverts, Up/Down step.",
                      {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}})};
-        rows.resize(5);
+        rows.resize(6);
     } else {
         properties = {
             ui::Text("Visibility", {.classes = {"muted"}}),
@@ -455,31 +522,33 @@ struct ImeStep {
     std::string text;      // Update preedit or commit result.
     std::size_t caret = 0; // Byte offset within an update's preedit.
 };
-// Host requests for the Scale NumberInput, all executed through the one item.scale command.
-struct ScaleApply {};  // Enter: parse the draft and accept it.
-struct ScaleRevert {}; // Escape: restore the canonical accepted text.
-struct ScaleStep {     // Up/Down or a step part: move from the parsed draft and accept.
+// Host requests for one numeric field, each executed through that field's own command.
+struct NumberApply {};  // Enter: parse the draft and accept it.
+struct NumberRevert {}; // Escape: restore the canonical accepted text.
+struct NumberStep {     // Up/Down or a step part: move from the parsed draft and accept.
     int steps = 0;
 };
-using ScaleRequest = std::variant<TextEditRequest, ScaleApply, ScaleRevert, ScaleStep>;
+using NumberRequest = std::variant<TextEditRequest, NumberApply, NumberRevert, NumberStep>;
 // Edits change only the draft. Apply/step accept a valid draft and replace it with canonical
 // text (caret at the end, next revision); an invalid draft rejects them and stays as typed.
-std::vector<Diagnostic> apply_scale(Item& item, const ScaleRequest& request) {
-    auto& draft = item.scale_draft;
+std::vector<Diagnostic> apply_number(Item& item, std::size_t field, const NumberRequest& request) {
+    auto& draft = number_draft(item, field);
+    auto& value = number_value(item, field);
+    const auto range = number_fields[field].range;
     if (const auto* edit = std::get_if<TextEditRequest>(&request)) {
         auto next = edit_text(draft, *edit);
         if (!next) return std::move(next.diagnostics);
         draft = std::move(*next.value);
         return {};
     }
-    if (!std::holds_alternative<ScaleRevert>(request)) {
-        auto parsed = ui::parse_number(scale_range, draft.text);
+    if (!std::holds_alternative<NumberRevert>(request)) {
+        auto parsed = ui::parse_number(range, draft.text);
         if (!parsed) return std::move(parsed.diagnostics);
-        item.scale = *parsed.value;
-        if (const auto* step = std::get_if<ScaleStep>(&request))
-            item.scale = take(ui::step_number(scale_range, item.scale, step->steps));
+        value = *parsed.value;
+        if (const auto* step = std::get_if<NumberStep>(&request))
+            value = take(ui::step_number(range, value, step->steps));
     }
-    draft.text = ui::format_number(item.scale);
+    draft.text = ui::format_number(value);
     draft.anchor = draft.caret = draft.text.size();
     ++draft.revision;
     return {};
@@ -529,22 +598,25 @@ public:
         else if (command.starts_with("section."))
             candidate.section = command.substr(8);
         else if (command == "item.reset") {
-            // Restore every property except the display name; a pending Scale draft is discarded.
+            // Restore every property except the display name; pending numeric drafts are discarded.
             auto& item = candidate.item();
             item.enabled = true;
             item.amount = 50;
-            item.scale = 1;
-            item.scale_draft.text = ui::format_number(1);
-            item.scale_draft.anchor = item.scale_draft.caret = item.scale_draft.text.size();
-            ++item.scale_draft.revision;
+            for (std::size_t i = 0; i < number_fields.size(); ++i) {
+                auto& draft = number_draft(item, i);
+                number_value(item, i) = number_fields[i].reset;
+                draft.text = ui::format_number(number_fields[i].reset);
+                draft.anchor = draft.caret = draft.text.size();
+                ++draft.revision;
+            }
             item.visibility = "inherited";
             item.shadows = true;
             item.purpose = "default";
         } else if (command == "item.shadows")
             candidate.item().shadows = !candidate.item().shadows;
-        else if (command == "item.scale") {
-            require(scale_request.has_value(), "Scale input needs an owned request");
-            auto rejected = apply_scale(candidate.item(), *scale_request);
+        else if (const auto field = number_command(command)) {
+            require(number_request && number_request->first == *field, "Numeric input needs an owned request");
+            auto rejected = apply_number(candidate.item(), *field, number_request->second);
             if (!rejected.empty()) return {CommandOutcomeStatus::error, {}, std::move(rejected)};
         } else if (command == "item.amount") {
             candidate.item().amount = amount.value_or(std::min(100, candidate.item().amount + amount_range.step));
@@ -586,7 +658,7 @@ public:
     }
     CommandOutcome operate(const ActionRequest& action, CommandSource source) {
         if (action.action == "item.name" && !edit) return {};
-        if (action.action == "item.scale" && !scale_request) return {};
+        if (number_command(action.action) && !number_request) return {};
         if (action.action == "panes.resize" && !split) return {};
         const auto semantic = view.semantic();
         const auto invocation =
@@ -703,7 +775,7 @@ public:
                 // A step part focuses the input and steps once on press; its release activates nothing.
                 pointer.reset();
                 (void)take(focus.focus(view.hit(), *view.tree->find("scale")));
-                if (try_scale(ScaleStep{steps}, source).status != CommandOutcomeStatus::success) refresh(true);
+                if (try_number(0, NumberStep{steps}, source).status != CommandOutcomeStatus::success) refresh(true);
                 return;
             }
             if (target && (target == view.tree->find("amount-track") || target == view.tree->find("amount-fill") ||
@@ -791,9 +863,9 @@ public:
             report("Name edit", state.selected, edit_diagnostics);
             return;
         }
-        if (focused && focused == view.tree->find("scale")) {
-            std::optional<ScaleRequest> request;
-            const auto& draft = state.item().scale_draft;
+        if (const auto field = focused_number(focused)) {
+            std::optional<NumberRequest> request;
+            const auto& draft = number_draft(state.item(), *field);
             const auto edit_request = [&](decltype(TextEditRequest::operation) operation) {
                 request = TextEditRequest{draft.owner, draft.revision, std::move(operation)};
             };
@@ -826,14 +898,14 @@ public:
                             break;
                     }
                 if (key->modifiers == Modifiers{}) {
-                    if (key->key == Key::up) request = ScaleStep{1};
-                    if (key->key == Key::down) request = ScaleStep{-1};
-                    if (key->key == Key::enter && !key->repeat) request = ScaleApply{};
-                    if (key->key == Key::escape && !key->repeat) request = ScaleRevert{};
+                    if (key->key == Key::up) request = NumberStep{1};
+                    if (key->key == Key::down) request = NumberStep{-1};
+                    if (key->key == Key::enter && !key->repeat) request = NumberApply{};
+                    if (key->key == Key::escape && !key->repeat) request = NumberRevert{};
                 }
             }
             if (request) {
-                (void)try_scale(std::move(*request), source);
+                (void)try_number(*field, std::move(*request), source);
                 return;
             }
         }
@@ -908,17 +980,26 @@ public:
         edit.reset();
         return outcome;
     }
-    // Addresses the selected item's Scale draft; rejection keeps the draft and reports feedback.
-    CommandOutcome try_scale(ScaleRequest request, CommandSource source = CommandSource::keyboard) {
-        scale_request = std::move(request);
-        const auto outcome =
-            operate(take(request_semantic_action(view.semantic(), *view.tree->find("scale"), "activate")), source);
-        scale_request.reset();
+    // Addresses the selected item's draft for one numeric field; rejection keeps the draft and reports feedback.
+    CommandOutcome try_number(std::size_t field, NumberRequest request,
+                              CommandSource source = CommandSource::keyboard) {
+        number_request = {field, std::move(request)};
+        const auto outcome = operate(
+            take(request_semantic_action(view.semantic(), *view.tree->find(number_fields[field].id), "activate")),
+            source);
+        number_request.reset();
         edit_diagnostics = outcome.diagnostics;
         if (outcome.status != CommandOutcomeStatus::success)
-            require(!edit_diagnostics.empty(), "Rejected Scale input needs diagnostics");
-        report("Scale", state.selected, edit_diagnostics);
+            require(!edit_diagnostics.empty(), "Rejected numeric input needs diagnostics");
+        report(number_fields[field].name, state.selected, edit_diagnostics, number_fields[field].range);
         return outcome;
+    }
+    // The numeric field whose editor holds focus, if any.
+    std::optional<std::size_t> focused_number(std::optional<NodeHandle> focused) const {
+        if (!focused) return std::nullopt;
+        for (std::size_t i = 0; i < number_fields.size(); ++i)
+            if (focused == view.tree->find(number_fields[i].id)) return i;
+        return std::nullopt;
     }
     bool resizing() const { return splitter.dragging(); }
     bool composing() const { return state.item().name.composition.has_value(); }
@@ -1061,7 +1142,9 @@ private:
         report(key.key == Key::c ? "Copy" : key.key == Key::x ? "Cut" : "Paste", selected, clipboard_diagnostics);
         return true;
     }
-    void report(std::string_view operation, std::string_view item, const std::vector<Diagnostic>& diagnostics) {
+    // `range` names the bounds of a rejected numeric field.
+    void report(std::string_view operation, std::string_view item, const std::vector<Diagnostic>& diagnostics,
+                std::optional<ui::NumberRange> range = {}) {
         feedback.clear();
         if (diagnostics.empty()) return;
         feedback = std::string(operation) + " could not finish. ";
@@ -1070,8 +1153,9 @@ private:
             feedback += "Names must fit within 4096 UTF-8 bytes.";
         else if (code == "multiline_text")
             feedback += "Use a single line for the name.";
-        else if (code == "number_syntax" || code == "number_out_of_range")
-            feedback += "Enter a number from 0 to 10.";
+        else if ((code == "number_syntax" || code == "number_out_of_range") && range)
+            feedback += "Enter a number from " + ui::format_number(range->minimum) + " to " +
+                        ui::format_number(range->maximum) + ".";
         else if (code == "invalid_utf8" || code == "invalid_utf16" || code == "clipboard_nul")
             feedback += "Use valid Unicode text.";
         else
@@ -1091,7 +1175,7 @@ private:
     ComboBoxDispatcher purpose{"purpose"};
     Offsets offsets;
     std::optional<TextEditRequest> edit;
-    std::optional<ScaleRequest> scale_request;
+    std::optional<std::pair<std::size_t, NumberRequest>> number_request;
     std::string ime_item;
     bool ime_ignored = false;
     std::optional<int> amount;
@@ -2276,6 +2360,109 @@ void scale_smoke() {
     require(app.state.item() == pending && app.observed_value("scale") == "1" && caption() == "Scale *",
             "Returning to an item must retain its accepted Scale and pending draft");
 }
+void position_smoke() {
+    App app;
+    // Leave room below the card for every General row.
+    app.resize({960, 540});
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    const auto caption = [&] {
+        return std::get<std::string>(
+            app.view.tree->get(*app.view.tree->find("position-caption"))->properties.at("text"));
+    };
+    const auto focused = [&](std::string_view id) {
+        return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id);
+    };
+    const auto nodes = app.view.inspection.semantics.nodes;
+    const auto group = std::find_if(nodes.begin(), nodes.end(), [](const auto& node) { return node.id == "position"; });
+    require(group != nodes.end() && group->role == SemanticRole::group && group->name == "Position" &&
+                group->actions.empty() && caption() == "Position",
+            "Position must expose a named group");
+    for (const auto& [id, name, action] :
+         std::vector<std::tuple<const char*, const char*, const char*>>{{"position-x", "X", "item.position.x"},
+                                                                        {"position-y", "Y", "item.position.y"},
+                                                                        {"position-z", "Z", "item.position.z"}}) {
+        const auto& component = app.observed(id);
+        require(component.role == SemanticRole::number_input && component.name == name && component.value == "0" &&
+                    component.actions == std::vector<SemanticAction>{{"activate", action}} &&
+                    &nodes[component.parent] == &*group,
+                "Each Position component must be a named number input inside the group");
+    }
+    app.focus_id("scale");
+    for (const auto* id : {"position-x", "position-y", "position-z"}) {
+        input(KeyDown{Key::tab});
+        require(focused(id), "Tab must visit each Position component after Scale");
+    }
+    input(KeyDown{Key::tab, {.shift = true}});
+    require(focused("position-y"), "Shift+Tab must return through the components");
+
+    auto executions = app.executions;
+    input(KeyDown{Key::up});
+    require(app.state.item().position == std::array<double, 3>{0, .1, 0} &&
+                app.state.item().position_draft[1].text == "0.1" && app.observed_value("position-y") == "0.1" &&
+                app.executions == executions + 1,
+            "Up must step only the focused component through its own command");
+    input(KeyDown{Key::tab});
+    input(KeyDown{Key::down});
+    input(KeyDown{Key::down});
+    require(app.state.item().position[2] == -.2 && app.observed_value("position-z") == "-0.2",
+            "Down must step below zero without binary noise");
+
+    app.focus_id("position-x");
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"12.5"});
+    require(app.state.item().position[0] == 0 && app.observed_value("position-x") == "12.5" &&
+                caption() == "Position *",
+            "Typing must change only that component's draft and mark Position pending");
+    executions = app.executions;
+    input(KeyDown{Key::enter});
+    require(app.state.item().position == std::array<double, 3>{12.5, .1, -.2} && caption() == "Position" &&
+                app.executions == executions + 1 && app.feedback.empty(),
+            "Enter must apply the focused component");
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"x"});
+    const auto invalid = app.state.item();
+    input(KeyDown{Key::enter});
+    require(app.state.item() == invalid && app.edit_diagnostics.front().code == "number_syntax" &&
+                app.feedback == "Position could not finish. Enter a number from -1000 to 1000.",
+            "An invalid component draft must be rejected with Position feedback");
+    input(KeyDown{Key::escape});
+    require(app.state.item().position_draft[0].text == "12.5" && app.feedback.empty() && caption() == "Position",
+            "Escape must restore the component's accepted text");
+
+    const auto point = app.view.reachable("position-z-field");
+    executions = app.executions;
+    input(PointerDown{{1}, point}, CommandSource::pointer);
+    input(PointerUp{{1}, point}, CommandSource::pointer);
+    require(focused("position-z") && app.executions == executions, "Clicking a component must only focus it");
+    const auto x = app.view.box("position-x").border_box;
+    const auto z = app.view.box("position-z").border_box;
+    require(std::abs(x.size.width - z.size.width) < 1e-3f && z.origin.x > x.origin.x &&
+                std::abs(x.origin.x - app.view.box("scale").border_box.origin.x) < 1e-3f,
+            "Components must share the control column equally from its leading edge");
+    require(app.view.tree->find("modified-badge").has_value(), "A moved item must show the Modified badge");
+
+    app.action("hierarchy-item-sphere");
+    require(app.state.item().position == std::array<double, 3>{} && app.observed_value("position-x") == "0",
+            "Another item must show its own Position");
+    app.action("hierarchy-item-cube");
+    require(app.state.item().position == std::array<double, 3>{12.5, .1, -.2} &&
+                app.observed_value("position-x") == "12.5",
+            "Returning to an item must retain its Position");
+    app.resize({492, 540});
+    const auto pane = app.view.box("inspector").padding_box();
+    const auto narrow = app.view.box("position-z").border_box;
+    require(narrow.origin.x + narrow.size.width <= pane.origin.x + pane.size.width &&
+                std::abs(app.view.box("position-x").border_box.size.width - narrow.size.width) < 1e-3f,
+            "Position components must fit the minimum Inspector pane");
+    const auto revision = app.state.item().position_draft[0].revision;
+    app.action("tool-reset");
+    require(app.state.item().position == std::array<double, 3>{} && app.state.item().position_draft[0].text == "0" &&
+                app.state.item().position_draft[0].revision == revision + 1 && !app.view.tree->find("modified-badge"),
+            "Reset must restore Position and clear the badge");
+}
 void sections_smoke() {
     App app;
     std::chrono::microseconds time{};
@@ -2371,7 +2558,7 @@ void toolbar_smoke() {
     const auto name = app.state.item().name;
     app.action("enabled");
     app.action("amount");
-    require(app.try_scale(ScaleStep{5}).status == CommandOutcomeStatus::success, "Scale must step before reset");
+    require(app.try_number(0, NumberStep{5}).status == CommandOutcomeStatus::success, "Scale must step before reset");
     app.action("sections-tab-display");
     app.action("visibility-option-hidden");
     app.action("shadows");
@@ -2475,6 +2662,7 @@ void smoke() {
     placement_smoke();
     toolbar_smoke();
     scale_smoke();
+    position_smoke();
     visibility_smoke();
     shadows_smoke();
     purpose_smoke();
@@ -2692,7 +2880,9 @@ int native(bool smoke) {
         return app.view.box(*app.view.tree->get(*focused)->id).border_box;
     };
     // Both inputs take committed WM_CHAR text and Return; only the name editor attaches the IME.
-    window.editing = [&] { return app.focused_on("name") || app.focused_on("scale"); };
+    window.editing = [&] {
+        return app.focused_on("name") || app.focused_number(take(app.focus.refresh(app.view.hit())).focused);
+    };
     window.ime_editing = [&] { return app.focused_on("name"); };
     window.resized = [&](Size viewport) { app.resize(viewport); };
     window.resize_cursor = [&](Point point) {
@@ -2961,7 +3151,14 @@ int native(bool smoke) {
                 "Native Escape must revert the Scale draft and clear feedback");
         click("scale-decrease");
         require(app.state.item().scale == 2.5, "A native step-part press must step Scale");
-        // Shift+Tab back from Scale reaches the tabs in four stops instead of wrapping the Hierarchy.
+        seek("position-y");
+        control_key('A');
+        for (const auto unit : {L'-', L'3'}) host.message(WM_CHAR, unit);
+        host.message(WM_KEYDOWN, VK_RETURN, 1);
+        host.message(WM_KEYDOWN, VK_DOWN, 1);
+        require(app.state.item().position == std::array<double, 3>{0, -3.1, 0} && app.state.item().scale == 2.5,
+                "Native characters, Return and Down must edit only the focused Position component");
+        // Shift+Tab back from Position reaches the tabs instead of wrapping the Hierarchy.
         seek("sections-tab-general", true);
         host.message(WM_KEYDOWN, VK_RIGHT, 1);
         require(app.state.section == "display" && app.view.tree->find("visibility"),
