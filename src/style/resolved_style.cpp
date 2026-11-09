@@ -12,6 +12,7 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     const std::string path(base);
     check.enumeration(style.display, Display::grid, path + "/display");
     check.enumeration(style.direction, FlexDirection::row, path + "/direction");
+    check.enumeration(style.flex_wrap, FlexWrap::wrap, path + "/flex_wrap");
     check.enumeration(style.justify, Justify::space_between, path + "/justify");
     check.enumeration(style.align, Align::stretch, path + "/align");
     check.enumeration(style.stack_horizontal, Align::stretch, path + "/stack_horizontal");

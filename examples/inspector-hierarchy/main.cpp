@@ -276,11 +276,15 @@ ui::Element Form(const State& state, Size viewport) {
                      {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}})};
         rows.resize(5);
     } else {
-        properties = {ui::Text("Visibility", {.classes = {"muted"}}),
-                      ui::RadioGroup("Visibility", item.visibility, std::move(visibility),
-                                     {.node = {.id = "visibility", .style = {.gap = 2.f}}}),
-                      ui::Text("Shadows", {.classes = {"muted"}}),
-                      ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})};
+        properties = {
+            ui::Text("Visibility", {.classes = {"muted"}}),
+            // Choices share a line when the control column allows and wrap in narrow panes.
+            ui::RadioGroup(
+                "Visibility", item.visibility, std::move(visibility),
+                {.node = {.id = "visibility",
+                          .style = {.direction = FlexDirection::row, .flex_wrap = FlexWrap::wrap, .gap = 4.f}}}),
+            ui::Text("Shadows", {.classes = {"muted"}}),
+            ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})};
         std::vector<ui::ComboBoxOption> purposes;
         for (const auto& [key, label] : purpose_choices) purposes.push_back({key, label, "purpose." + key});
         auto purpose = ui::ComboBox(
@@ -2007,6 +2011,37 @@ void visibility_smoke() {
     require(app.state.item().visibility == "visible", "Returning to an item must retain its visibility");
     app.action("hierarchy-item-sphere");
     require(app.state.item().visibility == "hidden", "Each item must retain an independent visibility");
+
+    // The group is a wrapping row: one line in the wide pane, a second line in the narrow control column.
+    const auto option = [&](std::string_view key) {
+        return app.view.box("visibility-option-" + std::string(key)).border_box;
+    };
+    const auto right = [](const Rect& rect) { return rect.origin.x + rect.size.width; };
+    const auto bottom = [](const Rect& rect) { return rect.origin.y + rect.size.height; };
+    require(option("visible").origin.y == option("inherited").origin.y &&
+                option("hidden").origin.y == option("inherited").origin.y &&
+                option("visible").origin.x == right(option("inherited")) + 4 &&
+                option("hidden").origin.x == right(option("visible")) + 4,
+            "Visibility choices must share one line in the wide Inspector");
+    app.action("hierarchy-item-cube");
+    app.resize({492, 360});
+    const auto lines = app.view.box("visibility").content_box();
+    const auto shadows = app.view.box("shadows").border_box;
+    require(option("inherited").origin.x == lines.origin.x && option("hidden").origin.x == lines.origin.x &&
+                option("hidden").origin.y >= bottom(option("inherited")) + 4 &&
+                right(option("inherited")) <= right(lines) && right(option("visible")) <= right(lines) &&
+                right(option("hidden")) <= right(lines) && bottom(option("hidden")) == bottom(lines) &&
+                shadows.origin.y >= bottom(lines) + 12,
+            "Narrow Visibility choices must wrap inside the control column and push Shadows below their lines");
+    const auto wrapped = app.view.reachable("visibility-option-hidden");
+    input(PointerDown{{1}, wrapped}, CommandSource::pointer);
+    input(PointerUp{{1}, wrapped}, CommandSource::pointer);
+    require(app.state.item().visibility == "hidden" &&
+                take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("visibility-option-hidden"),
+            "A pointer press on a wrapped choice must focus and select it");
+    app.focus_id("visibility-option-inherited");
+    input(KeyDown{Key::down});
+    require(app.state.item().visibility == "visible", "Arrow order must stay in declared order across lines");
 }
 void shadows_smoke() {
     App app;
@@ -2124,9 +2159,9 @@ void purpose_smoke() {
             "A pointer press must choose an option and close the list");
     press("purpose");
     executions = app.executions;
-    press("selected");
+    press("hierarchy-item-sphere");
     require(app.state.menu == OpenMenu::none && app.state.item().purpose == "guide" && app.executions == executions &&
-                app.focused_on("purpose"),
+                app.state.selected == "cube" && app.focused_on("purpose"),
             "An outside press must close the list without clicking through");
     const auto label = [&](std::string_view key) {
         return app.view.styles[app.view.tree->find("purpose-label-" + std::string(key))->index].color;

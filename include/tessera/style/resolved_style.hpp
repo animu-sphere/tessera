@@ -28,6 +28,8 @@ struct Dimension {
 enum class Display : std::uint8_t { flex, none, stack, grid };
 enum class Visibility : std::uint8_t { visible, hidden };
 enum class FlexDirection : std::uint8_t { column, row };
+// wrap: a row container breaks its children into lines; column containers ignore it.
+enum class FlexWrap : std::uint8_t { no_wrap, wrap };
 enum class Justify : std::uint8_t { start, center, end, space_between };
 enum class Align : std::uint8_t { start, center, end, stretch };
 enum class Overflow : std::uint8_t { visible, clip, scroll };
@@ -56,6 +58,7 @@ struct ResolvedStyle {
     // Layout
     Display display = Display::flex;
     FlexDirection direction = FlexDirection::column;
+    FlexWrap flex_wrap = FlexWrap::no_wrap;
     Justify justify = Justify::start;
     Align align = Align::stretch;
     // clip: descendants paint and hit only inside the padding box. scroll: clips the same way and moves

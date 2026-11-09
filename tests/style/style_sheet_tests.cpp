@@ -385,12 +385,14 @@ void test_placement_declarations() {
     placed.position = tessera::Position::absolute;
     placed.top = std::optional<float>{-4.0f};
     placed.right = std::optional<float>{6.0f};
+    placed.flex_wrap = tessera::FlexWrap::wrap;
     tessera::ResolvedStyle style;
     style.left = 1.0f;
     tessera::apply(placed, style);
     check(style.grid_column_span == 2 && style.grid_row_span == 3 && style.position == tessera::Position::absolute &&
-              style.top == -4.0f && style.right == 6.0f && style.left == 1.0f && !style.bottom,
-          "Placement declarations must replace only the declared span, position and offsets");
+              style.top == -4.0f && style.right == 6.0f && style.left == 1.0f && !style.bottom &&
+              style.flex_wrap == tessera::FlexWrap::wrap,
+          "Placement declarations must replace only the declared span, position, offsets and wrapping");
     tessera::StyleDeclarations cleared;
     cleared.left = std::optional<float>{};
     cleared.position = tessera::Position::flow;
@@ -402,10 +404,11 @@ void test_placement_declarations() {
     invalid.grid_row_span = std::uint16_t{257};
     invalid.position = static_cast<tessera::Position>(5);
     invalid.bottom = std::optional<float>{std::nanf("")};
+    invalid.flex_wrap = static_cast<tessera::FlexWrap>(4);
     const auto declared = tessera::validate(invalid, "/x");
     check(has(declared, "out_of_range", "/x/grid_column_span") && has(declared, "out_of_range", "/x/grid_row_span") &&
               has(declared, "unknown_value", "/x/position") && has(declared, "invalid_number", "/x/bottom") &&
-              declared.size() == 4,
+              has(declared, "unknown_value", "/x/flex_wrap") && declared.size() == 5,
           "Placement declarations must validate once per declared value");
 }
 

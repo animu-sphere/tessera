@@ -16,7 +16,7 @@ The public headers are [geometry.hpp](../../include/tessera/layout/geometry.hpp)
 
 ## Implemented prototype algorithm
 
-`compute_layout(LayoutInput)` in [layout_box.hpp](../../include/tessera/layout/layout_box.hpp) recomputes the full tree. It returns the `validate` diagnostics without a value for invalid input, text measurement failures relocated under `/nodes/<index>` (the node's `NodeHandle::index`), or `non_finite_geometry` at `/nodes/<index>` when float arithmetic overflows. Every `Display::flex` node is a single-line flex container; a Text node is a leaf whose content size is its measured `TextMetrics::size`.
+`compute_layout(LayoutInput)` in [layout_box.hpp](../../include/tessera/layout/layout_box.hpp) recomputes the full tree. It returns the `validate` diagnostics without a value for invalid input, text measurement failures relocated under `/nodes/<index>` (the node's `NodeHandle::index`), or `non_finite_geometry` at `/nodes/<index>` when float arithmetic overflows. Every `Display::flex` node is a flex container, single-line unless a row declares [wrapping](#implemented-flex-wrapping); a Text node is a leaf whose content size is its measured `TextMetrics::size`.
 
 - **Box sizing.** `width`/`height` and min/max limits apply to the border box. A fixed dimension is clamped into its minimum/maximum range; the border box is never smaller than its border plus padding, which wins over a smaller maximum. Content boxes are derived with `inset`.
 - **Root.** The root margin box starts at the viewport origin. An automatic root dimension fills the viewport less its margins; a fixed one ignores the viewport. A non-displayed root yields no boxes.
@@ -29,6 +29,17 @@ The public headers are [geometry.hpp](../../include/tessera/layout/geometry.hpp)
 - **Scrolling.** A scroll box clips like `overflow: clip` and is sized like any other box, so it scrolls only when its size is constrained. Its extent covers its padding box and, measured from the padding box origin at zero offset, each displayed child's margin box plus the scroll box's own trailing padding on that axis. Overflow of grandchildren beyond a child's border box does not extend it. The node's requested offset, or zero without offsets, is clamped per axis into `[0, scroll_limit()]` and recorded; every descendant is placed moved back by it, so recorded border boxes and clips already include all ancestor offsets. The scroll box and its padding-box clip do not move. Nested scroll boxes compose their offsets and intersect their viewports. Offsets for nodes that do not scroll are ignored. A non-finite extent or offset reports `non_finite_geometry`.
 - **Display and visibility.** `Display::none` children and their subtrees take no space and add no gap. `Visibility::hidden` boxes keep geometry and gaps and report `visible == false`. Each box reports its own resolved visibility; the [prototype style resolver](styling.md#implemented-prototype-style-resolution) does not inherit it.
 - **Numerics.** Geometry uses `float` logical units without rounding or pixel snapping. Results are exact for dyadic fixture values and deterministic for identical input on one toolchain; proportional shares such as thirds are checked within 1e-4 logical units. Transform composition and snapping remain unspecified.
+
+## Implemented Flex wrapping
+
+`flex_wrap: wrap` on a `Display::flex` row breaks its flow children into lines, top to bottom; the default `no_wrap` keeps the single-line rules above. Column containers and Stack/Grid parents ignore it. Column or reverse wrapping and selectable line packing (`align-content`) are not provided.
+
+- **Line breaking.** Children are taken in tree order. A child's outer size is its clamped width basis plus horizontal margins; it starts a new line when, after `gap`, it would pass the content width. A line always holds at least one child, so an oversized child takes its own line and overflows safely from the leading edge. Absolute, non-displayed and root-layer children take no line space; hidden children keep theirs.
+- **Within a line.** Each line applies the main-axis rules independently: grow/shrink distribute only that line's free space or overflow, and `justify` places that line's remaining space.
+- **Lines.** A line's cross size is its largest child margin-box height, measured at the widths flexed within that line. Lines stack from the content top, separated by the same `gap` used between children. When the content box is taller than the lines and gaps, the positive remainder is shared equally among the lines. `align` then places each child within its line, and `stretch` fills the line's cross size less margins, clamped to limits. Overflowing lines are never shrunk.
+- **Intrinsic size.** The natural width stays the single-line sum, so a row on a non-stretched automatic width does not wrap. Automatic height at an assigned width is the sum of line cross sizes plus gaps between lines, so wrapped rows size their ancestors, Grid rows, later siblings and scroll extents.
+
+The [Flex wrap checks](../../tests/layout/flex_wrap_tests.cpp) cover breaking with gaps and margins, per-line justify/grow/alignment/stretch, shared cross space, oversized children, natural width, Grid row heights, scroll extent/offset, display/visibility, ignored column/Stack wrapping, CPU pixels/hits and rejection. The [Inspector Visibility choices](../guides/inspector-hierarchy.md#visibility-choice) share one line in a wide pane and wrap in the narrow control column.
 
 ## Implemented Stack placement
 
@@ -100,7 +111,7 @@ Scale/viewport changes must be supplied coherently at an update boundary. Specif
 | 2 | Row/Column and Stack | Ordered flow with margin/padding/gap; in-parent overlapping children under the implemented Stack contract |
 | 3 | Flex-like | Distribute available space with explicit alignment rules |
 | 4 | Scrolling/clipping | Separate viewport from content extent and scroll offset |
-| 5 | Wrapping | Width-constrained text and declared line breaking |
+| 5 | Wrapping | Implemented width-constrained text and row Flex wrapping under the contracts above; column/reverse wrapping and line packing choices remain deferred |
 | 6 | Absolute/anchored positioning | Implemented parent padding-box absolute placement and anchored popups under the contracts above; positioned-ancestor containing boxes remain deferred |
 | 7 | Richer intrinsic sizing | Content-driven sizing with explicit constraints |
 | 8 | Grid | Implemented explicit tracks with row/column spans and sparse row-major auto-placement under the Grid contract above; explicit cell indices, implicit tracks and advanced placement remain deferred |
@@ -108,7 +119,7 @@ Scale/viewport changes must be supplied coherently at an update boundary. Specif
 
 Extension order is a dependency guide; milestone scope lives in [current](../roadmap/current.md) and [backlog](../roadmap/backlog.md). Text measurement always goes through `TextShaper`.
 
-Concrete application/widget requirements choose each extension. Strengthen Row/Column, min/max and intrinsic sizing, overflow, scrolling, split panes, stack/overlay placement and text-driven sizing only as those operations require. Further positioning, flex wrapping, grid placement and richer constraints need their own consumer evidence; this sequence does not schedule a complete CSS layout model.
+Concrete application/widget requirements choose each extension. Strengthen Row/Column, min/max and intrinsic sizing, overflow, scrolling, split panes, stack/overlay placement and text-driven sizing only as those operations require. Further positioning, column or reverse flex wrapping, grid placement and richer constraints need their own consumer evidence; this sequence does not schedule a complete CSS layout model.
 
 ## Scrolling and overlay geometry
 
@@ -128,7 +139,7 @@ Paired `popup_x`/`popup_y` select explicit root-logical point placement for [Con
 
 ## Proposed rules to settle
 
-Settled by the resolved-style contract: the only units are `automatic` and logical `points`; non-finite and negative sizes, edges, and gaps are rejected; a minimum above its maximum is rejected rather than resolved by precedence; maximums may be unbounded. Sizing, flex distribution, spacing, overflow, scroll extents and limits, and display/visibility are settled by the prototype rules above; margins stay unrecorded because neither scrolling nor hit testing needs them. The prototype is flex-like, not browser flexbox conformance: there is no flex-item wrapping, `align-self`, explicit flex basis, order property, or baseline alignment. Text line wrapping is defined separately by [text](text.md#implemented-boundary).
+Settled by the resolved-style contract: the only units are `automatic` and logical `points`; non-finite and negative sizes, edges, and gaps are rejected; a minimum above its maximum is rejected rather than resolved by precedence; maximums may be unbounded. Sizing, flex distribution, spacing, overflow, scroll extents and limits, and display/visibility are settled by the prototype rules above; margins stay unrecorded because neither scrolling nor hit testing needs them. The prototype is flex-like, not browser flexbox conformance: row wrapping follows the [wrapping contract](#implemented-flex-wrapping), and there is no `align-self`, `align-content` choice, explicit flex basis, order property, or baseline alignment. Text line wrapping is defined separately by [text](text.md#implemented-boundary).
 
 - Decide whether grandchild overflow should extend a scroll extent, and whether a consumer needs scroll snapping or overscroll.
 

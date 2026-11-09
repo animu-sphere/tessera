@@ -203,6 +203,10 @@ private:
                 const auto cells = grid_cells(style, children);
                 const auto columns = grid_axis(style, children, cells, true, content_width);
                 height = track_extent(grid_axis(style, children, cells, false, std::nullopt, columns), style.row_gap);
+            } else if (wraps(style)) {
+                const auto heights =
+                    line_heights(style, flex_lines(style, displayed_children(index), content_width), content_width);
+                height = track_extent(heights, style.gap);
             } else {
                 const auto children = displayed_children(index);
                 const bool stack = style.display == Display::stack;
@@ -238,7 +242,50 @@ private:
                    : preferred(child, true);
     }
 
+    static bool wraps(const ResolvedStyle& style) {
+        return style.display == Display::flex && style.direction == FlexDirection::row &&
+               style.flex_wrap == FlexWrap::wrap;
+    }
+
+    // Breaks a wrapping row's children into lines in tree order. A child starts a new line when its clamped basis
+    // plus margins, after the gap, would pass the content width; every line holds at least one child.
+    std::vector<std::vector<std::uint32_t>> flex_lines(const ResolvedStyle& style,
+                                                       const std::vector<std::uint32_t>& children, float available) {
+        std::vector<std::vector<std::uint32_t>> lines;
+        float used = 0;
+        for (const auto child : children) {
+            const float outer = preferred(child, true) + total(styles_[child].margin, true);
+            if (lines.empty() || used + style.gap + outer > available) {
+                lines.emplace_back();
+                used = outer;
+            } else {
+                used += style.gap + outer;
+            }
+            lines.back().push_back(child);
+        }
+        return lines;
+    }
+
+    // Each line's cross size: its largest child margin-box height at the widths flexed within that line.
+    std::vector<float> line_heights(const ResolvedStyle& style, const std::vector<std::vector<std::uint32_t>>& lines,
+                                    float content_width) {
+        std::vector<float> heights;
+        heights.reserve(lines.size());
+        for (const auto& line : lines) {
+            const auto widths = flex(style, line, content_width, content_width);
+            float height = 0;
+            for (std::size_t i = 0; i < line.size(); ++i) {
+                const auto& child = styles_[line[i]];
+                height = std::max(height, limits(child, false).clamp(basis(line[i], widths[i]).height) +
+                                              total(child.margin, false));
+            }
+            heights.push_back(height);
+        }
+        return heights;
+    }
+
     static float track_extent(std::span<const float> sizes, float gap) {
+        if (sizes.empty()) return 0;
         float result = gap * static_cast<float>(sizes.size() - 1);
         for (const float size : sizes) result += size;
         return result;
@@ -478,7 +525,28 @@ private:
         return boxes;
     }
 
+    // A wrapping row stacks its lines from the content top, separated by the gap. Positive cross space left after
+    // the lines and gaps is shared equally among them; each line then places its children like a single-line row.
     std::vector<Rect> flex_boxes(const ResolvedStyle& style, const std::vector<std::uint32_t>& children,
+                                 const Rect& content) {
+        if (!wraps(style)) return line_boxes(style, children, content);
+        const auto lines = flex_lines(style, children, content.size.width);
+        const auto heights = line_heights(style, lines, content.size.width);
+        const float extra =
+            std::max(0.0f, content.size.height - track_extent(heights, style.gap)) / static_cast<float>(lines.size());
+        std::vector<Rect> boxes;
+        boxes.reserve(children.size());
+        float top = content.origin.y;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            const Rect band{{content.origin.x, top}, {content.size.width, heights[i] + extra}};
+            for (const auto& box : line_boxes(style, lines[i], band)) boxes.push_back(box);
+            top += band.size.height + style.gap;
+        }
+        return boxes;
+    }
+
+    // Places one line of children within `content`, its main extent and cross band.
+    std::vector<Rect> line_boxes(const ResolvedStyle& style, const std::vector<std::uint32_t>& children,
                                  const Rect& content) {
         const bool row = style.direction == FlexDirection::row;
         const auto sizes = flex(style, children, along(content.size, row), content.size.width);
@@ -581,7 +649,7 @@ private:
         }
     }
 
-    // Resolves main-axis border-box sizes for one single-line container: grow distributes positive free
+    // Resolves main-axis border-box sizes for one flex line: grow distributes positive free
     // space by grow factor, shrink removes overflow by shrink factor times basis, and limit violations
     // freeze items and redistribute until every item satisfies its limits.
     std::vector<float> flex(const ResolvedStyle& style, const std::vector<std::uint32_t>& children, float available,

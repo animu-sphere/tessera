@@ -16,6 +16,7 @@ Run the owner tests for changed guarantees and one consumer smoke for the applic
 | Checkbox/Switch state, semantics and activation | [toggle](../../tests/input/toggle_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Enabled/Shadows |
 | TextInput/NumberInput values, semantics and number grammar | [edit input](../../tests/input/edit_input_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Name/Scale |
 | Radio choice, roving Tab and selection-follows-focus | [radio group](../../tests/input/radio_group_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Visibility |
+| Flex row wrapping | [flex wrap](../../tests/layout/flex_wrap_tests.cpp), [replay serialization](../../tests/replay/replay_serialization_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Visibility choices |
 | Grid spans and absolute positioning | [grid](../../tests/layout/grid_tests.cpp), [absolute](../../tests/layout/absolute_tests.cpp), [replay serialization](../../tests/replay/replay_serialization_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Scale hint and Modified badge |
 | Tabs selection-follows-focus and toolbar roving focus | [tabs](../../tests/input/tabs_tests.cpp), [toolbar](../../tests/input/toolbar_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) sections and item tools |
 | ComboBox opening, option navigation, dismissal and width matching | [combobox](../../tests/input/combobox_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Purpose |
