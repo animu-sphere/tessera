@@ -26,7 +26,7 @@ void target_schema(detail::Checker& check, const InspectionTarget& target, const
             if constexpr (std::is_same_v<T, AuthorIdTarget>)
                 text(check, value.id, path + "/id", 256, true);
             else if constexpr (std::is_same_v<T, SemanticTarget>) {
-                check.enumeration(value.role, SemanticRole::toolbar, path + "/role");
+                check.enumeration(value.role, SemanticRole::option, path + "/role");
                 text(check, value.name, path + "/name", max_invariant_text_bytes);
             } else if constexpr (std::is_same_v<T, PathTarget>) {
                 if (value.children.size() >= max_document_depth)

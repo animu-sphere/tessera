@@ -89,6 +89,12 @@ public:
                 role = SemanticRole::tab;
             else if (collection == "toolbar")
                 role = SemanticRole::toolbar;
+            else if (collection == "combobox")
+                role = SemanticRole::combobox;
+            else if (collection == "listbox")
+                role = SemanticRole::listbox;
+            else if (collection == "option")
+                role = SemanticRole::option;
             else if (separator && std::get<bool>(*separator))
                 role = SemanticRole::separator;
             else if (scrollbar && std::get<bool>(*scrollbar))
@@ -115,7 +121,9 @@ public:
                                                            tree_.nodes[inherited].role == SemanticRole::checkbox ||
                                                            tree_.nodes[inherited].role == SemanticRole::switch_ ||
                                                            tree_.nodes[inherited].role == SemanticRole::text_input ||
-                                                           tree_.nodes[inherited].role == SemanticRole::number_input)))
+                                                           tree_.nodes[inherited].role == SemanticRole::number_input ||
+                                                           tree_.nodes[inherited].role == SemanticRole::combobox ||
+                                                           tree_.nodes[inherited].role == SemanticRole::option)))
                 role = SemanticRole::text;
             else if (box.parent == no_layout_parent && node.kind == NodeKind::box)
                 role = SemanticRole::root;
@@ -205,7 +213,8 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
              entry.role == SemanticRole::checkbox || entry.role == SemanticRole::switch_ ||
              entry.role == SemanticRole::text_input || entry.role == SemanticRole::number_input ||
              entry.role == SemanticRole::tab_list || entry.role == SemanticRole::tab ||
-             entry.role == SemanticRole::toolbar) &&
+             entry.role == SemanticRole::toolbar || entry.role == SemanticRole::combobox ||
+             entry.role == SemanticRole::listbox || entry.role == SemanticRole::option) &&
             entry.name.empty())
             warnings.push_back({"missing_name",
                                 Severity::warning,

@@ -44,6 +44,9 @@ constexpr std::uint64_t scale_owner_base = 1000;
 constexpr ui::SplitPaneLimits pane_limits{140, 320, 8};
 const std::vector<std::pair<std::string, std::string>> visibility_choices{
     {"inherited", "Inherited"}, {"visible", "Visible"}, {"hidden", "Hidden"}};
+// USD imageable purpose tokens, chosen through the Display tab's ComboBox.
+const std::vector<std::pair<std::string, std::string>> purpose_choices{
+    {"default", "Default"}, {"render", "Render"}, {"proxy", "Proxy"}, {"guide", "Guide"}};
 const std::vector<std::pair<std::string, std::string>> sections{{"general", "General"}, {"display", "Display"}};
 struct Item {
     std::string id;
@@ -54,14 +57,16 @@ struct Item {
     TextEditState scale_draft; // Pending NumberInput text; Enter applies, Escape reverts.
     std::string visibility = "inherited";
     bool shadows = true;
+    std::string purpose = "default";
     bool operator==(const Item&) const = default;
 };
 // True when Reset would change a property; the display name is not reset.
 bool modified(const Item& item) {
     return !item.enabled || item.amount != 50 || item.scale != 1 || item.scale_draft.text != ui::format_number(1) ||
-           item.visibility != "inherited" || !item.shadows;
+           item.visibility != "inherited" || !item.shadows || item.purpose != "default";
 }
-enum class OpenMenu { none, actions, context };
+// At most one popup is open: an item menu or the Purpose list.
+enum class OpenMenu { none, actions, context, purpose };
 struct State {
     std::vector<Item> items;
     std::string selected = "cube";
@@ -97,9 +102,10 @@ State initial_state() {
 }
 ValidationContext action_context(const State& state) {
     ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.scale", "item.shadows",
-                               "item.rename", "item.reset", "menu.open", "panes.resize"}};
+                               "item.rename", "item.reset", "menu.open", "panes.resize", "purpose.toggle"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
+    for (const auto& [key, label] : purpose_choices) context.actions.insert("purpose." + key);
     for (const auto& [key, label] : sections) context.actions.insert("section." + key);
     return context;
 }
@@ -214,6 +220,10 @@ StyleSheet appearance(const State& state) {
     }
     sheet.rules.push_back(
         {StyleSelector::of_id("sections-tab-" + state.section), {.color = Color{.12f, .26f, .6f, 1}}});
+    sheet.rules.push_back({StyleSelector::of_id("purpose-arrow"), {.color = Color{.32f, .4f, .54f, 1}}});
+    for (const auto& [key, label] : purpose_choices) row("purpose-option-" + key);
+    sheet.rules.push_back(
+        {StyleSelector::of_id("purpose-label-" + state.item().purpose), {.color = Color{.12f, .26f, .6f, 1}}});
     for (const auto* menu : {"actions-menu", "item-menu"}) {
         sheet.rules.push_back({StyleSelector::of_id(std::string(menu) + "-title"),
                                {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}});
@@ -240,6 +250,7 @@ ui::Element Form(const State& state, Size viewport) {
     };
     std::vector<ui::Element> properties;
     std::vector<GridTrack> rows;
+    std::optional<ui::Element> purpose_list; // Composed under the root, after the item menus.
     if (state.section == "general") {
         properties = {
             ui::Text("Display name", {.classes = {"muted"}}),
@@ -270,7 +281,15 @@ ui::Element Form(const State& state, Size viewport) {
                                      {.node = {.id = "visibility", .style = {.gap = 2.f}}}),
                       ui::Text("Shadows", {.classes = {"muted"}}),
                       ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})};
-        rows.resize(2);
+        std::vector<ui::ComboBoxOption> purposes;
+        for (const auto& [key, label] : purpose_choices) purposes.push_back({key, label, "purpose." + key});
+        auto purpose = ui::ComboBox(
+            "Purpose", item.purpose, std::move(purposes), "purpose.toggle",
+            {.node = control("purpose"), .list = {.classes = {"popup"}}, .open = state.menu == OpenMenu::purpose});
+        properties.push_back(ui::Text("Purpose", {.classes = {"muted"}}));
+        properties.push_back(std::move(purpose.field));
+        purpose_list = std::move(purpose.list);
+        rows.resize(3);
     }
     std::vector<ui::TabOption> tabs;
     for (const auto& [key, label] : sections) tabs.push_back({key, label, "section." + key});
@@ -296,62 +315,65 @@ ui::Element Form(const State& state, Size viewport) {
                                                        .position = Position::absolute,
                                                        .top = std::optional<float>{-9.f},
                                                        .right = std::optional<float>{12.f}}}));
-    return ui::Column(
-        {ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
-                  ui::Toolbar("Item tools",
-                              {ui::Button("Item actions", "menu.open", {.node = control("actions")}),
-                               ui::Button("Rename", "item.rename", {.node = control("tool-rename")}),
-                               ui::Button("Reset", "item.reset", {.node = control("tool-reset")})},
-                              {.id = "item-tools"})},
-                 {.style = {.align = Align::center, .gap = 16.f}}),
-         ui::HorizontalSplitPane(
-             ui::TreeView("Hierarchy", state.selected,
-                          {{"scene", state.items.front().name.text, "select.scene", "scene.toggle", state.expanded,
-                            false, std::move(children)}},
-                          {.node = {.id = "hierarchy",
-                                    .style = {.height = Dimension::points(height),
-                                              .border = Edges{1, 1, 1, 1},
-                                              .padding = Edges{8, 8, 8, 8},
-                                              .gap = 4.f,
-                                              .background = Color{1, 1, 1, 1},
-                                              .border_color = Color{.8f, .85f, .93f, 1},
-                                              .corner_radius = 10.f}}}),
-             ui::ScrollView(
-                 {ui::Text("Inspector", {.id = "inspector-title", .classes = {"section-title"}}),
-                  ui::Column(std::move(card), {.id = "item-card",
-                                               .style = {.border = Edges{1, 1, 1, 1},
-                                                         .padding = Edges{12, 12, 12, 12},
-                                                         .gap = 12.f,
-                                                         .border_color = Color{.72f, .8f, .92f, 1},
-                                                         .corner_radius = 12.f,
-                                                         .background_gradient =
-                                                             RadialGradient{.center = {.25f, .2f},
-                                                                            .radius = {.85f, .95f},
-                                                                            .stops = {{0, {.96f, .99f, 1, 1}},
-                                                                                      {.42f, {.84f, .92f, 1, 1}},
-                                                                                      {1, {.98f, .9f, .98f, 1}}}},
-                                                         .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
-                                                         .background_antialias = true}}),
-                  ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
-                              ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
-                              ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}})},
-                             {.id = "help", .style = {.gap = 4.f}})},
-                 {.id = "inspector",
-                  .style = {.height = Dimension::points(height), .padding = Edges{0, 6, 0, 6}, .gap = 12.f}}),
-             state.split, "panes.resize",
-             {.node = {.id = "panes", .style = {.height = Dimension::points(height)}},
-              .limits = pane_limits,
-              .label = "Resize hierarchy"}),
-         ui::Menu("Item actions", "actions", commands, popup("actions-menu", OpenMenu::actions)),
-         ui::ContextMenu("Item actions", "selected", state.position, commands, popup("item-menu", OpenMenu::context))},
-        {.id = "application",
-         .style = {.overflow = Overflow::clip,
-                   .height = Dimension::points(viewport.height),
-                   .padding = Edges{12, 12, 12, 12},
-                   .gap = 16.f,
-                   .background = Color{.95f, .95f, .98f, 1},
-                   .text = {.size = 14.f},
-                   .color = Color{.16f, .22f, .34f, 1}}});
+    std::vector<ui::Element> layers{
+        ui::Menu("Item actions", "actions", commands, popup("actions-menu", OpenMenu::actions)),
+        ui::ContextMenu("Item actions", "selected", state.position, commands, popup("item-menu", OpenMenu::context))};
+    if (purpose_list) layers.push_back(std::move(*purpose_list));
+    std::vector<ui::Element> content{
+        ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
+                 ui::Toolbar("Item tools",
+                             {ui::Button("Item actions", "menu.open", {.node = control("actions")}),
+                              ui::Button("Rename", "item.rename", {.node = control("tool-rename")}),
+                              ui::Button("Reset", "item.reset", {.node = control("tool-reset")})},
+                             {.id = "item-tools"})},
+                {.style = {.align = Align::center, .gap = 16.f}}),
+        ui::HorizontalSplitPane(
+            ui::TreeView("Hierarchy", state.selected,
+                         {{"scene", state.items.front().name.text, "select.scene", "scene.toggle", state.expanded,
+                           false, std::move(children)}},
+                         {.node = {.id = "hierarchy",
+                                   .style = {.height = Dimension::points(height),
+                                             .border = Edges{1, 1, 1, 1},
+                                             .padding = Edges{8, 8, 8, 8},
+                                             .gap = 4.f,
+                                             .background = Color{1, 1, 1, 1},
+                                             .border_color = Color{.8f, .85f, .93f, 1},
+                                             .corner_radius = 10.f}}}),
+            ui::ScrollView({ui::Text("Inspector", {.id = "inspector-title", .classes = {"section-title"}}),
+                            ui::Column(
+                                std::move(card),
+                                {.id = "item-card",
+                                 .style = {.border = Edges{1, 1, 1, 1},
+                                           .padding = Edges{12, 12, 12, 12},
+                                           .gap = 12.f,
+                                           .border_color = Color{.72f, .8f, .92f, 1},
+                                           .corner_radius = 12.f,
+                                           .background_gradient = RadialGradient{.center = {.25f, .2f},
+                                                                                 .radius = {.85f, .95f},
+                                                                                 .stops = {{0, {.96f, .99f, 1, 1}},
+                                                                                           {.42f, {.84f, .92f, 1, 1}},
+                                                                                           {1, {.98f, .9f, .98f, 1}}}},
+                                           .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
+                                           .background_antialias = true}}),
+                            ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
+                                        ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
+                                        ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}})},
+                                       {.id = "help", .style = {.gap = 4.f}})},
+                           {.id = "inspector",
+                            .style = {.height = Dimension::points(height), .padding = Edges{0, 6, 0, 6}, .gap = 12.f}}),
+            state.split, "panes.resize",
+            {.node = {.id = "panes", .style = {.height = Dimension::points(height)}},
+             .limits = pane_limits,
+             .label = "Resize hierarchy"})};
+    for (auto& layer : layers) content.push_back(std::move(layer));
+    return ui::Column(std::move(content), {.id = "application",
+                                           .style = {.overflow = Overflow::clip,
+                                                     .height = Dimension::points(viewport.height),
+                                                     .padding = Edges{12, 12, 12, 12},
+                                                     .gap = 16.f,
+                                                     .background = Color{.95f, .95f, .98f, 1},
+                                                     .text = {.size = 14.f},
+                                                     .color = Color{.16f, .22f, .34f, 1}}});
 }
 using Offsets = std::map<std::string, Point, std::less<>>;
 struct View {
@@ -513,6 +535,7 @@ public:
             ++item.scale_draft.revision;
             item.visibility = "inherited";
             item.shadows = true;
+            item.purpose = "default";
         } else if (command == "item.shadows")
             candidate.item().shadows = !candidate.item().shadows;
         else if (command == "item.scale") {
@@ -526,7 +549,13 @@ public:
             candidate.split = *split;
         } else if (command == "menu.open")
             candidate.menu = OpenMenu::actions;
-        else if (command != "item.rename")
+        else if (command == "purpose.toggle")
+            candidate.menu = candidate.menu == OpenMenu::purpose ? OpenMenu::none : OpenMenu::purpose;
+        else if (command.starts_with("purpose.")) {
+            // An accepted choice closes the list; refresh then returns focus to the trigger.
+            candidate.item().purpose = command.substr(8);
+            candidate.menu = OpenMenu::none;
+        } else if (command != "item.rename")
             throw std::runtime_error("Unknown Inspector command");
         if (command == "item.rename" || command == "item.enabled") candidate.menu = OpenMenu::none;
         // The name editor lives on the General tab; accepting Rename focuses it in the new view.
@@ -614,6 +643,21 @@ public:
             refresh();
         }
         if (transition.consumed) {
+            observe();
+            return;
+        }
+        const auto choice = take(purpose.dispatch(view.hit(), event, take(focus.refresh(view.hit())).focused));
+        if (choice.focus) (void)take(focus.focus(view.hit(), *choice.focus));
+        if (choice.dismiss) {
+            state.menu = OpenMenu::none;
+            pointer.reset();
+            slider_pointer.reset();
+            refresh();
+        }
+        if (choice.open)
+            checked(operate(take(request_semantic_action(view.semantic(), *view.tree->find("purpose"), "activate")),
+                            source));
+        if (choice.consumed) {
             observe();
             return;
         }
@@ -1040,6 +1084,7 @@ private:
     PointerDispatcher pointer{PointerSnapshotPolicy::compatible_author_ids};
     SplitPaneDispatcher splitter{"panes"};
     MenuDispatcher menu{"actions-menu"}, context_menu{"item-menu"};
+    ComboBoxDispatcher purpose{"purpose"};
     Offsets offsets;
     std::optional<TextEditRequest> edit;
     std::optional<ScaleRequest> scale_request;
@@ -1133,6 +1178,9 @@ private:
             if (transition.focus) (void)take(focus.focus(view.hit(), *transition.focus));
             dismissed = dismissed || transition.dismiss;
         }
+        const auto choice = take(purpose.refresh(view.hit()));
+        if (choice.focus) (void)take(focus.focus(view.hit(), *choice.focus));
+        dismissed = dismissed || choice.dismiss;
         if (dismissed) {
             state.menu = OpenMenu::none;
             pointer.reset();
@@ -2004,6 +2052,96 @@ void shadows_smoke() {
     app.action("hierarchy-item-cube");
     require(!app.state.item().shadows, "Returning to an item must retain its shadows value");
 }
+void purpose_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    app.action("sections-tab-display");
+    const auto trigger = app.observed("purpose");
+    require(trigger.role == SemanticRole::combobox && trigger.name == "Purpose" && trigger.value == "Default" &&
+                trigger.expanded == false &&
+                trigger.actions == std::vector<SemanticAction>{{"activate", "purpose.toggle"}},
+            "Purpose must expose a named combobox with the accepted value");
+    const auto list_node = app.view.tree->find("purpose-list");
+    require(list_node && std::none_of(app.view.layout.boxes.begin(), app.view.layout.boxes.end(),
+                                      [&](const LayoutBox& box) { return box.node == *list_node; }),
+            "A closed Purpose list must not be shown");
+    app.focus_id("shadows");
+    input(KeyDown{Key::tab});
+    require(app.focused_on("purpose"), "Tab must reach Purpose after Cast shadows");
+    auto executions = app.executions;
+    input(KeyDown{Key::down});
+    require(app.state.menu == OpenMenu::none && app.executions == executions && app.state.item().purpose == "default",
+            "Plain Down must not open or change Purpose");
+    app.focus_id("purpose");
+    input(KeyDown{Key::down, {.alt = true}});
+    require(app.state.menu == OpenMenu::purpose && app.executions == executions + 1 &&
+                app.focused_on("purpose-option-default") && app.observed("purpose").expanded == true &&
+                app.observed("purpose-list").role == SemanticRole::listbox &&
+                app.observed("purpose-option-default").selected == true,
+            "Alt+Down must open the list at the selected option");
+    const auto field = app.view.box("purpose").border_box;
+    const auto list = app.view.box("purpose-list").border_box;
+    require(
+        list.size.width >= field.size.width && list.origin.x == field.origin.x &&
+            (list.origin.y >= field.origin.y + field.size.height || list.origin.y + list.size.height <= field.origin.y),
+        "The Purpose list must sit beside the trigger and be at least as wide");
+    input(KeyDown{Key::down});
+    input(KeyDown{Key::down});
+    require(app.focused_on("purpose-option-proxy") && app.state.item().purpose == "default" &&
+                app.executions == executions + 1,
+            "Arrows must move within the list without selecting");
+    input(Activate{});
+    require(app.state.item().purpose == "proxy" && app.state.menu == OpenMenu::none && app.focused_on("purpose") &&
+                app.observed_value("purpose") == "Proxy" && app.view.tree->find("modified-badge") &&
+                app.executions == executions + 2,
+            "Activate must choose the focused option, close the list and return focus");
+    input(Activate{});
+    require(app.state.menu == OpenMenu::purpose && app.focused_on("purpose-option-proxy"),
+            "Activating the trigger must open the list at the new selection");
+    input(KeyDown{Key::up});
+    input(KeyDown{Key::escape});
+    require(app.state.item().purpose == "proxy" && app.state.menu == OpenMenu::none && app.focused_on("purpose"),
+            "Escape must dismiss without choosing");
+    input(Activate{});
+    input(KeyDown{Key::tab});
+    require(app.state.menu == OpenMenu::none && app.state.item().purpose == "proxy" && !app.focused_on("purpose") &&
+                !app.focused_on("purpose-option-proxy"),
+            "Tab must close the list and continue from the trigger");
+    const auto press = [&](std::string_view id) {
+        const auto point = app.view.reachable(id);
+        input(PointerDown{{1}, point}, CommandSource::pointer);
+        input(PointerUp{{1}, point}, CommandSource::pointer);
+    };
+    press("purpose");
+    require(app.state.menu == OpenMenu::purpose, "A press on the trigger must open the list");
+    input(PointerMove{{1}, app.view.reachable("purpose-option-guide")}, CommandSource::pointer);
+    require(app.focused_on("purpose-option-guide"), "Hover must focus an option");
+    press("purpose-option-guide");
+    require(app.state.item().purpose == "guide" && app.state.menu == OpenMenu::none && app.focused_on("purpose"),
+            "A pointer press must choose an option and close the list");
+    press("purpose");
+    executions = app.executions;
+    press("selected");
+    require(app.state.menu == OpenMenu::none && app.state.item().purpose == "guide" && app.executions == executions &&
+                app.focused_on("purpose"),
+            "An outside press must close the list without clicking through");
+    const auto label = [&](std::string_view key) {
+        return app.view.styles[app.view.tree->find("purpose-label-" + std::string(key))->index].color;
+    };
+    press("purpose");
+    require(label("guide") != label("default"), "The selected option label must be emphasized");
+    input(KeyDown{Key::escape});
+    app.action("hierarchy-item-sphere");
+    require(app.state.item().purpose == "default" && app.observed_value("purpose") == "Default",
+            "Another item must show its own Purpose");
+    app.action("hierarchy-item-cube");
+    require(app.state.item().purpose == "guide", "Returning to an item must retain its Purpose");
+    app.action("tool-reset");
+    require(app.state.item().purpose == "default", "Reset must restore Purpose");
+}
 void scale_smoke() {
     App app;
     std::chrono::microseconds time{};
@@ -2304,6 +2442,7 @@ void smoke() {
     scale_smoke();
     visibility_smoke();
     shadows_smoke();
+    purpose_smoke();
     appearance_smoke();
     gradient_card_smoke();
     analytic_fill_smoke();
@@ -2798,9 +2937,17 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_DOWN, 1);
         seek("shadows");
         host.message(WM_KEYDOWN, VK_SPACE, 1);
+        seek("purpose");
+        host.message(WM_KEYDOWN, VK_SPACE, 1);
+        require(app.state.menu == OpenMenu::purpose && app.focused_on("purpose-option-default"),
+                "Native Space must open the Purpose list at its selection");
+        host.message(WM_KEYDOWN, VK_DOWN, 1);
+        host.message(WM_KEYDOWN, VK_RETURN, 1);
+        require(app.state.item().purpose == "render" && app.state.menu == OpenMenu::none && app.focused_on("purpose"),
+                "Native arrows and Return must choose a Purpose");
         const auto cube = app.state.item();
         require(cube.name.text == "Cube!" && !cube.enabled && cube.amount == 55 && cube.visibility == "hidden" &&
-                    !cube.shadows,
+                    !cube.shadows && cube.purpose == "render",
                 "Native fields must accept edits");
         // Tab traversal revealed the last Hierarchy row and the Visibility choices; wheel both back.
         wheel_top("hierarchy");
@@ -2837,7 +2984,7 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_SPACE, 1);
         const auto reset = app.state.item();
         require(reset.name == cube.name && reset.enabled && reset.amount == 50 && reset.scale == 1 &&
-                    reset.visibility == "inherited" && reset.shadows,
+                    reset.visibility == "inherited" && reset.shadows && reset.purpose == "default",
                 "Native toolbar Reset must restore the properties and keep the name");
         std::cout << "Inspector native injected-message smoke passed: " << host.presentations << " presentations.\n";
     };

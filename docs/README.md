@@ -23,7 +23,7 @@ Update the page whose contract, procedure or status changes; link to it elsewher
 
 ## Guides
 
-[Getting Started](guides/getting-started.md) · [First app](guides/first-app.md) · [Settings starter](guides/settings-starter.md) · [Hierarchy / Inspector](guides/inspector-hierarchy.md) · [SplitPane](guides/split-pane.md) · [Scrollbar](guides/scrollbar.md) · [Stack](guides/stack.md) · [Grid](guides/grid.md) · [Popup/Tooltip](guides/popup-tooltip.md) · [Modal/Dialog](guides/modal-dialog.md) · [TreeView/ListView](guides/tree-list.md) · [Menu/ContextMenu](guides/menu-context.md) · [RadioGroup](guides/radio-group.md) · [Tabs/Toolbar](guides/tabs-toolbar.md) · [Checkbox/Switch](guides/checkbox-switch.md) · [TextInput/NumberInput](guides/text-number-input.md) · [Renderer telemetry](guides/renderer-diagnostics.md) · [Development](guides/development.md) · [Testing](guides/testing.md)
+[Getting Started](guides/getting-started.md) · [First app](guides/first-app.md) · [Settings starter](guides/settings-starter.md) · [Hierarchy / Inspector](guides/inspector-hierarchy.md) · [SplitPane](guides/split-pane.md) · [Scrollbar](guides/scrollbar.md) · [Stack](guides/stack.md) · [Grid](guides/grid.md) · [Popup/Tooltip](guides/popup-tooltip.md) · [Modal/Dialog](guides/modal-dialog.md) · [TreeView/ListView](guides/tree-list.md) · [Menu/ContextMenu](guides/menu-context.md) · [RadioGroup](guides/radio-group.md) · [Tabs/Toolbar](guides/tabs-toolbar.md) · [ComboBox](guides/combobox.md) · [Checkbox/Switch](guides/checkbox-switch.md) · [TextInput/NumberInput](guides/text-number-input.md) · [Renderer telemetry](guides/renderer-diagnostics.md) · [Development](guides/development.md) · [Testing](guides/testing.md)
 
 ## Product and consumers
 

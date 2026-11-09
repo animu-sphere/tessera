@@ -109,7 +109,13 @@ private:
             if (!anchor_box) continue;
             const auto anchor = anchor_box->border_box;
             const auto& style = styles_[child.index];
-            const float width = std::min(preferred(child.index, true), boundary.size.width);
+            const auto& side = std::get<std::string>(*effective_property(node, property_names::popup_side));
+            const bool horizontal = side == "left" || side == "right";
+            // A matched bottom/top popup is at least as wide as its anchor's border box.
+            const bool match = !horizontal && !node.properties.contains(property_names::popup_x) &&
+                               std::get<bool>(*effective_property(node, property_names::popup_match_width));
+            const float width =
+                std::min(std::max(preferred(child.index, true), match ? anchor.size.width : 0.f), boundary.size.width);
             const Size size{limits(style, true).clamp(width),
                             limits(style, false)
                                 .clamp(std::min(boundary.size.height,
@@ -125,8 +131,6 @@ private:
                 place(child.index, 0, {origin, size});
                 continue;
             }
-            const auto& side = std::get<std::string>(*effective_property(node, property_names::popup_side));
-            const bool horizontal = side == "left" || side == "right";
             bool after = side == "bottom" || side == "right";
             const double gap = std::get<double>(*effective_property(node, property_names::popup_gap));
             const double start = along(boundary.origin, horizontal);

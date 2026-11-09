@@ -14,7 +14,7 @@ static_assert(std::is_same_v<PropertyAlternative<PropertyType::reference>, NodeR
 
 std::span<const PropertyDescriptor> property_descriptors() noexcept {
     using enum PropertyStages;
-    static const std::array<PropertyDescriptor, 20> descriptors{{
+    static const std::array<PropertyDescriptor, 21> descriptors{{
         {property_names::collection_role, PropertyType::string, NodeKinds::box, NodeKinds::none, std::nullopt,
          input | semantics, PropertyCategory::accessibility},
         {property_names::disabled, PropertyType::boolean, NodeKinds::all, NodeKinds::none, Property{false},
@@ -36,6 +36,8 @@ std::span<const PropertyDescriptor> property_descriptors() noexcept {
         {property_names::popup_anchor, PropertyType::string, NodeKinds::box, NodeKinds::none, std::nullopt,
          layout | paint | input | semantics, PropertyCategory::interaction},
         {property_names::popup_gap, PropertyType::number, NodeKinds::box, NodeKinds::none, Property{4.0},
+         layout | paint | input | semantics, PropertyCategory::interaction},
+        {property_names::popup_match_width, PropertyType::boolean, NodeKinds::box, NodeKinds::none, Property{false},
          layout | paint | input | semantics, PropertyCategory::interaction},
         {property_names::popup_side, PropertyType::string, NodeKinds::box, NodeKinds::none,
          Property{std::string("bottom")}, layout | paint | input | semantics, PropertyCategory::interaction},

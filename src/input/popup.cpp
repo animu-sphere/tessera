@@ -70,6 +70,36 @@ void check_menu(std::vector<Diagnostic>& errors, const HitTestInput& input, cons
         errors.push_back({"menu_target", Severity::error, "/id", "Identify a Menu or ContextMenu."});
 }
 
+void check_combobox(std::vector<Diagnostic>& errors, const HitTestInput& input, const std::string& id) {
+    check_id(errors, id);
+    if (!input.tree) return;
+    if (const auto node = input.tree->find(id); node && detail::collection_role(*input.tree->get(*node)) != "combobox")
+        errors.push_back({"combobox_target", Severity::error, "/id", "Identify a ComboBox trigger."});
+    check_popup(errors, input, id + "-list");
+    if (const auto node = input.tree->find(id + "-list");
+        node && detail::collection_role(*input.tree->get(*node)) != "listbox")
+        errors.push_back({"combobox_target", Severity::error, "/id", "The ComboBox list must be a listbox."});
+}
+
+bool sequential(const InputEvent& event) {
+    const auto* key = std::get_if<KeyDown>(&event.data);
+    return (key && key->key == Key::tab && !key->modifiers.control && !key->modifiers.alt && !key->modifiers.super) ||
+           std::holds_alternative<FocusNext>(event.data) || std::holds_alternative<FocusPrevious>(event.data);
+}
+
+// Pointer hover over an eligible item of the given role requests its focus.
+std::optional<NodeHandle> hovered_item(const HitTestInput& input, const InputEvent& event, NodeHandle popup,
+                                       std::string_view role) {
+    const auto* move = std::get_if<PointerMove>(&event.data);
+    if (!move) return {};
+    const detail::Targeting targeting(input);
+    const auto owner = targeting.binding_owner(targeting.hit(move->position));
+    if (owner && descendant(input, *owner, popup) && detail::collection_role(*input.tree->get(*owner)) == role &&
+        targeting.focusable(targeting.box(*owner)))
+        return owner;
+    return {};
+}
+
 MenuDispatchResult menu_result(const PopupDispatchResult& result) {
     return {result.dismiss, result.consumed, result.focus, {}};
 }
@@ -96,12 +126,15 @@ PopupDispatchResult PopupDispatcher::update(const HitTestInput& input) {
     }
     anchor_ = *anchor;
     if (!open_) {
+        // The first eligible descendant, unless a selected listbox option is eligible.
         for (std::size_t i = 0; i < input.layout->boxes.size(); ++i) {
             const auto candidate = input.layout->boxes[i].node;
-            if (targeting.focusable(i) && descendant(input, candidate, *node)) {
-                result.focus = candidate;
-                break;
-            }
+            if (!targeting.focusable(i) || !descendant(input, candidate, *node)) continue;
+            const auto& item = *input.tree->get(candidate);
+            const auto* selected = effective_property(item, property_names::selected);
+            const bool chosen = detail::collection_role(item) == "option" && selected && std::get<bool>(*selected);
+            if (!result.focus || chosen) result.focus = candidate;
+            if (chosen) break;
         }
     }
     open_ = true;
@@ -190,20 +223,60 @@ Result<MenuDispatchResult> MenuDispatcher::dispatch(const HitTestInput& input, c
         return {result, {}};
     }
     if (!shown || result.dismiss) return {result, {}};
-    const auto* key = std::get_if<KeyDown>(&event.data);
-    const bool tab =
-        key && key->key == Key::tab && !key->modifiers.control && !key->modifiers.alt && !key->modifiers.super;
-    if (tab || std::holds_alternative<FocusNext>(event.data) || std::holds_alternative<FocusPrevious>(event.data)) {
+    if (sequential(event)) {
         result.dismiss = true;
         result.focus = anchor_focus(input, anchor_id ? std::optional(*anchor_id) : std::nullopt);
         // Publish the closed view before forwarding the sequential focus command.
         result.consumed = false;
-    } else if (const auto* move = std::get_if<PointerMove>(&event.data)) {
-        const auto owner = targeting.binding_owner(targeting.hit(move->position));
-        if (owner && descendant(input, *owner, *menu) &&
-            detail::collection_role(*input.tree->get(*owner)) == "menu_item" &&
-            targeting.focusable(targeting.box(*owner)))
-            result.focus = owner;
+    } else if (const auto item = hovered_item(input, event, *menu, "menu_item")) {
+        result.focus = item;
+    }
+    return {result, {}};
+}
+
+Result<ComboBoxDispatchResult> ComboBoxDispatcher::refresh(const HitTestInput& input) {
+    auto errors = validate(input);
+    check_combobox(errors, input, id_);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    auto result = popup_.refresh(input);
+    if (!result) return {std::nullopt, std::move(result.diagnostics)};
+    return {ComboBoxDispatchResult{result.value->dismiss, result.value->consumed, result.value->focus}, {}};
+}
+
+Result<ComboBoxDispatchResult> ComboBoxDispatcher::dispatch(const HitTestInput& input, const InputEvent& event,
+                                                            std::optional<NodeHandle> focused) {
+    auto errors = validate(input);
+    check_combobox(errors, input, id_);
+    check_focus(errors, input, focused);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    auto popup = popup_.dispatch(input, event);
+    if (!popup) return {std::nullopt, std::move(popup.diagnostics)};
+    ComboBoxDispatchResult result{popup.value->dismiss, popup.value->consumed, popup.value->focus};
+    const auto list = input.tree->find(id_ + "-list");
+    const auto trigger = input.tree->find(id_);
+    const detail::Targeting targeting(input);
+    const bool shown = list && targeting.box(*list) != no_layout_parent && targeting.eligible(*list) &&
+                       detail::popup_anchor_box(*input.tree, *input.layout, *input.tree->get(*list));
+    const auto* key = std::get_if<KeyDown>(&event.data);
+    const bool alt = key && key->modifiers == Modifiers{.alt = true} && !key->repeat;
+    if (!shown) {
+        // Alt+Down on the focused, eligible trigger opens the list.
+        if (alt && key->key == Key::down && trigger && focused == trigger &&
+            targeting.box(*trigger) != no_layout_parent && targeting.focusable(targeting.box(*trigger)))
+            result.open = result.consumed = true;
+        return {result, {}};
+    }
+    if (result.dismiss) return {result, {}};
+    if (alt && key->key == Key::up) {
+        result.dismiss = result.consumed = true;
+        result.focus = anchor_focus(input, id_);
+    } else if (sequential(event)) {
+        result.dismiss = true;
+        result.focus = anchor_focus(input, id_);
+        // Publish the closed view before forwarding the sequential focus command.
+        result.consumed = false;
+    } else if (const auto item = hovered_item(input, event, *list, "option")) {
+        result.focus = item;
     }
     return {result, {}};
 }

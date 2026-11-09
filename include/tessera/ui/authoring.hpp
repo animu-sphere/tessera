@@ -154,6 +154,17 @@ struct CollectionProps {
     Props node; // Required stable ID; item keys are unique across the collection.
     bool disabled = false;
 };
+using ComboBoxOption = ListItem;
+struct ComboBoxProps {
+    Props node; // Required stable trigger ID; generated parts use it as a prefix.
+    Props list; // Classes, styles and source for the <id>-list popup; its ID is generated.
+    bool open = false;
+    bool disabled = false; // Disables the trigger and every option.
+    PopupSide side = PopupSide::bottom;
+    float gap = 4;
+};
+class Element;
+struct ComboBoxParts;
 // If the parent cannot hold both minima, keep them and clip the overflow.
 Result<float> split_pane_size_at(SplitPaneLimits, float available, float requested);
 
@@ -191,6 +202,7 @@ private:
     friend Element Tabs(std::string, std::string, std::vector<TabOption>, std::vector<Element>, CollectionProps);
     friend Element Toolbar(std::string, std::vector<Element>, Props);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
+    friend ComboBoxParts ComboBox(std::string, std::string, std::vector<ComboBoxOption>, std::string, ComboBoxProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
     friend Element VerticalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -278,6 +290,19 @@ Element Toolbar(std::string label, std::vector<Element> controls, Props = {});
 // Options are ordinary buttons in layout, reached through normal focus/scroll.
 Element Dropdown(std::string label, std::string selected, std::vector<DropdownOption> options,
                  std::string toggle_action, DropdownProps = {});
+// Controlled select-only combobox. `field` is the inline <id> trigger, projected as a combobox
+// named by the display-none <id>-title whose value is the selected label; it holds <id>-value and
+// an <id>-arrow marker and requests toggle_action. `list` is the root-sibling <id>-list listbox
+// popup, at least as wide as the trigger, holding <id>-option-<key> options named by their
+// <id>-label-<key> Text; the selected option is marked. Compose `field` in place and `list` directly
+// under the root after ordinary content. The host owns the selected key and open state; route input
+// through ComboBoxDispatcher.
+struct ComboBoxParts {
+    Element field;
+    Element list;
+};
+ComboBoxParts ComboBox(std::string label, std::string selected, std::vector<ComboBoxOption> options,
+                       std::string toggle_action, ComboBoxProps = {});
 // Controlled button semantics with a value caption and a 200-unit track.
 // Generated IDs: <id>-track, <id>-fill, <id>-thumb. The host owns input,
 // commands and values; map thumb centers over track width minus 8 units.
