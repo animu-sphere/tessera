@@ -51,8 +51,9 @@ namespace detail {
 class ReplayPlayer {
 public:
     ReplayPlayer(ReplayRecording recording, TextShaper& text)
-        : recording_(std::move(recording)), text_(text), viewport_(recording_.viewport),
-          scale_(recording_.environment.scale), host_(recording_.environment.host),
+        : recording_(std::move(recording)), text_(text), state_{.viewport = recording_.viewport,
+                                                                .scale = recording_.environment.scale,
+                                                                .host = recording_.environment.host},
           input_(recording_.policy.compatible_pointer ? PointerSnapshotPolicy::compatible_author_ids
                                                       : PointerSnapshotPolicy::tree_identity) {}
 
@@ -63,8 +64,8 @@ public:
         auto tree = create_tree(recording_.document, "");
         if (!tree) return false;
         install_tree(std::move(tree), recording_.styles);
-        for (std::size_t i = 0; i < host_.size(); ++i) {
-            if (!current_.tree->find(host_[i].owner)) {
+        for (std::size_t i = 0; i < state_.host.size(); ++i) {
+            if (!current_.tree->find(state_.host[i].owner)) {
                 errors_.push_back({"target_not_found",
                                    Severity::error,
                                    "/environment/host/" + std::to_string(i) + "/owner",
@@ -96,12 +97,7 @@ public:
         }
         recording_.steps.push_back(std::move(next));
         const auto& step = recording_.steps.back();
-        const auto clock = clock_;
-        const auto viewport = viewport_;
-        const auto offsets = offsets_;
-        const auto scale = scale_;
-        const auto animation_time = animation_time_;
-        const auto host = host_;
+        auto previous = state_;
         committed_ = false;
         bool ok = true;
         if (const auto* event = std::get_if<InputEvent>(&step)) {
@@ -126,11 +122,11 @@ public:
             check.positive(scale_step->scale, at + "/scale");
             ok = errors_.empty();
             if (ok) {
-                scale_ = scale_step->scale;
+                state_.scale = scale_step->scale;
                 ok = settle(i, at);
             }
         } else if (const auto* tick = std::get_if<ReplayTick>(&step)) {
-            if (tick->time < animation_time_) {
+            if (tick->time < state_.animation_time) {
                 errors_.push_back({"event_order",
                                    Severity::error,
                                    at + "/time",
@@ -138,7 +134,7 @@ public:
                                    {}});
                 ok = false;
             } else {
-                animation_time_ = tick->time;
+                state_.animation_time = tick->time;
                 ok = settle(i, at);
             }
         } else {
@@ -149,12 +145,7 @@ public:
         if (committed_) {
             closed_ = true;
         } else {
-            clock_ = clock;
-            viewport_ = viewport;
-            offsets_ = offsets;
-            scale_ = scale;
-            animation_time_ = animation_time;
-            host_ = host;
+            state_ = std::move(previous);
         }
         return false;
     }
@@ -194,7 +185,7 @@ public:
 
 private:
     void cancel_pending() {
-        for (auto& slot : host_)
+        for (auto& slot : state_.host)
             if (slot.readiness == ReplayReadiness::loading) slot.readiness = ReplayReadiness::cancelled;
     }
 
@@ -209,13 +200,14 @@ private:
         }
         relocate(errors_, check_host_slot(update.slot, "/slot"), at);
         if (!errors_.empty()) return false;
+        auto& slots = state_.host;
         auto found =
-            std::find_if(host_.begin(), host_.end(), [&](const auto& slot) { return slot.id == update.slot.id; });
+            std::find_if(slots.begin(), slots.end(), [&](const auto& slot) { return slot.id == update.slot.id; });
         const auto reject = [&](const char* code, const char* field, const char* message) {
             errors_.push_back({code, Severity::error, at + "/slot" + field, message, {}});
             return false;
         };
-        if (found == host_.end()) return reject("undeclared_state", "/id", "Use a declared host slot.");
+        if (found == slots.end()) return reject("undeclared_state", "/id", "Use a declared host slot.");
         if (found->owner != update.slot.owner)
             return reject("stale_owner", "/owner", "A slot cannot change its declared owner.");
         if (update.slot.readiness == ReplayReadiness::loading) {
@@ -238,9 +230,9 @@ private:
         if (!tree) return false;
         if (update.slot.readiness == ReplayReadiness::loading && !tree->find(found->owner))
             return reject("stale_owner", "/owner", "A new request requires its owner in the replacement view.");
-        const auto index = static_cast<std::size_t>(found - host_.begin());
+        const auto index = static_cast<std::size_t>(found - slots.begin());
         cancel_pending();
-        host_[index] = update.slot;
+        slots[index] = update.slot;
         return replace(std::move(tree), update.view.styles, step, view_at);
     }
 
@@ -274,7 +266,7 @@ private:
     void install_tree(std::unique_ptr<UiTree> tree, const std::vector<ResolvedStyle>& styles) {
         current_.tree = std::move(tree);
         current_.styles = styles;
-        offsets_.assign(current_.tree->size(), Point{});
+        state_.offsets.assign(current_.tree->size(), Point{});
     }
 
     // Settles the validated replacement tree, revealing recovered focus under the host policy since
@@ -301,7 +293,7 @@ private:
             }
             keep = revealed.value->empty();
         }
-        viewport_ = viewport;
+        state_.viewport = viewport;
         return settle(step, at, keep);
     }
 
@@ -309,7 +301,7 @@ private:
     // The new layout is the commit point. With `reveal`, recovered focus is scrolled into view and laid
     // out again before the generation is recorded, so no generation shows it hidden.
     bool settle(std::optional<std::size_t> step, const std::string& at, bool reveal = false) {
-        auto layout = compute_layout({current_.tree.get(), current_.styles, viewport_, &text_, offsets_});
+        auto layout = compute_layout({current_.tree.get(), current_.styles, state_.viewport, &text_, state_.offsets});
         if (!layout) {
             relocate(errors_, std::move(layout.diagnostics), at);
             return false;
@@ -334,7 +326,7 @@ private:
                 return false;
             }
             if (!revealed.value->empty()) {
-                for (const auto& update : *revealed.value) offsets_[update.container.index] = update.offset;
+                for (const auto& update : *revealed.value) state_.offsets[update.container.index] = update.offset;
                 return settle(step, at);
             }
         }
@@ -344,10 +336,10 @@ private:
             return false;
         }
         ReplayGeneration generation{step, {}, std::move(*paint.value)};
-        generation.viewport = viewport_;
-        generation.device_scale = scale_;
-        generation.animation_time = animation_time_;
-        generation.host = host_;
+        generation.viewport = state_.viewport;
+        generation.device_scale = state_.scale;
+        generation.animation_time = state_.animation_time;
+        generation.host = state_.host;
         generation.boxes.reserve(current_.layout.boxes.size());
         for (const auto& box : current_.layout.boxes)
             generation.boxes.push_back({box.node.index, box.parent, box.border_box, box.border, box.padding,
@@ -373,7 +365,7 @@ private:
 
     // Rejects time running backwards across pointer, scroll, and command steps, which share one stream.
     bool in_order(const InputEvent& event, const std::string& at) {
-        if (!clock_ || event.timestamp >= *clock_) return true;
+        if (!state_.input_time || event.timestamp >= *state_.input_time) return true;
         errors_.push_back({"event_order",
                            Severity::error,
                            at + "/timestamp",
@@ -395,8 +387,8 @@ private:
             relocate(errors_, std::move(routed.diagnostics), at);
             return false;
         }
-        clock_ = event.timestamp;
-        for (const auto& update : routed.value->updates) offsets_[update.container.index] = update.offset;
+        state_.input_time = event.timestamp;
+        for (const auto& update : routed.value->updates) state_.offsets[update.container.index] = update.offset;
         return settle(step, at);
     }
 
@@ -408,7 +400,7 @@ private:
             return false;
         }
         committed_ = true;
-        clock_ = event.timestamp;
+        state_.input_time = event.timestamp;
         record(step, result.value->actions);
         // Host press policy: a primary press also focuses its press owner when that owner is focusable.
         // Pointer dispatch itself never moves focus, and a press never reveals.
@@ -437,7 +429,7 @@ private:
             return false;
         }
         committed_ = true;
-        clock_ = event.timestamp;
+        state_.input_time = event.timestamp;
         const auto previous = focused_;
         focused_ = result.value->focused;
         record(step, result.value->actions);
@@ -500,7 +492,7 @@ private:
             return false;
         }
         if (revealed.value->empty()) return observe(step, at);
-        for (const auto& update : *revealed.value) offsets_[update.container.index] = update.offset;
+        for (const auto& update : *revealed.value) state_.offsets[update.container.index] = update.offset;
         return settle(step, at);
     }
 
@@ -514,13 +506,16 @@ private:
 
     ReplayRecording recording_; // Accepted steps only.
     TextShaper& text_;
-    Size viewport_;
-    float scale_ = 1;
-    std::chrono::microseconds animation_time_{};
-    std::vector<ReplayHostSlot> host_;
+    // Requested inputs that can change before a step commits. The installed snapshot is restored by replace().
+    struct StepState {
+        Size viewport;
+        float scale;
+        std::chrono::microseconds animation_time{};
+        std::vector<ReplayHostSlot> host;
+        std::vector<Point> offsets; // By node index; reset by reload.
+        std::optional<std::chrono::microseconds> input_time;
+    } state_;
     Snapshot current_;
-    std::vector<Point> offsets_; // Requested scroll offsets by node index; reset by reload.
-    std::optional<std::chrono::microseconds> clock_;
     PointerDispatcher input_;
     FocusDispatcher focus_;
     std::optional<NodeHandle> focused_; // Current focus in the current tree.

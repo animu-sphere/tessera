@@ -630,6 +630,21 @@ void session_steps_match_playback() {
     check(!rejected && has(rejected.diagnostics, "unsupported_version", "/version"), "Session version must be checked");
 }
 
+void rejected_reload_preserves_requested_scroll() {
+    const auto source = scrolled_menu();
+    auto session = open(source);
+    check(bool(session.apply(tessera::InputEvent{1us, tessera::Scroll{{100, 30}, {0, 1000}}})), "Scroll rejected");
+    const auto scrolled = offset(session.output().generations.back());
+    check(scrolled > 0, "The fixture must scroll before the rejected reload");
+
+    const auto rejected = session.apply(tessera::ReplayReload{source.document, {}});
+    check(!rejected && has(rejected.diagnostics, "style_count", "/steps/1/styles"), "Bad reload accepted");
+    check(bool(session.apply(tessera::ReplayTick{1us})), "The session must settle another step after rejection");
+    check(offset(session.output().generations.back()) == scrolled,
+          "The next layout must use the scroll offset from before the rejected reload");
+    check(play(session.recording()) == session.output(), "The accepted steps must reproduce the scrolled session");
+}
+
 // An in-process consumer captures the current generation, acts through resolved handles that are recorded as
 // fixture identities, and has stale and invalid steps rejected without changing the session.
 void session_consumer_rejects_stale_targets() {
@@ -871,6 +886,7 @@ int main() {
         semantic_action_steps_match_clicks();
         press_policy_focuses_without_reveal();
         session_steps_match_playback();
+        rejected_reload_preserves_requested_scroll();
         session_consumer_rejects_stale_targets();
         comparison_locates_differences();
         invalid_recordings_are_located_without_output();

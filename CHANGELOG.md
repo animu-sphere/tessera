@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Restore Replay's pending step inputs together when a step fails before commit.
+
 - Reuse the validated replacement tree when settling a Replay host update, keeping the ordinary reload and rollback path.
 
 - Resolve `SplitPane` and `Scrollbar` geometry once per dispatched event and reuse it to reconcile active drags.
