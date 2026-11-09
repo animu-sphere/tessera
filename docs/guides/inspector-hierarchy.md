@@ -28,6 +28,7 @@ Use `Release` for the other configuration. Without arguments the executable runs
 - Tab to Scale, a [NumberInput](text-number-input.md) from 0 to 10. Type a decimal and press Enter to apply it, or Escape to restore the accepted value; Up/Down or the `-`/`+` parts step by 0.1. See [Scale number input](#scale-number-input).
 - On the Display tab, Tab to Visibility, which enters at the checked choice. Arrows move between Inherited, Visible and Hidden, wrapping, and select the focused choice; a pointer press selects directly. See [Visibility choice](#visibility-choice).
 - Tab to Cast shadows and press Enter/Space, or click its track, thumb or label, to toggle the [Switch](checkbox-switch.md). See [Shadows switch](#shadows-switch).
+- Change any property and a blue Modified badge appears on the property card's top edge; Reset, or a property returning to its reset value, removes it. See [Scale hint and Modified badge](#scale-hint-and-modified-badge).
 - Select another item and return. Every item retains its own text owner, revision, UTF-8 byte selection, enabled flag, amount, accepted scale and pending scale draft, visibility and shadows value. The edited display name also appears in the Hierarchy.
 - Wheel either pane or drag the [SplitPane](split-pane.md) boundary. Focus navigation reveals controls; scrolling and pane/window resizing do not change item values. Pane minima are 140/320 logical units plus the 8-unit handle; smaller windows clip overflowing minima.
 - Use the header [toolbar](tabs-toolbar.md): Tab enters at Item actions, and Left/Right/Home/End move to Rename and Reset without running them. Reset restores the selected item's properties except its name. See [Item tools](#item-tools).
@@ -56,6 +57,14 @@ Rename, from the item menus or the toolbar, first shows General and then focuses
 The header's Item actions button now belongs to an ordinary [Toolbar](tabs-toolbar.md) with stable ID `item-tools`, named Item tools, followed by Rename (`tool-rename`) and Reset (`tool-reset`) buttons in the `control` class. The toolbar is one Tab stop at Item actions, so the existing sequential order is unchanged; Left/Right/Home/End move among the three tools without running a command, and Enter/Space or a press activates the focused tool. Item actions still opens its Menu. Rename shares the menu's `item.rename` command. Reset requests the new `item.reset` command, which restores the selected item's Enabled, Amount (50), Scale (1, replacing any pending draft with a new revision), Visibility (Inherited) and Cast shadows values while keeping its name; other items are unchanged.
 
 The window-free smoke checks the toolbar role and name, single-stop entry/exit, wrapping movement without commands, Home/End, Reset through one command after changing every property, pointer Reset limited to the selected item, toolbar Rename and the retained menu trigger. The injected native smoke reaches the toolbar with Tab, moves to Reset with Right arrow messages without changing the item and resets with Space.
+
+## Scale hint and Modified badge
+
+Below Scale, the General section's `properties` Grid has a fifth row holding the `scale-hint` text, "Enter applies, Esc reverts, Up/Down step.", with `grid_column_span` 2. It starts in the label column and ends with the control column, so it uses the full card width instead of wrapping inside the 72-unit label column, and its row keeps the shared 12-unit row gap. The bottom help no longer repeats it.
+
+When the selected item differs from the values Reset restores (Enabled on, Amount 50, Scale 1 with no pending draft, Visibility Inherited, Cast shadows on), the card's last child is a `modified-badge` Text with `position: absolute`, `top: -9` and `right: 12`. It straddles the card's top border against the card's padding box, painted after and therefore above the card's own content, without changing the card's size or moving Selected, the tabs or the Grid. It is static text: it requests no command and carries no focus stop. The badge follows the selected item's own values and survives section changes.
+
+The window-free smoke checks the spanning hint's bounds against the label and control columns at the 960 and 492-unit windows, the badge's absence at reset values, its exact padding-box offsets, unchanged card/Selected/tab geometry, CPU pixels where it covers the card border, hit testing to the badge, per-item retention across selection and removal by Reset.
 
 ## Scale number input
 

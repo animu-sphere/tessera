@@ -252,6 +252,45 @@ void grid_styles_round_trip() {
           "Default Grid fields must not change legacy canonical recordings");
 }
 
+void span_and_absolute_styles_round_trip() {
+    auto source = recording();
+    auto& grid = source.styles[0];
+    grid.display = tessera::Display::grid;
+    grid.grid_columns = {tessera::GridTrack::fraction(), tessera::GridTrack::fraction()};
+    grid.grid_rows = {tessera::GridTrack{}};
+    grid.column_gap = 6;
+    source.styles[1].grid_column_span = 2;
+    source.styles[1].grid_row_span = 1;
+    auto& chip = source.styles[3];
+    chip.position = tessera::Position::absolute;
+    chip.top = -2.5f;
+    chip.right = 4.f;
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::ReplayResize{{160, 100}});
+    source.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
+    source.steps.push_back(tessera::InputEvent{2us, tessera::Activate{}});
+    const auto json = save(source);
+    check(load(json) == source && save(load(json)) == json,
+          "Grid spans, absolute position and declared offsets must round-trip; automatic offsets stay omitted");
+    check(tessera::compare_replay(play(source), play(load(json))).empty(),
+          "Restored spans and absolute placement must preserve geometry, paint, semantics and actions");
+    auto invalid = tessera::load_replay(changed(json, "\"grid_column_span\":2", "\"grid_column_span\":0"));
+    check(!invalid && has(invalid.diagnostics, "out_of_range", "/steps/0/styles/1/grid_column_span"),
+          "Encoded spans must stay within 1..256");
+    invalid = tessera::load_replay(changed(json, "\"position\":\"absolute\"", "\"position\":\"fixed\""));
+    check(!invalid && has(invalid.diagnostics, "unknown_value", "/steps/0/styles/3/position"),
+          "Unknown encoded positions must report their field");
+    invalid = tessera::load_replay(changed(json, "\"right\":4", "\"right\":\"auto\""));
+    check(!invalid && !invalid.diagnostics.empty() && invalid.diagnostics.front().path == "/steps/0/styles/3/right",
+          "Offsets must be numbers; automatic offsets are encoded by omission");
+    source.version = tessera::replay_host_version;
+    check(load(save(source)) == source, "Spans and absolute placement must round-trip under host-state replay v2");
+    const auto legacy = save(recording());
+    check(legacy.find("_span") == std::string::npos && legacy.find("position") == std::string::npos &&
+              load(legacy) == recording(),
+          "Default span and position fields must not change legacy canonical recordings");
+}
+
 void gradient_styles_round_trip() {
     auto source = recording();
     source.styles[0].background_gradient = tessera::LinearGradient{{.25f, 0}, {.75f, 1}, {1, 0, 0, 0}, {0, 0, 1, .75f}};
@@ -684,6 +723,7 @@ int main() {
         loaded_recordings_replay_identically();
         stack_styles_round_trip();
         grid_styles_round_trip();
+        span_and_absolute_styles_round_trip();
         gradient_styles_round_trip();
         shadow_styles_round_trip();
         outline_styles_round_trip();

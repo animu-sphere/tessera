@@ -95,6 +95,8 @@ constexpr std::array<std::string_view, 2> direction_names{"column", "row"};
 constexpr std::array<std::string_view, 4> justify_names{"start", "center", "end", "space_between"};
 constexpr std::array<std::string_view, 4> align_names{"start", "center", "end", "stretch"};
 constexpr std::array<std::string_view, 3> overflow_names{"visible", "clip", "scroll"};
+constexpr std::array<std::string_view, 2> position_names{"flow", "absolute"};
+constexpr std::array<std::string_view, 4> inset_names{"left", "top", "right", "bottom"};
 constexpr std::array<std::string_view, 2> visibility_names{"visible", "hidden"};
 constexpr std::array<std::string_view, 3> button_names{"primary", "secondary", "middle"};
 constexpr std::array<std::string_view, 4> direction_key_names{"up", "down", "left", "right"};
@@ -158,15 +160,37 @@ Modifiers modifiers(const JsonValue& value, const std::string& path) {
             boolean(o.at("alt"), path + "/alt"), boolean(o.at("super"), path + "/super")};
 }
 
+template<class Style> auto& inset_field(Style& s, std::string_view key) {
+    return key == "left" ? s.left : key == "top" ? s.top : key == "right" ? s.right : s.bottom;
+}
+
 ResolvedStyle style(const JsonValue& value, const std::string& path) {
     const auto& o =
         object(value, path, {"display", "direction",  "justify",      "align",         "overflow",   "width",
                              "height",  "min_width",  "min_height",   "max_width",     "max_height", "margin",
                              "border",  "padding",    "gap",          "grow",          "shrink",     "visibility",
                              "opacity", "background", "border_color", "corner_radius", "text",       "color"},
-               {"stack_horizontal", "stack_vertical", "grid_columns", "grid_rows", "column_gap", "row_gap",
-                "grid_horizontal", "grid_vertical", "background_gradient", "box_shadow", "outline", "background_shape",
-                "background_antialias", "background_procedural"});
+               {"stack_horizontal",
+                "stack_vertical",
+                "grid_columns",
+                "grid_rows",
+                "column_gap",
+                "row_gap",
+                "grid_horizontal",
+                "grid_vertical",
+                "grid_column_span",
+                "grid_row_span",
+                "position",
+                "left",
+                "top",
+                "right",
+                "bottom",
+                "background_gradient",
+                "box_shadow",
+                "outline",
+                "background_shape",
+                "background_antialias",
+                "background_procedural"});
     ResolvedStyle s;
     if (const auto field = o.find("background_shape"); field != o.end())
         s.background_shape = choice<FillShape>(field->second, path + "/background_shape",
@@ -192,6 +216,17 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
         s.grid_horizontal = choice<Align>(field->second, path + "/grid_horizontal", align_names);
     if (const auto field = o.find("grid_vertical"); field != o.end())
         s.grid_vertical = choice<Align>(field->second, path + "/grid_vertical", align_names);
+    for (const auto& [key, span] :
+         {std::pair{"grid_column_span", &s.grid_column_span}, std::pair{"grid_row_span", &s.grid_row_span}})
+        if (const auto field = o.find(key); field != o.end())
+            *span = static_cast<std::uint16_t>(integer(field->second, path + "/" + key, 0,
+                                                       std::numeric_limits<std::uint16_t>::max(),
+                                                       "an unsigned 16-bit integer"));
+    if (const auto field = o.find("position"); field != o.end())
+        s.position = choice<Position>(field->second, path + "/position", position_names);
+    for (const auto key : inset_names)
+        if (const auto field = o.find(std::string(key)); field != o.end())
+            inset_field(s, key) = real(field->second, path + "/" + std::string(key));
     s.overflow = choice<Overflow>(o.at("overflow"), path + "/overflow", overflow_names);
     s.width = dimension(o.at("width"), path + "/width");
     s.height = dimension(o.at("height"), path + "/height");
@@ -642,6 +677,11 @@ JsonValue style_json(const ResolvedStyle& s) {
     if (s.row_gap != 0) result["row_gap"] = real_json(s.row_gap);
     if (s.grid_horizontal != Align::stretch) result["grid_horizontal"] = name(s.grid_horizontal, align_names);
     if (s.grid_vertical != Align::stretch) result["grid_vertical"] = name(s.grid_vertical, align_names);
+    if (s.grid_column_span != 1) result["grid_column_span"] = number(s.grid_column_span);
+    if (s.grid_row_span != 1) result["grid_row_span"] = number(s.grid_row_span);
+    if (s.position != Position::flow) result["position"] = name(s.position, position_names);
+    for (const auto key : inset_names)
+        if (const auto& value = inset_field(s, key)) result[std::string(key)] = real_json(*value);
     if (s.background_gradient) {
         std::visit(
             [&](const auto& g) {

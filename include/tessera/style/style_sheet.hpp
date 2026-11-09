@@ -57,6 +57,13 @@ struct StyleDeclarations {
     std::optional<float> row_gap;
     std::optional<Align> grid_horizontal;
     std::optional<Align> grid_vertical;
+    std::optional<std::uint16_t> grid_column_span;
+    std::optional<std::uint16_t> grid_row_span;
+    std::optional<Position> position;
+    std::optional<std::optional<float>> left; // Set to an empty optional to select automatic placement.
+    std::optional<std::optional<float>> top;
+    std::optional<std::optional<float>> right;
+    std::optional<std::optional<float>> bottom;
     std::optional<std::optional<Gradient>> background_gradient;
     std::optional<std::optional<BoxShadow>> box_shadow;
     std::optional<std::optional<Outline>> outline;
@@ -103,7 +110,7 @@ struct StyleSelector {
 using ThemeValue =
     std::variant<float, Color, Dimension, Edges, FontId, std::optional<float>, std::uint16_t, Display, FlexDirection,
                  Justify, Align, Overflow, Visibility, std::vector<GridTrack>, std::optional<Gradient>,
-                 std::optional<BoxShadow>, std::optional<Outline>, FillShape, bool>;
+                 std::optional<BoxShadow>, std::optional<Outline>, FillShape, bool, Position>;
 struct ThemeReference {
     std::string name;
     std::optional<ThemeValue> fallback; // Used only when this name is absent.

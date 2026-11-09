@@ -174,6 +174,138 @@ void shared_content_columns() {
           "Shorter content must resize every shared column without application-side measurement or duplicated widths");
 }
 
+void spanning_placement() {
+    Fixture f(box({box(), box(), box(), box(), box(), box()}));
+    auto& grid = f.styles[0];
+    grid.grid_columns = {GridTrack::points(20), GridTrack::points(30), GridTrack::points(40)};
+    grid.grid_rows = {GridTrack::points(10), GridTrack::points(10), GridTrack::points(10)};
+    grid.column_gap = 2;
+    grid.row_gap = 4;
+    f.styles[1].grid_column_span = 2;
+    f.styles[3].grid_row_span = 2;
+    f.styles[4].grid_column_span = 2;
+    auto result = f.layout({200, 100});
+    check(result.boxes[1].border_box == Rect{{0, 0}, {52, 10}} &&
+              result.boxes[2].border_box == Rect{{54, 0}, {40, 10}} &&
+              result.boxes[3].border_box == Rect{{0, 14}, {20, 24}} &&
+              result.boxes[4].border_box == Rect{{22, 14}, {72, 10}} &&
+              result.boxes[5].border_box == Rect{{22, 28}, {30, 10}} &&
+              result.boxes[6].border_box == Rect{{54, 28}, {40, 10}},
+          "Spanning children must cover consecutive tracks and internal gaps, skipping occupied cells row-major");
+    f.styles[4].grid_column_span = 3;
+    const auto rejected = f.compute({200, 100});
+    check(!rejected && has(rejected.diagnostics, "grid_capacity", "/styles/0"),
+          "A span that fits no free area must reject instead of creating implicit tracks");
+
+    Fixture sparse(box({box(), box(), box()}));
+    sparse.styles[0].grid_columns.assign(3, GridTrack::points(10));
+    sparse.styles[0].grid_rows.assign(3, GridTrack::points(10));
+    sparse.styles[2].grid_column_span = 3;
+    result = sparse.layout({100, 100});
+    check(result.boxes[2].border_box == Rect{{0, 10}, {30, 10}} &&
+              result.boxes[3].border_box == Rect{{0, 20}, {10, 10}},
+          "Auto-placement must not backfill holes left before a wrapped span");
+}
+
+void spanning_contributions() {
+    Fixture f(box({box(), box(), box()}));
+    auto& grid = f.styles[0];
+    grid.grid_columns = {GridTrack{}, GridTrack{}};
+    grid.grid_rows = {GridTrack{}, GridTrack{}};
+    grid.column_gap = 4;
+    f.styles[1].width = Dimension::points(10);
+    f.styles[2].width = Dimension::points(20);
+    f.styles[3].width = Dimension::points(60);
+    f.styles[3].grid_column_span = 2;
+    for (std::size_t i = 1; i <= 3; ++i) f.styles[i].height = Dimension::points(5);
+    auto result = f.layout({200, 100});
+    check(result.boxes[2].border_box.origin.x == 27 && result.boxes[3].border_box == Rect{{0, 5}, {60, 5}},
+          "Span excess must grow the crossed content tracks in equal shares");
+    grid.grid_columns[0].maximum = 15;
+    result = f.layout({200, 100});
+    check(result.boxes[2].border_box.origin.x == 19 && result.boxes[2].border_box.size.width == 20,
+          "A capped track must freeze and pass its unused share to the other crossed tracks");
+    grid.grid_columns = {GridTrack{}, GridTrack::fraction()};
+    result = f.layout({200, 100});
+    check(result.boxes[2].border_box.origin.x == 14 && result.boxes[2].border_box.size.width == 20,
+          "A span crossing an assigned fractional track must leave its excess to that track");
+
+    Fixture nested(box({box({box(), box(), box()})}));
+    nested.styles[0].display = Display::flex;
+    nested.styles[0].align = Align::start;
+    auto& inner = nested.styles[1];
+    inner.display = Display::grid;
+    inner.grid_columns = {GridTrack{}, GridTrack::fraction()};
+    inner.grid_rows = {GridTrack{}, GridTrack{}};
+    inner.column_gap = 4;
+    nested.styles[2].width = Dimension::points(10);
+    nested.styles[3].width = Dimension::points(20);
+    nested.styles[4].width = Dimension::points(60);
+    nested.styles[4].grid_column_span = 2;
+    result = nested.layout({200, 100});
+    check(result.boxes[1].border_box.size.width == 60 && result.boxes[3].border_box.origin.x == 14,
+          "Intrinsic Grid width must include span excess; the assigned width then goes to the fractional track");
+
+    Fixture rows(box({box(), box(), box()}));
+    rows.styles[0].grid_columns.assign(2, GridTrack::points(40));
+    rows.styles[0].grid_rows = {GridTrack{}, GridTrack{}};
+    rows.styles[0].row_gap = 2;
+    rows.styles[1].grid_row_span = 2;
+    rows.styles[1].height = Dimension::points(50);
+    rows.styles[2].height = Dimension::points(10);
+    rows.styles[3].height = Dimension::points(20);
+    rows.styles[3].grid_vertical = Align::start;
+    result = rows.layout({100, 100});
+    check(result.boxes[1].border_box == Rect{{0, 0}, {40, 50}} &&
+              result.boxes[2].border_box == Rect{{40, 0}, {40, 10}} &&
+              result.boxes[3].border_box == Rect{{40, 21}, {40, 20}},
+          "Row spans must grow the crossed content rows in equal shares");
+
+    const auto wrapped = [](float second) {
+        Fixture w(box({label("ABCDEFGHIJKL"), box()}));
+        w.styles[0].grid_columns = {GridTrack::points(40), GridTrack::points(second)};
+        w.styles[0].grid_rows = {GridTrack{}, GridTrack{}};
+        w.styles[0].column_gap = 4;
+        w.styles[0].row_gap = 6;
+        w.styles[1].text.size = 20;
+        w.styles[1].grid_column_span = 2;
+        w.styles[2].height = Dimension::points(10);
+        return w.layout({200, 200});
+    };
+    result = wrapped(56);
+    check(result.boxes[1].border_box == Rect{{0, 0}, {100, 50}} && result.boxes[2].border_box.origin.y == 56,
+          "Spanning text must wrap at the spanned width and size its row");
+    result = wrapped(76);
+    check(result.boxes[1].border_box == Rect{{0, 0}, {120, 25}} && result.boxes[2].border_box.origin.y == 31,
+          "Wider spanned tracks must remeasure spanning text on one line");
+}
+
+void span_rejection() {
+    Fixture f(box({box(), box()}));
+    f.styles[0].grid_columns = {GridTrack{}, GridTrack{}};
+    f.styles[0].grid_rows = {GridTrack{}};
+    f.styles[1].grid_column_span = 3;
+    f.styles[2].grid_row_span = 2;
+    auto result = f.compute({100, 100});
+    check(!result && has(result.diagnostics, "grid_span", "/styles/1/grid_column_span") &&
+              has(result.diagnostics, "grid_span", "/styles/2/grid_row_span") &&
+              !has(result.diagnostics, "grid_capacity", "/styles/0"),
+          "Spans beyond the explicit tracks must report at the child instead of capacity");
+    f.styles[1].grid_column_span = 0;
+    f.styles[2].grid_row_span = max_grid_span + 1;
+    result = f.compute({100, 100});
+    check(!result && has(result.diagnostics, "out_of_range", "/styles/1/grid_column_span") &&
+              has(result.diagnostics, "out_of_range", "/styles/2/grid_row_span"),
+          "Spans must be within 1..256");
+    check(!has(result.diagnostics, "grid_capacity", "/styles/0"), "Invalid spans must not also report capacity");
+    f.styles[0].grid_columns = {GridTrack::fraction(), GridTrack::fraction()};
+    f.styles[1].grid_column_span = 2;
+    f.styles[2].grid_row_span = 1;
+    f.styles[2].display = Display::none;
+    check(f.layout({100, 100}).boxes[1].border_box.size.width == 100,
+          "Non-displayed children must not take Grid area after a full-row span");
+}
+
 std::array<std::uint8_t, 4> pixel(const CapturedImage& image, unsigned x, unsigned y) {
     const auto at = (std::size_t(y) * image.extent.width + x) * 4;
     return {image.pixels[at], image.pixels[at + 1], image.pixels[at + 2], image.pixels[at + 3]};
@@ -260,6 +392,9 @@ int main() {
         fractional_weights_and_content_tracks();
         nested_wrapped_rows();
         shared_content_columns();
+        spanning_placement();
+        spanning_contributions();
+        span_rejection();
         scroll_clip_paint_and_hits();
         display_and_rejection();
         std::cout << "Grid allocation, wrapping, alignment, scroll/clip, CPU pixels and rejection passed.\n";

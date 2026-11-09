@@ -1,5 +1,6 @@
 #include <tessera/layout/layout_box.hpp>
 #include "../detail/checks.hpp"
+#include "../detail/grid_placement.hpp"
 #include "../detail/modal.hpp"
 #include <string>
 
@@ -26,16 +27,38 @@ std::vector<Diagnostic> validate(const LayoutInput& input) {
             check.error("grid_tracks", path + "/grid_columns", "Declare at least one explicit Grid column.");
         if (resolved.grid_rows.empty())
             check.error("grid_tracks", path + "/grid_rows", "Declare at least one explicit Grid row.");
-        if (input.tree && input.styles.size() == input.tree->size()) {
-            std::size_t count = 0;
-            for (const auto child : input.tree->children({input.tree->root().tree, static_cast<std::uint32_t>(i)}))
-                if (input.styles[child.index].display != Display::none && !detail::root_layer(*input.tree->get(child)))
-                    ++count;
-            if (count > resolved.grid_columns.size() * resolved.grid_rows.size())
-                check.error(
-                    "grid_capacity", path,
-                    "Declare enough explicit Grid cells for every displayed child; implicit tracks are unsupported.");
+        const auto bounded = [](const std::vector<GridTrack>& tracks) {
+            return !tracks.empty() && tracks.size() <= max_grid_tracks;
+        };
+        if (!input.tree || input.styles.size() != input.tree->size() || !bounded(resolved.grid_columns) ||
+            !bounded(resolved.grid_rows))
+            continue;
+        std::vector<const ResolvedStyle*> items;
+        bool spans = true;
+        for (const auto child : input.tree->children({input.tree->root().tree, static_cast<std::uint32_t>(i)})) {
+            const auto& item = input.styles[child.index];
+            if (item.display == Display::none || item.position == Position::absolute ||
+                detail::root_layer(*input.tree->get(child)))
+                continue;
+            items.push_back(&item);
+            // Zero spans already report through style validation.
+            if (item.grid_column_span < 1 || item.grid_row_span < 1) spans = false;
+            const auto at = "/styles/" + std::to_string(child.index);
+            if (item.grid_column_span > resolved.grid_columns.size()) {
+                spans = false;
+                check.error("grid_span", at + "/grid_column_span",
+                            "Span at most the parent Grid's explicit columns; implicit tracks are unsupported.");
+            }
+            if (item.grid_row_span > resolved.grid_rows.size()) {
+                spans = false;
+                check.error("grid_span", at + "/grid_row_span",
+                            "Span at most the parent Grid's explicit rows; implicit tracks are unsupported.");
+            }
         }
+        if (spans && detail::place_grid(resolved.grid_columns.size(), resolved.grid_rows.size(), items).failed)
+            check.error("grid_capacity", path,
+                        "Declare enough free explicit Grid cells for every displayed child and its spans; "
+                        "implicit tracks are unsupported.");
     }
     if (input.tree && !input.scroll_offsets.empty() && input.scroll_offsets.size() != input.tree->size()) {
         check.error("scroll_count", "/scroll_offsets",

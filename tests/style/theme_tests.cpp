@@ -122,6 +122,13 @@ void exact_types_and_destinations() {
         {"row_gap", 4.f},
         {"grid_horizontal", Align::center},
         {"grid_vertical", Align::end},
+        {"grid_column_span", std::uint16_t{2}},
+        {"grid_row_span", std::uint16_t{3}},
+        {"position", Position::absolute},
+        {"left", std::optional<float>{-2.0f}},
+        {"top", std::optional<float>{0.0f}},
+        {"right", std::optional<float>{}},
+        {"bottom", std::optional<float>{5.0f}},
         {"background_gradient", std::optional<Gradient>{LinearGradient{{0, 0}, {1, 1}, red, blue}}}};
     Theme theme;
     StyleRule rule{StyleSelector::of_id("button"), {}};
@@ -163,6 +170,12 @@ void exact_types_and_destinations() {
     expected.row_gap = 4;
     expected.grid_horizontal = Align::center;
     expected.grid_vertical = Align::end;
+    expected.grid_column_span = 2;
+    expected.grid_row_span = 3;
+    expected.position = Position::absolute;
+    expected.left = -2.0f;
+    expected.top = 0.0f;
+    expected.bottom = 5.0f;
     check(result.value->at(1) == expected, "Every token reaches the declared style destination");
     theme.variables[24].value = ThemeValue{std::optional<float>{}};
     result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});

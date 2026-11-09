@@ -53,6 +53,13 @@ Assignment assign(StyleDeclarations& d, std::string_view property, const ThemeVa
     FIELD("row_gap", row_gap)
     FIELD("grid_horizontal", grid_horizontal)
     FIELD("grid_vertical", grid_vertical)
+    FIELD("grid_column_span", grid_column_span)
+    FIELD("grid_row_span", grid_row_span)
+    FIELD("position", position)
+    FIELD("left", left)
+    FIELD("top", top)
+    FIELD("right", right)
+    FIELD("bottom", bottom)
     FIELD("overflow", overflow)
     FIELD("width", width)
     FIELD("height", height)
@@ -87,12 +94,12 @@ Assignment assign(StyleDeclarations& d, std::string_view property, const ThemeVa
 void value_check(const ThemeValue& value, const std::string& path, std::vector<Diagnostic>& errors) {
     // Float tokens permit zero and +infinity, with the destination's stricter
     // constraints checked on binding. Other types use their ordinary rules.
-    constexpr std::array<std::string_view, 19> representative{"max_width",
+    constexpr std::array<std::string_view, 20> representative{"max_width",
                                                               "background",
                                                               "width",
                                                               "padding",
                                                               "text/font",
-                                                              "text/line_height",
+                                                              "left",
                                                               "text/weight",
                                                               "display",
                                                               "direction",
@@ -105,7 +112,8 @@ void value_check(const ThemeValue& value, const std::string& path, std::vector<D
                                                               "box_shadow",
                                                               "outline",
                                                               "background_shape",
-                                                              "background_antialias"};
+                                                              "background_antialias",
+                                                              "position"};
     StyleDeclarations d;
     const auto field = representative[value.index()];
     assign(d, field, &value);

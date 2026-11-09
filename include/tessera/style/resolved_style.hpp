@@ -31,6 +31,8 @@ enum class FlexDirection : std::uint8_t { column, row };
 enum class Justify : std::uint8_t { start, center, end, space_between };
 enum class Align : std::uint8_t { start, center, end, stretch };
 enum class Overflow : std::uint8_t { visible, clip, scroll };
+// absolute: removed from the parent's Flex/Stack/Grid flow and placed against its padding box.
+enum class Position : std::uint8_t { flow, absolute };
 
 struct GridTrack {
     enum class Kind : std::uint8_t { automatic, points, fraction };
@@ -46,6 +48,7 @@ struct GridTrack {
     bool operator==(const GridTrack&) const = default;
 };
 inline constexpr std::size_t max_grid_tracks = 256;
+inline constexpr std::uint16_t max_grid_span = 256;
 
 // Typed values after defaults, inheritance, rules, and local overrides have been applied.
 // Default construction yields the primitive defaults.
@@ -92,6 +95,17 @@ struct ResolvedStyle {
     float row_gap = 0;
     Align grid_horizontal = Align::stretch;
     Align grid_vertical = Align::stretch;
+    // Consecutive tracks this node occupies within a Grid parent; does not affect its own children.
+    std::uint16_t grid_column_span = 1;
+    std::uint16_t grid_row_span = 1;
+
+    // Absolute placement offsets from the parent's padding-box edges; empty is automatic.
+    // Negative values extend past the edge. Ignored unless position is absolute.
+    Position position = Position::flow;
+    std::optional<float> left;
+    std::optional<float> top;
+    std::optional<float> right;
+    std::optional<float> bottom;
 
     // Replaces background when present; not inherited.
     std::optional<Gradient> background_gradient;
