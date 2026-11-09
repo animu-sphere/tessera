@@ -37,6 +37,7 @@ public:
     void reset() noexcept { drag_.reset(); }
 
 private:
+    Result<std::optional<SplitPaneGeometry>> reconcile_geometry(const HitTestInput&);
     struct Drag {
         PointerId pointer;
         float grab;

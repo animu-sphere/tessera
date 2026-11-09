@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Resolve `SplitPane` and `Scrollbar` geometry once per dispatched event and reuse it to reconcile active drags.
+
 - Shared keyboard and gamepad range adjustments between `SplitPane` and `Scrollbar`, preserving their existing focus, drag and command behavior.
 
 - Shared the generated label and draft field between `NumberInput` and `VectorInput` components, preserving their part IDs, source mappings and clipping rules.
