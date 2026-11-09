@@ -33,6 +33,9 @@ enum class SemanticRole : std::uint8_t {
     switch_,      // A Box with toggle_role=switch (encoded "switch"); `selected` is its on state.
     text_input,   // A Box with edit_role=text_input; `value` is its presented text.
     number_input, // A Box with edit_role=number_input; `value` is its presented draft text.
+    tab_list,
+    tab,     // A tab_list entry; `selected` marks the tab whose panel is shown.
+    toolbar, // A Box with collection_role=toolbar grouping ordinary controls.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 
@@ -58,7 +61,7 @@ struct SemanticNode {
     bool focusable = false;                // Focus eligibility, as FocusDispatcher decides it.
     bool focused = false;                  // The supplied focus is this eligible node.
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
-    std::optional<bool> selected;          // Collection items, radios and toggles only; independent of focus.
+    std::optional<bool> selected;          // Collection items, radios, tabs and toggles only; independent of focus.
     std::optional<bool> expanded;          // Tree branches only; absent for leaves.
     std::optional<std::string> value;      // Text/number inputs only: presented text, never a parsed number.
     bool operator==(const SemanticNode&) const = default;

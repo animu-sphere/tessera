@@ -27,6 +27,25 @@ std::string expected(PropertyType type) {
 }
 
 // Toggle and edit role markers for one Box; returns whether it declares a toggle role.
+// Tab list/tab structure and toolbar contents, kept out of the recursive validation frame.
+void check_tabs_toolbar(const UiNode& node, const std::string& path, std::string_view role,
+                        std::string_view parent_role, bool in_toolbar, std::vector<Diagnostic>& errors) {
+    const auto error = [&](const char* code, std::string at, const char* message) {
+        errors.push_back({code, Severity::error, std::move(at), message, {}});
+    };
+    const auto* focusable = effective_property(node, property_names::focusable);
+    const bool interactive =
+        !node.events.empty() || (focusable && std::get_if<bool>(focusable) && std::get<bool>(*focusable));
+    if (((parent_role == "tab_list" && role != "tab") || parent_role == "tab") &&
+        (node.kind != NodeKind::text || interactive))
+        error("tab_child", path, "Tab lists contain tabs and noninteractive Text; tabs contain only Text.");
+    if (role == "tab" && !node.events.contains("activate"))
+        error("tab_action", path + "/events/activate", "Give each tab a registered selection action.");
+    if (in_toolbar && !role.empty())
+        error("toolbar_child", path + "/properties/collection_role",
+              "Toolbars contain ordinary controls, not collections or nested toolbars.");
+}
+
 bool check_control_roles(const UiNode& node, const std::string& path, bool collection,
                          std::vector<Diagnostic>& errors) {
     const auto error = [&](const char* code, std::string at, const char* message) {
@@ -135,6 +154,7 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
     std::vector<TreeEntry> tree_entries;
     std::map<const UiNode*, std::size_t> selected_counts;
     std::size_t count = 0;
+    std::size_t toolbars = 0; // Toolbar ancestors of the visited node.
     std::function<void(const UiNode&, const std::string&, std::size_t, const UiNode*)> visit;
     visit = [&](const UiNode& node, const std::string& path, std::size_t depth, const UiNode* parent) {
         if (++count > max_document_nodes) return;
@@ -231,13 +251,16 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         };
         const auto role = detail::collection_role(node);
         if (node.properties.contains(property_names::collection_role) && !detail::collection_owner_role(role) &&
-            !detail::collection_item(role))
+            !detail::collection_item(role) && role != "toolbar")
             error("collection_role", path + "/properties/collection_role",
-                  "Choose list, tree, menu, radio_group, list_item, tree_item, menu_item, or radio.");
+                  "Choose list, tree, menu, radio_group, tab_list, toolbar, list_item, tree_item, menu_item, radio, "
+                  "or tab.");
         const auto parent_role = parent ? detail::collection_role(*parent) : std::string_view{};
         if ((role == "list_item" && parent_role != "list") || (role == "tree_item" && parent_role != "tree") ||
-            (role == "menu_item" && parent_role != "menu") || (role == "radio" && parent_role != "radio_group"))
+            (role == "menu_item" && parent_role != "menu") || (role == "radio" && parent_role != "radio_group") ||
+            (role == "tab" && parent_role != "tab_list"))
             error("collection_parent", path, "Place collection items directly under their matching collection.");
+        check_tabs_toolbar(node, path, role, parent_role, toolbars > 0, errors);
         if (role == "menu" && (!node.id || !node.properties.contains(property_names::popup_anchor)))
             error("menu_popup", path, "Give the root-sibling Menu a stable ID and popup_anchor.");
         if (((parent_role == "menu" && role != "menu_item") || parent_role == "menu_item") &&
@@ -250,16 +273,16 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         // Kept out of this recursive frame so deep documents stay within the stack.
         const bool toggle = check_control_roles(node, path, !role.empty(), errors);
         if (node.properties.contains(property_names::selected) && role != "list_item" && role != "tree_item" &&
-            role != "radio" && !toggle)
+            role != "radio" && role != "tab" && !toggle)
             error("collection_state", path + "/properties/selected",
-                  "Only list/tree items, radios and toggles have selection state.");
+                  "Only list/tree items, radios, tabs and toggles have selection state.");
         if (node.properties.contains(property_names::expanded) && role != "tree_item")
             error("collection_state", path + "/properties/expanded", "Only tree items have expansion state.");
         if (const auto* selected = effective_property(node, property_names::selected);
             selected && std::get_if<bool>(selected) && std::get<bool>(*selected) && detail::collection_item(role) &&
             ++selected_counts[parent] > 1)
             error("collection_selection", path + "/properties/selected", "Select at most one item in each collection.");
-        if (detail::collection_owner_role(role) && node.events.contains("activate"))
+        if ((detail::collection_owner_role(role) || role == "toolbar") && node.events.contains("activate"))
             error("collection_action", path + "/events/activate", "Put actions on collection items.");
         if (role == "menu_item" && !node.events.contains("activate"))
             error("menu_action", path + "/events/activate", "Give each menu item a registered command action.");
@@ -285,8 +308,11 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
                       "Register host action '" + action + "' in ValidationContext before loading.");
         }
         extensions(node.extensions, path + "/extensions", depth * 2);
+        const bool toolbar = role == "toolbar";
+        toolbars += toolbar;
         for (std::size_t i = 0; i < node.children.size() && count <= max_document_nodes; ++i)
             visit(node.children[i], path + "/children/" + std::to_string(i), depth + 1, &node);
+        toolbars -= toolbar;
     };
     extensions(document_extensions, "/extensions", 1);
     visit(root, "/root", 1, nullptr);

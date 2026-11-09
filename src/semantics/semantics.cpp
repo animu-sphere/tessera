@@ -83,6 +83,12 @@ public:
                 role = SemanticRole::radio_group;
             else if (collection == "radio")
                 role = SemanticRole::radio;
+            else if (collection == "tab_list")
+                role = SemanticRole::tab_list;
+            else if (collection == "tab")
+                role = SemanticRole::tab;
+            else if (collection == "toolbar")
+                role = SemanticRole::toolbar;
             else if (separator && std::get<bool>(*separator))
                 role = SemanticRole::separator;
             else if (scrollbar && std::get<bool>(*scrollbar))
@@ -105,6 +111,7 @@ public:
                                                            tree_.nodes[inherited].role == SemanticRole::tree_item ||
                                                            tree_.nodes[inherited].role == SemanticRole::menu_item ||
                                                            tree_.nodes[inherited].role == SemanticRole::radio ||
+                                                           tree_.nodes[inherited].role == SemanticRole::tab ||
                                                            tree_.nodes[inherited].role == SemanticRole::checkbox ||
                                                            tree_.nodes[inherited].role == SemanticRole::switch_ ||
                                                            tree_.nodes[inherited].role == SemanticRole::text_input ||
@@ -196,7 +203,9 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
              entry.role == SemanticRole::menu || entry.role == SemanticRole::menu_item ||
              entry.role == SemanticRole::radio_group || entry.role == SemanticRole::radio ||
              entry.role == SemanticRole::checkbox || entry.role == SemanticRole::switch_ ||
-             entry.role == SemanticRole::text_input || entry.role == SemanticRole::number_input) &&
+             entry.role == SemanticRole::text_input || entry.role == SemanticRole::number_input ||
+             entry.role == SemanticRole::tab_list || entry.role == SemanticRole::tab ||
+             entry.role == SemanticRole::toolbar) &&
             entry.name.empty())
             warnings.push_back({"missing_name",
                                 Severity::warning,

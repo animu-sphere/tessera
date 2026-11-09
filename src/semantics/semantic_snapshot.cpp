@@ -12,9 +12,10 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-constexpr std::array<std::string_view, 18> roles{
-    "root", "button",    "text",      "separator",   "dialog", "list",     "tree",   "list_item",  "tree_item",
-    "menu", "menu_item", "scrollbar", "radio_group", "radio",  "checkbox", "switch", "text_input", "number_input"};
+constexpr std::array<std::string_view, 21> roles{
+    "root",      "button",    "text",       "separator",    "dialog",    "list",        "tree",
+    "list_item", "tree_item", "menu",       "menu_item",    "scrollbar", "radio_group", "radio",
+    "checkbox",  "switch",    "text_input", "number_input", "tab_list",  "tab",         "toolbar"};
 constexpr std::array<std::string_view, 3> sources{"none", "relationship", "content"};
 struct Failure {
     std::vector<Diagnostic> diagnostics;
@@ -216,7 +217,7 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
                 check.error("invalid_parent", at + "/parent", "Keep each semantic subtree contiguous in preorder.");
             ancestors.push_back(static_cast<std::uint32_t>(i));
         }
-        check.enumeration(entry.role, SemanticRole::number_input, at + "/role");
+        check.enumeration(entry.role, SemanticRole::toolbar, at + "/role");
         check.enumeration(entry.name_source, NameSource::content, at + "/name_source");
         if (entry.role == SemanticRole::root && (entry.node != 0 || entry.parent != no_semantic_parent))
             check.error("invalid_role", at + "/role", "Only the authored root may have the root role.");
@@ -247,7 +248,7 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
             check.error("invalid_utf8", at + "/value", "Use valid UTF-8.");
         const bool item = entry.role == SemanticRole::list_item || entry.role == SemanticRole::tree_item ||
                           entry.role == SemanticRole::radio || entry.role == SemanticRole::checkbox ||
-                          entry.role == SemanticRole::switch_;
+                          entry.role == SemanticRole::switch_ || entry.role == SemanticRole::tab;
         if ((entry.selected && !item) || (entry.expanded && entry.role != SemanticRole::tree_item))
             check.error("invalid_state", at,
                         "Selection belongs to collection items and toggles; expansion belongs to tree branches.");
