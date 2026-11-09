@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Reuse the validated replacement tree when settling a Replay host update, keeping the ordinary reload and rollback path.
+
 - Resolve `SplitPane` and `Scrollbar` geometry once per dispatched event and reuse it to reconcile active drags.
 
 - Shared keyboard and gamepad range adjustments between `SplitPane` and `Scrollbar`, preserving their existing focus, drag and command behavior.
