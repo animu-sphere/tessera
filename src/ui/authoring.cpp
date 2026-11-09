@@ -31,6 +31,8 @@ struct ElementData {
 };
 
 struct Lowerer {
+    static void add_number_input_parts(ElementData& owner, Value<std::string> label, const Value<TextEditState>& draft,
+                                       std::optional<Overflow> overflow = {});
     static Element split_pane(Element, Element, float, std::string, SplitPaneProps, FlexDirection);
     static Element scrollbar(bool horizontal, std::string, float, ScrollGeometry, std::string, ScrollbarProps);
     static Element collection(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps,
@@ -383,6 +385,18 @@ std::shared_ptr<detail::ElementData> edit_part_text(const Value<TextEditState>& 
 }
 } // namespace
 
+void detail::Lowerer::add_number_input_parts(ElementData& owner, Value<std::string> label,
+                                             const Value<TextEditState>& draft, std::optional<Overflow> overflow) {
+    const auto prefix = owner.props.id.value_or("");
+    const auto& source = owner.props.source;
+    owner.children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = source}));
+    auto value = Element(edit_part_text(draft, ElementData::EditPart::value, prefix + "-value", source));
+    owner.children.push_back(
+        Row({std::move(value)}, {.id = prefix + "-field",
+                                 .style = {.align = Align::center, .overflow = overflow, .grow = 1.f, .shrink = 1.f},
+                                 .source = source}));
+}
+
 Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps props) {
     using Part = detail::ElementData::EditPart;
     auto data = edit_owner("text_input", "TextInput", value, std::move(action), std::move(props.node),
@@ -397,22 +411,15 @@ Element TextInput(Value<std::string> label, Value<TextEditState> value, std::str
 }
 
 Element NumberInput(Value<std::string> label, Value<TextEditState> draft, std::string action, NumberInputProps props) {
-    using Part = detail::ElementData::EditPart;
     auto data = edit_owner("number_input", "NumberInput", draft, std::move(action), std::move(props.node),
                            std::move(props.disabled));
     auto& style = data->props.style;
     style.direction = FlexDirection::row;
     if (!style.align) style.align = Align::center;
     if (!style.gap) style.gap = 6.f;
+    detail::Lowerer::add_number_input_parts(*data, std::move(label), draft);
     const auto prefix = data->props.id.value_or("");
     const auto source = data->props.source;
-    data->children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = source}));
-    auto field = std::make_shared<detail::ElementData>();
-    field->props = {.id = prefix + "-field",
-                    .style = {.direction = FlexDirection::row, .align = Align::center, .grow = 1.f, .shrink = 1.f},
-                    .source = source};
-    field->children.push_back(Element(edit_part_text(draft, Part::value, prefix + "-value", source)));
-    data->children.push_back(Element(std::move(field)));
     for (const auto& [part, glyph] : {std::pair{"-decrease", "-"}, std::pair{"-increase", "+"}})
         data->children.push_back(Column({Text(glyph, {.source = source})}, {.id = prefix + part,
                                                                             .style = {.justify = Justify::center,
@@ -424,7 +431,6 @@ Element NumberInput(Value<std::string> label, Value<TextEditState> draft, std::s
 }
 
 Element VectorInput(Value<std::string> label, std::vector<VectorComponent> components, VectorInputProps props) {
-    using Part = detail::ElementData::EditPart;
     auto data = std::make_shared<detail::ElementData>();
     const auto prefix = props.node.id.value_or("");
     const auto source = props.node.source;
@@ -455,17 +461,7 @@ Element VectorInput(Value<std::string> label, std::vector<VectorComponent> compo
                                            .shrink = 1.f},
                                  .source = source},
                                 false);
-        owner->children.push_back(Text(std::move(component.label), {.id = id + "-label", .source = source}));
-        auto field = std::make_shared<detail::ElementData>();
-        field->props = {.id = id + "-field",
-                        .style = {.direction = FlexDirection::row,
-                                  .align = Align::center,
-                                  .overflow = Overflow::clip,
-                                  .grow = 1.f,
-                                  .shrink = 1.f},
-                        .source = source};
-        field->children.push_back(Element(edit_part_text(component.draft, Part::value, id + "-value", source)));
-        owner->children.push_back(Element(std::move(field)));
+        detail::Lowerer::add_number_input_parts(*owner, std::move(component.label), component.draft, Overflow::clip);
         fields->children.push_back(Element(std::move(owner)));
     }
     data->children.push_back(Element(std::move(fields)));
