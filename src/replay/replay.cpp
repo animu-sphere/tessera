@@ -63,9 +63,8 @@ public:
         recording_.steps.clear();
         auto tree = create_tree(recording_.document, "");
         if (!tree) return false;
-        install_tree(std::move(tree), recording_.styles);
         for (std::size_t i = 0; i < state_.host.size(); ++i) {
-            if (!current_.tree->find(state_.host[i].owner)) {
+            if (!tree->find(state_.host[i].owner)) {
                 errors_.push_back({"target_not_found",
                                    Severity::error,
                                    "/environment/host/" + std::to_string(i) + "/owner",
@@ -74,7 +73,7 @@ public:
                 return false;
             }
         }
-        if (!settle({}, "")) return false;
+        if (!install_view(std::move(tree), recording_.styles, {}, "")) return false;
         for (auto& step : steps) {
             if (!apply(std::move(step))) return false;
         }
@@ -112,7 +111,7 @@ public:
         } else if (const auto* reload = std::get_if<ReplayReload>(&step)) {
             cancel_pending();
             auto tree = create_tree(reload->document, at);
-            ok = tree && replace(std::move(tree), reload->styles, i, at);
+            ok = tree && install_view(std::move(tree), reload->styles, i, at);
         } else if (const auto* update = std::get_if<ReplayHostUpdate>(&step)) {
             ok = host_update(*update, i, at);
         } else if (const auto* focus = std::get_if<ReplayFocus>(&step)) {
@@ -233,10 +232,10 @@ private:
         const auto index = static_cast<std::size_t>(found - slots.begin());
         cancel_pending();
         slots[index] = update.slot;
-        return replace(std::move(tree), update.view.styles, step, view_at);
+        return install_view(std::move(tree), update.view.styles, step, view_at);
     }
 
-    // The current coherent tree/styles/layout. Only values are copied into observations.
+    // Tree, styles and layout travel together when a view is installed.
     struct Snapshot {
         std::unique_ptr<UiTree> tree;
         std::vector<ResolvedStyle> styles;
@@ -263,21 +262,15 @@ private:
         return std::move(*created.value);
     }
 
-    void install_tree(std::unique_ptr<UiTree> tree, const std::vector<ResolvedStyle>& styles) {
-        current_.tree = std::move(tree);
-        current_.styles = styles;
-        state_.offsets.assign(current_.tree->size(), Point{});
-    }
-
-    // Settles the validated replacement tree, revealing recovered focus under the host policy since
-    // replacement resets every offset. Restore the previous snapshot if settling fails before commit.
-    bool replace(std::unique_ptr<UiTree> tree, const std::vector<ResolvedStyle>& styles, std::size_t step,
-                 const std::string& at) {
-        auto previous = std::move(current_);
-        install_tree(std::move(tree), styles);
-        if (settle(step, at, recording_.policy.reveal_focus)) return true;
-        if (!committed_) current_ = std::move(previous);
-        return false;
+    // Prepare the view with zero scroll offsets before installing it. A replacement can then reveal recovered focus.
+    bool install_view(std::unique_ptr<UiTree> tree, const std::vector<ResolvedStyle>& styles,
+                      std::optional<std::size_t> step, const std::string& at) {
+        Snapshot next{std::move(tree), styles, {}};
+        auto paint = layout_and_paint(next, {}, at);
+        if (!paint) return false;
+        state_.offsets.assign(next.tree->size(), Point{});
+        current_ = std::move(next);
+        return finish_update(std::move(*paint), step, at, step.has_value() && recording_.policy.reveal_focus);
     }
 
     // Lays out the new viewport. Under the host reveal policy, focus that was in view, so that revealing it
@@ -297,22 +290,30 @@ private:
         return settle(step, at, keep);
     }
 
-    // Full-tree layout and paint at an update point, then re-target stationary pointers and recover focus.
-    // The new layout is the commit point. With `reveal`, recovered focus is scrolled into view and laid
-    // out again before the generation is recorded, so no generation shows it hidden.
     bool settle(std::optional<std::size_t> step, const std::string& at, bool reveal = false) {
-        auto layout = compute_layout({current_.tree.get(), current_.styles, state_.viewport, &text_, state_.offsets});
+        auto paint = layout_and_paint(current_, state_.offsets, at);
+        return paint && finish_update(std::move(*paint), step, at, reveal);
+    }
+
+    std::optional<UiDrawList> layout_and_paint(Snapshot& view, std::span<const Point> offsets, const std::string& at) {
+        auto layout = compute_layout({view.tree.get(), view.styles, state_.viewport, &text_, offsets});
         if (!layout) {
             relocate(errors_, std::move(layout.diagnostics), at);
-            return false;
+            return std::nullopt;
         }
-        auto paint = build_paint_list({current_.tree.get(), current_.styles, &*layout.value, &text_});
+        auto paint = build_paint_list({view.tree.get(), view.styles, &*layout.value, &text_});
         if (!paint) {
             relocate(errors_, std::move(paint.diagnostics), at);
-            return false;
+            return std::nullopt;
         }
+        view.layout = std::move(*layout.value);
+        return std::move(paint.value);
+    }
+
+    // The installed layout commits the update. Recover focus and retarget stationary pointers before recording it.
+    // Revealing recovered focus can settle another layout, with only the final generation recorded.
+    bool finish_update(UiDrawList paint, std::optional<std::size_t> step, const std::string& at, bool reveal) {
         committed_ = true;
-        current_.layout = std::move(*layout.value);
         auto recovered = focus_.refresh(current_.input());
         if (!recovered) {
             relocate(errors_, std::move(recovered.diagnostics), at);
@@ -335,7 +336,7 @@ private:
             relocate(errors_, std::move(refreshed.diagnostics), at);
             return false;
         }
-        ReplayGeneration generation{step, {}, std::move(*paint.value)};
+        ReplayGeneration generation{step, {}, std::move(paint)};
         generation.viewport = state_.viewport;
         generation.device_scale = state_.scale;
         generation.animation_time = state_.animation_time;
@@ -506,7 +507,7 @@ private:
 
     ReplayRecording recording_; // Accepted steps only.
     TextShaper& text_;
-    // Requested inputs that can change before a step commits. The installed snapshot is restored by replace().
+    // Requested inputs that can change before a step commits.
     struct StepState {
         Size viewport;
         float scale;

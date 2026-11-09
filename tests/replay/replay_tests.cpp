@@ -639,6 +639,20 @@ void rejected_reload_preserves_requested_scroll() {
 
     const auto rejected = session.apply(tessera::ReplayReload{source.document, {}});
     check(!rejected && has(rejected.diagnostics, "style_count", "/steps/1/styles"), "Bad reload accepted");
+
+    const auto before = session.output();
+    const auto captured = session.capture();
+    check(bool(captured), "Capture before the rejected replacement failed");
+    auto bad_paint = tessera::ReplayReload{source.document, source.styles};
+    bad_paint.styles[0].outline = tessera::Outline{.width = std::numeric_limits<float>::max(), .color = {0, 0, 0, 1}};
+    const auto paint_rejected = session.apply(std::move(bad_paint));
+    check(!paint_rejected && has(paint_rejected.diagnostics, "geometry_overflow", "/steps/1/nodes/0/outline"),
+          "A replacement that cannot paint must be rejected");
+    const auto retained = session.capture();
+    check(!session.closed() && session.recording().steps.size() == 1 && session.output() == before && retained &&
+              retained.value->generation == captured.value->generation,
+          "The paint failure must preserve the current tree and accepted observations");
+
     check(bool(session.apply(tessera::ReplayTick{1us})), "The session must settle another step after rejection");
     check(offset(session.output().generations.back()) == scrolled,
           "The next layout must use the scroll offset from before the rejected reload");
