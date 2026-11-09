@@ -39,6 +39,7 @@ enum class SemanticRole : std::uint8_t {
     combobox, // A select-only trigger; `value` is the selected option label, `expanded` its list state.
     listbox,  // The root-sibling option list of a combobox.
     option,   // A listbox entry; `selected` marks the accepted choice.
+    group,    // A Box with collection_role=group naming related ordinary controls, such as VectorInput components.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 

@@ -38,6 +38,7 @@ struct Fixture {
     PlaceholderTextShaper text;
     LayoutResult layout;
     Size viewport{320, 240};
+    DocumentSourceMap sources;
     void build(Options options = {}) {
         std::vector<ui::RadioOption> choices{{"a", "Inherited", "pick.a"},
                                              {"b", "Visible", "pick.b"},
@@ -51,6 +52,7 @@ struct Fixture {
                                                       {.id = "root"}),
                                            actions));
         document = authored.document;
+        sources = authored.sources;
         tree = take(UiTree::create(document, actions));
         const StyleSheet sheet;
         styles = take(resolve_styles({tree.get(), &sheet, {}, authored.styles}));
@@ -102,6 +104,8 @@ void composition_and_semantics() {
           "Options must carry radio role, checked state, action and an explicit marker");
     check(f.box("mode-option-a").border_box.origin.y < f.box("mode-option-b").border_box.origin.y,
           "RadioGroup defaults to a Column");
+    check(validate_sources(f.document, f.sources).empty(),
+          "Generated parts, including the action-less group's disabled state, need valid sources");
     f.build({.row = true});
     check(f.box("mode-option-a").border_box.origin.x < f.box("mode-option-b").border_box.origin.x &&
               f.box("mode-option-a").border_box.origin.y == f.box("mode-option-b").border_box.origin.y,

@@ -267,10 +267,10 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         };
         const auto role = detail::collection_role(node);
         if (node.properties.contains(property_names::collection_role) && !detail::collection_owner_role(role) &&
-            !detail::collection_item(role) && role != "toolbar" && role != "combobox")
+            !detail::collection_item(role) && role != "toolbar" && role != "combobox" && role != "group")
             error("collection_role", path + "/properties/collection_role",
-                  "Choose list, tree, menu, radio_group, tab_list, listbox, toolbar, combobox, list_item, tree_item, "
-                  "menu_item, radio, tab or option.");
+                  "Choose list, tree, menu, radio_group, tab_list, listbox, toolbar, combobox, group, list_item, "
+                  "tree_item, menu_item, radio, tab or option.");
         const auto parent_role = parent ? detail::collection_role(*parent) : std::string_view{};
         if ((role == "list_item" && parent_role != "list") || (role == "tree_item" && parent_role != "tree") ||
             (role == "menu_item" && parent_role != "menu") || (role == "radio" && parent_role != "radio_group") ||
@@ -299,7 +299,8 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             selected && std::get_if<bool>(selected) && std::get<bool>(*selected) && detail::collection_item(role) &&
             ++selected_counts[parent] > 1)
             error("collection_selection", path + "/properties/selected", "Select at most one item in each collection.");
-        if ((detail::collection_owner_role(role) || role == "toolbar") && node.events.contains("activate"))
+        if ((detail::collection_owner_role(role) || role == "toolbar" || role == "group") &&
+            node.events.contains("activate"))
             error("collection_action", path + "/events/activate", "Put actions on collection items.");
         if (role == "menu_item" && !node.events.contains("activate"))
             error("menu_action", path + "/events/activate", "Give each menu item a registered command action.");

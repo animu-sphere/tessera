@@ -58,6 +58,15 @@ struct TextInputProps {
     Value<bool> disabled = false;
 };
 using NumberInputProps = TextInputProps;
+// One VectorInput component: a compact number_input named by its own label, with its own
+// host-owned draft and command. The key is unique within the vector and forms generated IDs.
+struct VectorComponent {
+    std::string key;
+    Value<std::string> label;
+    Value<TextEditState> draft;
+    std::string action;
+};
+using VectorInputProps = TextInputProps;
 // Inclusive decimal bounds and a positive adjustment step for NumberInput drafts.
 // Direct entry need not land on a step.
 struct NumberRange {
@@ -186,6 +195,7 @@ private:
     friend Element Switch(Value<std::string>, Value<bool>, std::string, SwitchProps);
     friend Element TextInput(Value<std::string>, Value<TextEditState>, std::string, TextInputProps);
     friend Element NumberInput(Value<std::string>, Value<TextEditState>, std::string, NumberInputProps);
+    friend Element VectorInput(Value<std::string>, std::vector<VectorComponent>, VectorInputProps);
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
     friend Element Stack(std::vector<Element>, Props);
@@ -230,6 +240,13 @@ Element TextInput(Value<std::string> label, Value<TextEditState> value, std::str
 // editing, parsing (parse_number), Enter/Escape and Up/Down or step-part adjustment
 // (step_number), and the accepted number. Requires a stable ID.
 Element NumberInput(Value<std::string> label, Value<TextEditState> draft, std::string action, NumberInputProps = {});
+// Controlled 2-4 component numeric vector (vec2/vec3/vec4): a row with the <id>-label Text and an
+// <id>-fields row of components. Each component <id>-<key> holds <id>-<key>-label and an
+// <id>-<key>-field with the <id>-<key>-value draft Text, shares the fields row equally and is
+// its own Tab stop projecting a number_input named by its label. The owner projects a group
+// named by <id>-label. The host owns each component's editing, parsing and stepping as for
+// NumberInput; there are no step parts. Requires a stable ID; disabled disables every component.
+Element VectorInput(Value<std::string> label, std::vector<VectorComponent> components, VectorInputProps = {});
 Element Row(std::vector<Element> children, Props = {});
 Element Column(std::vector<Element> children, Props = {});
 // Overlapping children in one content box, later children on top. Each child's
