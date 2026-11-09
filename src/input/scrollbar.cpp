@@ -89,25 +89,26 @@ Result<std::optional<ScrollbarGeometry>> scrollbar_geometry(const HitTestInput& 
     return {view, {}};
 }
 
-Result<ScrollbarDispatchResult> ScrollbarDispatcher::refresh(const HitTestInput& input) {
+Result<std::optional<ScrollbarGeometry>> ScrollbarDispatcher::reconcile_geometry(const HitTestInput& input) {
     if (!std::isfinite(step_) || step_ <= 0)
         return {std::nullopt,
                 {{"scrollbar_step", Severity::error, "/step", "Supply a finite positive keyboard step."}}};
     auto geometry = scrollbar_geometry(input, id_, scroll_id_);
+    if (!geometry || !drag_) return geometry;
+    const auto& view = *geometry.value;
+    if (!view || !view->enabled || drag_->axis != view->axis ||
+        drag_->thumb_size != along(view->axis, view->bounds.size) ||
+        drag_->track_size != along(view->axis, view->track.size) || drag_->maximum != view->maximum ||
+        input.tree->get(view->thumb)->events.at("activate") != drag_->action)
+        reset();
+    return geometry;
+}
+
+Result<ScrollbarDispatchResult> ScrollbarDispatcher::refresh(const HitTestInput& input) {
+    auto geometry = reconcile_geometry(input);
     if (!geometry) return {std::nullopt, std::move(geometry.diagnostics)};
     ScrollbarDispatchResult result;
-    if (!*geometry.value) {
-        reset();
-        return {result, {}};
-    }
-    const auto& view = **geometry.value;
-    result.update = ScrollUpdate{view.container, view.offset};
-    const auto* node = input.tree->get(view.thumb);
-    if (drag_ &&
-        (!view.enabled || drag_->axis != view.axis || drag_->thumb_size != along(view.axis, view.bounds.size) ||
-         drag_->track_size != along(view.axis, view.track.size) || drag_->maximum != view.maximum ||
-         node->events.at("activate") != drag_->action))
-        reset();
+    if (const auto& view = *geometry.value) result.update = ScrollUpdate{view->container, view->offset};
     return {result, {}};
 }
 
@@ -118,9 +119,7 @@ Result<ScrollbarDispatchResult> ScrollbarDispatcher::dispatch(const HitTestInput
     errors.insert(errors.end(), semantic_errors.begin(), semantic_errors.end());
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     auto candidate = *this;
-    auto refreshed = candidate.refresh(input);
-    if (!refreshed) return refreshed;
-    auto geometry = scrollbar_geometry(input, id_, scroll_id_);
+    auto geometry = candidate.reconcile_geometry(input);
     if (!geometry) return {std::nullopt, std::move(geometry.diagnostics)};
     ScrollbarDispatchResult result;
     if (!*geometry.value || !(**geometry.value).enabled) {

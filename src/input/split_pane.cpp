@@ -59,24 +59,25 @@ Result<std::optional<SplitPaneGeometry>> split_pane_geometry(const HitTestInput&
             {}};
 }
 
-Result<SplitPaneDispatchResult> SplitPaneDispatcher::refresh(const HitTestInput& input) {
+Result<std::optional<SplitPaneGeometry>> SplitPaneDispatcher::reconcile_geometry(const HitTestInput& input) {
     if (!std::isfinite(step_) || step_ <= 0)
         return {std::nullopt,
                 {{"split_pane_step", Severity::error, "/step", "Supply a finite positive keyboard step."}}};
     auto geometry = split_pane_geometry(input, id_);
+    if (!geometry || !drag_) return geometry;
+    const auto& view = *geometry.value;
+    if (!view || !view->enabled || drag_->direction != view->direction ||
+        drag_->handle_size != extent(view->bounds.size, view->direction) ||
+        input.tree->get(view->handle)->events.at("activate") != drag_->action)
+        reset();
+    return geometry;
+}
+
+Result<SplitPaneDispatchResult> SplitPaneDispatcher::refresh(const HitTestInput& input) {
+    auto geometry = reconcile_geometry(input);
     if (!geometry) return {std::nullopt, std::move(geometry.diagnostics)};
     SplitPaneDispatchResult result;
-    if (!*geometry.value) {
-        reset();
-        return {result, {}};
-    }
-    const auto& view = **geometry.value;
-    result.size = view.size;
-    const auto* node = input.tree->get(view.handle);
-    if (drag_ && (!view.enabled || drag_->direction != view.direction ||
-                  drag_->handle_size != extent(view.bounds.size, view.direction) ||
-                  node->events.at("activate") != drag_->action))
-        reset();
+    if (const auto& view = *geometry.value) result.size = view->size;
     return {result, {}};
 }
 
@@ -87,9 +88,7 @@ Result<SplitPaneDispatchResult> SplitPaneDispatcher::dispatch(const HitTestInput
     errors.insert(errors.end(), semantic_errors.begin(), semantic_errors.end());
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     auto candidate = *this;
-    auto refreshed = candidate.refresh(input);
-    if (!refreshed) return refreshed;
-    auto geometry = split_pane_geometry(input, id_);
+    auto geometry = candidate.reconcile_geometry(input);
     if (!geometry) return {std::nullopt, std::move(geometry.diagnostics)};
     SplitPaneDispatchResult result;
     if (!*geometry.value || !(**geometry.value).enabled) {
