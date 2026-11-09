@@ -311,24 +311,17 @@ private:
     }
 
     // The installed layout commits the update. Recover focus and retarget stationary pointers before recording it.
-    // Revealing recovered focus can settle another layout, with only the final generation recorded.
+    // Revealing recovered focus can require a second layout before publishing the single generation.
     bool finish_update(UiDrawList paint, std::optional<std::size_t> step, const std::string& at, bool reveal) {
         committed_ = true;
-        auto recovered = focus_.refresh(current_.input());
-        if (!recovered) {
-            relocate(errors_, std::move(recovered.diagnostics), at);
-            return false;
-        }
-        focused_ = recovered.value->focused;
-        if (reveal && focused_) {
-            auto revealed = scroll_into_view(current_.input(), *focused_);
-            if (!revealed) {
-                relocate(errors_, std::move(revealed.diagnostics), at);
-                return false;
-            }
-            if (!revealed.value->empty()) {
-                for (const auto& update : *revealed.value) state_.offsets[update.container.index] = update.offset;
-                return settle(step, at);
+        if (!recover_focus(at)) return false;
+        if (reveal) {
+            const auto scrolled = scroll_to_focus(at);
+            if (!scrolled) return false;
+            if (*scrolled) {
+                auto revealed_paint = layout_and_paint(current_, state_.offsets, at);
+                if (!revealed_paint || !recover_focus(at)) return false;
+                paint = std::move(*revealed_paint);
             }
         }
         auto refreshed = input_.refresh(current_.input());
@@ -347,6 +340,16 @@ private:
                                         box.visible, box.clip, box.scroll});
         output_.generations.push_back(std::move(generation));
         return observe(step, at);
+    }
+
+    bool recover_focus(const std::string& at) {
+        auto recovered = focus_.refresh(current_.input());
+        if (!recovered) {
+            relocate(errors_, std::move(recovered.diagnostics), at);
+            return false;
+        }
+        focused_ = recovered.value->focused;
+        return true;
     }
 
     // Projects the current generation with the current focus.
@@ -486,15 +489,22 @@ private:
     // Host reveal policy: focus moved to another node scrolls it into view. Changed offsets settle a new
     // generation, which observes semantics; otherwise the current generation is observed.
     bool reveal(std::optional<NodeHandle> previous, std::size_t step, const std::string& at) {
-        if (!recording_.policy.reveal_focus || !focused_ || focused_ == previous) return observe(step, at);
+        if (!recording_.policy.reveal_focus || focused_ == previous) return observe(step, at);
+        const auto scrolled = scroll_to_focus(at);
+        if (!scrolled) return false;
+        return *scrolled ? settle(step, at) : observe(step, at);
+    }
+
+    // Returns whether focus required a scroll offset change, or nullopt on rejection.
+    std::optional<bool> scroll_to_focus(const std::string& at) {
+        if (!focused_) return false;
         auto revealed = scroll_into_view(current_.input(), *focused_);
         if (!revealed) {
             relocate(errors_, std::move(revealed.diagnostics), at);
-            return false;
+            return std::nullopt;
         }
-        if (revealed.value->empty()) return observe(step, at);
         for (const auto& update : *revealed.value) state_.offsets[update.container.index] = update.offset;
-        return settle(step, at);
+        return !revealed.value->empty();
     }
 
     void record(std::size_t step, std::vector<ActionRequest>& requests) {

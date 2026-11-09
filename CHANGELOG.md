@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Share Replay's focus reveal scroll updates and finish layout before refreshing pointers and publishing the generation.
+
 - Stage Replay views through layout and paint validation before replacing the current snapshot.
 
 - Restore Replay's pending step inputs together when a step fails before commit.
