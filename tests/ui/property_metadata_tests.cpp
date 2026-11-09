@@ -73,7 +73,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 18, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 20, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");
@@ -138,6 +138,18 @@ void validation_and_encoding_agreement() {
                     encoding = "\"switch\"";
                     candidate.root.children[child_index].properties["selected"] = false;
                     candidate.root.children[child_index].events["activate"] = "toggle";
+                }
+                if ((descriptor.name == "edit_role" || descriptor.name == "edit_value") &&
+                    type == tessera::PropertyType::string) {
+                    // An input pairs its role with its presented value and needs a command.
+                    auto& node = candidate.root.children[child_index];
+                    node.properties["edit_role"] = std::string("number_input");
+                    node.properties["edit_value"] = std::string("1.5");
+                    node.events["activate"] = "toggle";
+                    if (descriptor.name == "edit_role") {
+                        value = std::string("number_input");
+                        encoding = "\"number_input\"";
+                    }
                 }
                 if (descriptor.name == "tree_parent" && type == tessera::PropertyType::reference) {
                     value = tessera::NodeReference{"parent"};

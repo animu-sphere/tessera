@@ -252,6 +252,18 @@ std::string name(const Presentation& presentation, std::string id) {
     require(semantic.has_value(), "Missing semantic observation");
     return presentation.inspection.semantics.nodes[*semantic].name;
 }
+std::optional<std::string> value(const Presentation& presentation, std::string id) {
+    const auto target = take(resolve_target(presentation.inspection, AuthorIdTarget{std::move(id)}));
+    const auto semantic = presentation.inspection.elements[target.index].semantic;
+    require(semantic.has_value(), "Missing semantic observation");
+    return presentation.inspection.semantics.nodes[*semantic].value;
+}
+// The presented selection Text, the TextInput's third generated child.
+std::string selection(const Presentation& presentation, std::string_view id) {
+    const auto parts = presentation.tree->children(*presentation.tree->find(id));
+    require(parts.size() == 3, "TextInput parts differ");
+    return std::get<std::string>(presentation.tree->get(parts[2])->properties.at("text"));
+}
 std::optional<bool> checked(const Presentation& presentation, std::string id) {
     const auto target = take(resolve_target(presentation.inspection, AuthorIdTarget{std::move(id)}));
     const auto semantic = presentation.inspection.elements[target.index].semantic;
@@ -930,9 +942,9 @@ int main(int argc, char** argv) {
                                                      (host.draft.feature ? "; feature enabled" : "; feature disabled"),
                     "Summary differs");
             if (host.selected == "account")
-                require(name(accepted, "username") == "Username " + host.username.text + " Selection " +
-                                                          std::to_string(host.username.anchor) + ":" +
-                                                          std::to_string(host.username.caret),
+                require(name(accepted, "username") == "Username" && value(accepted, "username") == host.username.text &&
+                            selection(accepted, "username") == "Selection " + std::to_string(host.username.anchor) +
+                                                                   ":" + std::to_string(host.username.caret),
                         "Edit observation differs");
             if (host.selected == "feature")
                 require(name(accepted, "toggle") == "Enable feature" &&

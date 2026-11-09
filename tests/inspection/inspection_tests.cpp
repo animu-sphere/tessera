@@ -83,6 +83,8 @@ void capture_joins_one_generation() {
     const std::vector<tessera::PropertyObservation> box_properties{
         {"collection_role", std::nullopt, false},
         {"disabled", tessera::Property{false}, false},
+        {"edit_role", std::nullopt, false},
+        {"edit_value", std::nullopt, false},
         {"expanded", std::nullopt, false},
         {"focusable", tessera::Property{true}, true},
         {"labelled_by", std::nullopt, false},

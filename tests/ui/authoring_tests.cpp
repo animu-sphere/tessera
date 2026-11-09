@@ -437,6 +437,11 @@ void controlled_text_input() {
         "Username", state, "toggle", {.node = {.id = "username", .source = origin}, .disabled = disabled});
     const auto first = take(ui.lower(field, actions));
     check(first.document.root.children.size() == 3 && first.styles[0].direction == FlexDirection::column &&
+              first.document.root.properties.at("edit_role") == Property{std::string("text_input")} &&
+              first.document.root.properties.at("edit_value") == Property{std::string("日😀")} &&
+              first.document.root.properties.at("labelled_by") == Property{NodeReference{"username-label"}} &&
+              first.document.root.children[0].id == "username-label" &&
+              first.document.root.children[1].id == "username-value" &&
               first.document.root.children[1].properties.at("text") == Property{std::string("日😀")} &&
               first.document.root.children[2].properties.at("text") == Property{std::string("Selection 7:7")},
           "Field must compose label, value and byte selection through ordinary Text");
@@ -450,7 +455,8 @@ void controlled_text_input() {
               second.document.root.children[2].properties.at("text") == Property{std::string("Selection 7:3")} &&
               first.document.root.children[2].properties.at("text") == Property{std::string("Selection 7:7")},
           "Selection/disabled must settle coherently without mutating owned candidates");
-    check(second.sources.nodes[2].property_arguments.at("text") == origin &&
+    check(second.sources.nodes[0].property_arguments.at("edit_value") == origin &&
+              second.sources.nodes[2].property_arguments.at("text") == origin &&
               second.sources.nodes[3].property_arguments.at("text") == origin,
           "Field projections lost origins");
     auto composing = take(edit_text(next, {1, next.revision, TextCompositionStart{}}));
@@ -459,6 +465,7 @@ void controlled_text_input() {
     ui.update([&] { state.write(composing); });
     const auto composed = take(ui.lower(field, actions));
     check(composed.document.root.children[1].properties.at("text") == Property{std::string("日ご")} &&
+              composed.document.root.properties.at("edit_value") == Property{std::string("日ご")} &&
               composed.document.root.children[2].properties.at("text") ==
                   Property{std::string("Composition 3:6 caret 6")},
           "Open composition must present preedit over the captured selection");
@@ -470,8 +477,9 @@ void controlled_text_input() {
           "Malformed edit state needs a located field diagnostic");
     Session foreign;
     const auto wrong = foreign.state("editing", initial);
-    const auto rejected =
-        ui.lower(tessera::authoring::TextInput("Foreign", wrong, "toggle", {.node = {.source = origin}}), actions);
+    const auto rejected = ui.lower(
+        tessera::authoring::TextInput("Foreign", wrong, "toggle", {.node = {.id = "foreign", .source = origin}}),
+        actions);
     check(!rejected && rejected.diagnostics[0].path == "/root/children/1/properties/text" &&
               rejected.diagnostics[0].source,
           "Foreign editing state accepted or unlocated");
@@ -482,11 +490,16 @@ void controlled_text_input() {
     });
     auto bad = initial;
     bad.text = "multiline\n";
-    check(!ui.lower(tessera::authoring::TextInput(label, bad, "toggle"), actions) && reads == 0,
+    check(!ui.lower(tessera::authoring::TextInput(label, bad, "toggle", {.node = {.id = "bad"}}), actions) &&
+              reads == 0,
           "Invalid literal edit state must fail before graph evaluation");
-    check(!ui.lower(tessera::authoring::TextInput("Username", initial, "unknown"), actions),
-          "Unknown TextInput action accepted");
-    auto deepest = tessera::authoring::TextInput("Username", initial, "toggle");
+    check(
+        !ui.lower(tessera::authoring::TextInput("Username", initial, "unknown", {.node = {.id = "username"}}), actions),
+        "Unknown TextInput action accepted");
+    check(has(ui.lower(tessera::authoring::TextInput("Username", initial, "toggle"), actions).diagnostics,
+              "text_input_id", "/root"),
+          "TextInput requires a stable ID");
+    auto deepest = tessera::authoring::TextInput("Username", initial, "toggle", {.node = {.id = "deepest"}});
     for (std::size_t i = 2; i < max_document_depth; ++i) deepest = Column({deepest});
     check(bool(ui.lower(deepest, actions)) && !ui.lower(Column({deepest}), actions),
           "TextInput generated children bypassed expanded bounds");

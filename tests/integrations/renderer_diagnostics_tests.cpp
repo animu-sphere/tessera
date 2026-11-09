@@ -40,6 +40,14 @@ std::string name(const panel::View& view, const std::string& id) {
     require(semantic.has_value(), "Missing semantics " + id);
     return view.inspection.semantics.nodes[*semantic].name;
 }
+// A TextInput is named by its label and carries its presented text as its value.
+bool text_input(const panel::View& view, const std::string& id, const std::string& label, const std::string& value) {
+    const auto target = take(resolve_target(view.inspection, AuthorIdTarget{id}));
+    const auto semantic = view.inspection.elements[target.index].semantic;
+    require(semantic.has_value(), "Missing semantics " + id);
+    const auto& node = view.inspection.semantics.nodes[*semantic];
+    return node.role == SemanticRole::text_input && node.name == label && node.value == value;
+}
 // A Checkbox is named by its label and carries its value as checked state.
 bool checkbox(const panel::View& view, const std::string& id, const std::string& label, bool checked) {
     const auto target = take(resolve_target(view.inspection, AuthorIdTarget{id}));
@@ -197,9 +205,7 @@ struct Fixture {
                             observed != properties.end() && observed->value == std::optional<Property>{expected},
                         "Numeric draft/selection differs from inspection: " + id);
             }
-            const auto input_name = title + (value.draft.text.empty() ? "" : " " + value.draft.text) + " Selection " +
-                                    std::to_string(value.draft.anchor) + ":" + std::to_string(value.draft.caret);
-            require(name(view, id + "-input") == input_name, "Numeric semantic draft/selection differs: " + id);
+            require(text_input(view, id + "-input", title, value.draft.text), "Numeric semantic draft differs: " + id);
             const bool dirty = value.draft.text != panel::canonical(value.accepted);
             for (const auto* operation : {"input", "apply", "cancel", "decrease", "increase"}) {
                 bool enabled = value.enabled;

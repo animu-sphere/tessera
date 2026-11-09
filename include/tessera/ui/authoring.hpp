@@ -57,6 +57,22 @@ struct TextInputProps {
     Props node;
     Value<bool> disabled = false;
 };
+using NumberInputProps = TextInputProps;
+// Inclusive decimal bounds and a positive adjustment step for NumberInput drafts.
+// Direct entry need not land on a step.
+struct NumberRange {
+    double minimum = 0;
+    double maximum = 100;
+    double step = 1;
+};
+// Whole-string, locale-independent ASCII -?(0|[1-9][0-9]*)(\.[0-9]+)? within the bounds;
+// rejects whitespace, '+', exponents, NaN/infinity and empty text. Negative zero is zero.
+Result<double> parse_number(NumberRange, std::string_view text);
+// Shortest fixed decimal that round-trips the value; zero is "0", nonfinite values are "".
+std::string format_number(double);
+// Moves `steps` steps from a finite value, clamps to the bounds and keeps the decimal places of
+// the value and step, so 0.2 + 0.1 yields 0.3.
+Result<double> step_number(NumberRange, double value, int steps);
 struct DropdownOption {
     std::string key;
     std::string label;
@@ -157,6 +173,7 @@ private:
     friend Element Checkbox(Value<std::string>, Value<bool>, std::string, CheckboxProps);
     friend Element Switch(Value<std::string>, Value<bool>, std::string, SwitchProps);
     friend Element TextInput(Value<std::string>, Value<TextEditState>, std::string, TextInputProps);
+    friend Element NumberInput(Value<std::string>, Value<TextEditState>, std::string, NumberInputProps);
     friend Element Row(std::vector<Element>, Props);
     friend Element Column(std::vector<Element>, Props);
     friend Element Stack(std::vector<Element>, Props);
@@ -187,10 +204,17 @@ Element Checkbox(Value<std::string> label, Value<bool> checked, std::string acti
 // <id>-thumb sits at the start when off and the end when on, then the <id>-label Text.
 // Projects a switch role; the track turns blue when on. Requires a stable ID.
 Element Switch(Value<std::string> label, Value<bool> on, std::string action, SwitchProps = {});
-// Controlled single-line observation: label, committed text, then byte selection
-// as ordinary Text children; an open composition presents its preedit instead.
+// Controlled single-line observation: <id>-label, <id>-value (committed text) and byte
+// selection Text children; an open composition presents its preedit instead. Projects a
+// text_input named by its label whose value is the presented text. Requires a stable ID.
 // The host routes edits through this activate owner.
 Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps = {});
+// Controlled numeric draft: a row with <id>-label, an <id>-field holding the <id>-value
+// draft Text, then presentational <id>-decrease / <id>-increase step parts. Projects a
+// number_input named by its label whose value is the presented draft text. The host owns
+// editing, parsing (parse_number), Enter/Escape and Up/Down or step-part adjustment
+// (step_number), and the accepted number. Requires a stable ID.
+Element NumberInput(Value<std::string> label, Value<TextEditState> draft, std::string action, NumberInputProps = {});
 Element Row(std::vector<Element> children, Props = {});
 Element Column(std::vector<Element> children, Props = {});
 // Overlapping children in one content box, later children on top. Each child's

@@ -28,9 +28,11 @@ enum class SemanticRole : std::uint8_t {
     menu_item,
     scrollbar, // A Box with scrollbar=true; activation requests host-owned scrolling.
     radio_group,
-    radio,    // A radio_group option; `selected` is its checked state.
-    checkbox, // A Box with toggle_role=checkbox; `selected` is its checked state.
-    switch_,  // A Box with toggle_role=switch (encoded "switch"); `selected` is its on state.
+    radio,        // A radio_group option; `selected` is its checked state.
+    checkbox,     // A Box with toggle_role=checkbox; `selected` is its checked state.
+    switch_,      // A Box with toggle_role=switch (encoded "switch"); `selected` is its on state.
+    text_input,   // A Box with edit_role=text_input; `value` is its presented text.
+    number_input, // A Box with edit_role=number_input; `value` is its presented draft text.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 
@@ -58,6 +60,7 @@ struct SemanticNode {
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
     std::optional<bool> selected;          // Collection items, radios and toggles only; independent of focus.
     std::optional<bool> expanded;          // Tree branches only; absent for leaves.
+    std::optional<std::string> value;      // Text/number inputs only: presented text, never a parsed number.
     bool operator==(const SemanticNode&) const = default;
 };
 

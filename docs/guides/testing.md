@@ -14,6 +14,7 @@ Run the owner tests for changed guarantees and one consumer smoke for the applic
 | Modal scope and bounded dialog geometry | [modal](../../tests/input/modal_tests.cpp) | [Reset confirmation](../../examples/modal-dialog/main.cpp) |
 | Collection order and logical ancestry | [collection](../../tests/input/collection_tests.cpp) | [Browser](../../examples/tree-list/main.cpp) selection/details |
 | Checkbox/Switch state, semantics and activation | [toggle](../../tests/input/toggle_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Enabled/Shadows |
+| TextInput/NumberInput values, semantics and number grammar | [edit input](../../tests/input/edit_input_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Name/Scale |
 | Radio choice, roving Tab and selection-follows-focus | [radio group](../../tests/input/radio_group_tests.cpp) | [Inspector](../../examples/inspector-hierarchy/main.cpp) Visibility |
 | Menu triggers, placement and dismissal | [menu](../../tests/input/menu_tests.cpp), [popup](../../tests/input/popup_tests.cpp) | [Asset actions](../../examples/menu-context/main.cpp) |
 | Accepted settings after rejected staging | [Diagnostics](../../tests/integrations/renderer_diagnostics_tests.cpp), [Settings](../../examples/settings/main.cpp) | New branch and retained unrelated state |

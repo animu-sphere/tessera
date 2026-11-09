@@ -31,8 +31,9 @@ int main() {
         return 43;
     const auto editing = tessera::make_text_edit_state(1, "日本😀");
     if (!editing) return 40;
-    const auto input = form.lower(tessera::authoring::TextInput("Username", *editing.value, "edit"), {{"edit"}});
-    if (!input ||
+    const auto input = form.lower(
+        tessera::authoring::TextInput("Username", *editing.value, "edit", {.node = {.id = "username"}}), {{"edit"}});
+    if (!input || input.value->document.root.properties.at("edit_value") != tessera::Property{editing.value->text} ||
         input.value->document.root.children[1].properties.at("text") != tessera::Property{editing.value->text} ||
         input.value->document.root.children[2].properties.at("text") !=
             tessera::Property{std::string("Selection 10:10")})

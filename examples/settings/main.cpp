@@ -27,10 +27,17 @@ template<class T> T take(Result<T> result) {
     }
     return std::move(*result.value);
 }
-// Observed names, with a checkbox's checked state recorded beside its label.
+// Observed names, with a checkbox's checked state or a text input's value recorded beside its label.
 template<class Node> std::string checked_name(const Node& node) {
+    if (node.role == SemanticRole::text_input) return node.name + " " + node.value.value_or("");
     if (node.role != SemanticRole::checkbox) return node.name;
     return (node.selected == true ? "checked " : "unchecked ") + node.name;
+}
+// The presented selection Text, the username TextInput's third generated child.
+template<class View> std::string selection_text(const View& view) {
+    const auto parts = view.tree->children(*view.tree->find("username"));
+    if (parts.size() != 3) throw std::runtime_error("Username parts differ");
+    return std::get<std::string>(view.tree->get(parts[2])->properties.at("text"));
 }
 const ValidationContext actions{{"settings.toggle", "settings.edit", "settings.apply", "settings.section.account",
                                  "settings.section.feature", "settings.section.about", "settings.appearance"}};
@@ -390,7 +397,7 @@ void run_username() {
     std::vector<std::string> summaries;
     auto field_name = [](const Snapshot& snapshot) {
         for (const auto& node : snapshot.inspection.semantics.nodes)
-            if (node.id == "username") return node.name;
+            if (node.id == "username") return checked_name(node);
         throw std::runtime_error("Username missing from semantics");
     };
     auto verify_edit = [&](const Snapshot& snapshot, const TextEditState& expected) {
@@ -401,8 +408,7 @@ void run_username() {
                     std::get<std::string>(node.children[2].properties.at("text")) == selection &&
                     summary(snapshot) == "User " + expected.text + "; feature disabled",
                 "Host value, selection and summary disagree");
-        require(field_name(snapshot) == "Username " + expected.text + " " + selection,
-                "Field label/value/selection inspection differs");
+        require(field_name(snapshot) == "Username " + expected.text, "Field label/value inspection differs");
         for (std::size_t child = 1; child <= 3; ++child) {
             const auto& source = snapshot.inspection.elements[owner.index + child].source;
             require(source && source->property_arguments.at("text") == form_source,
@@ -603,7 +609,7 @@ void run_username() {
         for (const auto& node : observation.nodes) {
             if (node.id == "username") {
                 found = true;
-                require(node.name == names[index], "Replay field observation differs");
+                require(checked_name(node) == names[index], "Replay field observation differs");
             }
             if (node.id == "summary") {
                 found_summary = true;
@@ -786,8 +792,9 @@ void run_sections() {
                     values.contains("section-help") == (sections.selected == "about"),
                 "Conditional branch differs from selection");
         if (sections.selected == "account")
-            require(values.at("username") == "Username " + username.text + " Selection " +
-                                                 std::to_string(username.anchor) + ":" + std::to_string(username.caret),
+            require(values.at("username") == "Username " + username.text &&
+                        selection_text(accepted) ==
+                            "Selection " + std::to_string(username.anchor) + ":" + std::to_string(username.caret),
                     "Restored field observation differs");
         if (sections.selected == "feature")
             require(values.at("toggle") == (draft.feature ? "checked Enable feature" : "unchecked Enable feature"),
@@ -1803,8 +1810,9 @@ void run_apply() {
                     values.at("save-result") == result && values.at("apply") == "Apply" &&
                     values.at("toggle") == (draft.feature ? "checked Enable feature" : "unchecked Enable feature"),
                 "Settings draft, saved result and inspection disagree");
-        require(values.at("username") == "Username " + username.text + " Selection " + std::to_string(username.anchor) +
-                                             ":" + std::to_string(username.caret),
+        require(values.at("username") == "Username " + username.text &&
+                    selection_text(accepted) ==
+                        "Selection " + std::to_string(username.anchor) + ":" + std::to_string(username.caret),
                 "Combined field projection differs");
         if (!saves.calls.empty())
             require(result == saved_caption(static_cast<unsigned>(saves.calls.size()), saves.calls.back()),

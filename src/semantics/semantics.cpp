@@ -63,6 +63,7 @@ public:
             const auto* separator = effective_property(node, property_names::separator);
             const auto* scrollbar = effective_property(node, property_names::scrollbar);
             const auto* toggle = effective_property(node, property_names::toggle_role);
+            const auto* edit = effective_property(node, property_names::edit_role);
             const auto collection = detail::collection_role(node);
             if (detail::modal(node))
                 role = SemanticRole::dialog;
@@ -90,6 +91,10 @@ public:
                 role = SemanticRole::checkbox;
             else if (toggle && std::get<std::string>(*toggle) == "switch")
                 role = SemanticRole::switch_;
+            else if (edit && std::get<std::string>(*edit) == "text_input")
+                role = SemanticRole::text_input;
+            else if (edit && std::get<std::string>(*edit) == "number_input")
+                role = SemanticRole::number_input;
             else if (activate)
                 role = SemanticRole::button;
             else if (text &&
@@ -101,7 +106,9 @@ public:
                                                            tree_.nodes[inherited].role == SemanticRole::menu_item ||
                                                            tree_.nodes[inherited].role == SemanticRole::radio ||
                                                            tree_.nodes[inherited].role == SemanticRole::checkbox ||
-                                                           tree_.nodes[inherited].role == SemanticRole::switch_)))
+                                                           tree_.nodes[inherited].role == SemanticRole::switch_ ||
+                                                           tree_.nodes[inherited].role == SemanticRole::text_input ||
+                                                           tree_.nodes[inherited].role == SemanticRole::number_input)))
                 role = SemanticRole::text;
             else if (box.parent == no_layout_parent && node.kind == NodeKind::box)
                 role = SemanticRole::root;
@@ -119,6 +126,8 @@ public:
             if (activate && entry.enabled) entry.actions.push_back({"activate", *activate});
             if (const auto* selected = effective_property(node, property_names::selected))
                 entry.selected = std::get<bool>(*selected);
+            if (const auto* value = effective_property(node, property_names::edit_value))
+                entry.value = std::get<std::string>(*value);
             if (const auto* expanded = effective_property(node, property_names::expanded)) {
                 entry.expanded = std::get<bool>(*expanded);
                 const auto binding_name = *entry.expanded ? "collapse" : "expand";
@@ -186,7 +195,8 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
              entry.role == SemanticRole::list_item || entry.role == SemanticRole::tree_item ||
              entry.role == SemanticRole::menu || entry.role == SemanticRole::menu_item ||
              entry.role == SemanticRole::radio_group || entry.role == SemanticRole::radio ||
-             entry.role == SemanticRole::checkbox || entry.role == SemanticRole::switch_) &&
+             entry.role == SemanticRole::checkbox || entry.role == SemanticRole::switch_ ||
+             entry.role == SemanticRole::text_input || entry.role == SemanticRole::number_input) &&
             entry.name.empty())
             warnings.push_back({"missing_name",
                                 Severity::warning,

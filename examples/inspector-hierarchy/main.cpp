@@ -37,6 +37,9 @@ void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
 constexpr ui::SliderRange amount_range{0, 100, 5};
+constexpr ui::NumberRange scale_range{0, 10, 0.1};
+// Draft owners stay distinct from every item's name owner.
+constexpr std::uint64_t scale_owner_base = 1000;
 constexpr ui::SplitPaneLimits pane_limits{140, 320, 8};
 const std::vector<std::pair<std::string, std::string>> visibility_choices{
     {"inherited", "Inherited"}, {"visible", "Visible"}, {"hidden", "Hidden"}};
@@ -45,6 +48,8 @@ struct Item {
     TextEditState name;
     bool enabled = true;
     int amount = 50;
+    double scale = 1;          // Accepted number.
+    TextEditState scale_draft; // Pending NumberInput text; Enter applies, Escape reverts.
     std::string visibility = "inherited";
     bool shadows = true;
     bool operator==(const Item&) const = default;
@@ -78,10 +83,12 @@ State initial_state() {
     for (int i = 0; i < 12; ++i)
         state.items.push_back({"extra" + std::to_string(i),
                                take(make_text_edit_state(state.items.size() + 1, "Extra " + std::to_string(i)))});
+    for (std::size_t i = 0; i < state.items.size(); ++i)
+        state.items[i].scale_draft = take(make_text_edit_state(scale_owner_base + i, ui::format_number(1)));
     return state;
 }
 ValidationContext action_context(const State& state) {
-    ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.shadows",
+    ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.scale", "item.shadows",
                                "item.rename", "menu.open", "panes.resize"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
@@ -128,6 +135,10 @@ StyleSheet appearance(const State& state) {
           {.background = state.item().enabled ? Color{.88f, .94f, 1, 1} : Color{1, 1, 1, 1}}},
          {StyleSelector::of_id("hierarchy-title"), {.text = {.size = 14.f}, .color = Color{.32f, .4f, .54f, 1}}},
          {StyleSelector::of_id("amount-track"), {.corner_radius = 4.f}},
+         {StyleSelector::of_id("scale-decrease"),
+          {.height = Dimension::points(20), .background = Color{.9f, .94f, 1, 1}, .corner_radius = 4.f}},
+         {StyleSelector::of_id("scale-increase"),
+          {.height = Dimension::points(20), .background = Color{.9f, .94f, 1, 1}, .corner_radius = 4.f}},
          {StyleSelector::of_id("amount-fill"), {.corner_radius = 4.f}},
          {StyleSelector::of_id("amount-thumb"), {.corner_radius = 4.f}},
          {StyleSelector::of_id("panes-handle"),
@@ -245,6 +256,9 @@ ui::Element Form(const State& state, Size viewport) {
                                        {.node = {.id = "amount",
                                                  .classes = {"control"},
                                                  .style = {.padding = Edges{6, 0, 6, 0}}}}),
+                            ui::Text(item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *",
+                                     {.id = "scale-caption", .classes = {"muted"}}),
+                            ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")}),
                             ui::Text("Visibility", {.classes = {"muted"}}),
                             ui::RadioGroup("Visibility", item.visibility, std::move(visibility),
                                            {.node = {.id = "visibility", .style = {.gap = 2.f}}}),
@@ -254,7 +268,7 @@ ui::Element Form(const State& state, Size viewport) {
                             .style = {.grid_columns =
                                           std::vector<GridTrack>{GridTrack{.maximum = 72}, GridTrack::fraction(1, 202)},
                                       .grid_rows = std::vector<GridTrack>{GridTrack{}, GridTrack{}, GridTrack{},
-                                                                          GridTrack{}, GridTrack{}},
+                                                                          GridTrack{}, GridTrack{}, GridTrack{}},
                                       .column_gap = 8.f,
                                       .row_gap = 12.f}})},
                       {.id = "item-card",
@@ -272,7 +286,8 @@ ui::Element Form(const State& state, Size viewport) {
                                  .background_antialias = true}}),
                   ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
                               ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
-                              ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}})},
+                              ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}}),
+                              ui::Text("Scale: Enter applies, Esc reverts, Up/Down step.", {.classes = {"muted"}})},
                              {.id = "help", .style = {.gap = 4.f}})},
                  {.id = "inspector",
                   .style = {.height = Dimension::points(height), .padding = Edges{0, 6, 0, 6}, .gap = 12.f}}),
@@ -367,6 +382,35 @@ struct ImeStep {
     std::string text;      // Update preedit or commit result.
     std::size_t caret = 0; // Byte offset within an update's preedit.
 };
+// Host requests for the Scale NumberInput, all executed through the one item.scale command.
+struct ScaleApply {};  // Enter: parse the draft and accept it.
+struct ScaleRevert {}; // Escape: restore the canonical accepted text.
+struct ScaleStep {     // Up/Down or a step part: move from the parsed draft and accept.
+    int steps = 0;
+};
+using ScaleRequest = std::variant<TextEditRequest, ScaleApply, ScaleRevert, ScaleStep>;
+// Edits change only the draft. Apply/step accept a valid draft and replace it with canonical
+// text (caret at the end, next revision); an invalid draft rejects them and stays as typed.
+std::vector<Diagnostic> apply_scale(Item& item, const ScaleRequest& request) {
+    auto& draft = item.scale_draft;
+    if (const auto* edit = std::get_if<TextEditRequest>(&request)) {
+        auto next = edit_text(draft, *edit);
+        if (!next) return std::move(next.diagnostics);
+        draft = std::move(*next.value);
+        return {};
+    }
+    if (!std::holds_alternative<ScaleRevert>(request)) {
+        auto parsed = ui::parse_number(scale_range, draft.text);
+        if (!parsed) return std::move(parsed.diagnostics);
+        item.scale = *parsed.value;
+        if (const auto* step = std::get_if<ScaleStep>(&request))
+            item.scale = take(ui::step_number(scale_range, item.scale, step->steps));
+    }
+    draft.text = ui::format_number(item.scale);
+    draft.anchor = draft.caret = draft.text.size();
+    ++draft.revision;
+    return {};
+}
 class App final : public CommandHost {
 public:
     State state = initial_state();
@@ -411,7 +455,11 @@ public:
             candidate.item().visibility = command.substr(11);
         else if (command == "item.shadows")
             candidate.item().shadows = !candidate.item().shadows;
-        else if (command == "item.amount") {
+        else if (command == "item.scale") {
+            require(scale_request.has_value(), "Scale input needs an owned request");
+            auto rejected = apply_scale(candidate.item(), *scale_request);
+            if (!rejected.empty()) return {CommandOutcomeStatus::error, {}, std::move(rejected)};
+        } else if (command == "item.amount") {
             candidate.item().amount = amount.value_or(std::min(100, candidate.item().amount + amount_range.step));
         } else if (command == "panes.resize") {
             require(split.has_value(), "Pane resize needs a size");
@@ -442,6 +490,7 @@ public:
     }
     CommandOutcome operate(const ActionRequest& action, CommandSource source) {
         if (action.action == "item.name" && !edit) return {};
+        if (action.action == "item.scale" && !scale_request) return {};
         if (action.action == "panes.resize" && !split) return {};
         const auto semantic = view.semantic();
         const auto invocation =
@@ -537,6 +586,15 @@ public:
         }
         if (const auto* down = std::get_if<PointerDown>(&event.data); down && down->button == PointerButton::primary) {
             const auto target = take(hit_test(view.hit(), down->position)).target;
+            for (const auto& [part, steps] : {std::pair{"scale-decrease", -1}, std::pair{"scale-increase", 1}}) {
+                const auto node = view.tree->find(part);
+                if (!target || !node || !view.contains(*node, *target)) continue;
+                // A step part focuses the input and steps once on press; its release activates nothing.
+                pointer.reset();
+                (void)take(focus.focus(view.hit(), *view.tree->find("scale")));
+                if (try_scale(ScaleStep{steps}, source).status != CommandOutcomeStatus::success) refresh(true);
+                return;
+            }
             if (target && (target == view.tree->find("amount-track") || target == view.tree->find("amount-fill") ||
                            target == view.tree->find("amount-thumb"))) {
                 pointer.reset();
@@ -622,6 +680,52 @@ public:
             report("Name edit", state.selected, edit_diagnostics);
             return;
         }
+        if (focused && focused == view.tree->find("scale")) {
+            std::optional<ScaleRequest> request;
+            const auto& draft = state.item().scale_draft;
+            const auto edit_request = [&](decltype(TextEditRequest::operation) operation) {
+                request = TextEditRequest{draft.owner, draft.revision, std::move(operation)};
+            };
+            if (const auto* committed = std::get_if<tessera::TextInput>(&event.data))
+                edit_request(TextEditInsert{committed->text});
+            if (const auto* key = std::get_if<KeyDown>(&event.data)) {
+                if (key->key == Key::a && key->modifiers == Modifiers{.control = true} && !key->repeat)
+                    edit_request(TextEditSelection{0, draft.text.size()});
+                const bool plain = !key->modifiers.control && !key->modifiers.alt && !key->modifiers.super;
+                if (plain) switch (key->key) {
+                        case Key::left:
+                            edit_request(TextEditMove{TextMove::left, key->modifiers.shift});
+                            break;
+                        case Key::right:
+                            edit_request(TextEditMove{TextMove::right, key->modifiers.shift});
+                            break;
+                        case Key::home:
+                            edit_request(TextEditMove{TextMove::home, key->modifiers.shift});
+                            break;
+                        case Key::end:
+                            edit_request(TextEditMove{TextMove::end, key->modifiers.shift});
+                            break;
+                        case Key::backspace:
+                            edit_request(TextEditErase{TextErase::backward});
+                            break;
+                        case Key::delete_key:
+                            edit_request(TextEditErase{TextErase::forward});
+                            break;
+                        default:
+                            break;
+                    }
+                if (key->modifiers == Modifiers{}) {
+                    if (key->key == Key::up) request = ScaleStep{1};
+                    if (key->key == Key::down) request = ScaleStep{-1};
+                    if (key->key == Key::enter && !key->repeat) request = ScaleApply{};
+                    if (key->key == Key::escape && !key->repeat) request = ScaleRevert{};
+                }
+            }
+            if (request) {
+                (void)try_scale(std::move(*request), source);
+                return;
+            }
+        }
         if (focused && focused == view.tree->find("amount")) {
             std::optional<int> value;
             if (const auto* key = std::get_if<KeyDown>(&event.data); key && key->modifiers == Modifiers{}) {
@@ -679,12 +783,25 @@ public:
     }
     std::string observed_name(std::string id) const { return observed(std::move(id)).name; }
     std::optional<bool> observed_checked(std::string id) const { return observed(std::move(id)).selected; }
+    std::string observed_value(std::string id) const { return observed(std::move(id)).value.value_or(""); }
     ReplayReload recorded_view() const { return {view.tree->document(), view.styles}; }
     CommandOutcome try_edit(TextEditRequest request, CommandSource source = CommandSource::keyboard) {
         edit = std::move(request);
         const auto outcome =
             operate(take(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate")), source);
         edit.reset();
+        return outcome;
+    }
+    // Addresses the selected item's Scale draft; rejection keeps the draft and reports feedback.
+    CommandOutcome try_scale(ScaleRequest request, CommandSource source = CommandSource::keyboard) {
+        scale_request = std::move(request);
+        const auto outcome =
+            operate(take(request_semantic_action(view.semantic(), *view.tree->find("scale"), "activate")), source);
+        scale_request.reset();
+        edit_diagnostics = outcome.diagnostics;
+        if (outcome.status != CommandOutcomeStatus::success)
+            require(!edit_diagnostics.empty(), "Rejected Scale input needs diagnostics");
+        report("Scale", state.selected, edit_diagnostics);
         return outcome;
     }
     bool resizing() const { return splitter.dragging(); }
@@ -840,6 +957,8 @@ private:
             feedback += "Names must fit within 4096 UTF-8 bytes.";
         else if (code == "multiline_text")
             feedback += "Use a single line for the name.";
+        else if (code == "number_syntax" || code == "number_out_of_range")
+            feedback += "Enter a number from 0 to 10.";
         else if (code == "invalid_utf8" || code == "invalid_utf16" || code == "clipboard_nul")
             feedback += "Use valid Unicode text.";
         else
@@ -858,6 +977,7 @@ private:
     MenuDispatcher menu{"actions-menu"}, context_menu{"item-menu"};
     Offsets offsets;
     std::optional<TextEditRequest> edit;
+    std::optional<ScaleRequest> scale_request;
     std::string ime_item;
     bool ime_ignored = false;
     std::optional<int> amount;
@@ -1013,8 +1133,8 @@ void composition_smoke() {
     app.ime({Kind::update, "\xe3\x81\xab\xe3\x81\xbb", 6});                          // niho preedit
     app.ime({Kind::update, "\xe3\x81\xab\xe3\x81\xbb\xe3\x82\x93\xe3\x81\x94", 12}); // nihongo preedit
     require(app.state.item().name.text == "Cube" && app.observed_name("hierarchy-item-cube") == "Cube" &&
-                app.observed_name("name").find("Cube\xe3\x81\xab\xe3\x81\xbb\xe3\x82\x93\xe3\x81\x94") !=
-                    std::string::npos &&
+                app.observed_name("name") == "Name" &&
+                app.observed_value("name") == "Cube\xe3\x81\xab\xe3\x81\xbb\xe3\x82\x93\xe3\x81\x94" &&
                 app.executions == executions + 3,
             "Preedit must appear only in the name editor through ordinary edit commands");
     const auto [content, advance] = value_box();
@@ -1578,8 +1698,8 @@ void analytic_fill_smoke() {
 
 void shadow_card_smoke() {
     App app;
-    // Leave room below the card, which now includes the Visibility choices.
-    app.resize({960, 480});
+    // Leave room below the card, which now includes the Scale input and Visibility choices.
+    app.resize({960, 540});
     const auto& box = app.view.box("item-card");
     const auto fill =
         std::find_if(app.view.paint.commands.begin(), app.view.paint.commands.end(), [&](const auto& command) {
@@ -1737,7 +1857,7 @@ void visibility_smoke() {
                 inherited.role == SemanticRole::radio && inherited.name == "Inherited" && inherited.selected == true &&
                 entry("visibility-option-hidden").selected == false,
             "Visibility must expose a named radio group with the accepted choice checked");
-    app.focus_id("amount");
+    app.focus_id("scale");
     input(KeyDown{Key::tab});
     require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("visibility-option-inherited"),
             "Tab must enter Visibility at the checked option");
@@ -1752,7 +1872,7 @@ void visibility_smoke() {
     input(KeyDown{Key::up});
     require(app.state.item().visibility == "hidden", "Arrows must wrap through the options");
     input(KeyDown{Key::tab, {.shift = true}});
-    require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("amount") &&
+    require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("scale") &&
                 app.state.item().visibility == "hidden",
             "Shift+Tab must leave the group without changing the choice");
     const auto point = app.view.reachable("visibility-option-visible");
@@ -1817,7 +1937,107 @@ void shadows_smoke() {
     app.action("hierarchy-item-cube");
     require(!app.state.item().shadows, "Returning to an item must retain its shadows value");
 }
+void scale_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    const auto caption = [&] {
+        return std::get<std::string>(app.view.tree->get(*app.view.tree->find("scale-caption"))->properties.at("text"));
+    };
+    const auto& initial = app.observed("scale");
+    require(initial.role == SemanticRole::number_input && initial.name == "Scale" && initial.value == "1" &&
+                initial.actions == std::vector<SemanticAction>{{"activate", "item.scale"}} && caption() == "Scale",
+            "Scale must expose a named number input with its accepted text");
+    app.focus_id("amount");
+    input(KeyDown{Key::tab});
+    require(take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("scale"),
+            "Tab must reach Scale after Amount");
+    auto executions = app.executions;
+    input(KeyDown{Key::up});
+    require(app.state.item().scale == 1.1 && app.state.item().scale_draft.text == "1.1" &&
+                app.observed_value("scale") == "1.1" && app.executions == executions + 1,
+            "Up must step and accept through one ordinary command");
+    input(KeyDown{Key::down});
+    input(KeyDown{Key::down});
+    require(app.state.item().scale == .9 && app.observed_value("scale") == "0.9",
+            "Down must step without binary noise");
+
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"2.5"});
+    require(app.state.item().scale == .9 && app.state.item().scale_draft.text == "2.5" &&
+                app.observed_value("scale") == "2.5" && caption() == "Scale *",
+            "Typing must change only the draft and mark it pending");
+    input(KeyDown{Key::home});
+    input(KeyDown{Key::end});
+    input(KeyDown{Key::backspace});
+    input(tessera::TextInput{"7"});
+    require(app.state.item().scale_draft.text == "2.7", "Draft editing keys must edit the Scale text");
+    executions = app.executions;
+    input(KeyDown{Key::enter});
+    require(app.state.item().scale == 2.7 && app.state.item().scale_draft.caret == 3 && caption() == "Scale" &&
+                app.executions == executions + 1 && app.feedback.empty(),
+            "Enter must apply a valid draft");
+
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"2,5"});
+    const auto invalid = app.state.item();
+    executions = app.executions;
+    for (const auto key : {Key::enter, Key::up}) {
+        input(KeyDown{key});
+        require(app.state.item() == invalid && app.executions == executions &&
+                    app.edit_diagnostics.front().code == "number_syntax" &&
+                    app.feedback == "Scale could not finish. Enter a number from 0 to 10." &&
+                    app.observed_value("scale") == "2,5",
+                "An invalid draft must reject apply and step, keeping its text and the accepted value");
+    }
+    input(KeyDown{Key::escape});
+    require(app.state.item().scale == 2.7 && app.state.item().scale_draft.text == "2.7" && app.feedback.empty() &&
+                caption() == "Scale",
+            "Escape must restore the accepted text and clear feedback");
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"12"});
+    input(KeyDown{Key::enter});
+    require(app.state.item().scale == 2.7 && app.edit_diagnostics.front().code == "number_out_of_range",
+            "An out-of-range draft must be rejected");
+    input(KeyDown{Key::backspace});
+    input(KeyDown{Key::enter});
+    input(KeyDown{Key::up});
+    require(app.state.item().scale == 1.1, "A corrected draft must apply and step");
+
+    app.focus_id("name");
+    for (const auto* part : {"scale-increase", "scale-increase", "scale-decrease"}) {
+        const auto point = app.view.reachable(part);
+        executions = app.executions;
+        input(PointerDown{{1}, point}, CommandSource::pointer);
+        input(PointerUp{{1}, point}, CommandSource::pointer);
+        require(app.executions == executions + 1, "A step part must step once per press");
+    }
+    require(app.state.item().scale == 1.2 && app.observed_value("scale") == "1.2" &&
+                take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("scale"),
+            "Step parts must focus Scale and step from its accepted text");
+    const auto field = app.view.reachable("scale-field");
+    executions = app.executions;
+    input(PointerDown{{1}, field}, CommandSource::pointer);
+    input(PointerUp{{1}, field}, CommandSource::pointer);
+    require(app.executions == executions && app.state.item().scale == 1.2, "Clicking the field must only focus it");
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"10"});
+    input(KeyDown{Key::enter});
+    input(KeyDown{Key::up});
+    require(app.state.item().scale == 10 && app.observed_value("scale") == "10", "Steps must clamp to the maximum");
+    input(KeyDown{Key::backspace});
+    const auto pending = app.state.item();
+
+    app.action("hierarchy-item-sphere");
+    require(app.state.item().scale == 1 && app.observed_value("scale") == "1", "Another item must show its own Scale");
+    app.action("hierarchy-item-cube");
+    require(app.state.item() == pending && app.observed_value("scale") == "1" && caption() == "Scale *",
+            "Returning to an item must retain its accepted Scale and pending draft");
+}
 void smoke() {
+    scale_smoke();
     visibility_smoke();
     shadows_smoke();
     appearance_smoke();
@@ -1858,8 +2078,7 @@ void smoke() {
     input(KeyDown{Key::a, {.control = true}});
     input(tessera::TextInput{"Edited cube"});
     const auto edited_name = app.state.item().name;
-    require(app.observed_name("hierarchy-item-cube") == "Edited cube" &&
-                app.observed_name("name").find("Edited cube") != std::string::npos,
+    require(app.observed_name("hierarchy-item-cube") == "Edited cube" && app.observed_value("name") == "Edited cube",
             "Accepted name must agree between Hierarchy and Inspector");
     click("enabled");
     app.focus_id("amount");
@@ -2034,7 +2253,12 @@ int native(bool smoke) {
         if (!focused || !take(scroll_into_view(app.view.hit(), *focused)).empty()) return {};
         return app.view.box(*app.view.tree->get(*focused)->id).border_box;
     };
-    window.editing = [&] { return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("name"); };
+    // Both inputs take committed WM_CHAR text and Return; only the name editor attaches the IME.
+    window.editing = [&] {
+        const auto focused = take(app.focus.refresh(app.view.hit())).focused;
+        return focused == app.view.tree->find("name") || focused == app.view.tree->find("scale");
+    };
+    window.ime_editing = [&] { return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find("name"); };
     window.resized = [&](Size viewport) { app.resize(viewport); };
     window.resize_cursor = [&](Point point) {
         const auto geometry = take(split_pane_geometry(app.view.hit(), "panes"));
@@ -2269,6 +2493,24 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_SPACE, 1);
         seek("amount");
         host.message(WM_KEYDOWN, VK_RIGHT, 1);
+        seek("scale");
+        require(window.editing() && !host.ime_attached(), "Scale must take text without attaching the IME");
+        control_key('A');
+        for (const auto unit : {L'2', L'.', L'5'}) host.message(WM_CHAR, unit);
+        require(app.state.item().scale == 1 && app.state.item().scale_draft.text == "2.5",
+                "Native characters must edit only the Scale draft");
+        host.message(WM_KEYDOWN, VK_RETURN, 1);
+        host.message(WM_KEYDOWN, VK_UP, 1);
+        require(app.state.item().scale == 2.6, "Native Return must apply and Up must step Scale");
+        host.message(WM_CHAR, L'x');
+        host.message(WM_KEYDOWN, VK_RETURN, 1);
+        require(app.state.item().scale == 2.6 && caption().find(L"Scale could not finish.") != std::wstring::npos,
+                "A native invalid Scale draft must be rejected with caption feedback");
+        host.message(WM_KEYDOWN, VK_ESCAPE, 1);
+        require(app.state.item().scale_draft.text == "2.6" && caption() == window.title,
+                "Native Escape must revert the Scale draft and clear feedback");
+        click("scale-decrease");
+        require(app.state.item().scale == 2.5, "A native step-part press must step Scale");
         seek("visibility-option-inherited");
         host.message(WM_KEYDOWN, VK_DOWN, 1);
         require(app.state.item().visibility == "visible", "Native arrows must select the next Visibility option");
