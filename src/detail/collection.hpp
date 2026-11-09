@@ -12,11 +12,13 @@ inline std::string_view collection_role(const UiNode& node) {
 }
 
 inline bool collection_item(std::string_view role) {
-    return role == "list_item" || role == "tree_item" || role == "menu_item" || role == "radio" || role == "tab";
+    return role == "list_item" || role == "tree_item" || role == "menu_item" || role == "radio" || role == "tab" ||
+           role == "option";
 }
 
 inline bool collection_owner_role(std::string_view role) {
-    return role == "list" || role == "tree" || role == "menu" || role == "radio_group" || role == "tab_list";
+    return role == "list" || role == "tree" || role == "menu" || role == "radio_group" || role == "tab_list" ||
+           role == "listbox";
 }
 
 // Items whose group is one sequential focus stop and whose movement requests selection.

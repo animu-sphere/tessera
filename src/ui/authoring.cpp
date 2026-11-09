@@ -791,6 +791,85 @@ Element Dropdown(std::string label, std::string selected, std::vector<DropdownOp
     return Element(std::move(data));
 }
 
+ComboBoxParts ComboBox(std::string label, std::string selected, std::vector<ComboBoxOption> options,
+                       std::string toggle_action, ComboBoxProps props) {
+    auto field = std::make_shared<detail::ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    const auto source = props.node.source;
+    auto error = [&](const char* code, const char* message) {
+        field->diagnostics.push_back({code, Severity::error, {}, message});
+    };
+    if (prefix.empty()) error("combobox_id", "Give the ComboBox a stable nonempty author ID.");
+    if (label.empty()) error("combobox_label", "Give the ComboBox a nonempty label.");
+    if (options.empty()) error("combobox_empty", "Supply at least one ComboBox option.");
+    if (options.size() > max_document_nodes) error("combobox_limit", "Keep ComboBox options within document limits.");
+    auto part = [&](std::string id) { return Props{.id = std::move(id), .source = source}; };
+    auto list = std::make_shared<detail::ElementData>();
+    if (props.list.id)
+        list->diagnostics.push_back(
+            {"combobox_list_id", Severity::error, {}, "Leave the ComboBox list ID unset; it is always <id>-list."});
+    std::set<std::string> keys;
+    const ComboBoxOption* chosen = nullptr;
+    auto list_title = part(prefix + "-list-title");
+    list_title.style.display = Display::none;
+    list->children.push_back(Text(label, std::move(list_title)));
+    for (std::size_t i = 0; i < options.size() && i < max_document_nodes; ++i) {
+        auto& option = options[i];
+        if (option.key.empty() || !keys.insert(option.key).second)
+            error("combobox_keys", "Supply unique nonempty ComboBox option keys.");
+        if (option.label.empty()) error("combobox_option_label", "Give each ComboBox option a nonempty label.");
+        const bool checked = option.key == selected;
+        if (checked) chosen = &option;
+        auto entry = std::make_shared<detail::ElementData>();
+        entry->props = part(prefix + "-option-" + option.key);
+        entry->props.style.direction = FlexDirection::row;
+        entry->props.style.padding = Edges{2, 4, 2, 4};
+        entry->props.style.gap = 4.f;
+        entry->action = option.action;
+        entry->disabled = props.disabled || option.disabled;
+        entry->properties["collection_role"] = std::string("option");
+        entry->properties["selected"] = checked;
+        entry->properties["labelled_by"] = NodeReference{prefix + "-label-" + option.key};
+        entry->children.push_back(Text(checked ? "*" : " ", {.source = source}));
+        entry->children.push_back(Text(option.label, part(prefix + "-label-" + option.key)));
+        list->children.push_back(Element(std::move(entry)));
+    }
+    if (!chosen && !options.empty()) error("combobox_selection", "Select an existing ComboBox option key.");
+    const auto shown = chosen ? chosen->label : std::string{};
+
+    auto title = part(prefix + "-title");
+    title.style.display = Display::none;
+    field->children.push_back(Text(std::move(label), std::move(title)));
+    auto value = part(prefix + "-value");
+    value.style.grow = 1.f;
+    field->children.push_back(Text(shown, std::move(value)));
+    field->children.push_back(Text(props.open ? "^" : "v", part(prefix + "-arrow")));
+    field->props = std::move(props.node);
+    field->props.style.direction = FlexDirection::row;
+    if (!field->props.style.align) field->props.style.align = Align::center;
+    if (!field->props.style.gap) field->props.style.gap = 8.f;
+    field->action = std::move(toggle_action);
+    field->disabled = props.disabled;
+    field->properties["collection_role"] = std::string("combobox");
+    field->properties["expanded"] = props.open;
+    field->properties["edit_value"] = shown;
+    field->properties["labelled_by"] = NodeReference{prefix + "-title"};
+
+    auto list_props = std::move(props.list);
+    list_props.id = prefix + "-list";
+    if (!list_props.source) list_props.source = source;
+    if (!list_props.style.overflow) list_props.style.overflow = Overflow::scroll;
+    auto popup = Popup(prefix, list->children,
+                       {.node = std::move(list_props), .open = props.open, .side = props.side, .gap = props.gap});
+    auto data = std::make_shared<detail::ElementData>(*popup.data_);
+    data->disabled = props.disabled;
+    data->properties["collection_role"] = std::string("listbox");
+    data->properties["labelled_by"] = NodeReference{prefix + "-list-title"};
+    data->properties["popup_match_width"] = true;
+    data->diagnostics = std::move(list->diagnostics);
+    return {Element(std::move(field)), Element(std::move(data))};
+}
+
 namespace {
 std::vector<Diagnostic> slider_range_errors(SliderRange range) {
     const auto span = std::int64_t{range.maximum} - range.minimum;

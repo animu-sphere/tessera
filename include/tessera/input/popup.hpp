@@ -49,6 +49,30 @@ private:
     PopupDispatcher popup_;
 };
 
+struct ComboBoxDispatchResult {
+    bool dismiss = false; // Host closes the list and publishes the closed view.
+    bool consumed = false;
+    std::optional<NodeHandle> focus; // Apply through FocusDispatcher in this snapshot.
+    bool open = false;               // Host opens the list, as its toggle command would.
+    bool operator==(const ComboBoxDispatchResult&) const = default;
+};
+
+// One select-only ComboBox, identified by its trigger's stable author ID; its list is <id>-list.
+// Refresh on every accepted snapshot and dispatch before ordinary pointer/focus routing. Opening
+// requests the selected option's focus, else the first eligible option. Option and trigger
+// activation stay on the ordinary command path; close after an accepted selection.
+class ComboBoxDispatcher final {
+public:
+    explicit ComboBoxDispatcher(std::string id) : id_(std::move(id)), popup_(id_ + "-list") {}
+    Result<ComboBoxDispatchResult> refresh(const HitTestInput&);
+    Result<ComboBoxDispatchResult> dispatch(const HitTestInput&, const InputEvent&,
+                                            std::optional<NodeHandle> focused = {});
+
+private:
+    std::string id_;
+    PopupDispatcher popup_;
+};
+
 struct TooltipDispatchResult {
     bool visible = false; // Host passes this to Tooltip's controlled open prop.
     bool operator==(const TooltipDispatchResult&) const = default;

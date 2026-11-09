@@ -92,6 +92,7 @@ void capture_joins_one_generation() {
         {"pointer_events", tessera::Property{true}, false},
         {"popup_anchor", std::nullopt, false},
         {"popup_gap", tessera::Property{4.0}, false},
+        {"popup_match_width", tessera::Property{false}, false},
         {"popup_side", tessera::Property{std::string("bottom")}, false},
         {"popup_x", std::nullopt, false},
         {"popup_y", std::nullopt, false},
