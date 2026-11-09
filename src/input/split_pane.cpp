@@ -1,6 +1,7 @@
 #include <tessera/input/split_pane.hpp>
 #include <tessera/semantics/semantics.hpp>
 #include <tessera/ui/authoring.hpp>
+#include "axis_adjustment.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -144,38 +145,9 @@ Result<SplitPaneDispatchResult> SplitPaneDispatcher::dispatch(const HitTestInput
     } else {
         candidate.reset();
         if (focused == view.handle) {
-            float requested = view.size;
-            bool adjusts = false;
-            if (const auto* key = std::get_if<KeyDown>(&event.data); key && key->modifiers == Modifiers{}) {
-                if (key->key == Key::home) {
-                    requested = view.minimum;
-                    adjusts = true;
-                } else if (key->key == Key::end) {
-                    requested = view.maximum;
-                    adjusts = true;
-                } else if (key->key == (view.direction == FlexDirection::row ? Key::left : Key::up)) {
-                    requested -= step_;
-                    adjusts = true;
-                } else if (key->key == (view.direction == FlexDirection::row ? Key::right : Key::down)) {
-                    requested += step_;
-                    adjusts = true;
-                }
-            }
-            if (const auto* navigate = std::get_if<Navigate>(&event.data)) {
-                if (navigate->direction == (view.direction == FlexDirection::row ? Direction::left : Direction::up)) {
-                    requested -= step_;
-                    adjusts = true;
-                } else if (navigate->direction ==
-                           (view.direction == FlexDirection::row ? Direction::right : Direction::down)) {
-                    requested += step_;
-                    adjusts = true;
-                }
-            }
-            if (std::holds_alternative<Activate>(event.data)) {
-                requested += step_;
-                adjusts = true;
-            }
-            if (adjusts) return adjustment(requested);
+            if (const auto requested = detail::axis_adjustment(event, view.direction == FlexDirection::row, view.size,
+                                                               view.minimum, view.maximum, step_))
+                return adjustment(*requested);
         }
     }
     *this = std::move(candidate);

@@ -1,6 +1,7 @@
 #include <tessera/input/scrollbar.hpp>
 #include <tessera/semantics/semantics.hpp>
 #include "../detail/targeting.hpp"
+#include "axis_adjustment.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -186,46 +187,9 @@ Result<ScrollbarDispatchResult> ScrollbarDispatcher::dispatch(const HitTestInput
     } else {
         if (!std::holds_alternative<Scroll>(event.data)) candidate.reset();
         if (focused == view.thumb) {
-            // Only main-axis arrows adjust, so cross-axis arrows keep their navigation meaning.
-            const auto backward_key = horizontal(axis) ? Key::left : Key::up;
-            const auto forward_key = horizontal(axis) ? Key::right : Key::down;
-            const auto backward = horizontal(axis) ? Direction::left : Direction::up;
-            const auto forward = horizontal(axis) ? Direction::right : Direction::down;
-            double requested = along(axis, view.offset);
-            bool adjusts = false;
-            if (const auto* key = std::get_if<KeyDown>(&event.data); key && key->modifiers == Modifiers{}) {
-                if (key->key == Key::home) {
-                    requested = 0;
-                    adjusts = true;
-                } else if (key->key == Key::end) {
-                    requested = view.maximum;
-                    adjusts = true;
-                } else if (key->key == backward_key) {
-                    requested -= step_;
-                    adjusts = true;
-                } else if (key->key == forward_key) {
-                    requested += step_;
-                    adjusts = true;
-                }
-            }
-            if (const auto* navigate = std::get_if<Navigate>(&event.data)) {
-                if (navigate->direction == backward) {
-                    requested -= step_;
-                    adjusts = true;
-                }
-                if (navigate->direction == forward) {
-                    requested += step_;
-                    adjusts = true;
-                }
-            }
-            if (std::holds_alternative<Activate>(event.data)) {
-                requested += step_;
-                adjusts = true;
-            }
-            if (adjusts) {
-                candidate.reset();
-                return adjustment(requested);
-            }
+            if (const auto requested = detail::axis_adjustment(
+                    event, horizontal(axis), double(along(axis, view.offset)), 0, view.maximum, step_))
+                return adjustment(*requested);
         }
     }
     *this = std::move(candidate);

@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Shared keyboard and gamepad range adjustments between `SplitPane` and `Scrollbar`, preserving their existing focus, drag and command behavior.
+
 - Shared the generated label and draft field between `NumberInput` and `VectorInput` components, preserving their part IDs, source mappings and clipping rules.
 
 - Added `z_index` stacking order to ordinary styles, themes and Replay v1/v2. A parent's displayed children paint in ascending `z_index`, ties in tree order, each with its whole subtree, so a descendant never rises above an ancestor's later sibling. Hit testing and inspection point targets use the reverse of the same order. Root popups and the Modal ignore it and stay above ordinary content. Layout geometry, `LayoutResult` order, clips, focus traversal, semantics and replay comparisons keep tree order. The default is omitted from recordings, so legacy recording bytes stay unchanged. The [Inspector](docs/guides/inspector-hierarchy.md#selection-elevation) raises the selected Hierarchy row, so its new elevation shadow stays visible over the next row's hover fill, and a focused row above it, so its focus ring stays on top.
