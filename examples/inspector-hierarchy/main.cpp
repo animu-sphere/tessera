@@ -522,6 +522,35 @@ struct TextService final : TextShaper {
         return delegate.shape(text, style, constraints);
     }
 };
+std::optional<TextEditRequest> text_edit_request(const InputEvent& event, const TextEditState& state) {
+    const auto request = [&state](decltype(TextEditRequest::operation) operation) {
+        return TextEditRequest{state.owner, state.revision, std::move(operation)};
+    };
+    if (const auto* committed = std::get_if<tessera::TextInput>(&event.data))
+        return request(TextEditInsert{committed->text});
+    const auto* key = std::get_if<KeyDown>(&event.data);
+    if (!key) return std::nullopt;
+    if (key->key == Key::a && key->modifiers == Modifiers{.control = true} && !key->repeat)
+        return request(TextEditSelection{0, state.text.size()});
+    if (key->modifiers.control || key->modifiers.alt || key->modifiers.super) return std::nullopt;
+
+    switch (key->key) {
+        case Key::left:
+            return request(TextEditMove{TextMove::left, key->modifiers.shift});
+        case Key::right:
+            return request(TextEditMove{TextMove::right, key->modifiers.shift});
+        case Key::home:
+            return request(TextEditMove{TextMove::home, key->modifiers.shift});
+        case Key::end:
+            return request(TextEditMove{TextMove::end, key->modifiers.shift});
+        case Key::backspace:
+            return request(TextEditErase{TextErase::backward});
+        case Key::delete_key:
+            return request(TextEditErase{TextErase::forward});
+        default:
+            return std::nullopt;
+    }
+}
 // One host-normalized IME step for the focused name editor; UTF-8 bytes only.
 struct ImeStep {
     enum class Kind : std::uint8_t { start, update, commit, cancel } kind = Kind::start;
@@ -829,90 +858,32 @@ public:
         slider_pointer.reset();
         focused = take(focus.refresh(view.hit())).focused;
         if (const auto* key = std::get_if<KeyDown>(&event.data); key && clipboard_key(*key, source)) return;
-        std::optional<decltype(TextEditRequest::operation)> operation;
         if (focused && focused == view.tree->find("name")) {
-            if (const auto* committed = std::get_if<tessera::TextInput>(&event.data))
-                operation = TextEditInsert{committed->text};
-            if (const auto* key = std::get_if<KeyDown>(&event.data)) {
-                if (key->key == Key::a && key->modifiers == Modifiers{.control = true} && !key->repeat)
-                    operation = TextEditSelection{0, state.item().name.text.size()};
-                if (!key->modifiers.control && !key->modifiers.alt && !key->modifiers.super) switch (key->key) {
-                        case Key::left:
-                            operation = TextEditMove{TextMove::left, key->modifiers.shift};
-                            break;
-                        case Key::right:
-                            operation = TextEditMove{TextMove::right, key->modifiers.shift};
-                            break;
-                        case Key::home:
-                            operation = TextEditMove{TextMove::home, key->modifiers.shift};
-                            break;
-                        case Key::end:
-                            operation = TextEditMove{TextMove::end, key->modifiers.shift};
-                            break;
-                        case Key::backspace:
-                            operation = TextEditErase{TextErase::backward};
-                            break;
-                        case Key::delete_key:
-                            operation = TextEditErase{TextErase::forward};
-                            break;
-                        default:
-                            break;
-                    }
+            if (auto request = text_edit_request(event, state.item().name)) {
+                const auto outcome = try_edit(std::move(*request), source);
+                edit_diagnostics = outcome.diagnostics;
+                if (outcome.status != CommandOutcomeStatus::success)
+                    require(!edit_diagnostics.empty(), "Rejected name edit needs diagnostics");
+                report("Name edit", state.selected, edit_diagnostics);
+                return;
             }
-        }
-        if (operation) {
-            const auto name = state.item().name;
-            const auto outcome = try_edit({name.owner, name.revision, std::move(*operation)}, source);
-            edit_diagnostics = outcome.diagnostics;
-            if (outcome.status != CommandOutcomeStatus::success)
-                require(!edit_diagnostics.empty(), "Rejected name edit needs diagnostics");
-            report("Name edit", state.selected, edit_diagnostics);
-            return;
         }
         if (const auto field = focused_number(focused)) {
-            std::optional<NumberRequest> request;
             const auto& draft = number_draft(state.item(), *field);
-            const auto edit_request = [&](decltype(TextEditRequest::operation) operation) {
-                request = TextEditRequest{draft.owner, draft.revision, std::move(operation)};
-            };
-            if (const auto* committed = std::get_if<tessera::TextInput>(&event.data))
-                edit_request(TextEditInsert{committed->text});
-            if (const auto* key = std::get_if<KeyDown>(&event.data)) {
-                if (key->key == Key::a && key->modifiers == Modifiers{.control = true} && !key->repeat)
-                    edit_request(TextEditSelection{0, draft.text.size()});
-                const bool plain = !key->modifiers.control && !key->modifiers.alt && !key->modifiers.super;
-                if (plain) switch (key->key) {
-                        case Key::left:
-                            edit_request(TextEditMove{TextMove::left, key->modifiers.shift});
-                            break;
-                        case Key::right:
-                            edit_request(TextEditMove{TextMove::right, key->modifiers.shift});
-                            break;
-                        case Key::home:
-                            edit_request(TextEditMove{TextMove::home, key->modifiers.shift});
-                            break;
-                        case Key::end:
-                            edit_request(TextEditMove{TextMove::end, key->modifiers.shift});
-                            break;
-                        case Key::backspace:
-                            edit_request(TextEditErase{TextErase::backward});
-                            break;
-                        case Key::delete_key:
-                            edit_request(TextEditErase{TextErase::forward});
-                            break;
-                        default:
-                            break;
-                    }
-                if (key->modifiers == Modifiers{}) {
-                    if (key->key == Key::up) request = NumberStep{1};
-                    if (key->key == Key::down) request = NumberStep{-1};
-                    if (key->key == Key::enter && !key->repeat) request = NumberApply{};
-                    if (key->key == Key::escape && !key->repeat) request = NumberRevert{};
-                }
-            }
-            if (request) {
+            if (auto request = text_edit_request(event, draft)) {
                 (void)try_number(*field, std::move(*request), source);
                 return;
+            }
+            if (const auto* key = std::get_if<KeyDown>(&event.data); key && key->modifiers == Modifiers{}) {
+                std::optional<NumberRequest> request;
+                if (key->key == Key::up) request = NumberStep{1};
+                if (key->key == Key::down) request = NumberStep{-1};
+                if (key->key == Key::enter && !key->repeat) request = NumberApply{};
+                if (key->key == Key::escape && !key->repeat) request = NumberRevert{};
+                if (request) {
+                    (void)try_number(*field, std::move(*request), source);
+                    return;
+                }
             }
         }
         if (focused && focused == view.tree->find("amount")) {
