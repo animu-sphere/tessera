@@ -111,6 +111,9 @@ void rejection_and_lifetime() {
     check(bool(session.value->apply(update(1, ReplayReadiness::loading))), "First request must start");
     check(bool(session.value->apply(update(2, ReplayReadiness::loading))), "New request must supersede");
     reject(update(1, ReplayReadiness::ready, true), "stale_request", "/slot/request");
+    auto invalid_document = update(2, ReplayReadiness::ready, true);
+    invalid_document.view.document.version = 0;
+    reject(invalid_document, "unsupported_version", "/view/document/version");
     invalid = update(2, ReplayReadiness::ready, true);
     invalid.view.styles.clear();
     reject(invalid, "style_count", "/view/styles");

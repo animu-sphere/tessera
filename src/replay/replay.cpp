@@ -60,7 +60,9 @@ public:
     bool run() {
         auto steps = std::move(recording_.steps);
         recording_.steps.clear();
-        if (!load(recording_.document, recording_.styles, "")) return false;
+        auto tree = create_tree(recording_.document, "");
+        if (!tree) return false;
+        install_tree(std::move(tree), recording_.styles);
         for (std::size_t i = 0; i < host_.size(); ++i) {
             if (!current_.tree->find(host_[i].owner)) {
                 errors_.push_back({"target_not_found",
@@ -113,7 +115,8 @@ public:
             ok = resize_to(resize->viewport, i, at);
         } else if (const auto* reload = std::get_if<ReplayReload>(&step)) {
             cancel_pending();
-            ok = replace(*reload, i, at);
+            auto tree = create_tree(reload->document, at);
+            ok = tree && replace(std::move(tree), reload->styles, i, at);
         } else if (const auto* update = std::get_if<ReplayHostUpdate>(&step)) {
             ok = host_update(*update, i, at);
         } else if (const auto* focus = std::get_if<ReplayFocus>(&step)) {
@@ -230,17 +233,15 @@ private:
             return reject("invalid_transition", "/value", "Only a ready completion may publish a new host value.");
         // Validate the candidate before changing slot state or the live tree. Host updates replace the
         // entire immutable view; conservative cancellation prevents author-ID reuse from reviving requests.
-        auto candidate = UiTree::create(update.view.document, recording_.context);
-        if (!candidate) {
-            relocate(errors_, std::move(candidate.diagnostics), at + "/view/document");
-            return false;
-        }
-        if (update.slot.readiness == ReplayReadiness::loading && !candidate.value->get()->find(found->owner))
+        const auto view_at = at + "/view";
+        auto tree = create_tree(update.view.document, view_at);
+        if (!tree) return false;
+        if (update.slot.readiness == ReplayReadiness::loading && !tree->find(found->owner))
             return reject("stale_owner", "/owner", "A new request requires its owner in the replacement view.");
         const auto index = static_cast<std::size_t>(found - host_.begin());
         cancel_pending();
         host_[index] = update.slot;
-        return replace(update.view, step, at + "/view");
+        return replace(std::move(tree), update.view.styles, step, view_at);
     }
 
     // The current coherent tree/styles/layout. Only values are copied into observations.
@@ -261,23 +262,28 @@ private:
         return false;
     }
 
-    bool load(const UiDocument& document, const std::vector<ResolvedStyle>& styles, const std::string& at) {
+    std::unique_ptr<UiTree> create_tree(const UiDocument& document, const std::string& at) {
         auto created = UiTree::create(document, recording_.context);
         if (!created) {
             relocate(errors_, std::move(created.diagnostics), at + "/document");
-            return false;
+            return nullptr;
         }
-        current_.tree = std::move(*created.value);
-        current_.styles = styles;
-        offsets_.assign(current_.tree->size(), Point{});
-        return true;
+        return std::move(*created.value);
     }
 
-    // Loads a replacement document and settles it, revealing recovered focus under the host policy since
-    // the reload reset every offset; the previous snapshot returns if neither commits.
-    bool replace(const ReplayReload& reload, std::size_t step, const std::string& at) {
+    void install_tree(std::unique_ptr<UiTree> tree, const std::vector<ResolvedStyle>& styles) {
+        current_.tree = std::move(tree);
+        current_.styles = styles;
+        offsets_.assign(current_.tree->size(), Point{});
+    }
+
+    // Settles the validated replacement tree, revealing recovered focus under the host policy since
+    // replacement resets every offset. Restore the previous snapshot if settling fails before commit.
+    bool replace(std::unique_ptr<UiTree> tree, const std::vector<ResolvedStyle>& styles, std::size_t step,
+                 const std::string& at) {
         auto previous = std::move(current_);
-        if (load(reload.document, reload.styles, at) && settle(step, at, recording_.policy.reveal_focus)) return true;
+        install_tree(std::move(tree), styles);
+        if (settle(step, at, recording_.policy.reveal_focus)) return true;
         if (!committed_) current_ = std::move(previous);
         return false;
     }
