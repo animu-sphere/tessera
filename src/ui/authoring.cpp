@@ -926,6 +926,165 @@ ComboBoxParts ComboBox(std::string label, std::string selected, std::vector<Comb
 }
 
 namespace {
+// sRGB transfer function decoding one encoded component to linear light.
+float linear_component(double encoded) {
+    return static_cast<float>(encoded <= 0.04045 ? encoded / 12.92 : std::pow((encoded + 0.055) / 1.055, 2.4));
+}
+// Gradients interpolate in linear light, so dense sRGB samples keep the hue ramp near the sRGB model.
+constexpr int color_picker_hue_stops = 49;
+// Overlay alpha samples; between them alpha interpolates linearly.
+constexpr int color_picker_area_stops = 17;
+std::string percent(double fraction) { return std::to_string(std::lround(fraction * 100)) + "%"; }
+} // namespace
+
+ColorPickerParts ColorPicker(std::string label, HsvColor value, ColorPickerActions actions, ColorPickerProps props) {
+    auto field = std::make_shared<detail::ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    const auto source = props.node.source;
+    auto error = [&](const char* code, const char* message) {
+        field->diagnostics.push_back({code, Severity::error, {}, message});
+    };
+    if (prefix.empty()) error("color_picker_id", "Give the ColorPicker a stable nonempty author ID.");
+    if (label.empty()) error("color_picker_label", "Give the ColorPicker a nonempty label.");
+    if (!valid(value))
+        error("color_picker_value",
+              "Supply a finite hue in [0, 360] and saturation and value in [0, 1] for the ColorPicker.");
+    const auto size = props.area;
+    const bool sized = std::isfinite(size.width) && std::isfinite(size.height) && size.width > 0 && size.height > 0;
+    if (!sized) error("color_picker_area", "Supply a finite positive ColorPicker area size.");
+    std::vector<Diagnostic> panel_errors;
+    if (props.panel.id)
+        panel_errors.push_back({"color_picker_panel_id",
+                                Severity::error,
+                                {},
+                                "Leave the ColorPicker panel ID unset; it is always <id>-panel."});
+    const auto shown = valid(value) ? value : HsvColor{};
+    const auto color = to_color(shown);
+    const auto hex = format_hex_color(color);
+    const float width = sized ? size.width : 1, height = sized ? size.height : 1;
+    auto part = [&](const std::string& suffix) { return Props{.id = prefix + suffix, .source = source}; };
+    auto hidden = [&](std::string text, const std::string& suffix) {
+        auto node = part(suffix);
+        node.style.display = Display::none;
+        return Text(std::move(text), std::move(node));
+    };
+    // Absolute, input-transparent decoration inside a panel control's padding box.
+    auto decoration = [&](const std::string& suffix, StyleDeclarations style) {
+        auto data = std::make_shared<detail::ElementData>();
+        data->props = part(suffix);
+        data->props.style = std::move(style);
+        data->props.style.position = Position::absolute;
+        data->properties["pointer_events"] = false;
+        return Element(std::move(data));
+    };
+    // A focusable panel control named by its display-none label.
+    auto control = [&](const std::string& suffix, std::string action, std::string name, StyleDeclarations style) {
+        auto data = std::make_shared<detail::ElementData>();
+        data->props = part(suffix);
+        data->props.style = std::move(style);
+        data->action = std::move(action);
+        data->disabled = props.disabled;
+        data->properties["labelled_by"] = NodeReference{prefix + suffix + "-label"};
+        data->children.push_back(hidden(std::move(name), suffix + "-label"));
+        return data;
+    };
+
+    field->children.push_back(hidden(label, "-title"));
+    auto swatch = part("-swatch");
+    swatch.style = {.width = Dimension::points(16),
+                    .height = Dimension::points(16),
+                    .border = Edges{1, 1, 1, 1},
+                    .shrink = 0.f,
+                    .background = color,
+                    .border_color = Color{0, 0, 0, 0.3f},
+                    .corner_radius = 3.f};
+    field->children.push_back(Column({}, std::move(swatch)));
+    auto value_text = part("-value");
+    value_text.style.grow = 1.f;
+    field->children.push_back(Text(hex, std::move(value_text)));
+    field->props = std::move(props.node);
+    field->props.style.direction = FlexDirection::row;
+    if (!field->props.style.align) field->props.style.align = Align::center;
+    if (!field->props.style.gap) field->props.style.gap = 8.f;
+    field->action = std::move(actions.toggle);
+    field->disabled = props.disabled;
+    field->properties["collection_role"] = std::string("color_picker");
+    field->properties["expanded"] = props.open;
+    field->properties["edit_value"] = hex;
+    field->properties["labelled_by"] = NodeReference{prefix + "-title"};
+
+    // The pure hue, then white desaturating toward the left and black darkening toward the bottom.
+    // Overlay alpha follows the decoded sRGB ramps, which keeps the largest and smallest components
+    // close to the sRGB model; the middle component of intermediate hues deviates most.
+    std::vector<GradientStop> whiten, darken;
+    for (int i = 0; i < color_picker_area_stops; ++i) {
+        const double t = static_cast<double>(i) / (color_picker_area_stops - 1);
+        whiten.push_back({static_cast<float>(t), Color{1, 1, 1, linear_component(1 - t)}});
+        darken.push_back({static_cast<float>(t), Color{0, 0, 0, 1 - linear_component(1 - t)}});
+    }
+    auto area = control("-area", std::move(actions.area),
+                        "Saturation " + percent(shown.saturation) + ", value " + percent(shown.value),
+                        {.width = Dimension::points(width),
+                         .height = Dimension::points(height),
+                         .shrink = 0.f,
+                         .background = to_color({shown.hue, 1, 1})});
+    const auto cover = [&](std::vector<GradientStop> stops, Point end) {
+        return StyleDeclarations{.width = Dimension::points(width),
+                                 .height = Dimension::points(height),
+                                 .left = std::optional<float>{0.f},
+                                 .top = std::optional<float>{0.f},
+                                 .background_gradient =
+                                     Gradient{LinearGradient{{0, 0}, end, {}, {}, std::move(stops)}}};
+    };
+    area->children.push_back(decoration("-area-white", cover(std::move(whiten), {1, 0})));
+    area->children.push_back(decoration("-area-black", cover(std::move(darken), {0, 1})));
+    area->children.push_back(
+        decoration("-area-thumb", {.width = Dimension::points(12),
+                                   .height = Dimension::points(12),
+                                   .border = Edges{2, 2, 2, 2},
+                                   .border_color = Color{1, 1, 1, 1},
+                                   .corner_radius = 6.f,
+                                   .left = std::optional<float>{static_cast<float>(shown.saturation * width) - 6},
+                                   .top = std::optional<float>{static_cast<float>((1 - shown.value) * height) - 6},
+                                   .outline = Outline{1, 0, {0, 0, 0, 0.45f}}}));
+
+    std::vector<GradientStop> hues;
+    for (int i = 0; i < color_picker_hue_stops; ++i) {
+        const double t = static_cast<double>(i) / (color_picker_hue_stops - 1);
+        hues.push_back({static_cast<float>(t), to_color({t * 360, 1, 1})});
+    }
+    auto hue = control("-hue", std::move(actions.hue), "Hue " + std::to_string(std::lround(shown.hue)) + " degrees",
+                       {.width = Dimension::points(width),
+                        .height = Dimension::points(12),
+                        .shrink = 0.f,
+                        .corner_radius = 2.f,
+                        .background_gradient = Gradient{LinearGradient{{0, 0}, {1, 0}, {}, {}, std::move(hues)}}});
+    hue->children.push_back(
+        decoration("-hue-thumb", {.width = Dimension::points(6),
+                                  .height = Dimension::points(16),
+                                  .border = Edges{1, 1, 1, 1},
+                                  .background = Color{1, 1, 1, 1},
+                                  .border_color = Color{.1f, .12f, .18f, .85f},
+                                  .corner_radius = 2.f,
+                                  .left = std::optional<float>{static_cast<float>(shown.hue / 360 * width) - 3},
+                                  .top = std::optional<float>{-2.f}}));
+
+    auto panel_props = std::move(props.panel);
+    panel_props.id = prefix + "-panel";
+    if (!panel_props.source) panel_props.source = source;
+    if (!panel_props.style.gap) panel_props.style.gap = 8.f;
+    auto popup =
+        Popup(prefix, {hidden(std::move(label), "-panel-title"), Element(std::move(area)), Element(std::move(hue))},
+              {.node = std::move(panel_props), .open = props.open, .side = props.side, .gap = props.gap});
+    auto data = std::make_shared<detail::ElementData>(*popup.data_);
+    data->disabled = props.disabled;
+    data->properties["collection_role"] = std::string("group");
+    data->properties["labelled_by"] = NodeReference{prefix + "-panel-title"};
+    data->diagnostics = std::move(panel_errors);
+    return {Element(std::move(field)), Element(std::move(data))};
+}
+
+namespace {
 std::vector<Diagnostic> slider_range_errors(SliderRange range) {
     const auto span = std::int64_t{range.maximum} - range.minimum;
     if (span <= 0 || range.step <= 0 || span % range.step != 0)

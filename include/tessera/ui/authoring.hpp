@@ -172,8 +172,25 @@ struct ComboBoxProps {
     PopupSide side = PopupSide::bottom;
     float gap = 4;
 };
+// Commands requested by a ColorPicker's trigger and panel controls. The host executes the area
+// and hue commands with the color ColorPickerDispatcher requests.
+struct ColorPickerActions {
+    std::string toggle; // Trigger: opens or closes the panel.
+    std::string area;   // Saturation/value area.
+    std::string hue;    // Hue strip.
+};
+struct ColorPickerProps {
+    Props node;  // Required stable trigger ID; generated parts use it as a prefix.
+    Props panel; // Classes, styles and source for the <id>-panel popup; its ID is generated.
+    bool open = false;
+    bool disabled = false; // Disables the trigger and both panel controls.
+    PopupSide side = PopupSide::bottom;
+    float gap = 4;
+    Size area{160, 120}; // Saturation/value area size in logical units; the hue strip shares its width.
+};
 class Element;
 struct ComboBoxParts;
+struct ColorPickerParts;
 // If the parent cannot hold both minima, keep them and clip the overflow.
 Result<float> split_pane_size_at(SplitPaneLimits, float available, float requested);
 
@@ -213,6 +230,7 @@ private:
     friend Element Toolbar(std::string, std::vector<Element>, Props);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend ComboBoxParts ComboBox(std::string, std::string, std::vector<ComboBoxOption>, std::string, ComboBoxProps);
+    friend ColorPickerParts ColorPicker(std::string, HsvColor, ColorPickerActions, ColorPickerProps);
     friend Element Slider(std::string, int, SliderRange, std::string, SliderProps);
     friend Element HorizontalSplitPane(Element, Element, float, std::string, SplitPaneProps);
     friend Element VerticalSplitPane(Element, Element, float, std::string, SplitPaneProps);
@@ -320,6 +338,22 @@ struct ComboBoxParts {
 };
 ComboBoxParts ComboBox(std::string label, std::string selected, std::vector<ComboBoxOption> options,
                        std::string toggle_action, ComboBoxProps = {});
+// Controlled HSV color picker. `field` is the inline <id> trigger, projected as a color_picker named
+// by the display-none <id>-title whose value is the #RRGGBB color; it holds the <id>-swatch Box
+// filled with the color and the <id>-value Text, and requests actions.toggle. `panel` is the
+// root-sibling <id>-panel popup, a group named by <id>-panel-title holding two focusable controls:
+// the <id>-area saturation (left to right) / value (bottom to top) plane with its <id>-area-thumb,
+// and the <id>-hue strip (0 to 360 degrees, left to right) with its <id>-hue-thumb. Each is a button
+// named by its display-none <id>-area-label / <id>-hue-label Text stating its values. Compose
+// `field` in place and `panel` directly under the root after ordinary content. The host owns the
+// color and open state; route input through ColorPickerDispatcher. The area's white and black
+// overlays and the hue gradient interpolate in linear light, so the panel's fills approximate the
+// sRGB HSV model; the swatch, value and thumbs are exact.
+struct ColorPickerParts {
+    Element field;
+    Element panel;
+};
+ColorPickerParts ColorPicker(std::string label, HsvColor value, ColorPickerActions actions, ColorPickerProps = {});
 // Controlled button semantics with a value caption and a 200-unit track.
 // Generated IDs: <id>-track, <id>-fill, <id>-thumb. The host owns input,
 // commands and values; map thumb centers over track width minus 8 units.

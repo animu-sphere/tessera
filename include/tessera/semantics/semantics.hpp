@@ -34,12 +34,13 @@ enum class SemanticRole : std::uint8_t {
     text_input,   // A Box with edit_role=text_input; `value` is its presented text.
     number_input, // A Box with edit_role=number_input; `value` is its presented draft text.
     tab_list,
-    tab,      // A tab_list entry; `selected` marks the tab whose panel is shown.
-    toolbar,  // A Box with collection_role=toolbar grouping ordinary controls.
-    combobox, // A select-only trigger; `value` is the selected option label, `expanded` its list state.
-    listbox,  // The root-sibling option list of a combobox.
-    option,   // A listbox entry; `selected` marks the accepted choice.
-    group,    // A Box with collection_role=group naming related ordinary controls, such as VectorInput components.
+    tab,          // A tab_list entry; `selected` marks the tab whose panel is shown.
+    toolbar,      // A Box with collection_role=toolbar grouping ordinary controls.
+    combobox,     // A select-only trigger; `value` is the selected option label, `expanded` its list state.
+    listbox,      // The root-sibling option list of a combobox.
+    option,       // A listbox entry; `selected` marks the accepted choice.
+    group,        // A Box with collection_role=group naming related ordinary controls, such as VectorInput components.
+    color_picker, // A color trigger; `value` is its #RRGGBB color, `expanded` its panel state.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 
@@ -66,9 +67,9 @@ struct SemanticNode {
     bool focused = false;                  // The supplied focus is this eligible node.
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
     std::optional<bool> selected;          // Collection items, radios, tabs and toggles only; independent of focus.
-    std::optional<bool> expanded;          // Tree branches and comboboxes only; absent for leaves.
+    std::optional<bool> expanded;          // Tree branches, comboboxes and color pickers only; absent for leaves.
     std::optional<std::string> value;      // Text/number inputs: presented text, never a parsed number;
-                                           // comboboxes: the selected option label.
+                                           // comboboxes: the selected option label; color pickers: #RRGGBB.
     bool operator==(const SemanticNode&) const = default;
 };
 

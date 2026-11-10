@@ -97,6 +97,8 @@ public:
                 role = SemanticRole::option;
             else if (collection == "group")
                 role = SemanticRole::group;
+            else if (collection == "color_picker")
+                role = SemanticRole::color_picker;
             else if (separator && std::get<bool>(*separator))
                 role = SemanticRole::separator;
             else if (scrollbar && std::get<bool>(*scrollbar))
@@ -125,6 +127,7 @@ public:
                                                            tree_.nodes[inherited].role == SemanticRole::text_input ||
                                                            tree_.nodes[inherited].role == SemanticRole::number_input ||
                                                            tree_.nodes[inherited].role == SemanticRole::combobox ||
+                                                           tree_.nodes[inherited].role == SemanticRole::color_picker ||
                                                            tree_.nodes[inherited].role == SemanticRole::option)))
                 role = SemanticRole::text;
             else if (box.parent == no_layout_parent && node.kind == NodeKind::box)
@@ -217,7 +220,7 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
              entry.role == SemanticRole::tab_list || entry.role == SemanticRole::tab ||
              entry.role == SemanticRole::toolbar || entry.role == SemanticRole::combobox ||
              entry.role == SemanticRole::listbox || entry.role == SemanticRole::option ||
-             entry.role == SemanticRole::group) &&
+             entry.role == SemanticRole::group || entry.role == SemanticRole::color_picker) &&
             entry.name.empty())
             warnings.push_back({"missing_name",
                                 Severity::warning,

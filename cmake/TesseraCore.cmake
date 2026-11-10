@@ -11,6 +11,7 @@ add_library(tessera_core
     src/ui/component_mount.cpp
     src/ui/component_tree_mount.cpp
     src/ui/async.cpp
+    src/style/color.cpp
     src/style/resolved_style.cpp
     src/style/style_sheet.cpp
     src/style/theme.cpp

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <tessera/input/focus.hpp>
+#include <tessera/style/color.hpp>
 #include <utility>
 
 namespace tessera {
@@ -71,6 +72,55 @@ public:
 private:
     std::string id_;
     PopupDispatcher popup_;
+};
+
+// Keyboard and gamepad adjustment per press inside a ColorPicker panel.
+struct ColorPickerSteps {
+    double hue = 5;           // Degrees, on the hue strip.
+    double saturation = 0.05; // Left/Right on the area.
+    double value = 0.05;      // Up/Down on the area.
+};
+
+struct ColorPickerDispatchResult {
+    bool dismiss = false; // Host closes the panel and publishes the closed view.
+    bool consumed = false;
+    std::optional<NodeHandle> focus;     // Apply through FocusDispatcher in this snapshot.
+    bool open = false;                   // Host opens the panel, as its toggle command would.
+    std::optional<HsvColor> color;       // Requested color; execute `action` with it.
+    std::optional<ActionRequest> action; // The area or hue strip command for `color`.
+    bool operator==(const ColorPickerDispatchResult&) const = default;
+};
+
+// One ColorPicker, identified by its trigger's stable author ID; its panel is <id>-panel. Refresh
+// on every accepted snapshot and dispatch before ordinary pointer/focus routing, passing the
+// host's accepted color that the snapshot presents. Opening focuses the area. A primary press on
+// the area or hue strip focuses it and captures the pointer; moves and the release request the
+// color under the pointer over the control's content box. On the focused area, Left/Right adjust
+// saturation and Up/Down value; on the hue strip, Left/Down and Right/Up adjust hue, Home/End
+// select 0 and 360. Requested values clamp to their ranges and are rounded to 0.0001 (saturation,
+// value) or 0.01 degrees (hue); unchanged values request nothing. Tab moves between the area and
+// strip and, past either end, closes and continues from the trigger. Enter/Activate, Escape,
+// Cancel, Alt+Up and an outside press close and focus the trigger; Alt+Down on the focused
+// trigger opens. Changes apply as requested; closing does not revert them.
+class ColorPickerDispatcher final {
+public:
+    explicit ColorPickerDispatcher(std::string id, ColorPickerSteps steps = {})
+        : id_(std::move(id)), steps_(steps), popup_(id_ + "-panel") {}
+    Result<ColorPickerDispatchResult> refresh(const HitTestInput&);
+    Result<ColorPickerDispatchResult> dispatch(const HitTestInput&, const InputEvent&,
+                                               std::optional<NodeHandle> focused, HsvColor current);
+    bool dragging() const noexcept { return drag_.has_value(); }
+    void reset() noexcept { drag_.reset(); }
+
+private:
+    struct Drag {
+        PointerId pointer;
+        bool hue = false;
+    };
+    std::string id_;
+    ColorPickerSteps steps_;
+    PopupDispatcher popup_;
+    std::optional<Drag> drag_;
 };
 
 struct TooltipDispatchResult {

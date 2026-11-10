@@ -50,6 +50,8 @@ const std::vector<std::pair<std::string, std::string>> visibility_choices{
 const std::vector<std::pair<std::string, std::string>> purpose_choices{
     {"default", "Default"}, {"render", "Render"}, {"proxy", "Proxy"}, {"guide", "Guide"}};
 const std::vector<std::pair<std::string, std::string>> sections{{"general", "General"}, {"display", "Display"}};
+// USD's fallback display color, 50% gray, chosen through the Display tab's ColorPicker.
+constexpr HsvColor default_color{0, 0, 0.5};
 struct Item {
     std::string id;
     TextEditState name;
@@ -62,6 +64,7 @@ struct Item {
     std::string visibility = "inherited";
     bool shadows = true;
     std::string purpose = "default";
+    HsvColor color = default_color; // Accepted HSV, keeping its hue while gray.
     bool operator==(const Item&) const = default;
 };
 // Host-edited numeric drafts: Scale's NumberInput, then the Position VectorInput components. Each
@@ -99,10 +102,10 @@ bool modified(const Item& item) {
             number_draft(item, i).text != ui::format_number(number_fields[i].reset))
             return true;
     return !item.enabled || item.amount != 50 || item.visibility != "inherited" || !item.shadows ||
-           item.purpose != "default";
+           item.purpose != "default" || item.color != default_color;
 }
-// At most one popup is open: an item menu or the Purpose list.
-enum class OpenMenu { none, actions, context, purpose };
+// At most one popup is open: an item menu, the Purpose list or the Display color panel.
+enum class OpenMenu { none, actions, context, purpose, color };
 struct State {
     std::vector<Item> items;
     std::string selected = "cube";
@@ -143,7 +146,8 @@ State initial_state() {
 ValidationContext action_context(const State& state) {
     ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.scale", "item.shadows",
                                "item.rename", "item.reset", "menu.open", "panes.resize", "purpose.toggle",
-                               "item.position.x", "item.position.y", "item.position.z"}};
+                               "item.position.x", "item.position.y", "item.position.z", "color.toggle", "color.area",
+                               "color.hue"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
     for (const auto& [key, label] : purpose_choices) context.actions.insert("purpose." + key);
@@ -287,6 +291,10 @@ StyleSheet appearance(const State& state) {
     sheet.rules.push_back(
         {StyleSelector::of_id("sections-tab-" + state.section), {.color = Color{.12f, .26f, .6f, 1}}});
     sheet.rules.push_back({StyleSelector::of_id("purpose-arrow"), {.color = Color{.32f, .4f, .54f, 1}}});
+    // The Display color panel controls carry the shared solid focus outline; their fills stay unchanged.
+    for (const auto* id : {"display-color-area", "display-color-hue"})
+        sheet.rules.push_back(
+            {StyleSelector::of_id(id, {.focus = true}), {.outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}}}});
     for (const auto& [key, label] : purpose_choices) row("purpose-option-" + key);
     sheet.rules.push_back(
         {StyleSelector::of_id("purpose-label-" + state.item().purpose), {.color = Color{.12f, .26f, .6f, 1}}});
@@ -316,7 +324,8 @@ ui::Element Form(const State& state, Size viewport) {
     };
     std::vector<ui::Element> properties;
     std::vector<GridTrack> rows;
-    std::optional<ui::Element> purpose_list; // Composed under the root, after the item menus.
+    // Composed under the root, after the item menus.
+    std::optional<ui::Element> purpose_list, color_panel;
     if (state.section == "general") {
         properties = {
             ui::Text("Display name", {.classes = {"muted"}}),
@@ -366,7 +375,13 @@ ui::Element Form(const State& state, Size viewport) {
         properties.push_back(ui::Text("Purpose", {.classes = {"muted"}}));
         properties.push_back(std::move(purpose.field));
         purpose_list = std::move(purpose.list);
-        rows.resize(3);
+        auto color = ui::ColorPicker(
+            "Display color", item.color, {.toggle = "color.toggle", .area = "color.area", .hue = "color.hue"},
+            {.node = control("display-color"), .panel = {.classes = {"popup"}}, .open = state.menu == OpenMenu::color});
+        properties.push_back(ui::Text("Color", {.classes = {"muted"}}));
+        properties.push_back(std::move(color.field));
+        color_panel = std::move(color.panel);
+        rows.resize(4);
     }
     std::vector<ui::TabOption> tabs;
     for (const auto& [key, label] : sections) tabs.push_back({key, label, "section." + key});
@@ -396,6 +411,7 @@ ui::Element Form(const State& state, Size viewport) {
         ui::Menu("Item actions", "actions", commands, popup("actions-menu", OpenMenu::actions)),
         ui::ContextMenu("Item actions", "selected", state.position, commands, popup("item-menu", OpenMenu::context))};
     if (purpose_list) layers.push_back(std::move(*purpose_list));
+    if (color_panel) layers.push_back(std::move(*color_panel));
     std::vector<ui::Element> content{
         ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
                  ui::Toolbar("Item tools",
@@ -647,6 +663,7 @@ public:
             item.visibility = "inherited";
             item.shadows = true;
             item.purpose = "default";
+            item.color = default_color;
         } else if (command == "item.shadows")
             candidate.item().shadows = !candidate.item().shadows;
         else if (const auto field = number_command(command)) {
@@ -662,7 +679,13 @@ public:
             candidate.menu = OpenMenu::actions;
         else if (command == "purpose.toggle")
             candidate.menu = candidate.menu == OpenMenu::purpose ? OpenMenu::none : OpenMenu::purpose;
-        else if (command.starts_with("purpose.")) {
+        else if (command == "color.toggle")
+            candidate.menu = candidate.menu == OpenMenu::color ? OpenMenu::none : OpenMenu::color;
+        else if (command == "color.area" || command == "color.hue") {
+            // Each accepted adjustment applies at once; the panel stays open.
+            require(picked_color.has_value(), "Color adjustment needs a requested color");
+            candidate.item().color = *picked_color;
+        } else if (command.starts_with("purpose.")) {
             // An accepted choice closes the list; refresh then returns focus to the trigger.
             candidate.item().purpose = command.substr(8);
             candidate.menu = OpenMenu::none;
@@ -695,6 +718,8 @@ public:
         if (action.action == "item.name" && !edit) return {};
         if (number_command(action.action) && !number_request) return {};
         if (action.action == "panes.resize" && !split) return {};
+        // Plain activation of a panel control carries no color; only the dispatcher requests one.
+        if ((action.action == "color.area" || action.action == "color.hue") && !picked_color) return {};
         const auto semantic = view.semantic();
         const auto invocation =
             take(view.commands.resolve_action(semantic, action, view.commands.generation(), {}, source, ++sequence));
@@ -769,6 +794,28 @@ public:
             checked(operate(take(request_semantic_action(view.semantic(), *view.tree->find("purpose"), "activate")),
                             source));
         if (choice.consumed) {
+            observe();
+            return;
+        }
+        const auto picked = take(
+            display_color.dispatch(view.hit(), event, take(focus.refresh(view.hit())).focused, state.item().color));
+        if (picked.focus) (void)take(focus.focus(view.hit(), *picked.focus));
+        if (picked.dismiss) {
+            state.menu = OpenMenu::none;
+            pointer.reset();
+            slider_pointer.reset();
+            refresh();
+        }
+        if (picked.open)
+            checked(operate(
+                take(request_semantic_action(view.semantic(), *view.tree->find("display-color"), "activate")), source));
+        if (picked.action) {
+            picked_color = picked.color;
+            const auto outcome = operate(*picked.action, source);
+            picked_color.reset();
+            checked(outcome);
+        }
+        if (picked.consumed) {
             observe();
             return;
         }
@@ -1150,6 +1197,7 @@ private:
     SplitPaneDispatcher splitter{"panes"};
     MenuDispatcher menu{"actions-menu"}, context_menu{"item-menu"};
     ComboBoxDispatcher purpose{"purpose"};
+    ColorPickerDispatcher display_color{"display-color"};
     Offsets offsets;
     std::optional<TextEditRequest> edit;
     std::optional<std::pair<std::size_t, NumberRequest>> number_request;
@@ -1157,6 +1205,7 @@ private:
     bool ime_ignored = false;
     std::optional<int> amount;
     std::optional<float> split;
+    std::optional<HsvColor> picked_color; // The dispatcher's request for one color.area/color.hue command.
     std::optional<PointerId> slider_pointer;
     std::optional<State> pending_state;
     std::optional<FocusDispatcher> pending_focus;
@@ -1245,7 +1294,9 @@ private:
         }
         const auto choice = take(purpose.refresh(view.hit()));
         if (choice.focus) (void)take(focus.focus(view.hit(), *choice.focus));
-        dismissed = dismissed || choice.dismiss;
+        const auto picker = take(display_color.refresh(view.hit()));
+        if (picker.focus) (void)take(focus.focus(view.hit(), *picker.focus));
+        dismissed = dismissed || choice.dismiss || picker.dismiss;
         if (dismissed) {
             state.menu = OpenMenu::none;
             pointer.reset();
@@ -2238,6 +2289,110 @@ void purpose_smoke() {
     app.action("tool-reset");
     require(app.state.item().purpose == "default", "Reset must restore Purpose");
 }
+void color_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    app.action("sections-tab-display");
+    const auto trigger = app.observed("display-color");
+    require(trigger.role == SemanticRole::color_picker && trigger.name == "Display color" &&
+                trigger.value == "#808080" && trigger.expanded == false &&
+                trigger.actions == std::vector<SemanticAction>{{"activate", "color.toggle"}},
+            "Display color must expose a named color picker with the accepted hex value");
+    const auto panel_node = app.view.tree->find("display-color-panel");
+    require(panel_node && std::none_of(app.view.layout.boxes.begin(), app.view.layout.boxes.end(),
+                                       [&](const LayoutBox& box) { return box.node == *panel_node; }),
+            "A closed Display color panel must not be shown");
+    app.focus_id("purpose");
+    input(KeyDown{Key::tab});
+    require(app.focused_on("display-color"), "Tab must reach Display color after Purpose");
+    auto executions = app.executions;
+    input(KeyDown{Key::down, {.alt = true}});
+    require(app.state.menu == OpenMenu::color && app.executions == executions + 1 &&
+                app.focused_on("display-color-area") && app.observed("display-color").expanded == true &&
+                app.observed("display-color-panel").role == SemanticRole::group &&
+                app.observed_name("display-color-area") == "Saturation 0%, value 50%" &&
+                app.observed_name("display-color-hue") == "Hue 0 degrees",
+            "Alt+Down must open the panel at the area");
+    const auto field = app.view.box("display-color").border_box;
+    const auto panel = app.view.box("display-color-panel").border_box;
+    require(panel.origin.x == field.origin.x && (panel.origin.y >= field.origin.y + field.size.height ||
+                                                 panel.origin.y + panel.size.height <= field.origin.y),
+            "The panel must sit beside the trigger");
+    input(KeyDown{Key::right});
+    input(KeyDown{Key::up});
+    require(app.state.item().color == HsvColor{0, 0.05, 0.55} && app.executions == executions + 3 &&
+                app.state.menu == OpenMenu::color && app.focused_on("display-color-area") &&
+                app.observed_value("display-color") == format_hex_color(to_color({0, 0.05, 0.55})) &&
+                app.view.tree->find("modified-badge"),
+            "Area arrows must adjust saturation and value, keep the panel open and mark the item");
+    require(app.view.styles[app.view.tree->find("display-color-swatch")->index].background ==
+                to_color(app.state.item().color),
+            "The swatch must show the accepted color");
+    input(KeyDown{Key::tab});
+    input(KeyDown{Key::right});
+    require(app.focused_on("display-color-hue") && app.state.item().color == HsvColor{5, 0.05, 0.55},
+            "Tab must reach the hue strip, whose arrows adjust hue");
+    input(KeyDown{Key::tab});
+    require(app.state.menu == OpenMenu::none && !app.focused_on("display-color") &&
+                app.state.item().color == HsvColor{5, 0.05, 0.55},
+            "Tab past the hue strip must close the panel and continue from the trigger");
+    const auto press = [&](std::string_view id) {
+        const auto point = app.view.reachable(id);
+        input(PointerDown{{1}, point}, CommandSource::pointer);
+        input(PointerUp{{1}, point}, CommandSource::pointer);
+    };
+    const auto at = [&](std::string_view id, float x, float y) {
+        const auto content = app.view.box(id).content_box();
+        return Point{content.origin.x + x * content.size.width, content.origin.y + y * content.size.height};
+    };
+    press("display-color");
+    require(app.state.menu == OpenMenu::color && app.focused_on("display-color-area"),
+            "A press on the trigger must open the panel");
+    executions = app.executions;
+    input(PointerDown{{1}, at("display-color-area", 0.25f, 0.25f)}, CommandSource::pointer);
+    input(PointerMove{{1}, at("display-color-area", 0.75f, 0.5f)}, CommandSource::pointer);
+    require(app.state.item().color == HsvColor{5, 0.75, 0.5} && app.executions == executions + 2,
+            "A press and drag on the area must request the colors under the pointer");
+    input(PointerUp{{1}, at("display-color-area", 0.75f, 0.5f)}, CommandSource::pointer);
+    require(app.state.item().color == HsvColor{5, 0.75, 0.5} && app.executions == executions + 2 &&
+                app.state.menu == OpenMenu::color,
+            "An unchanged release must not repeat the command or close the panel");
+    const auto thumb = app.view.box("display-color-area-thumb").border_box;
+    const auto area = app.view.box("display-color-area").content_box();
+    require(std::abs(thumb.origin.x + 6 - (area.origin.x + 120)) < 1e-3f &&
+                std::abs(thumb.origin.y + 6 - (area.origin.y + 60)) < 1e-3f,
+            "The area thumb must follow the accepted saturation and value");
+    press("display-color-hue");
+    require(app.focused_on("display-color-hue") && app.state.item().color == HsvColor{180, 0.75, 0.5},
+            "A pointer press on the hue strip must select its hue");
+    executions = app.executions;
+    press("hierarchy-item-sphere");
+    require(app.state.menu == OpenMenu::none && app.state.selected == "cube" && app.executions == executions &&
+                app.focused_on("display-color"),
+            "An outside press must close the panel without clicking through");
+    input(Activate{});
+    input(KeyDown{Key::left});
+    input(KeyDown{Key::escape});
+    require(app.state.menu == OpenMenu::none && app.focused_on("display-color") &&
+                app.state.item().color == HsvColor{180, 0.7, 0.5},
+            "Escape must close the panel and keep the applied color");
+    input(Activate{});
+    input(KeyDown{Key::enter});
+    require(app.state.menu == OpenMenu::none && app.focused_on("display-color"),
+            "Enter must close the panel and return focus to the trigger");
+    const auto cube = app.state.item().color;
+    app.action("hierarchy-item-sphere");
+    require(app.state.item().color == default_color && app.observed_value("display-color") == "#808080",
+            "Another item must show its own Display color");
+    app.action("hierarchy-item-cube");
+    require(app.state.item().color == cube, "Returning to an item must retain its Display color");
+    app.action("tool-reset");
+    require(app.state.item().color == default_color && !app.view.tree->find("modified-badge"),
+            "Reset must restore the Display color");
+}
 void scale_smoke() {
     App app;
     std::chrono::microseconds time{};
@@ -2708,6 +2863,7 @@ void smoke() {
     visibility_smoke();
     shadows_smoke();
     purpose_smoke();
+    color_smoke();
     appearance_smoke();
     gradient_card_smoke();
     analytic_fill_smoke();
@@ -3220,9 +3376,23 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_RETURN, 1);
         require(app.state.item().purpose == "render" && app.state.menu == OpenMenu::none && app.focused_on("purpose"),
                 "Native arrows and Return must choose a Purpose");
+        seek("display-color");
+        host.message(WM_KEYDOWN, VK_SPACE, 1);
+        require(app.state.menu == OpenMenu::color && app.focused_on("display-color-area"),
+                "Native Space must open the Display color panel at its area");
+        host.message(WM_KEYDOWN, VK_RIGHT, 1);
+        host.message(WM_KEYDOWN, VK_UP, 1);
+        host.message(WM_KEYDOWN, VK_TAB, 1);
+        host.message(WM_KEYDOWN, VK_RIGHT, 1);
+        require(app.focused_on("display-color-hue") && app.state.menu == OpenMenu::color,
+                "Native Tab must move within the open Display color panel");
+        host.message(WM_KEYDOWN, VK_RETURN, 1);
+        require(app.state.item().color == HsvColor{5, 0.05, 0.55} && app.state.menu == OpenMenu::none &&
+                    app.focused_on("display-color"),
+                "Native arrows and Return must adjust the Display color and close its panel");
         const auto cube = app.state.item();
         require(cube.name.text == "Cube!" && !cube.enabled && cube.amount == 55 && cube.visibility == "hidden" &&
-                    !cube.shadows && cube.purpose == "render",
+                    !cube.shadows && cube.purpose == "render" && cube.color == HsvColor{5, 0.05, 0.55},
                 "Native fields must accept edits");
         // Tab traversal revealed the last Hierarchy row and the Visibility choices; wheel both back.
         wheel_top("hierarchy");
@@ -3259,7 +3429,8 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_SPACE, 1);
         const auto reset = app.state.item();
         require(reset.name == cube.name && reset.enabled && reset.amount == 50 && reset.scale == 1 &&
-                    reset.visibility == "inherited" && reset.shadows && reset.purpose == "default",
+                    reset.visibility == "inherited" && reset.shadows && reset.purpose == "default" &&
+                    reset.color == default_color,
                 "Native toolbar Reset must restore the properties and keep the name");
         std::cout << "Inspector native injected-message smoke passed: " << host.presentations << " presentations.\n";
     };

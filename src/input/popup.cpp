@@ -1,7 +1,9 @@
 #include <tessera/input/popup.hpp>
 #include "../detail/popup.hpp"
 #include "../detail/targeting.hpp"
+#include <tessera/semantics/semantics.hpp>
 #include <algorithm>
+#include <cmath>
 
 namespace tessera {
 namespace {
@@ -277,6 +279,196 @@ Result<ComboBoxDispatchResult> ComboBoxDispatcher::dispatch(const HitTestInput& 
         result.consumed = false;
     } else if (const auto item = hovered_item(input, event, *list, "option")) {
         result.focus = item;
+    }
+    return {result, {}};
+}
+
+namespace {
+
+void check_color_picker(std::vector<Diagnostic>& errors, const HitTestInput& input, const std::string& id) {
+    check_id(errors, id);
+    if (!input.tree) return;
+    if (const auto node = input.tree->find(id);
+        node && detail::collection_role(*input.tree->get(*node)) != "color_picker")
+        errors.push_back({"color_picker_target", Severity::error, "/id", "Identify a ColorPicker trigger."});
+    check_popup(errors, input, id + "-panel");
+    if (const auto node = input.tree->find(id + "-panel");
+        node && detail::collection_role(*input.tree->get(*node)) != "group")
+        errors.push_back({"color_picker_target", Severity::error, "/id", "The ColorPicker panel must be a group."});
+}
+
+void check_color_input(std::vector<Diagnostic>& errors, const ColorPickerSteps& steps, const HsvColor& current) {
+    const auto positive = [](double step) { return std::isfinite(step) && step > 0; };
+    if (!positive(steps.hue) || !positive(steps.saturation) || !positive(steps.value))
+        errors.push_back(
+            {"color_picker_steps", Severity::error, "/steps", "Supply finite positive ColorPicker adjustment steps."});
+    if (!valid(current))
+        errors.push_back({"color_picker_value", Severity::error, "/current",
+                          "Supply the accepted color: a hue in [0, 360] and saturation and value in [0, 1]."});
+}
+
+double rounded(double value, double scale) { return std::round(value * scale) / scale; }
+
+// Clamped and rounded, so repeated steps and pointer positions produce reproducible values.
+HsvColor normalized(HsvColor color) {
+    return {rounded(std::clamp(color.hue, 0., 360.), 100), rounded(std::clamp(color.saturation, 0., 1.), 10000),
+            rounded(std::clamp(color.value, 0., 1.), 10000)};
+}
+
+} // namespace
+
+Result<ColorPickerDispatchResult> ColorPickerDispatcher::refresh(const HitTestInput& input) {
+    auto errors = validate(input);
+    check_color_picker(errors, input, id_);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    auto result = popup_.refresh(input);
+    if (!result) return {std::nullopt, std::move(result.diagnostics)};
+    const auto panel = input.tree->find(id_ + "-panel");
+    if (!panel || !detail::Targeting(input).eligible(*panel) || result.value->dismiss) reset();
+    return {ColorPickerDispatchResult{result.value->dismiss, result.value->consumed, result.value->focus}, {}};
+}
+
+Result<ColorPickerDispatchResult> ColorPickerDispatcher::dispatch(const HitTestInput& input, const InputEvent& event,
+                                                                  std::optional<NodeHandle> focused, HsvColor current) {
+    auto errors = validate(input);
+    check_color_picker(errors, input, id_);
+    check_focus(errors, input, focused);
+    check_color_input(errors, steps_, current);
+    if (!errors.empty()) return {std::nullopt, std::move(errors)};
+    auto popup = popup_.dispatch(input, event);
+    if (!popup) return {std::nullopt, std::move(popup.diagnostics)};
+    ColorPickerDispatchResult result{popup.value->dismiss, popup.value->consumed, popup.value->focus};
+    const auto panel = input.tree->find(id_ + "-panel");
+    const auto trigger = input.tree->find(id_);
+    const detail::Targeting targeting(input);
+    const bool shown = panel && targeting.box(*panel) != no_layout_parent && targeting.eligible(*panel) &&
+                       detail::popup_anchor_box(*input.tree, *input.layout, *input.tree->get(*panel));
+    const auto* key = std::get_if<KeyDown>(&event.data);
+    const bool alt = key && key->modifiers == Modifiers{.alt = true} && !key->repeat;
+    if (!shown || result.dismiss) {
+        reset();
+        // Alt+Down on the focused, eligible trigger opens the panel.
+        if (!shown && alt && key->key == Key::down && trigger && focused == trigger &&
+            targeting.box(*trigger) != no_layout_parent && targeting.focusable(targeting.box(*trigger)))
+            result.open = result.consumed = true;
+        return {result, {}};
+    }
+    // Eligible panel controls in Tab order; a disabled picker has none.
+    std::vector<NodeHandle> controls;
+    for (const auto* suffix : {"-area", "-hue"})
+        if (const auto node = input.tree->find(id_ + suffix);
+            node && targeting.box(*node) != no_layout_parent && targeting.focusable(targeting.box(*node)))
+            controls.push_back(*node);
+    const auto area = input.tree->find(id_ + "-area");
+    const auto hue = input.tree->find(id_ + "-hue");
+    const auto usable = [&](std::optional<NodeHandle> node) {
+        return node && std::find(controls.begin(), controls.end(), *node) != controls.end();
+    };
+    // Requests a changed color through the control's own command.
+    const auto request = [&](NodeHandle control, HsvColor next) -> Result<ColorPickerDispatchResult> {
+        next = normalized(next);
+        result.consumed = true;
+        if (next != current) {
+            auto action = request_semantic_action({input.tree, input.styles, input.layout}, control, "activate");
+            if (!action) return {std::nullopt, std::move(action.diagnostics)};
+            result.color = next;
+            result.action = std::move(*action.value);
+        }
+        return {result, {}};
+    };
+    const auto at = [&](bool strip, Point point) {
+        const auto content = input.layout->boxes[targeting.box(strip ? *hue : *area)].content_box();
+        const auto fraction = [](float position, float origin, float extent) {
+            return extent > 0 ? std::clamp((static_cast<double>(position) - origin) / extent, 0., 1.) : 0.;
+        };
+        auto next = current;
+        if (strip)
+            next.hue = 360 * fraction(point.x, content.origin.x, content.size.width);
+        else {
+            next.saturation = fraction(point.x, content.origin.x, content.size.width);
+            next.value = 1 - fraction(point.y, content.origin.y, content.size.height);
+        }
+        return next;
+    };
+    if (drag_ && !usable(drag_->hue ? hue : area)) reset();
+    if (const auto* lost = std::get_if<PointerCancel>(&event.data)) {
+        if (drag_ && drag_->pointer == lost->pointer) {
+            reset();
+            result.consumed = true;
+        }
+        return {result, {}};
+    }
+    if (const auto* press = std::get_if<PointerDown>(&event.data)) {
+        if (drag_ || press->button != PointerButton::primary) return {result, {}};
+        const auto target = targeting.hit(press->position);
+        if (!usable(target) || (target != area && target != hue)) return {result, {}};
+        result.focus = target;
+        auto pressed = request(*target, at(target == hue, press->position));
+        // Capture only once the request succeeded, so a rejected dispatch leaves no drag behind.
+        if (pressed) drag_ = Drag{press->pointer, target == hue};
+        return pressed;
+    }
+    if (const auto* move = std::get_if<PointerMove>(&event.data)) {
+        if (!drag_ || drag_->pointer != move->pointer) return {result, {}};
+        return request(drag_->hue ? *hue : *area, at(drag_->hue, move->position));
+    }
+    if (const auto* release = std::get_if<PointerUp>(&event.data)) {
+        if (!drag_ || drag_->pointer != release->pointer || release->button != PointerButton::primary)
+            return {result, {}};
+        const bool strip = drag_->hue;
+        auto released = request(strip ? *hue : *area, at(strip, release->position));
+        if (released) reset();
+        return released;
+    }
+    const bool inside = focused && panel && descendant(input, *focused, *panel);
+    if (alt && key->key == Key::up) {
+        result.dismiss = result.consumed = true;
+        result.focus = anchor_focus(input, id_);
+    } else if (sequential(event)) {
+        const bool backward = std::holds_alternative<FocusPrevious>(event.data) || (key && key->modifiers.shift);
+        const auto found = focused ? std::find(controls.begin(), controls.end(), *focused) : controls.end();
+        const auto index = found - controls.begin();
+        const auto next = backward ? index - 1 : index + 1;
+        if (found != controls.end() && next >= 0 && next < static_cast<std::ptrdiff_t>(controls.size())) {
+            result.focus = controls[next];
+            result.consumed = true;
+        } else {
+            result.dismiss = true;
+            result.focus = anchor_focus(input, id_);
+            // Publish the closed view before forwarding the sequential focus command.
+            result.consumed = false;
+        }
+    } else if (inside && (std::holds_alternative<Activate>(event.data) ||
+                          (key && key->key == Key::enter && key->modifiers == Modifiers{} && !key->repeat))) {
+        result.dismiss = result.consumed = true;
+        result.focus = anchor_focus(input, id_);
+    } else if (usable(focused) && (focused == area || focused == hue)) {
+        // Arrow keys and gamepad directions; other keys stay with ordinary routing.
+        std::optional<Direction> direction;
+        if (key && key->modifiers == Modifiers{}) {
+            if (key->key == Key::left) direction = Direction::left;
+            if (key->key == Key::right) direction = Direction::right;
+            if (key->key == Key::up) direction = Direction::up;
+            if (key->key == Key::down) direction = Direction::down;
+        }
+        if (const auto* navigate = std::get_if<Navigate>(&event.data)) direction = navigate->direction;
+        auto next = current;
+        if (focused == hue) {
+            if (key && key->modifiers == Modifiers{} && key->key == Key::home)
+                return request(*hue, {0, current.saturation, current.value});
+            if (key && key->modifiers == Modifiers{} && key->key == Key::end)
+                return request(*hue, {360, current.saturation, current.value});
+            if (!direction) return {result, {}};
+            const bool lower = *direction == Direction::left || *direction == Direction::down;
+            next.hue += lower ? -steps_.hue : steps_.hue;
+            return request(*hue, next);
+        }
+        if (!direction) return {result, {}};
+        if (*direction == Direction::left || *direction == Direction::right)
+            next.saturation += *direction == Direction::left ? -steps_.saturation : steps_.saturation;
+        else
+            next.value += *direction == Direction::down ? -steps_.value : steps_.value;
+        return request(*area, next);
     }
     return {result, {}};
 }

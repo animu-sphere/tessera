@@ -41,6 +41,7 @@ Contracts: [layout](../architecture/layout.md), [input](../architecture/input.md
 
 - Undo/redo, multiline and broader composition support.
 - Submenus, menu bars, richer menu items, additional dialogs/Inspector controls, multiple selection and extra focus scopes.
+- [ColorPicker](../guides/color-picker.md) follow-ups: hex or numeric channel entry, alpha, revert on Escape and numeric range semantics for its area and strip.
 - Shared Portal behavior or nested/stacked modal lifetimes when an overlay operation needs them.
 - A practical DevTools/inspection UI.
 
