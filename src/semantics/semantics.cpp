@@ -111,6 +111,8 @@ public:
                 role = SemanticRole::text_input;
             else if (edit && std::get<std::string>(*edit) == "number_input")
                 role = SemanticRole::number_input;
+            else if (edit && std::get<std::string>(*edit) == "text_editor")
+                role = SemanticRole::text_editor;
             else if (activate)
                 role = SemanticRole::button;
             else if (text &&
@@ -126,6 +128,7 @@ public:
                                                            tree_.nodes[inherited].role == SemanticRole::switch_ ||
                                                            tree_.nodes[inherited].role == SemanticRole::text_input ||
                                                            tree_.nodes[inherited].role == SemanticRole::number_input ||
+                                                           tree_.nodes[inherited].role == SemanticRole::text_editor ||
                                                            tree_.nodes[inherited].role == SemanticRole::combobox ||
                                                            tree_.nodes[inherited].role == SemanticRole::color_picker ||
                                                            tree_.nodes[inherited].role == SemanticRole::option)))
@@ -220,7 +223,8 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
              entry.role == SemanticRole::tab_list || entry.role == SemanticRole::tab ||
              entry.role == SemanticRole::toolbar || entry.role == SemanticRole::combobox ||
              entry.role == SemanticRole::listbox || entry.role == SemanticRole::option ||
-             entry.role == SemanticRole::group || entry.role == SemanticRole::color_picker) &&
+             entry.role == SemanticRole::group || entry.role == SemanticRole::color_picker ||
+             entry.role == SemanticRole::text_editor) &&
             entry.name.empty())
             warnings.push_back({"missing_name",
                                 Severity::warning,

@@ -8,6 +8,7 @@
 #include <tessera/render/paint.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
+#include <tessera/text/text_caret.hpp>
 #include <algorithm>
 #include <array>
 #include <functional>
@@ -43,6 +44,7 @@ constexpr ui::NumberRange scale_range{0, 10, 0.1};
 constexpr std::uint64_t scale_owner_base = 1000;
 constexpr ui::NumberRange position_range{-1000, 1000, 0.1};
 constexpr std::uint64_t position_owner_base = 2000; // + 3 * item + axis
+constexpr std::uint64_t notes_owner_base = 3000;
 constexpr ui::SplitPaneLimits pane_limits{140, 320, 8};
 const std::vector<std::pair<std::string, std::string>> visibility_choices{
     {"inherited", "Inherited"}, {"visible", "Visible"}, {"hidden", "Hidden"}};
@@ -65,8 +67,27 @@ struct Item {
     bool shadows = true;
     std::string purpose = "default";
     HsvColor color = default_color; // Accepted HSV, keeping its hue while gray.
+    TextEditState notes;            // Multiple-line documentation; like the name, Reset keeps it.
     bool operator==(const Item&) const = default;
 };
+// Host-edited strings: the single-line display name and the multiple-line notes. Each has
+// its own editor ID, command and feedback subject; both share copy/paste and IME routing.
+enum class TextField : std::uint8_t { name, notes };
+struct TextFieldInfo {
+    const char* id;
+    const char* command;
+    const char* subject; // Feedback label.
+};
+constexpr std::array<TextFieldInfo, 2> text_fields{{{"name", "item.name", "Name"}, {"notes", "item.notes", "Notes"}}};
+template<class I> auto& text_field(I& item, TextField field) {
+    return field == TextField::name ? item.name : item.notes;
+}
+const TextFieldInfo& info(TextField field) { return text_fields[static_cast<std::size_t>(field)]; }
+std::optional<TextField> text_command(std::string_view command) {
+    for (const auto field : {TextField::name, TextField::notes})
+        if (command == info(field).command) return field;
+    return std::nullopt;
+}
 // Host-edited numeric drafts: Scale's NumberInput, then the Position VectorInput components. Each
 // field has its own accepted value, draft, command, range and reset value.
 struct NumberField {
@@ -140,6 +161,10 @@ State initial_state() {
         for (std::size_t axis = 0; axis < 3; ++axis)
             state.items[i].position_draft[axis] =
                 take(make_text_edit_state(position_owner_base + 3 * i + axis, ui::format_number(0)));
+        const auto notes = state.items[i].id == "cube"    ? "Unit cube for layout checks.\nKeep it at the origin."
+                           : state.items[i].id == "scene" ? "Root of the example stage."
+                                                          : "";
+        state.items[i].notes = take(make_text_edit_state(notes_owner_base + i, notes, TextLines::multiple));
     }
     return state;
 }
@@ -147,7 +172,7 @@ ValidationContext action_context(const State& state) {
     ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.scale", "item.shadows",
                                "item.rename", "item.reset", "menu.open", "panes.resize", "purpose.toggle",
                                "item.position.x", "item.position.y", "item.position.z", "color.toggle", "color.area",
-                               "color.hue"}};
+                               "color.hue", "item.notes"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
     for (const auto& [key, label] : purpose_choices) context.actions.insert("purpose." + key);
@@ -355,8 +380,11 @@ ui::Element Form(const State& state, Size viewport) {
                             {.node = {.id = "position"}}),
             // Contextual help spans the label and control columns below Scale and Position.
             ui::Text("Enter applies, Esc reverts, Up/Down step.",
-                     {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}})};
-        rows.resize(6);
+                     {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}}),
+            // Multiple-line documentation; Enter starts a line and the field grows with its wrapped rows.
+            ui::Text("Notes", {.id = "notes-caption", .classes = {"muted"}}),
+            ui::TextEditor("Notes", item.notes, "item.notes", {.node = control("notes")})};
+        rows.resize(7);
     } else {
         properties = {
             ui::Text("Visibility", {.classes = {"muted"}}),
@@ -637,11 +665,12 @@ public:
             candidate.selected = command.substr(7);
         else if (command == "scene.toggle")
             candidate.expanded = !candidate.expanded;
-        else if (command == "item.name") {
-            require(edit.has_value(), "Name editing needs an owned request");
-            auto next = edit_text(candidate.item().name, *edit);
+        else if (const auto edited = text_command(command)) {
+            require(edit.has_value(), "Text editing needs an owned request");
+            auto& field = text_field(candidate.item(), *edited);
+            auto next = edit_text(field, *edit);
             if (!next) return {CommandOutcomeStatus::error, {}, std::move(next.diagnostics)};
-            candidate.item().name = std::move(*next.value);
+            field = std::move(*next.value);
         } else if (command == "item.enabled")
             candidate.item().enabled = !candidate.item().enabled;
         else if (command.starts_with("visibility."))
@@ -715,7 +744,7 @@ public:
         return {};
     }
     CommandOutcome operate(const ActionRequest& action, CommandSource source) {
-        if (action.action == "item.name" && !edit) return {};
+        if (text_command(action.action) && !edit) return {};
         if (number_command(action.action) && !number_request) return {};
         if (action.action == "panes.resize" && !split) return {};
         // Plain activation of a panel control carries no color; only the dispatcher requests one.
@@ -905,13 +934,21 @@ public:
         slider_pointer.reset();
         focused = take(focus.refresh(view.hit())).focused;
         if (const auto* key = std::get_if<KeyDown>(&event.data); key && clipboard_key(*key, source)) return;
-        if (focused && focused == view.tree->find("name")) {
-            if (auto request = text_edit_request(event, state.item().name)) {
-                const auto outcome = try_edit(std::move(*request), source);
+        if (const auto field = focused_text(focused)) {
+            std::optional<float> goal;
+            auto request =
+                *field == TextField::notes ? notes_request(event, goal) : text_edit_request(event, state.item().name);
+            if (request) {
+                const auto outcome = try_text(*field, std::move(*request), source);
                 edit_diagnostics = outcome.diagnostics;
                 if (outcome.status != CommandOutcomeStatus::success)
-                    require(!edit_diagnostics.empty(), "Rejected name edit needs diagnostics");
-                report("Name edit", state.selected, edit_diagnostics);
+                    require(!edit_diagnostics.empty(), "Rejected text edit needs diagnostics");
+                // Successive Up/Down keep the column they started from until another edit.
+                const auto& notes = state.item().notes;
+                vertical_goal.reset();
+                if (goal && outcome.status == CommandOutcomeStatus::success)
+                    vertical_goal = VerticalGoal{notes.owner, notes.revision, *goal};
+                report(std::string(info(*field).subject) + " edit", state.selected, edit_diagnostics);
                 return;
             }
         }
@@ -998,11 +1035,69 @@ public:
     std::string observed_value(std::string id) const { return observed(std::move(id)).value.value_or(""); }
     ReplayReload recorded_view() const { return {view.tree->document(), view.styles}; }
     CommandOutcome try_edit(TextEditRequest request, CommandSource source = CommandSource::keyboard) {
+        return try_text(TextField::name, std::move(request), source);
+    }
+    // Executes one logical edit through the text field's own command.
+    CommandOutcome try_text(TextField field, TextEditRequest request, CommandSource source = CommandSource::keyboard) {
         edit = std::move(request);
-        const auto outcome =
-            operate(take(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate")), source);
+        const auto outcome = operate(
+            take(request_semantic_action(view.semantic(), *view.tree->find(info(field).id), "activate")), source);
         edit.reset();
         return outcome;
+    }
+    // The text field whose editor holds focus, if any; absent on the Display tab.
+    std::optional<TextField> focused_text(std::optional<NodeHandle> focused) const {
+        if (!focused) return std::nullopt;
+        for (const auto field : {TextField::name, TextField::notes})
+            if (focused == view.tree->find(info(field).id)) return field;
+        return std::nullopt;
+    }
+    // Caret geometry of the presented text in an editor's <id>-value Text, with the Text's content origin.
+    std::optional<std::pair<TextCaretLayout, Point>> caret_layout(TextField field, std::string_view shown) {
+        const auto value = view.tree->find(std::string(info(field).id) + "-value");
+        if (!value) return std::nullopt;
+        const auto found = std::find_if(view.layout.boxes.begin(), view.layout.boxes.end(),
+                                        [&](const LayoutBox& box) { return box.node == *value; });
+        if (found == view.layout.boxes.end() || !found->visible) return std::nullopt;
+        const auto content = found->content_box();
+        auto carets = layout_text_carets(text, shown, view.styles[value->index].text, {content.size.width});
+        if (!carets) return std::nullopt;
+        return std::pair{std::move(*carets.value), content.origin};
+    }
+    // Notes keys that need the presented rows: Enter inserts LF, Home/End address the visual
+    // line and Up/Down move by row toward `goal` x, the column where vertical movement began.
+    // Control+Home/End address the buffer ends. Other keys share the name editor's mapping.
+    std::optional<TextEditRequest> notes_request(const InputEvent& event, std::optional<float>& goal) {
+        const auto& notes = state.item().notes;
+        const auto* key = std::get_if<KeyDown>(&event.data);
+        if (!key) return text_edit_request(event, notes);
+        const auto request = [&](decltype(TextEditRequest::operation) operation) {
+            return TextEditRequest{notes.owner, notes.revision, std::move(operation)};
+        };
+        const auto mods = key->modifiers;
+        if (mods.alt || mods.super) return std::nullopt;
+        if (key->key == Key::enter && !mods.control) return request(TextEditInsert{"\n"});
+        const bool home = key->key == Key::home, end = key->key == Key::end;
+        if ((home || end) && mods.control)
+            return request(TextEditMove{home ? TextMove::home : TextMove::end, mods.shift});
+        if (mods.control || (!home && !end && key->key != Key::up && key->key != Key::down))
+            return text_edit_request(event, notes);
+        const auto layout = caret_layout(TextField::notes, notes.text);
+        if (!layout) return std::nullopt;
+        const auto& carets = layout->first;
+        const auto line = carets.line_of(notes.caret);
+        std::size_t target = 0;
+        if (home)
+            target = carets.lines[line].begin;
+        else if (end)
+            target = carets.line_end(line);
+        else {
+            goal = vertical_goal && vertical_goal->owner == notes.owner && vertical_goal->revision == notes.revision
+                       ? vertical_goal->x
+                       : carets.caret(notes.caret).origin.x;
+            target = carets.offset_at(key->key == Key::up ? (line ? line - 1 : 0) : line + 1, *goal);
+        }
+        return request(TextEditSelection{mods.shift ? notes.anchor : target, target});
     }
     // Addresses the selected item's draft for one numeric field; rejection keeps the draft and reports feedback.
     CommandOutcome try_number(std::size_t field, NumberRequest request,
@@ -1026,28 +1121,33 @@ public:
         return std::nullopt;
     }
     bool resizing() const { return splitter.dragging(); }
-    bool composing() const { return state.item().name.composition.has_value(); }
-    // Platform sessions address only the focused, eligible name editor that started them.
+    bool composing() const {
+        const auto& item = state.item();
+        return item.name.composition.has_value() || item.notes.composition.has_value();
+    }
+    // Platform sessions address only the focused, eligible text editor that started them.
     void ime(ImeStep step, CommandSource source = CommandSource::keyboard) {
         using Kind = ImeStep::Kind;
         if (step.kind == Kind::start) {
             cancel_composition(source); // A restarted platform session replaces any open preedit.
-            ime_ignored = !eligible_name();
+            const auto field = focused_text(take(focus.refresh(view.hit())).focused);
+            ime_ignored = !field || !eligible_text(*field);
             if (ime_ignored) {
                 edit_diagnostics = {{"ime_target", Severity::error, "/composition",
-                                     "Composition needs the focused, eligible name editor."}};
+                                     "Composition needs a focused, eligible text editor."}};
                 report("Composition", state.selected, edit_diagnostics);
                 return;
             }
             ime_item = state.selected;
+            ime_field = *field;
         } else if (ime_ignored) {
             return;
         }
         if (step.kind == Kind::cancel) return cancel_composition(source);
-        const auto name = state.item().name;
-        const auto id = name.composition ? name.composition->id : 0;
+        const auto edited = text_field(state.item(), ime_field);
+        const auto id = edited.composition ? edited.composition->id : 0;
         std::optional<decltype(TextEditRequest::operation)> operation;
-        if (state.selected != ime_item || !eligible_name()) {
+        if (state.selected != ime_item || !eligible_text(ime_field)) {
             edit_diagnostics = {{"stale_composition", Severity::error, "/composition",
                                  "Composition target changed during the platform session."}};
         } else {
@@ -1057,7 +1157,8 @@ public:
                 operation = TextCompositionUpdate{id, std::move(step.text), step.caret};
             else
                 operation = TextCompositionCommit{id, std::move(step.text)};
-            edit_diagnostics = try_edit({name.owner, name.revision, std::move(*operation)}, source).diagnostics;
+            edit_diagnostics =
+                try_text(ime_field, {edited.owner, edited.revision, std::move(*operation)}, source).diagnostics;
         }
         // A rejected commit still ends the platform session: drop preedit, keep committed bytes.
         if (step.kind == Kind::commit && !edit_diagnostics.empty()) {
@@ -1067,73 +1168,71 @@ public:
         }
         report("Composition", state.selected, edit_diagnostics);
     }
-    // Logical caret rectangle in the presented name, for platform candidate placement.
+    // Logical caret rectangle in the composing, else the focused, text editor's presented text,
+    // for platform candidate placement. Multiple-line notes place it on the caret's visual row.
     std::optional<Rect> caret_rect() {
-        const auto name = view.tree->find("name");
-        if (!name) return {};
-        const auto parts = view.tree->children(*name);
-        if (parts.size() < 2) return {};
-        const auto found = std::find_if(view.layout.boxes.begin(), view.layout.boxes.end(),
-                                        [&](const LayoutBox& box) { return box.node == parts[1]; });
-        if (found == view.layout.boxes.end() || !found->visible) return {};
-        const auto content = found->content_box();
-        const auto& style = view.styles[parts[1].index].text;
-        const auto shown = take(display_text_edit(state.item().name));
-        const auto run = take(text.shape(shown.text, style, {content.size.width}));
-        const float advance = style.size * PlaceholderTextShaper::advance_em;
-        Point pen{0, run.metrics.baseline};
-        for (const auto& glyph : run.glyphs) {
-            if (glyph.cluster >= shown.caret) {
-                pen = glyph.position;
-                break;
-            }
-            pen = {glyph.position.x + static_cast<float>(inspector_text::cells(glyph.id)) * advance, glyph.position.y};
-        }
-        const float top = pen.y - run.metrics.baseline;
-        return Rect{{content.origin.x + pen.x, content.origin.y + top}, {1, run.metrics.line_height}};
+        const auto& item = state.item();
+        std::optional<TextField> field;
+        if (item.name.composition || item.notes.composition)
+            field = item.name.composition ? TextField::name : TextField::notes;
+        else
+            field = focused_text(take(focus.refresh(view.hit())).focused);
+        if (!field) return {};
+        const auto shown = take(display_text_edit(text_field(item, *field)));
+        const auto layout = caret_layout(*field, shown.text);
+        if (!layout) return {};
+        auto caret = layout->first.caret(shown.caret);
+        caret.origin = {layout->second.x + caret.origin.x, layout->second.y + caret.origin.y};
+        return caret;
     }
 
 private:
-    bool eligible_name() {
-        return state.menu == OpenMenu::none && focused_on("name") &&
-               static_cast<bool>(request_semantic_action(view.semantic(), *view.tree->find("name"), "activate"));
+    bool eligible_text(TextField field) {
+        return state.menu == OpenMenu::none && focused_on(info(field).id) &&
+               static_cast<bool>(
+                   request_semantic_action(view.semantic(), *view.tree->find(info(field).id), "activate"));
     }
     void cancel_composition(CommandSource source) {
-        const auto name = state.item().name;
-        if (!name.composition) return;
-        const auto outcome = try_edit({name.owner, name.revision, TextCompositionCancel{name.composition->id}}, source);
-        if (outcome.status != CommandOutcomeStatus::success) {
-            // Presentation failed; drop preedit anyway so no stale session survives,
-            // and replace the view once a presentation succeeds.
-            state.item().name.composition.reset();
-            ++state.item().name.revision;
-            auto next = state;
-            auto candidate_focus = focus;
-            if (auto candidate = stage(next, viewport, offsets, candidate_focus, false)) {
-                state = std::move(next);
-                focus = std::move(candidate_focus);
-                accept(std::move(*candidate.value));
+        for (const auto field : {TextField::name, TextField::notes}) {
+            const auto edited = text_field(state.item(), field);
+            if (!edited.composition) continue;
+            const auto outcome =
+                try_text(field, {edited.owner, edited.revision, TextCompositionCancel{edited.composition->id}}, source);
+            if (outcome.status != CommandOutcomeStatus::success) {
+                // Presentation failed; drop preedit anyway so no stale session survives,
+                // and replace the view once a presentation succeeds.
+                auto& retained = text_field(state.item(), field);
+                retained.composition.reset();
+                ++retained.revision;
+                auto next = state;
+                auto candidate_focus = focus;
+                if (auto candidate = stage(next, viewport, offsets, candidate_focus, false)) {
+                    state = std::move(next);
+                    focus = std::move(candidate_focus);
+                    accept(std::move(*candidate.value));
+                }
             }
         }
     }
     bool clipboard_key(const KeyDown& key, CommandSource source) {
         if ((key.key != Key::c && key.key != Key::v && key.key != Key::x) ||
-            key.modifiers != Modifiers{.control = true} || key.repeat || state.menu != OpenMenu::none ||
-            !focused_on("name"))
+            key.modifiers != Modifiers{.control = true} || key.repeat || state.menu != OpenMenu::none)
             return false;
+        const auto field = focused_text(take(focus.refresh(view.hit())).focused);
+        if (!field) return false;
         clipboard_diagnostics.clear();
-        const auto eligible = [&] { return eligible_name(); };
+        const auto eligible = [&] { return eligible_text(*field); };
         if (!eligible()) return true;
         const auto selected = state.selected;
-        const auto name = state.item().name;
+        const auto edited = text_field(state.item(), *field);
         const auto target_unchanged = [&] {
-            return state.selected == selected && state.item().name == name && eligible();
+            return state.selected == selected && text_field(state.item(), *field) == edited && eligible();
         };
         if (key.key == Key::c || key.key == Key::x) {
-            const auto begin = std::min(name.anchor, name.caret), end = std::max(name.anchor, name.caret);
+            const auto begin = std::min(edited.anchor, edited.caret), end = std::max(edited.anchor, edited.caret);
             if (begin == end) return true;
             if (clipboard_write)
-                clipboard_diagnostics = clipboard_write(std::string_view(name.text).substr(begin, end - begin));
+                clipboard_diagnostics = clipboard_write(std::string_view(edited.text).substr(begin, end - begin));
             else
                 clipboard_error("clipboard_unavailable", "No clipboard write service is connected.");
             if (key.key == Key::x && clipboard_diagnostics.empty()) {
@@ -1141,7 +1240,7 @@ private:
                     clipboard_error("stale_clipboard_target", "Clipboard target changed during the host request.");
                 } else {
                     const auto outcome =
-                        try_edit({name.owner, name.revision, TextEditErase{TextErase::forward}}, source);
+                        try_text(*field, {edited.owner, edited.revision, TextEditErase{TextErase::forward}}, source);
                     clipboard_diagnostics = outcome.diagnostics;
                 }
             }
@@ -1157,14 +1256,29 @@ private:
                 } else if (text.value->find('\0') != std::string::npos) {
                     clipboard_error("clipboard_nul", "Clipboard text contains an embedded NUL.");
                 } else if (!text.value->empty()) {
-                    const auto outcome =
-                        try_edit({name.owner, name.revision, TextEditInsert{std::move(*text.value)}}, source);
+                    // Notes accept LF only: platform CRLF and lone CR line breaks become LF.
+                    if (edited.lines == TextLines::multiple) *text.value = line_feeds(std::move(*text.value));
+                    const auto outcome = try_text(
+                        *field, {edited.owner, edited.revision, TextEditInsert{std::move(*text.value)}}, source);
                     clipboard_diagnostics = outcome.diagnostics;
                 }
             }
         }
         report(key.key == Key::c ? "Copy" : key.key == Key::x ? "Cut" : "Paste", selected, clipboard_diagnostics);
         return true;
+    }
+    static std::string line_feeds(std::string text) {
+        std::string result;
+        result.reserve(text.size());
+        for (std::size_t i = 0; i < text.size(); ++i) {
+            if (text[i] != '\r') {
+                result += text[i];
+                continue;
+            }
+            result += '\n';
+            if (i + 1 < text.size() && text[i + 1] == '\n') ++i;
+        }
+        return result;
     }
     // `range` names the bounds of a rejected numeric field.
     void report(std::string_view operation, std::string_view item, const std::vector<Diagnostic>& diagnostics,
@@ -1174,7 +1288,7 @@ private:
         feedback = std::string(operation) + " could not finish. ";
         const auto& code = diagnostics.front().code;
         if (code == "text_too_long")
-            feedback += "Names must fit within 4096 UTF-8 bytes.";
+            feedback += "Text must fit within 4096 UTF-8 bytes.";
         else if (code == "multiline_text")
             feedback += "Use a single line for the name.";
         else if ((code == "number_syntax" || code == "number_out_of_range") && range)
@@ -1202,7 +1316,14 @@ private:
     std::optional<TextEditRequest> edit;
     std::optional<std::pair<std::size_t, NumberRequest>> number_request;
     std::string ime_item;
+    TextField ime_field = TextField::name;
     bool ime_ignored = false;
+    // The notes column where Up/Down began, valid while the notes keep the revision it produced.
+    struct VerticalGoal {
+        std::uint64_t owner = 0, revision = 0;
+        float x = 0;
+    };
+    std::optional<VerticalGoal> vertical_goal;
     std::optional<int> amount;
     std::optional<float> split;
     std::optional<HsvColor> picked_color; // The dispatcher's request for one color.area/color.hue command.
@@ -1927,8 +2048,8 @@ void analytic_fill_smoke() {
 
 void shadow_card_smoke() {
     App app;
-    // Leave room below the card, which now includes the Scale input and Visibility choices.
-    app.resize({960, 540});
+    // Leave room below the card, which now includes the Scale input, Visibility choices and Notes.
+    app.resize({960, 640});
     const auto& box = app.view.box("item-card");
     const auto fill =
         std::find_if(app.view.paint.commands.begin(), app.view.paint.commands.end(), [&](const auto& command) {
@@ -2854,8 +2975,168 @@ void stacking_smoke() {
                 !style("hierarchy-item-cube").box_shadow && style("hierarchy-item-sphere").box_shadow,
             "Elevation must follow the selection");
 }
+void notes_smoke() {
+    using Kind = ImeStep::Kind;
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event) { app.input({++time, event}); };
+    const auto notes = [&]() -> const TextEditState& { return app.state.item().notes; };
+    const auto replace = [&](std::string text) {
+        const auto& current = notes();
+        require(
+            app.try_text(TextField::notes, {current.owner, current.revision, TextEditSelection{0, current.text.size()}})
+                        .status == CommandOutcomeStatus::success &&
+                app.try_text(TextField::notes, {notes().owner, notes().revision, TextEditInsert{std::move(text)}})
+                        .status == CommandOutcomeStatus::success,
+            "Notes fixture edit failed");
+    };
+    const auto cube_notes = notes();
+    const auto& initial = app.observed("notes");
+    require(initial.role == SemanticRole::text_editor && initial.name == "Notes" &&
+                initial.value == "Unit cube for layout checks.\nKeep it at the origin." &&
+                initial.actions == std::vector<SemanticAction>{{"activate", "item.notes"}} &&
+                cube_notes.lines == TextLines::multiple,
+            "Notes must expose a named text editor with the item's multiple-line text");
+    app.focus_id("position-z");
+    input(KeyDown{Key::tab});
+    require(app.focused_on("notes"), "Tab must reach Notes after Position");
+
+    // Enter and Shift+Enter insert LF through the ordinary notes command.
+    auto executions = app.executions;
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"abcdef"});
+    input(KeyDown{Key::enter});
+    input(tessera::TextInput{"x"});
+    input(KeyDown{Key::enter, {.shift = true}});
+    input(tessera::TextInput{"abcdef"});
+    require(notes().text == "abcdef\nx\nabcdef" && notes().caret == 15 &&
+                app.observed_value("notes") == "abcdef\nx\nabcdef" && app.executions == executions + 6 &&
+                app.state.item().name.text == "Cube" && app.feedback.empty(),
+            "Typing and Enter must edit only the notes, one command each");
+    const auto [rows, origin] = *app.caret_layout(TextField::notes, notes().text);
+    require(rows.lines.size() == 3 && app.view.box("notes-value").content_box().size.height == 3 * rows.line_height,
+            "Each LF must present a row and grow the editor");
+
+    // Up/Down keep the column where vertical movement began; Shift extends.
+    input(KeyDown{Key::up});
+    require(notes().anchor == 8 && notes().caret == 8, "Up from a long row must stop at the end of a short row");
+    input(KeyDown{Key::up});
+    require(notes().anchor == 6 && notes().caret == 6, "A second Up must return to the starting column");
+    input(KeyDown{Key::down, {.shift = true}});
+    input(KeyDown{Key::down, {.shift = true}});
+    require(notes().anchor == 6 && notes().caret == 15, "Shift+Down must extend while keeping the goal column");
+    input(KeyDown{Key::up});
+    input(KeyDown{Key::up});
+    input(KeyDown{Key::up});
+    require(notes().caret == 6 && notes().anchor == 6, "Up on the first row must stay on that row");
+    input(KeyDown{Key::left});
+    input(KeyDown{Key::down});
+    input(KeyDown{Key::down});
+    require(notes().caret == 14, "Another edit must restart the goal column from the caret");
+
+    // Home/End address the caret's row; Control+Home/End address the buffer.
+    input(KeyDown{Key::home});
+    require(notes().anchor == 9 && notes().caret == 9, "Home must move to the start of the caret's row");
+    input(KeyDown{Key::end, {.shift = true}});
+    require(notes().anchor == 9 && notes().caret == 15, "Shift+End must extend to the end of the row");
+    input(KeyDown{Key::home, {.control = true}});
+    require(notes().anchor == 0 && notes().caret == 0, "Control+Home must move to the buffer start");
+    input(KeyDown{Key::end, {.shift = true, .control = true}});
+    require(notes().anchor == 0 && notes().caret == 15, "Control+Shift+End must select to the buffer end");
+    input(KeyDown{Key::backspace});
+    require(notes().text.empty() && app.observed_value("notes").empty(), "Backspace must delete across lines");
+
+    // Long text wraps in the narrow control column; Up/Down and End follow the wrapped rows.
+    app.resize({492, 360});
+    replace(std::string(60, 'w'));
+    const auto [wrapped, wrapped_origin] = *app.caret_layout(TextField::notes, notes().text);
+    const auto last = wrapped.line_of(60);
+    require(wrapped.lines.size() >= 3 && !wrapped.lines[0].hard && last == wrapped.lines.size() - 1 &&
+                app.view.box("notes-value").content_box().size.height ==
+                    static_cast<float>(wrapped.lines.size()) * wrapped.line_height,
+            "A long notes line must wrap into the control column");
+    const auto x = wrapped.caret(60).origin.x;
+    input(KeyDown{Key::up});
+    require(notes().caret == wrapped.offset_at(last - 1, x) && wrapped.line_of(notes().caret) == last - 1,
+            "Up must move by wrapped row within one line");
+    input(KeyDown{Key::end});
+    require(notes().caret == wrapped.line_end(last - 1) && wrapped.line_of(notes().caret) == last - 1,
+            "End must stay on its wrapped row");
+    input(KeyDown{Key::home});
+    require(notes().caret == wrapped.lines[last - 1].begin, "Home must move to the wrapped row's start");
+    app.resize({960, 360});
+
+    // Paste normalizes platform line breaks; copy keeps LF for the host adapter.
+    std::string clipboard;
+    app.clipboard_read = [&]() -> Result<std::string> { return {clipboard, {}}; };
+    app.clipboard_write = [&](std::string_view text) {
+        clipboard = text;
+        return std::vector<Diagnostic>{};
+    };
+    replace("abcdef\nx\nabcdef");
+    require(app.try_text(TextField::notes, {notes().owner, notes().revision, TextEditSelection{3, 9}}).status ==
+                CommandOutcomeStatus::success,
+            "Notes selection failed");
+    input(KeyDown{Key::c, {.control = true}});
+    require(clipboard == "def\nx\n" && notes().text == "abcdef\nx\nabcdef", "Copy must keep the selected LF bytes");
+    clipboard = "one\r\ntwo\rthree";
+    input(KeyDown{Key::v, {.control = true}});
+    require(notes().text == "abcone\ntwo\nthreeabcdef" && notes().caret == 16 && app.feedback.empty(),
+            "Paste must replace the selection with CRLF and CR normalized to LF");
+    input(KeyDown{Key::x, {.control = true}});
+    require(notes().text == "abcone\ntwo\nthreeabcdef", "Cut with an empty selection must do nothing");
+
+    // Japanese composition presents in the notes and places candidates on the caret's row.
+    replace("ab\ncd");
+    executions = app.executions;
+    app.ime({Kind::start});
+    app.ime({Kind::update, "\xe3\x81\xab\xe3\x81\xbb", 6}); // niho preedit
+    require(app.composing() && notes().composition && notes().text == "ab\ncd" &&
+                app.observed_value("notes") == "ab\ncd\xe3\x81\xab\xe3\x81\xbb" && app.executions == executions + 2,
+            "Preedit must appear in the notes through ordinary edit commands");
+    const auto [shown, shown_origin] = *app.caret_layout(TextField::notes, "ab\ncd\xe3\x81\xab\xe3\x81\xbb");
+    const float advance = app.view.styles[app.view.tree->find("notes-value")->index].text.size * .5f;
+    const auto caret = app.caret_rect();
+    require(caret && caret->origin.y == shown_origin.y + shown.line_height &&
+                caret->origin.x == shown_origin.x + 6 * advance,
+            "Candidate placement must follow the preedit caret on its row");
+    app.ime({Kind::commit, "\xe6\x97\xa5\xe6\x9c\xac"}); // Japanese kanji
+    require(!app.composing() && notes().text == "ab\ncd\xe6\x97\xa5\xe6\x9c\xac" && notes().caret == 11,
+            "Commit must replace the captured notes range once");
+    app.ime({Kind::start});
+    app.ime({Kind::update, "\xe3\x81\x82", 3});
+    input(KeyDown{Key::tab});
+    require(!app.composing() && notes().text == "ab\ncd\xe6\x97\xa5\xe6\x9c\xac",
+            "Focus movement must cancel notes preedit without committing it");
+
+    // The name editor stays single-line: Enter changes nothing.
+    app.focus_id("name");
+    const auto name = app.state.item().name;
+    executions = app.executions;
+    input(KeyDown{Key::enter});
+    require(app.state.item().name == name && app.executions == executions, "Enter must not edit the name");
+
+    // Oversized notes reject with recoverable feedback.
+    app.focus_id("notes");
+    const auto before = notes();
+    input(tessera::TextInput{std::string(max_text_edit_bytes, 'n')});
+    require(notes() == before && app.feedback == "Notes edit could not finish. Text must fit within 4096 UTF-8 bytes.",
+            "Oversized notes must reject and keep the accepted text");
+
+    // Notes stay per item and survive Reset like the display name.
+    const auto edited = notes();
+    app.action("hierarchy-item-sphere");
+    require(notes().text.empty() && app.observed_value("notes").empty() && notes().owner != edited.owner,
+            "Each item must own its notes");
+    app.action("hierarchy-item-cube");
+    require(notes() == edited && app.observed_value("notes") == edited.text, "Selection must retain edited notes");
+    app.action("tool-reset");
+    require(notes() == edited && !app.view.tree->find("modified-badge"),
+            "Reset must keep notes, and notes must not mark the item modified");
+}
 void smoke() {
     sections_smoke();
+    notes_smoke();
     placement_smoke();
     toolbar_smoke();
     scale_smoke();
@@ -3078,11 +3359,12 @@ int native(bool smoke) {
         if (!focused || !take(scroll_into_view(app.view.hit(), *focused)).empty()) return {};
         return app.view.box(*app.view.tree->get(*focused)->id).border_box;
     };
-    // Both inputs take committed WM_CHAR text and Return; only the name editor attaches the IME.
+    // Text and numeric inputs take committed WM_CHAR text and Return; only the name and notes editors attach the IME.
     window.editing = [&] {
-        return app.focused_on("name") || app.focused_number(take(app.focus.refresh(app.view.hit())).focused);
+        const auto focused = take(app.focus.refresh(app.view.hit())).focused;
+        return app.focused_text(focused) || app.focused_number(focused);
     };
-    window.ime_editing = [&] { return app.focused_on("name"); };
+    window.ime_editing = [&] { return app.focused_text(take(app.focus.refresh(app.view.hit())).focused).has_value(); };
     window.resized = [&](Size viewport) { app.resize(viewport); };
     window.resize_cursor = [&](Point point) {
         const auto geometry = take(split_pane_geometry(app.view.hit(), "panes"));
@@ -3357,7 +3639,16 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_DOWN, 1);
         require(app.state.item().position == std::array<double, 3>{0, -3.1, 0} && app.state.item().scale == 2.5,
                 "Native characters, Return and Down must edit only the focused Position component");
-        // Shift+Tab back from Position reaches the tabs instead of wrapping the Hierarchy.
+        // Notes take committed characters, Return as a line break and Up by row, with the IME attached.
+        seek("notes");
+        require(window.editing() && host.ime_attached(), "Native Notes must accept text and attach the IME");
+        host.message(WM_KEYDOWN, VK_RETURN, 1);
+        for (const auto unit : {L'O', L'K'}) host.message(WM_CHAR, unit);
+        host.message(WM_KEYDOWN, VK_UP, 1);
+        require(app.state.item().notes.text == "Unit cube for layout checks.\nKeep it at the origin.\nOK" &&
+                    app.state.item().notes.caret == 31 && app.state.item().position[1] == -3.1,
+                "Native Return, characters and Up must edit only the notes, by row");
+        // Shift+Tab back from Notes and Position reaches the tabs instead of wrapping the Hierarchy.
         seek("sections-tab-general", true);
         host.message(WM_KEYDOWN, VK_RIGHT, 1);
         require(app.state.section == "display" && app.view.tree->find("visibility"),

@@ -12,10 +12,11 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-constexpr std::array<std::string_view, 26> roles{
-    "root",     "button",    "text",      "separator",   "dialog",  "list",     "tree",   "list_item",   "tree_item",
-    "menu",     "menu_item", "scrollbar", "radio_group", "radio",   "checkbox", "switch", "text_input",  "number_input",
-    "tab_list", "tab",       "toolbar",   "combobox",    "listbox", "option",   "group",  "color_picker"};
+constexpr std::array<std::string_view, 27> roles{
+    "root",      "button",    "text",       "separator",    "dialog",       "list",        "tree",
+    "list_item", "tree_item", "menu",       "menu_item",    "scrollbar",    "radio_group", "radio",
+    "checkbox",  "switch",    "text_input", "number_input", "tab_list",     "tab",         "toolbar",
+    "combobox",  "listbox",   "option",     "group",        "color_picker", "text_editor"};
 constexpr std::array<std::string_view, 3> sources{"none", "relationship", "content"};
 struct Failure {
     std::vector<Diagnostic> diagnostics;
@@ -217,7 +218,7 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
                 check.error("invalid_parent", at + "/parent", "Keep each semantic subtree contiguous in preorder.");
             ancestors.push_back(static_cast<std::uint32_t>(i));
         }
-        check.enumeration(entry.role, SemanticRole::color_picker, at + "/role");
+        check.enumeration(entry.role, SemanticRole::text_editor, at + "/role");
         check.enumeration(entry.name_source, NameSource::content, at + "/name_source");
         if (entry.role == SemanticRole::root && (entry.node != 0 || entry.parent != no_semantic_parent))
             check.error("invalid_role", at + "/role", "Only the authored root may have the root role.");
@@ -241,12 +242,14 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
             check.error("invalid_state", at + "/focused",
                         "Focus requires enabled/focusable state and at most one focused entry.");
         focused = focused || entry.focused;
-        const bool edit = entry.role == SemanticRole::text_input || entry.role == SemanticRole::number_input;
+        const bool edit = entry.role == SemanticRole::text_input || entry.role == SemanticRole::number_input ||
+                          entry.role == SemanticRole::text_editor;
         // Comboboxes and color pickers are value-carrying triggers of an expandable popup.
         const bool combobox = entry.role == SemanticRole::combobox || entry.role == SemanticRole::color_picker;
         if ((edit || combobox) != entry.value.has_value())
-            check.error("invalid_state", at + "/value",
-                        "Text inputs, number inputs, comboboxes and color pickers, and only they, carry a value.");
+            check.error(
+                "invalid_state", at + "/value",
+                "Text inputs and editors, number inputs, comboboxes and color pickers, and only they, carry a value.");
         if (combobox && !entry.expanded)
             check.error("invalid_state", at + "/expanded",
                         "A combobox or color picker reports whether its popup is expanded.");

@@ -10,7 +10,7 @@ auto name = ui::TextInput("Name", item.name, "item.name", {.node = {.id = "name"
 auto scale = ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = {.id = "scale"}});
 ```
 
-The label is a `Value<std::string>`. The edit state and `TextInputProps::disabled` (`NumberInputProps` is the same type) are a `Value<TextEditState>` and a `Value<bool>`, so literals, state and computed values all work. Register the action in the validation context and command registry. Lowering validates the state with the [logical editor](../architecture/input.md#implemented-logical-string-editing) and never advances its revision. An open [composition](../architecture/input.md#implemented-ime-composition-state) presents its preedit.
+The label is a `Value<std::string>`. The edit state and `TextInputProps::disabled` (`NumberInputProps` is the same type) are a `Value<TextEditState>` and a `Value<bool>`, so literals, state and computed values all work. Register the action in the validation context and command registry. Lowering validates the state with the [logical editor](../architecture/input.md#implemented-logical-string-editing) and never advances its revision. Both inputs present single-line states; a `TextLines::multiple` state fails with `edit_lines`, and multiple-line text uses a [TextEditor](text-editor.md). An open [composition](../architecture/input.md#implemented-ime-composition-state) presents its preedit.
 
 Both inputs require a stable nonempty ID; lowering without one fails with `text_input_id` or `number_input_id`. Reserve the generated IDs:
 
@@ -23,7 +23,7 @@ Other styles, classes and source use `Props`. A malformed or foreign edit state 
 
 A TextInput projects the `text_input` role and a NumberInput the `number_input` role. Each is named only by its label through `labelled_by` and carries `value`: the presented text, including any preedit. For a NumberInput this is the draft text, not a parsed or accepted number. While enabled it exposes focus and one ordinary `activate` action. The label, value, selection and step Text are presentational. A disabled input stays exposed with its value but without actions or focus.
 
-In UI JSON v1, the Box-only string `edit_role` is `text_input` or `number_input`, paired with the Box-only string `edit_value`. Each requires the other and an activate action, and an edit role cannot combine with a toggle or collection role, `modal`, `separator` or `scrollbar`. Both roles and `value` round trip in Semantic JSON v1, Replay v1/v2 and inspection/invariant targets. Older readers reject the additions; existing documents keep their encoding.
+In UI JSON v1, the Box-only string `edit_role` is `text_input` or `number_input` (or a [TextEditor](text-editor.md)'s `text_editor`), paired with the Box-only string `edit_value`. Each requires the other and an activate action, and an edit role cannot combine with a toggle or collection role, `modal`, `separator` or `scrollbar`. Both roles and `value` round trip in Semantic JSON v1, Replay v1/v2 and inspection/invariant targets. Older readers reject the additions; existing documents keep their encoding.
 
 This replaces the earlier TextInput projection, in which the field was a button whose content name joined label, value and selection, such as `Username Ada Selection 3:3`. Observe the label name and `value` instead, and the selection Text in the document.
 
@@ -53,4 +53,4 @@ ctest --test-dir build -C Debug -R '^(edit_input|inspector_hierarchy)$' --output
 
 The [owner fixture](../../tests/input/edit_input_tests.cpp) covers composition and generated IDs, NumberInput geometry, reactive draft and preedit values, semantics, disabled inputs, Tab and pointer targeting, the number grammar, canonical text and steps, UI/Semantic JSON, inspection/invariant targets, Replay v1/v2 and lowering/document/snapshot rejection.
 
-Multiline text, a generated caret for NumberInput, increment/decrement or numeric range semantics, a slider-like drag on the input, locale-aware number formats, native editable accessibility and physical-input validation are not included. [Support](../reference/support-matrix.md) owns validation scope.
+Multiple-line text (see [TextEditor](text-editor.md)), a generated caret for NumberInput, increment/decrement or numeric range semantics, a slider-like drag on the input, locale-aware number formats, native editable accessibility and physical-input validation are not included. [Support](../reference/support-matrix.md) owns validation scope.

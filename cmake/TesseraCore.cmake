@@ -19,6 +19,7 @@ add_library(tessera_core
     src/layout/layout_snapshot.cpp
     src/layout/flex_layout.cpp
     src/text/placeholder_text.cpp
+    src/text/text_caret.cpp
     src/text/glyph_cache.cpp
     src/input/event.cpp
     src/input/text_edit.cpp

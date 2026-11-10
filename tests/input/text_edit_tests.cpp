@@ -164,6 +164,51 @@ void composition_rejections() {
           "Observed preedit caret must lie on a scalar boundary");
     check(validate(open).empty(), "Open composition observations validate");
 }
+void multiple_lines() {
+    auto state = *make_text_edit_state(41, "ab\ncd", TextLines::multiple).value;
+    check(state.lines == TextLines::multiple && state.caret == 5 && validate(state).empty(),
+          "A multiple-line lifetime accepts LF and starts at the end");
+    apply(state, TextEditInsert{"\n"});
+    apply(state, TextEditInsert{"日本"});
+    check(state.text == "ab\ncd\n日本" && state.caret == 12, "Enter inserts one LF like any other text");
+    apply(state, TextEditSelection{3, 3});
+    apply(state, TextEditErase{});
+    check(state.text == "abcd\n日本" && state.caret == 2, "Backspace at a line start joins the lines");
+    apply(state, TextEditMove{TextMove::end});
+    apply(state, TextEditMove{TextMove::home, true});
+    check(state.anchor == state.text.size() && state.caret == 0, "Home and End still address the buffer ends");
+    apply(state, TextEditInsert{"x\ny"});
+    check(state.text == "x\ny" && state.caret == 3, "Replacement text may span lines");
+    const auto reject = [&](decltype(TextEditRequest::operation) operation, std::string_view code,
+                            std::string_view path) {
+        check(has(edit_text(state, {41, state.revision, std::move(operation)}).diagnostics, code, path),
+              "Located multiple-line rejection required");
+    };
+    reject(TextEditInsert{"a\r\nb"}, "carriage_return", "/edit/text");
+    reject(TextEditInsert{"\r"}, "carriage_return", "/edit/text");
+    apply(state, TextCompositionStart{});
+    const auto id = state.composition->id;
+    reject(TextCompositionUpdate{id, "\r", 0}, "carriage_return", "/edit/preedit");
+    apply(state, TextCompositionUpdate{id, "に\nほ", 4});
+    check(display_text_edit(state).value->text == "x\nyに\nほ", "Preedit may present a line break");
+    apply(state, TextCompositionCommit{id, "日\n本"});
+    check(state.text == "x\ny日\n本" && !state.composition, "Commit may insert a line break");
+
+    check(
+        has(make_text_edit_state(41, "a\rb", TextLines::multiple).diagnostics, "carriage_return", "/edit/text") &&
+            has(make_text_edit_state(41, "a", static_cast<TextLines>(7)).diagnostics, "invalid_lines", "/edit/lines") &&
+            has(make_text_edit_state(41, "a\nb").diagnostics, "multiline_text", "/edit/text"),
+        "Creation validates the line mode and its text");
+    auto malformed = state;
+    malformed.lines = TextLines::single;
+    check(has(validate(malformed), "multiline_text", "/edit/text"), "A single-line observation cannot hold LF");
+    malformed.lines = static_cast<TextLines>(7);
+    check(has(validate(malformed), "invalid_state", "/edit/state/lines"), "Unknown line modes reject");
+    auto single = *make_text_edit_state(42, "a").value;
+    check(single.lines == TextLines::single &&
+              has(edit_text(single, {42, 1, TextEditInsert{"\n"}}).diagnostics, "multiline_text", "/edit/text"),
+          "Single-line lifetimes remain the default");
+}
 }
 int main() {
     try {
@@ -171,6 +216,7 @@ int main() {
         rejected_requests();
         japanese_composition();
         composition_rejections();
+        multiple_lines();
     } catch (const std::exception& failure) {
         std::cerr << failure.what() << '\n';
         return 1;

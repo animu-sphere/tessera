@@ -76,6 +76,16 @@ Whitespace is neither collapsed nor trimmed; it contributes its shaped advance. 
 
 Limits: no complete UAX #14/JIS X 4051 conformance, locale tailoring, supplementary Han classification, hyphenation, tab stops, soft-hyphen/zero-width-space opportunities, Unicode mandatory-break handling beyond LF, or grapheme segmentation independent of shaping. Text that already begins with a nonstarter is retained; no punctuation repair or hanging is attempted. [Numeric fixtures](../../tests/text/font_shaper_tests.cpp) compare expected independent line shapes, fallback faces, source offsets, measurement, and layout/paint placement.
 
+## Implemented caret geometry
+
+[text_caret.hpp](../../include/tessera/text/text_caret.hpp) derives logical caret geometry for one Text box from any `TextShaper`. `layout_text_carets(shaper, utf8, style, constraints)` shapes once with the supplied constraints, which callers keep equal to layout and paint, and measures each hard line without constraints; shaper diagnostics pass through unchanged.
+
+- **Rows.** `TextCaretLayout::lines` holds at least one `TextCaretLine` per visual row, top-down at multiples of the run's line height. LF ends a hard line, whose byte range excludes the LF; a change in glyph baseline within an LF segment starts a soft row at that glyph's cluster. Empty and trailing LF lines keep a row.
+- **Stops.** Each row lists increasing stops: its start, each later shaped cluster start with the glyph pen x, and for a hard line its end at the measured advance. Offsets inside a cluster present at the cluster start. A wrap boundary presents at the following row's start, so a soft row's end is not one of its stops; `line_end` returns its last stop.
+- **Lookups.** `line_of`, `caret` (1 unit wide, line-height tall, relative to the Text box), `offset_at(row, x)` and `offset_at(point)` clamp to existing rows and take the earlier stop on ties.
+
+Geometry assumes left-to-right rows: glyphs are ordered by cluster without bidirectional reordering, and a stop's x is its glyph origin. It reports byte offsets, not grapheme boundaries, and introduces no hit testing, caret painting or selection highlight. The [TextEditor](../guides/text-editor.md) host and the Inspector's IME candidate placement use it. [Caret checks](../../tests/text/text_caret_tests.cpp) cover hard, empty and trailing lines, UTF-8 stops, wrapped rows, clamped lookups, multi-scalar clusters and diagnostic pass-through.
+
 ## Implemented grayscale raster and cache contract
 
 [glyph_cache.hpp](../../include/tessera/text/glyph_cache.hpp) defines `GlyphRasterizer`, `GlyphRasterRequest`, owned `GlyphBitmap`, and `GlyphCache` in core, without font-library or backend dependencies. [FontShaper](../../modules/fonts/include/tessera/fonts/font_shaper.hpp) implements the rasterizer in the optional fonts module over the same registered faces as shaping. Operations are single-threaded and non-reentrant; the host applies font changes at update points and reshapes affected runs. A run does not encode a face revision, so old glyph indices must not be submitted against a replaced face.

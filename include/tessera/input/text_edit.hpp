@@ -3,6 +3,9 @@
 
 namespace tessera {
 inline constexpr std::size_t max_text_edit_bytes = 4096;
+// Whether an editing lifetime accepts line breaks. Multiple-line buffers accept LF
+// only; hosts normalize CR and CRLF before submitting text.
+enum class TextLines : std::uint8_t { single, multiple };
 // Uncommitted IME preedit over the committed selection captured at start. The
 // ID is the revision that started it, so it is unique per owner and never
 // reused. Offsets are UTF-8 bytes at scalar boundaries: begin/end address the
@@ -23,6 +26,7 @@ struct TextEditState {
     std::string text;
     std::size_t anchor = 0, caret = 0;
     std::optional<TextComposition> composition; // Committed bytes and selection stay fixed while present.
+    TextLines lines = TextLines::single;        // Fixed for the editing lifetime.
     bool operator==(const TextEditState&) const = default;
 };
 struct TextEditSelection {
@@ -77,11 +81,11 @@ struct TextEditDisplay {
     std::size_t preedit_begin = 0, preedit_end = 0;
     bool composing = false;
 };
-// Pure bounded single-line transforms; failures return no candidate. No UI
+// Pure bounded transforms; failures return no candidate. No UI
 // traversal, callbacks, history, normalization, platform input or publication.
 // No clipboard, grapheme navigation or automatic Text editability. Ordinary
 // selection/insert/erase/move requests fail while a composition is open.
-Result<TextEditState> make_text_edit_state(std::uint64_t owner, std::string text);
+Result<TextEditState> make_text_edit_state(std::uint64_t owner, std::string text, TextLines lines = TextLines::single);
 Result<TextEditState> edit_text(const TextEditState&, const TextEditRequest&, TextEditPolicy = {});
 // Observation checks shared with edit_text; empty means display_text_edit is valid.
 std::vector<Diagnostic> validate(const TextEditState&);
