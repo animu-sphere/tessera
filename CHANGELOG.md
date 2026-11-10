@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Prepare each Replay generation's first semantic observation before publishing either output.
+
 - Share Replay's focus reveal scroll updates and finish layout before refreshing pointers and publishing the generation.
 
 - Stage Replay views through layout and paint validation before replacing the current snapshot.

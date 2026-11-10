@@ -338,8 +338,7 @@ private:
         for (const auto& box : current_.layout.boxes)
             generation.boxes.push_back({box.node.index, box.parent, box.border_box, box.border, box.padding,
                                         box.visible, box.clip, box.scroll});
-        output_.generations.push_back(std::move(generation));
-        return observe(step, at);
+        return publish_observation(step, at, std::move(generation));
     }
 
     bool recover_focus(const std::string& at) {
@@ -352,17 +351,20 @@ private:
         return true;
     }
 
-    // Projects the current generation with the current focus.
-    bool observe(std::optional<std::size_t> step, const std::string& at) {
+    // A new generation is published with its first semantic observation. Focus-only observations
+    // refer to the most recently published generation.
+    bool publish_observation(std::optional<std::size_t> step, const std::string& at,
+                             std::optional<ReplayGeneration> generation = std::nullopt) {
         auto projected = build_semantic_tree({current_.tree.get(), current_.styles, &current_.layout, focused_});
         if (!projected) {
             relocate(errors_, std::move(projected.diagnostics), at);
             return false;
         }
-        relocate(warnings_, std::move(projected.diagnostics), at);
-        ReplaySemantics semantics{step, output_.generations.size() - 1, {}, {}};
+        const auto index = generation ? output_.generations.size() : output_.generations.size() - 1;
+        ReplaySemantics semantics{step, index, {}, own_semantic_records(*projected.value)};
         if (focused_) semantics.focused = focused_->index;
-        semantics.nodes = own_semantic_records(*projected.value);
+        relocate(warnings_, std::move(projected.diagnostics), at);
+        if (generation) output_.generations.push_back(std::move(*generation));
         output_.semantics.push_back(std::move(semantics));
         return true;
     }
@@ -419,7 +421,7 @@ private:
                 return false;
             }
             focused_ = moved.value->focused;
-            return observe(step, at);
+            return publish_observation(step, at);
         }
         return true;
     }
@@ -489,10 +491,10 @@ private:
     // Host reveal policy: focus moved to another node scrolls it into view. Changed offsets settle a new
     // generation, which observes semantics; otherwise the current generation is observed.
     bool reveal(std::optional<NodeHandle> previous, std::size_t step, const std::string& at) {
-        if (!recording_.policy.reveal_focus || focused_ == previous) return observe(step, at);
+        if (!recording_.policy.reveal_focus || focused_ == previous) return publish_observation(step, at);
         const auto scrolled = scroll_to_focus(at);
         if (!scrolled) return false;
-        return *scrolled ? settle(step, at) : observe(step, at);
+        return *scrolled ? settle(step, at) : publish_observation(step, at);
     }
 
     // Returns whether focus required a scroll offset change, or nullopt on rejection.
