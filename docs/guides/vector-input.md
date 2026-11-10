@@ -34,6 +34,7 @@ In UI JSON v1 a group carries no activate action, and no collection role, includ
 - Keep the ordinary `PointerDispatcher` and `FocusDispatcher`. Each component is its own Tab stop in declared order. A press on any part of a component presses that component; the group label is not a press target. Activating a component supplies no edit payload, so the host treats it as focus only.
 - While a component is focused, route committed text, editing keys, Enter, Escape and Up/Down to that component's draft and command exactly as for a [NumberInput](text-number-input.md#wire-input), using `parse_number`, `format_number` and `step_number` with the component's range.
 - Execute each request with `CommandSnapshot::resolve_action` and `CommandExecutor`, then recompose. A rejected command leaves every accepted value and draft unchanged.
+- To scrub, route pointers through the same `NumberDragDispatcher` as NumberInputs; see [Scrub with the pointer](text-number-input.md#scrub-with-the-pointer). A press on a component's label (such as X) or field scrubs that component only, through its own command and range.
 
 ## Build and check
 
@@ -44,4 +45,4 @@ ctest --test-dir build -C Debug -R '^(vector_input|inspector_hierarchy)$' --outp
 
 The [owner fixture](../../tests/input/vector_input_tests.cpp) covers two, three and four components, generated IDs and sources, equal component geometry and clipped fields, group and component semantics, reactive drafts, disabled vectors, Tab order and pointer targeting, UI/Semantic JSON, inspection/invariant targets, Replay v1/v2 and lowering/document/snapshot rejection.
 
-Drag-to-scrub labels, linked or uniform editing across components, per-component step parts, a generated caret and native editable accessibility are not included. [Support](../reference/support-matrix.md) owns validation scope.
+Linked or uniform editing across components, per-component step parts, a generated caret and native editable accessibility are not included. [Support](../reference/support-matrix.md) owns validation scope.

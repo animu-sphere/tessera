@@ -34,7 +34,7 @@ Declare both axes, at most 256 tracks each. Children occupy cells in declared or
 Set `grid_column_span` or `grid_row_span` on a child to occupy consecutive tracks. A full-width note below a property row spans both columns:
 
 ```cpp
-ui::Text("Enter applies, Esc reverts, Up/Down step.",
+ui::Text("Enter applies, Esc reverts, Up/Down or drag step.",
          {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}})
 ```
 
