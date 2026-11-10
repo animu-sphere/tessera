@@ -4,6 +4,8 @@ Dated delivery history and release records. Each release is a `## vX.Y.Z — YYY
 
 ## Unreleased
 
+- Added a controlled public [`authoring::ColorPicker`](docs/guides/color-picker.md) for opaque colors. Core `HsvColor` keeps hue, saturation and value of the sRGB components, with `to_color` and `format_hex_color`. The picker returns an inline trigger with a swatch and `#RRGGBB` value and a root-sibling panel holding a saturation/value area and a hue strip, drawn with ordinary gradients and input-transparent thumbs. The additive `color_picker` role, named by its label with the hex `value` and `expanded` state, joins UI JSON v1, semantics, Semantic JSON v1, Replay v1/v2 and inspection/invariant targets; the panel is a `group`. `ColorPickerDispatcher` opens at the area, captures primary presses on either control, maps arrows, Home/End and gamepad directions to configurable steps, rounds requested values, moves between the controls with Tab and dismisses like ComboBox, plus Enter. The [Inspector](docs/guides/inspector-hierarchy.md#display-color-picker) gains a per-item Display color on the Display tab, restored by Reset and checked by window-free keyboard/pointer and injected native smokes. Hex or channel entry, alpha, revert and numeric range semantics remain out of scope.
+
 - Prepare each Replay generation's first semantic observation before publishing either output.
 
 - Share Replay's focus reveal scroll updates and finish layout before refreshing pointers and publishing the generation.

@@ -27,7 +27,7 @@ std::string expected(PropertyType type) {
 }
 
 // Toggle and edit role markers for one Box; returns whether it declares a toggle role.
-// Tab list, toolbar, combobox and listbox structure, kept out of the recursive validation frame.
+// Tab list, toolbar, combobox, color picker and listbox structure, kept out of the recursive validation frame.
 void check_tabs_toolbar(const UiNode& node, const std::string& path, std::string_view role,
                         std::string_view parent_role, bool in_toolbar, std::vector<Diagnostic>& errors) {
     const auto error = [&](const char* code, std::string at, const char* message) {
@@ -41,7 +41,7 @@ void check_tabs_toolbar(const UiNode& node, const std::string& path, std::string
         error("tab_child", path, "Tab lists contain tabs and noninteractive Text; tabs contain only Text.");
     if (role == "tab" && !node.events.contains("activate"))
         error("tab_action", path + "/events/activate", "Give each tab a registered selection action.");
-    if (in_toolbar && !role.empty() && role != "combobox")
+    if (in_toolbar && !role.empty() && role != "combobox" && role != "color_picker")
         error("toolbar_child", path + "/properties/collection_role",
               "Toolbars contain ordinary controls, not collections or nested toolbars.");
     if (parent_role == "combobox" && (node.kind != NodeKind::text || interactive))
@@ -51,6 +51,17 @@ void check_tabs_toolbar(const UiNode& node, const std::string& path, std::string
             error("combobox_action", path + "/events/activate", "Give the combobox a registered toggle action.");
         if (!node.properties.contains(property_names::expanded))
             error("combobox_state", path + "/properties/expanded", "Give the combobox its list expansion state.");
+    }
+    // A color picker trigger presents its swatch and value; the popup panel holds its controls.
+    if (parent_role == "color_picker" && (interactive || !role.empty()))
+        error("color_picker_child", path, "A color picker contains only noninteractive parts.");
+    if (role == "color_picker") {
+        if (!node.events.contains("activate"))
+            error("color_picker_action", path + "/events/activate",
+                  "Give the color picker a registered toggle action.");
+        if (!node.properties.contains(property_names::expanded))
+            error("color_picker_state", path + "/properties/expanded",
+                  "Give the color picker its panel expansion state.");
     }
     if (role == "listbox" && (!node.id || !node.properties.contains(property_names::popup_anchor)))
         error("listbox_popup", path, "Give the root-sibling listbox a stable ID and popup_anchor.");
@@ -96,9 +107,10 @@ bool check_control_roles(const UiNode& node, const std::string& path, std::strin
     if (edit && (toggle || other))
         error("edit_role", path + "/properties/edit_role",
               "Do not combine an edit role with a toggle, collection role or another semantic role marker.");
-    if ((edit || role == "combobox") != node.properties.contains(property_names::edit_value))
+    if ((edit || role == "combobox" || role == "color_picker") != node.properties.contains(property_names::edit_value))
         error("edit_value", path + "/properties/edit_value",
-              "Give each text input, number input and combobox its presented value, and values only to them.");
+              "Give each text input, number input, combobox and color picker its presented value, and values only "
+              "to them.");
     if (edit && !node.events.contains("activate"))
         error("edit_action", path + "/events/activate", "Give each text or number input a registered command.");
     return toggle;
@@ -267,10 +279,11 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         };
         const auto role = detail::collection_role(node);
         if (node.properties.contains(property_names::collection_role) && !detail::collection_owner_role(role) &&
-            !detail::collection_item(role) && role != "toolbar" && role != "combobox" && role != "group")
+            !detail::collection_item(role) && role != "toolbar" && role != "combobox" && role != "group" &&
+            role != "color_picker")
             error("collection_role", path + "/properties/collection_role",
-                  "Choose list, tree, menu, radio_group, tab_list, listbox, toolbar, combobox, group, list_item, "
-                  "tree_item, menu_item, radio, tab or option.");
+                  "Choose list, tree, menu, radio_group, tab_list, listbox, toolbar, combobox, group, color_picker, "
+                  "list_item, tree_item, menu_item, radio, tab or option.");
         const auto parent_role = parent ? detail::collection_role(*parent) : std::string_view{};
         if ((role == "list_item" && parent_role != "list") || (role == "tree_item" && parent_role != "tree") ||
             (role == "menu_item" && parent_role != "menu") || (role == "radio" && parent_role != "radio_group") ||
@@ -292,9 +305,10 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             role != "radio" && role != "tab" && role != "option" && !toggle)
             error("collection_state", path + "/properties/selected",
                   "Only list/tree items, radios, tabs, options and toggles have selection state.");
-        if (node.properties.contains(property_names::expanded) && role != "tree_item" && role != "combobox")
+        if (node.properties.contains(property_names::expanded) && role != "tree_item" && role != "combobox" &&
+            role != "color_picker")
             error("collection_state", path + "/properties/expanded",
-                  "Only tree items and comboboxes have expansion state.");
+                  "Only tree items, comboboxes and color pickers have expansion state.");
         if (const auto* selected = effective_property(node, property_names::selected);
             selected && std::get_if<bool>(selected) && std::get<bool>(*selected) && detail::collection_item(role) &&
             ++selected_counts[parent] > 1)
