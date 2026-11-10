@@ -356,8 +356,8 @@ void keyboard_and_pointer() {
     check(result.focus == f.node("color-area") && !result.dismiss, "Opening focuses the area");
     check(take(picker.refresh(f.hit())).focus == std::nullopt, "Refreshing an open panel requests nothing more");
     result = send(KeyDown{Key::right});
-    check(result.consumed && result.color == HsvColor{210, 0.55, 0.8} &&
-              result.action && result.action->binding == "activate" && result.action->action == "color.area",
+    check(result.consumed && result.color == HsvColor{210, 0.55, 0.8} && result.action &&
+              result.action->binding == "activate" && result.action->action == "color.area",
           "Right raises saturation through the area command");
     check(send(Navigate{Direction::down}).color == HsvColor{210, 0.55, 0.75} &&
               send(KeyDown{Key::up}).color == HsvColor{210, 0.55, 0.8} &&
