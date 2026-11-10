@@ -7,7 +7,7 @@ Use the selected Inspector / Hierarchy application to identify the next user-vis
 ## Near-term editing and development experience
 
 - Clipboard follow-ups: asynchronous results and additional consumers beyond the [Inspector's synchronous name copy/cut/paste](../guides/inspector-hierarchy.md#host-and-observation-boundary).
-- Japanese input follow-ups: physical IME validation, clause decoration, reconversion and core caret geometry after the [Inspector composition](../guides/inspector-hierarchy.md#japanese-ime-composition).
+- Japanese input follow-ups: physical IME validation, clause decoration, and reconversion after the [Inspector composition](../guides/inspector-hierarchy.md#japanese-ime-composition).
 - Observation: make selection, focus, layout and command results easier to trace through existing [inspection](../architecture/inspection.md).
 - Failed updates beyond name editing: select a concrete non-text operation that needs recoverable rejection feedback.
 - Focused reload/development aids: shorten one edit -> update -> inspect round trip when manual repetition becomes a bottleneck.
@@ -39,7 +39,8 @@ Contracts: [layout](../architecture/layout.md), [input](../architecture/input.md
 
 ## Application UI follow-ups
 
-- Undo/redo, multiline and broader composition support.
+- Undo/redo and broader composition support.
+- [TextEditor](../guides/text-editor.md) follow-ups: host-drawn caret and selection highlight, pointer caret placement and drag selection, scrolling inside the editor and word movement.
 - Submenus, menu bars, richer menu items, additional dialogs/Inspector controls, multiple selection and extra focus scopes.
 - [ColorPicker](../guides/color-picker.md) follow-ups: hex or numeric channel entry, alpha, revert on Escape and numeric range semantics for its area and strip.
 - Shared Portal behavior or nested/stacked modal lifetimes when an overlay operation needs them.
@@ -82,7 +83,7 @@ Compare against full-tree/scalar references and report workload, conditions and 
 - Broader reload migration, property reflection and declaration/default origins.
 - Portal/palette operations and large keyed [virtual lists](../proposals/virtualization.md).
 - Control+Z/Control+Shift+Z for ordinary label-history commands, preserving editing-first routing.
-- Multiline, clipboard/composition and host shortcut adapters.
+- Multiple-line fields, clipboard/composition and host shortcut adapters for the editor fixture.
 - [Snapshot bundles/CLI](../proposals/snapshot-bundles.md), [agent discovery](../proposals/agent-capability-manifest.md) and edit-to-verification measurements.
 
 Use concrete friction in the [editor fixture](../integrations/path-finder.md) to choose scope, rather than treating all extensions as required.

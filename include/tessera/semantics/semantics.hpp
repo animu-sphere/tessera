@@ -41,6 +41,7 @@ enum class SemanticRole : std::uint8_t {
     option,       // A listbox entry; `selected` marks the accepted choice.
     group,        // A Box with collection_role=group naming related ordinary controls, such as VectorInput components.
     color_picker, // A color trigger; `value` is its #RRGGBB color, `expanded` its panel state.
+    text_editor,  // A Box with edit_role=text_editor; `value` is its presented multiple-line text.
 };
 enum class NameSource : std::uint8_t { none, relationship, content };
 
@@ -68,8 +69,8 @@ struct SemanticNode {
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
     std::optional<bool> selected;          // Collection items, radios, tabs and toggles only; independent of focus.
     std::optional<bool> expanded;          // Tree branches, comboboxes and color pickers only; absent for leaves.
-    std::optional<std::string> value;      // Text/number inputs: presented text, never a parsed number;
-                                           // comboboxes: the selected option label; color pickers: #RRGGBB.
+    std::optional<std::string> value; // Text inputs/editors and number inputs: presented text, never a parsed number;
+                                      // comboboxes: the selected option label; color pickers: #RRGGBB.
     bool operator==(const SemanticNode&) const = default;
 };
 

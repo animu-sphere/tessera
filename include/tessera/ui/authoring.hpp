@@ -58,6 +58,7 @@ struct TextInputProps {
     Value<bool> disabled = false;
 };
 using NumberInputProps = TextInputProps;
+using TextEditorProps = TextInputProps;
 // One VectorInput component: a compact number_input named by its own label, with its own
 // host-owned draft and command. The key is unique within the vector and forms generated IDs.
 struct VectorComponent {
@@ -211,6 +212,7 @@ private:
     friend Element Checkbox(Value<std::string>, Value<bool>, std::string, CheckboxProps);
     friend Element Switch(Value<std::string>, Value<bool>, std::string, SwitchProps);
     friend Element TextInput(Value<std::string>, Value<TextEditState>, std::string, TextInputProps);
+    friend Element TextEditor(Value<std::string>, Value<TextEditState>, std::string, TextEditorProps);
     friend Element NumberInput(Value<std::string>, Value<TextEditState>, std::string, NumberInputProps);
     friend Element VectorInput(Value<std::string>, std::vector<VectorComponent>, VectorInputProps);
     friend Element Row(std::vector<Element>, Props);
@@ -252,6 +254,12 @@ Element Switch(Value<std::string> label, Value<bool> on, std::string action, Swi
 // text_input named by its label whose value is the presented text. Requires a stable ID.
 // The host routes edits through this activate owner.
 Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps = {});
+// Controlled multiple-line observation with TextInput's parts: <id>-label, <id>-value (the
+// presented text, one visual line per LF and wrapped to the field width) and the byte
+// selection Text. Requires a TextLines::multiple state and a stable ID. Projects a
+// text_editor named by its label whose value is the presented text. The host routes edits,
+// including Enter as an LF insertion and geometric Up/Down, through this activate owner.
+Element TextEditor(Value<std::string> label, Value<TextEditState> value, std::string action, TextEditorProps = {});
 // Controlled numeric draft: a row with <id>-label, an <id>-field holding the <id>-value
 // draft Text, then presentational <id>-decrease / <id>-increase step parts. Projects a
 // number_input named by its label whose value is the presented draft text. The host owns

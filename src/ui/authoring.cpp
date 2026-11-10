@@ -23,6 +23,8 @@ struct ElementData {
     // the input owner's semantic edit_value.
     std::optional<Value<TextEditState>> editing;
     enum class EditPart : std::uint8_t { value, selection, owner } edit_part = EditPart::value;
+    // The line mode the generated value/selection parts require of the observation.
+    TextLines edit_lines = TextLines::single;
     std::optional<std::string> action;
     std::map<std::string, std::string, std::less<>> events;
     std::map<std::string, Property, std::less<>> properties;
@@ -33,6 +35,8 @@ struct ElementData {
 struct Lowerer {
     static void add_number_input_parts(ElementData& owner, Value<std::string> label, const Value<TextEditState>& draft,
                                        std::optional<Overflow> overflow = {});
+    static void add_edit_column_parts(ElementData& owner, Value<std::string> label, const Value<TextEditState>& value,
+                                      TextLines lines);
     static Element split_pane(Element, Element, float, std::string, SplitPaneProps, FlexDirection);
     static Element scrollbar(bool horizontal, std::string, float, ScrollGeometry, std::string, ScrollbarProps);
     static Element collection(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps,
@@ -56,6 +60,13 @@ struct Lowerer {
                     errors.push_back(std::move(error));
                 }
             return data.edit_part == Part::owner;
+        }
+        if (data.edit_part != Part::owner && state.lines != data.edit_lines) {
+            errors.push_back({"edit_lines", Severity::error, path + "/properties/text",
+                              data.edit_lines == TextLines::multiple
+                                  ? "TextEditor presents a multiple-line editing state."
+                                  : "TextInput and NumberInput present a single-line editing state."});
+            return false;
         }
         const auto& shown = *display.value;
         if (data.edit_part == Part::owner)
@@ -374,16 +385,31 @@ std::shared_ptr<detail::ElementData> edit_owner(const char* role, const char* na
 }
 std::shared_ptr<detail::ElementData> edit_part_text(const Value<TextEditState>& value,
                                                     detail::ElementData::EditPart part, std::optional<std::string> id,
-                                                    const std::optional<SourceLocation>& source) {
+                                                    const std::optional<SourceLocation>& source,
+                                                    TextLines lines = TextLines::single) {
     auto child = std::make_shared<detail::ElementData>();
     child->kind = NodeKind::text;
     child->props.id = std::move(id);
     child->props.source = source;
     child->editing = value;
     child->edit_part = part;
+    child->edit_lines = lines;
     return child;
 }
 } // namespace
+
+// A labelled column of <id>-label, <id>-value and the unnamed selection Text.
+void detail::Lowerer::add_edit_column_parts(ElementData& owner, Value<std::string> label,
+                                            const Value<TextEditState>& value, TextLines lines) {
+    owner.props.style.direction = FlexDirection::column;
+    const auto prefix = owner.props.id.value_or("");
+    const auto& source = owner.props.source;
+    owner.children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = source}));
+    owner.children.push_back(
+        Element(edit_part_text(value, ElementData::EditPart::value, prefix + "-value", source, lines)));
+    owner.children.push_back(
+        Element(edit_part_text(value, ElementData::EditPart::selection, std::nullopt, source, lines)));
+}
 
 void detail::Lowerer::add_number_input_parts(ElementData& owner, Value<std::string> label,
                                              const Value<TextEditState>& draft, std::optional<Overflow> overflow) {
@@ -398,15 +424,16 @@ void detail::Lowerer::add_number_input_parts(ElementData& owner, Value<std::stri
 }
 
 Element TextInput(Value<std::string> label, Value<TextEditState> value, std::string action, TextInputProps props) {
-    using Part = detail::ElementData::EditPart;
     auto data = edit_owner("text_input", "TextInput", value, std::move(action), std::move(props.node),
                            std::move(props.disabled));
-    data->props.style.direction = FlexDirection::column;
-    const auto prefix = data->props.id.value_or("");
-    const auto source = data->props.source;
-    data->children.push_back(Text(std::move(label), {.id = prefix + "-label", .source = source}));
-    data->children.push_back(Element(edit_part_text(value, Part::value, prefix + "-value", source)));
-    data->children.push_back(Element(edit_part_text(value, Part::selection, std::nullopt, source)));
+    detail::Lowerer::add_edit_column_parts(*data, std::move(label), value, TextLines::single);
+    return Element(std::move(data));
+}
+
+Element TextEditor(Value<std::string> label, Value<TextEditState> value, std::string action, TextEditorProps props) {
+    auto data = edit_owner("text_editor", "TextEditor", value, std::move(action), std::move(props.node),
+                           std::move(props.disabled));
+    detail::Lowerer::add_edit_column_parts(*data, std::move(label), value, TextLines::multiple);
     return Element(std::move(data));
 }
 

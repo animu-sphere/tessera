@@ -102,17 +102,18 @@ bool check_control_roles(const UiNode& node, const std::string& path, std::strin
     const auto* edit_name =
         edit_found == node.properties.end() ? nullptr : std::get_if<std::string>(&edit_found->second);
     const bool edit = edit_found != node.properties.end();
-    if (edit_name && *edit_name != "text_input" && *edit_name != "number_input")
-        error("edit_role", path + "/properties/edit_role", "Choose text_input or number_input.");
+    if (edit_name && *edit_name != "text_input" && *edit_name != "number_input" && *edit_name != "text_editor")
+        error("edit_role", path + "/properties/edit_role", "Choose text_input, number_input or text_editor.");
     if (edit && (toggle || other))
         error("edit_role", path + "/properties/edit_role",
               "Do not combine an edit role with a toggle, collection role or another semantic role marker.");
     if ((edit || role == "combobox" || role == "color_picker") != node.properties.contains(property_names::edit_value))
         error("edit_value", path + "/properties/edit_value",
-              "Give each text input, number input, combobox and color picker its presented value, and values only "
-              "to them.");
+              "Give each text input or editor, number input, combobox and color picker its presented value, and "
+              "values only to them.");
     if (edit && !node.events.contains("activate"))
-        error("edit_action", path + "/events/activate", "Give each text or number input a registered command.");
+        error("edit_action", path + "/events/activate",
+              "Give each text input or editor and number input a registered command.");
     return toggle;
 }
 

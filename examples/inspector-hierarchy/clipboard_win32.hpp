@@ -89,6 +89,14 @@ inline tessera::Result<std::string> read(HWND owner) {
 inline std::vector<tessera::Diagnostic> write(HWND owner, std::string_view text) {
     auto converted = encode(text);
     if (!converted) return std::move(converted.diagnostics);
+    // Windows text uses CRLF line breaks; multiple-line notes copy with LF.
+    std::wstring lines;
+    lines.reserve(converted.value->size());
+    for (const auto unit : *converted.value) {
+        if (unit == L'\n') lines += L'\r';
+        lines += unit;
+    }
+    *converted.value = std::move(lines);
     const auto bytes = (converted.value->size() + 1) * sizeof(wchar_t);
     Memory memory{GlobalAlloc(GMEM_MOVEABLE, bytes)};
     if (!memory.handle) return error("clipboard_memory", "Cannot allocate clipboard text.");
