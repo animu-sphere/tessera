@@ -1,5 +1,6 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/commands/execution.hpp>
+#include <tessera/input/collection_drag.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/input/popup.hpp>
 #include <tessera/input/scroll.hpp>
@@ -135,6 +136,9 @@ struct State {
     float split = 220;
     OpenMenu menu = OpenMenu::none;
     Point position;
+    // Presentation of an active Hierarchy drag: the dimmed source row and a valid insertion point.
+    std::optional<std::string> drag_source;
+    std::optional<CollectionDropTarget> drop_target;
     const Item& item() const {
         const auto found =
             std::find_if(items.begin(), items.end(), [&](const Item& item) { return item.id == selected; });
@@ -168,6 +172,42 @@ State initial_state() {
     }
     return state;
 }
+// Scene is items[0] and every other item is its child, in Hierarchy order. Returns the source's
+// index among the children after a move to `target`, or nothing when the drop is not a move.
+std::optional<std::size_t> move_index(const State& state, std::string_view source, const CollectionDropTarget& target) {
+    std::vector<std::string_view> children;
+    for (std::size_t i = 1; i < state.items.size(); ++i) children.push_back(state.items[i].id);
+    const auto from = std::find(children.begin(), children.end(), source);
+    if (from == children.end()) return {};
+    std::size_t insert = 0;
+    if (target.key == state.items.front().id) {
+        // After the expanded Scene row is the first child position; nothing goes before the root.
+        if (target.placement != DropPlacement::after) return {};
+    } else {
+        const auto at = std::find(children.begin(), children.end(), target.key);
+        if (at == children.end()) return {};
+        insert = static_cast<std::size_t>(at - children.begin()) + (target.placement == DropPlacement::after ? 1 : 0);
+    }
+    const auto index = static_cast<std::size_t>(from - children.begin());
+    if (insert > index) --insert;
+    if (insert == index) return {};
+    return insert;
+}
+bool move_item(State& state, std::string_view source, const CollectionDropTarget& target) {
+    const auto index = move_index(state, source, target);
+    if (!index) return false;
+    const auto from =
+        std::find_if(state.items.begin() + 1, state.items.end(), [&](const Item& item) { return item.id == source; });
+    auto moved = std::move(*from);
+    state.items.erase(from);
+    state.items.insert(state.items.begin() + 1 + static_cast<std::ptrdiff_t>(*index), std::move(moved));
+    return true;
+}
+CommandObjectIds item_ids(const State& state) {
+    CommandObjectIds ids;
+    for (const auto& item : state.items) ids.insert(item.id);
+    return ids;
+}
 ValidationContext action_context(const State& state) {
     ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.scale", "item.shadows",
                                "item.rename", "item.reset", "menu.open", "panes.resize", "purpose.toggle",
@@ -186,11 +226,20 @@ CommandRegistry command_registry(const ValidationContext& context) {
         descriptors.push_back({action, action});
         bindings.emplace(action, action);
     }
+    // Node-free typed drop command: move a Scene child before or after another Hierarchy row.
+    descriptors.push_back(
+        {.id = "item.move",
+         .label = "Move item",
+         .parameters = {
+             {.name = "item", .type = CommandParameterType::object_id},
+             {.name = "target", .type = CommandParameterType::object_id},
+             {.name = "placement", .type = CommandParameterType::enumeration, .choices = {"before", "after"}}}});
     return take(CommandRegistry::create(std::move(descriptors), std::move(bindings)));
 }
 CommandStates command_states(const ValidationContext& context) {
     CommandStates states;
     for (const auto& action : context.actions) states.emplace(action, CommandState{true});
+    states.emplace("item.move", CommandState{true});
     return states;
 }
 StyleSheet appearance(const State& state) {
@@ -286,6 +335,14 @@ StyleSheet appearance(const State& state) {
     sheet.rules.push_back(
         {StyleSelector::of_id(selected, {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}});
     sheet.rules.push_back({StyleSelector::of_id(selected, {.focus = true}), {.border_color = Color{.55f, .72f, 1, 1}}});
+    if (state.drag_source)
+        sheet.rules.push_back({StyleSelector::of_id("hierarchy-item-" + *state.drag_source), {.opacity = .45f}});
+    if (state.drop_target) {
+        // A two-unit inset band on the target row's top or bottom edge marks the insertion point.
+        const float edge = state.drop_target->placement == DropPlacement::before ? 2.f : -2.f;
+        sheet.rules.push_back({StyleSelector::of_id("hierarchy-item-" + state.drop_target->key),
+                               {.box_shadow = BoxShadow{{0, edge}, 0, {.2f, .4f, .85f, 1}, true}}});
+    }
     sheet.rules.push_back({StyleSelector::of_id("visibility-title"), {.display = Display::none}});
     for (const auto& [key, label] : visibility_choices) {
         const auto id = "visibility-option-" + key;
@@ -477,6 +534,7 @@ ui::Element Form(const State& state, Size viewport) {
                                            .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
                                            .background_antialias = true}}),
                             ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
+                                        ui::Text("Drag rows or Alt+Up/Down to reorder.", {.classes = {"muted"}}),
                                         ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
                                         ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}})},
                                        {.id = "help", .style = {.gap = 4.f}})},
@@ -693,6 +751,17 @@ public:
             item.shadows = true;
             item.purpose = "default";
             item.color = default_color;
+        } else if (command == "item.move") {
+            // Arguments are validated against the descriptor and the published item IDs.
+            const auto& arguments = invocation.arguments;
+            const auto placement = std::get<std::string>(arguments.at("placement")) == "after" ? DropPlacement::after
+                                                                                               : DropPlacement::before;
+            if (!move_item(candidate, std::get<CommandObjectId>(arguments.at("item")).value,
+                           {std::get<CommandObjectId>(arguments.at("target")).value, placement}))
+                return {CommandOutcomeStatus::error,
+                        {},
+                        {{"item_move", Severity::error, "/arguments",
+                          "Move a Scene child to a different position among the Scene's children."}}};
         } else if (command == "item.shadows")
             candidate.item().shadows = !candidate.item().shadows;
         else if (const auto field = number_command(command)) {
@@ -750,9 +819,22 @@ public:
         // Plain activation of a panel control carries no color; only the dispatcher requests one.
         if ((action.action == "color.area" || action.action == "color.hue") && !picked_color) return {};
         const auto semantic = view.semantic();
-        const auto invocation =
-            take(view.commands.resolve_action(semantic, action, view.commands.generation(), {}, source, ++sequence));
-        const auto result = take(executor.execute(view.commands, invocation, *this, &semantic));
+        return run(
+            take(view.commands.resolve_action(semantic, action, view.commands.generation(), {}, source, ++sequence)),
+            &semantic);
+    }
+    // Requests the typed item.move command, as a drop or Alt+Up/Down does.
+    CommandOutcome move(std::string_view item, const CollectionDropTarget& target,
+                        CommandSource source = CommandSource::pointer) {
+        const CommandArguments arguments{
+            {"item", CommandObjectId{std::string(item)}},
+            {"target", CommandObjectId{target.key}},
+            {"placement", std::string(target.placement == DropPlacement::after ? "after" : "before")}};
+        return run(
+            take(view.commands.resolve({view.commands.generation(), "item.move", arguments, source, ++sequence})));
+    }
+    CommandOutcome run(const CommandInvocation& invocation, const SemanticInput* semantic = nullptr) {
+        const auto result = take(executor.execute(view.commands, invocation, *this, semantic));
         if (pending_view) {
             require(result.outcome.status == CommandOutcomeStatus::success,
                     "A rejected Inspector command cannot publish");
@@ -848,6 +930,7 @@ public:
             observe();
             return;
         }
+        if (drag(take(hierarchy_drag.dispatch(view.hit(), event)), source)) return;
         const auto adjustment = take(splitter.dispatch(view.hit(), event, take(focus.refresh(view.hit())).focused));
         if (adjustment.handled) {
             slider_pointer.reset();
@@ -987,6 +1070,21 @@ public:
                 return;
             }
         }
+        if (const auto* key = std::get_if<KeyDown>(&event.data);
+            key && key->modifiers == Modifiers{.alt = true} && (key->key == Key::up || key->key == Key::down)) {
+            if (const auto moved = focused_item(focused)) {
+                // Alt+Up/Down move the focused Scene child one place; the ends stay put.
+                const auto& items = state.items;
+                const auto at =
+                    std::find_if(items.begin() + 1, items.end(), [&](const Item& item) { return item.id == *moved; });
+                const bool up = key->key == Key::up;
+                if (up ? at - items.begin() > 1 : at + 1 != items.end())
+                    checked(move(*moved,
+                                 {(up ? at - 1 : at + 1)->id, up ? DropPlacement::before : DropPlacement::after},
+                                 source));
+                return;
+            }
+        }
         if (const auto* key = std::get_if<KeyDown>(&event.data); key && key->key == Key::tab)
             event.data =
                 key->modifiers.shift ? decltype(event.data){FocusPrevious{}} : decltype(event.data){FocusNext{}};
@@ -1121,6 +1219,14 @@ public:
         return std::nullopt;
     }
     bool resizing() const { return splitter.dragging(); }
+    bool reordering() const { return hierarchy_drag.dragging(); }
+    // The focused Hierarchy row's item when it is a Scene child.
+    std::optional<std::string> focused_item(std::optional<NodeHandle> focused) const {
+        if (!focused) return {};
+        for (std::size_t i = 1; i < state.items.size(); ++i)
+            if (focused == view.tree->find("hierarchy-item-" + state.items[i].id)) return state.items[i].id;
+        return {};
+    }
     bool composing() const {
         const auto& item = state.item();
         return item.name.composition.has_value() || item.notes.composition.has_value();
@@ -1213,6 +1319,42 @@ private:
                 }
             }
         }
+    }
+    // Hierarchy reordering by pointer. The press stays an ordinary row press until the drag
+    // starts; a drop requests item.move. Returns true when the event was consumed.
+    bool drag(const CollectionDragDispatchResult& result, CommandSource source) {
+        if (result.started && result.source == state.items.front().id) {
+            // The Scene root cannot move: leave the press to ordinary click routing.
+            hierarchy_drag.reset();
+            return false;
+        }
+        if (result.started) {
+            pointer.reset();
+            slider_pointer.reset();
+        }
+        if (result.drop && result.source) {
+            const auto item = *result.source;
+            const auto target = *result.drop;
+            state.drag_source.reset();
+            state.drop_target.reset();
+            if (move_index(state, item, target))
+                checked(move(item, target, source));
+            else
+                refresh();
+        } else {
+            present_drag(result.ended ? std::nullopt : result.source, result.ended ? std::nullopt : result.target);
+        }
+        if (result.consumed) observe();
+        return result.consumed;
+    }
+    // Restages the view when the drag presentation changes; only valid moves show an insertion point.
+    bool present_drag(std::optional<std::string> source, std::optional<CollectionDropTarget> target) {
+        if (!source || (target && !move_index(state, *source, *target))) target.reset();
+        if (state.drag_source == source && state.drop_target == target) return false;
+        state.drag_source = std::move(source);
+        state.drop_target = std::move(target);
+        refresh();
+        return true;
     }
     bool clipboard_key(const KeyDown& key, CommandSource source) {
         if ((key.key != Key::c && key.key != Key::v && key.key != Key::x) ||
@@ -1312,6 +1454,7 @@ private:
     MenuDispatcher menu{"actions-menu"}, context_menu{"item-menu"};
     ComboBoxDispatcher purpose{"purpose"};
     ColorPickerDispatcher display_color{"display-color"};
+    CollectionDragDispatcher hierarchy_drag{"hierarchy"};
     Offsets offsets;
     std::optional<TextEditRequest> edit;
     std::optional<std::pair<std::size_t, NumberRequest>> number_request;
@@ -1374,8 +1517,8 @@ private:
     }
     Result<View> stage(State& candidate, Size viewport, Offsets requested, FocusDispatcher& candidate_focus,
                        bool reveal) {
-        const auto commands =
-            take(CommandSnapshot::publish(registry, ++generation, CommandMode::production, eligibility));
+        const auto commands = take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
+                                                            eligibility, item_ids(candidate)));
         auto result = prepare(candidate, viewport, requested, commands);
         if (!result) return result;
         const auto geometry = take(split_pane_geometry(result.value->hit(), "panes"));
@@ -1425,6 +1568,9 @@ private:
             refresh();
             return;
         }
+        // Scrolling or replacement can move the insertion point under a stationary pointer.
+        const auto reordered = take(hierarchy_drag.refresh(view.hit()));
+        if (present_drag(reordered.source, reordered.target)) return;
         observe();
         session.publish();
     }
@@ -2716,6 +2862,112 @@ void position_smoke() {
                 app.state.item().position_draft[0].revision == revision + 1 && !app.view.tree->find("modified-badge"),
             "Reset must restore Position and clear the badge");
 }
+void reorder_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::pointer) { app.input({++time, event}, source); };
+    const auto order = [&] {
+        std::vector<std::string> ids;
+        for (std::size_t i = 1; i < 5; ++i) ids.push_back(app.state.items[i].id);
+        return ids;
+    };
+    // Rows in painted order, from their accepted layout.
+    const auto above = [&](const char* a, const char* b) {
+        return app.view.box(std::string("hierarchy-item-") + a).border_box.origin.y <
+               app.view.box(std::string("hierarchy-item-") + b).border_box.origin.y;
+    };
+    const auto style = [&](const char* id) -> const ResolvedStyle& {
+        return app.view.styles[app.view.tree->find(std::string("hierarchy-item-") + id)->index];
+    };
+    const auto row = [&](const char* id, float fraction) {
+        const auto rect = app.view.box(std::string("hierarchy-item-") + id).border_box;
+        return Point{rect.origin.x + rect.size.width / 2, rect.origin.y + rect.size.height * fraction};
+    };
+    const auto info = take(app.view.commands.lookup("item.move"));
+    require(info.descriptor.parameters.size() == 3 && info.state.enabled && app.view.commands.permits_object("light"),
+            "item.move must be a typed command over published item IDs");
+    app.action("enabled");
+    const auto cube = app.state.item();
+    require(order() == std::vector<std::string>{"cube", "sphere", "light", "camera"}, "Unexpected initial order");
+
+    auto executions = app.executions;
+    input(PointerDown{{1}, row("cube", .5f)});
+    input(PointerMove{{1}, row("cube", .6f)});
+    require(!app.reordering() && !app.state.drag_source, "Travel below the threshold must not drag");
+    input(PointerMove{{1}, row("light", .8f)});
+    require(app.reordering() && app.state.drag_source == "cube" &&
+                app.state.drop_target == CollectionDropTarget{"light", DropPlacement::after} &&
+                style("cube").opacity == .45f && style("light").box_shadow && style("light").box_shadow->inset &&
+                style("light").box_shadow->offset.y < 0 && app.executions == executions,
+            "Dragging must dim the source and mark the insertion point without a command");
+    input(PointerMove{{1}, row("camera", .2f)});
+    require(app.state.drop_target == CollectionDropTarget{"camera", DropPlacement::before} &&
+                !style("light").box_shadow && style("camera").box_shadow->offset.y > 0,
+            "The insertion point must follow the pointer");
+    input(PointerMove{{1}, row("cube", .8f)});
+    require(app.state.drag_source == "cube" && !app.state.drop_target,
+            "A position that would not move the item must show no insertion point");
+    input(PointerMove{{1}, row("light", .8f)});
+    input(PointerUp{{1}, row("light", .8f)});
+    require(order() == std::vector<std::string>{"sphere", "light", "cube", "camera"} &&
+                app.executions == executions + 1 && app.state.selected == "cube" && app.state.item() == cube &&
+                !app.state.drag_source && !app.state.drop_target && style("cube").opacity == 1 &&
+                above("light", "cube") && above("cube", "camera"),
+            "A drop must move the item once, keep its data and selection, and clear the feedback");
+
+    executions = app.executions;
+    input(PointerDown{{1}, row("camera", .5f)});
+    input(PointerMove{{1}, row("scene", .9f)});
+    require(app.state.drop_target == CollectionDropTarget{"scene", DropPlacement::after},
+            "Below the Scene row must be the first child position");
+    input(KeyDown{Key::escape}, CommandSource::keyboard);
+    require(!app.reordering() && !app.state.drag_source && order()[0] == "sphere" && app.executions == executions,
+            "Escape must cancel without moving");
+    input(PointerUp{{1}, row("scene", .9f)});
+    require(app.executions == executions && app.state.selected == "cube",
+            "The release after cancellation must neither move nor select");
+
+    input(PointerDown{{1}, row("camera", .5f)});
+    input(PointerMove{{1}, row("scene", .9f)});
+    input(PointerUp{{1}, row("scene", .9f)});
+    require(order() == std::vector<std::string>{"camera", "sphere", "light", "cube"} && above("camera", "sphere"),
+            "Dropping below Scene must move the item first");
+    input(PointerDown{{1}, row("sphere", .5f)});
+    input(PointerMove{{1}, row("light", .5f)});
+    input(PointerCancel{{1}});
+    require(!app.state.drag_source && order()[1] == "sphere", "PointerCancel must cancel without moving");
+
+    // Scene cannot move; its drag stays an ordinary press and the release selects it.
+    input(PointerDown{{1}, row("scene", .3f)});
+    input(PointerMove{{1}, row("scene", .8f)});
+    require(!app.reordering() && !app.state.drag_source, "The Scene row must not drag");
+    input(PointerUp{{1}, row("scene", .8f)});
+    require(app.state.selected == "scene", "A press and release on Scene must still select it");
+    app.action("hierarchy-item-cube");
+    executions = app.executions;
+    input(PointerDown{{1}, row("light", .5f)});
+    input(PointerUp{{1}, row("light", .5f)});
+    require(app.state.selected == "light" && app.executions == executions + 1,
+            "A click without travel must select the row");
+
+    app.focus_id("hierarchy-item-light");
+    input(KeyDown{Key::up, {.alt = true}}, CommandSource::keyboard);
+    require(order() == std::vector<std::string>{"camera", "light", "sphere", "cube"} &&
+                app.focused_on("hierarchy-item-light"),
+            "Alt+Up must move the focused row one place and keep its focus");
+    input(KeyDown{Key::up, {.alt = true}}, CommandSource::keyboard);
+    executions = app.executions;
+    input(KeyDown{Key::up, {.alt = true}}, CommandSource::keyboard);
+    require(order()[0] == "light" && app.executions == executions, "Alt+Up on the first child must do nothing");
+    input(KeyDown{Key::down, {.alt = true}}, CommandSource::keyboard);
+    require(order() == std::vector<std::string>{"camera", "light", "sphere", "cube"} &&
+                app.focused_on("hierarchy-item-light") && app.state.selected == "light",
+            "Alt+Down must move the row back without changing selection");
+    const auto rejected = app.move("scene", {"light", DropPlacement::after});
+    require(rejected.status != CommandOutcomeStatus::success && rejected.diagnostics.front().code == "item_move" &&
+                order()[1] == "light",
+            "item.move must reject moving the Scene root");
+}
 void sections_smoke() {
     App app;
     std::chrono::microseconds time{};
@@ -3141,6 +3393,7 @@ void smoke() {
     toolbar_smoke();
     scale_smoke();
     position_smoke();
+    reorder_smoke();
     visibility_smoke();
     shadows_smoke();
     purpose_smoke();
@@ -3695,6 +3948,20 @@ int native(bool smoke) {
                 "Native pointer press/release must select another hierarchy item");
         click("hierarchy-item-cube");
         require(app.state.item() == cube, "Native select/edit/return must preserve per-item state");
+        // Dragging the Light row below Camera reorders the Hierarchy under OS capture.
+        const auto light = host.physical(app.view.reachable("hierarchy-item-light"));
+        const auto camera = app.view.box("hierarchy-item-camera").border_box;
+        const auto below =
+            host.physical({camera.origin.x + camera.size.width / 2, camera.origin.y + camera.size.height * .8f});
+        host.message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(light.x, light.y));
+        host.message(WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(below.x, below.y));
+        require(GetCapture() == host.handle && app.reordering() && app.state.drop_target &&
+                    app.state.drop_target->key == "camera",
+                "A native row drag must capture and mark the insertion point");
+        host.message(WM_LBUTTONUP, 0, MAKELPARAM(below.x, below.y));
+        require(app.state.items[3].id == "camera" && app.state.items[4].id == "light" && app.state.selected == "cube" &&
+                    app.state.item() == cube,
+                "A native drop must reorder the Hierarchy without changing selection");
         const auto selected = host.physical(app.view.center("selected"));
         host.message(WM_RBUTTONDOWN, MK_RBUTTON, MAKELPARAM(selected.x, selected.y));
         host.message(WM_RBUTTONUP, 0, MAKELPARAM(selected.x, selected.y));

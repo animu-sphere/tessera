@@ -62,7 +62,7 @@ Use the common [UI model](../architecture/ui-model.md); compatibility commitment
 
 ## Later — Broader Application Model
 
-Consumer-driven application shells, [command palette](../proposals/command-palette.md), docking, TreeTable/DataGrid and editable/resizable/sortable columns; larger collections and typed drag/drop. Add resources, async patterns, context, localization, accessibility or extension boundaries as the application needs them.
+Consumer-driven application shells, [command palette](../proposals/command-palette.md), docking, TreeTable/DataGrid and editable/resizable/sortable columns; larger collections and typed drag/drop beyond [moves within one collection](../architecture/input.md#implemented-collection-item-dragging). Add resources, async patterns, context, localization, accessibility or extension boundaries as the application needs them.
 
 See [UI model](../architecture/ui-model.md), [layout](../architecture/layout.md) and [commands](../architecture/commands.md).
 

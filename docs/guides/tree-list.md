@@ -35,6 +35,16 @@ Generated IDs are `<id>-title`, `<id>-item-<key>`, `<id>-label-<key>` and, for b
 
 Replay v1/v2 retain collection roles, relationships and state and execute normalized navigation/semantic actions. As before, replay does not record raw key events, including Home/End; use a resolved focus step for those host operations. Controlled expansion/selection changes require explicit host-built replacement views.
 
+## Drag items to reorder
+
+Include [collection_drag.hpp](../../include/tessera/input/collection_drag.hpp) and retain a `CollectionDragDispatcher` constructed with the collection's ID to let users drag rows to a new position. The host owns the order; the dispatcher only reports where a row would land.
+
+1. Dispatch it before ordinary pointer routing and refresh it at every accepted view. A press on a row is not consumed, so selection by click and focus on press work as before. A press that travels 4 logical units (`CollectionDragOptions::threshold`) starts a drag; on `started`, reset the ordinary `PointerDispatcher` so the release selects nothing. Reset the dispatcher instead when the source cannot move.
+2. While dragging, each result carries `source` and `target`: a row key with `before` or `after`. Validate it against your own structure, treating positions that leave the order unchanged as no target, and show feedback with ordinary styles. The Inspector dims the source and draws a two-unit inset band on the target row's top or bottom edge.
+3. On `drop`, execute your own move command. `canceled` and `ended` clear the feedback. Escape, `Cancel` and `PointerCancel` cancel; Tab and other keys cancel and continue to ordinary routing.
+
+`collection_drop_target(input, id, position)` computes the same insertion point without a dispatcher. Disabled rows remain targets, while disabled rows and disabled collections cannot be dragged. In a TreeView, `after` an expanded branch and `before` its first child are distinct targets; map them to your hierarchy. Offer a keyboard equivalent, such as the Inspector's Alt+Up/Down.
+
 ## Build and run
 
 ```powershell
@@ -44,6 +54,6 @@ ctest --test-dir build -C Debug -R '^(collection|tree_list)$' --output-on-failur
 & .\build\Debug\tessera_tree_list.exe
 ```
 
-The [owner fixture](../../tests/input/collection_tests.cpp) covers logical hierarchy, state/actions, disabled ancestry, navigation/recovery, scroll, modal exclusion, rejection and UI/Semantic JSON and Replay v1/v2. The consumer verifies pointer/keyboard/gamepad command parity, dependent list/details, retained hidden selection, resize and focus reveal.
+The [drag fixture](../../tests/input/collection_drag_tests.cpp) covers insertion points, the threshold, click pass-through, cancellation, replacement and rejection. The [owner fixture](../../tests/input/collection_tests.cpp) covers logical hierarchy, state/actions, disabled ancestry, navigation/recovery, scroll, modal exclusion, rejection and UI/Semantic JSON and Replay v1/v2. The consumer verifies pointer/keyboard/gamepad command parity, dependent list/details, retained hidden selection, resize and focus reveal.
 
-Multiple selection, virtualization, lazy loading, filtering, type-ahead, drag/reorder, horizontal trees, automatic selection-on-focus, native accessibility and physical-input validation are not included. The optional [latest-UI Vulkan regression](development.md#latest-ui-gpu-regression) captures expansion, selection, collapse, scroll and resize through this same example. [Support](../reference/support-matrix.md) owns validation scope.
+Multiple selection, virtualization, lazy loading, filtering, type-ahead, dragging between collections or into other targets, automatic scrolling while dragging, horizontal trees, automatic selection-on-focus, native accessibility and physical-input validation are not included. The optional [latest-UI Vulkan regression](development.md#latest-ui-gpu-regression) captures expansion, selection, collapse, scroll and resize through this same example. [Support](../reference/support-matrix.md) owns validation scope.
