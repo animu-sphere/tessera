@@ -2,6 +2,7 @@
 #include <tessera/commands/execution.hpp>
 #include <tessera/input/collection_drag.hpp>
 #include <tessera/input/focus.hpp>
+#include <tessera/input/number_drag.hpp>
 #include <tessera/input/popup.hpp>
 #include <tessera/input/scroll.hpp>
 #include <tessera/input/split_pane.hpp>
@@ -436,7 +437,7 @@ ui::Element Form(const State& state, Size viewport) {
                              {"z", "Z", item.position_draft[2], "item.position.z"}},
                             {.node = {.id = "position"}}),
             // Contextual help spans the label and control columns below Scale and Position.
-            ui::Text("Enter applies, Esc reverts, Up/Down step.",
+            ui::Text("Enter applies, Esc reverts, Up/Down or drag step.",
                      {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}}),
             // Multiple-line documentation; Enter starts a line and the field grows with its wrapped rows.
             ui::Text("Notes", {.id = "notes-caption", .classes = {"muted"}}),
@@ -665,7 +666,11 @@ struct NumberRevert {}; // Escape: restore the canonical accepted text.
 struct NumberStep {     // Up/Down or a step part: move from the parsed draft and accept.
     int steps = 0;
 };
-using NumberRequest = std::variant<TextEditRequest, NumberApply, NumberRevert, NumberStep>;
+struct NumberScrub { // Pointer scrubbing: move from the value the scrub started at and accept.
+    double origin = 0;
+    int steps = 0;
+};
+using NumberRequest = std::variant<TextEditRequest, NumberApply, NumberRevert, NumberStep, NumberScrub>;
 // Edits change only the draft. Apply/step accept a valid draft and replace it with canonical
 // text (caret at the end, next revision); an invalid draft rejects them and stays as typed.
 std::vector<Diagnostic> apply_number(Item& item, std::size_t field, const NumberRequest& request) {
@@ -678,7 +683,11 @@ std::vector<Diagnostic> apply_number(Item& item, std::size_t field, const Number
         draft = std::move(*next.value);
         return {};
     }
-    if (!std::holds_alternative<NumberRevert>(request)) {
+    if (const auto* scrub = std::get_if<NumberScrub>(&request)) {
+        auto next = ui::step_number(range, scrub->origin, scrub->steps);
+        if (!next) return std::move(next.diagnostics);
+        value = *next.value;
+    } else if (!std::holds_alternative<NumberRevert>(request)) {
         auto parsed = ui::parse_number(range, draft.text);
         if (!parsed) return std::move(parsed.diagnostics);
         value = *parsed.value;
@@ -930,6 +939,7 @@ public:
             observe();
             return;
         }
+        if (scrub(take(number_drag.dispatch(view.hit(), event)), source)) return;
         if (drag(take(hierarchy_drag.dispatch(view.hit(), event)), source)) return;
         const auto adjustment = take(splitter.dispatch(view.hit(), event, take(focus.refresh(view.hit())).focused));
         if (adjustment.handled) {
@@ -1219,6 +1229,13 @@ public:
         return std::nullopt;
     }
     bool resizing() const { return splitter.dragging(); }
+    // A horizontal resize cursor over the splitter and over scrubbable numeric fields.
+    bool horizontal_cursor(Point point) const {
+        if (splitter.dragging() || number_drag.pressed()) return true;
+        const auto geometry = take(split_pane_geometry(view.hit(), "panes"));
+        return (geometry && geometry->enabled && take(hit_test(view.hit(), point)).target == geometry->handle) ||
+               take(number_drag_target(view.hit(), point)).has_value();
+    }
     bool reordering() const { return hierarchy_drag.dragging(); }
     // The focused Hierarchy row's item when it is a Scene child.
     std::optional<std::string> focused_item(std::optional<NodeHandle> focused) const {
@@ -1319,6 +1336,45 @@ private:
                 }
             }
         }
+    }
+    // Pointer scrubbing over Scale and the Position components. Each changed step count runs the
+    // field's own command from the value the scrub started at; Escape requests the start value
+    // again. Returns true when the event was consumed.
+    bool scrub(const NumberDragDispatchResult& result, CommandSource source) {
+        std::optional<std::size_t> field;
+        if (result.input) field = number_command(view.tree->get(*result.input)->events.at("activate"));
+        if (result.started && field) {
+            // The scrub starts from the parsed draft, like a step; an invalid draft cannot scrub.
+            auto origin = ui::parse_number(number_fields[*field].range, number_draft(state.item(), *field).text);
+            if (!origin) {
+                number_drag.reset();
+                edit_diagnostics = std::move(origin.diagnostics);
+                report(number_fields[*field].name, state.selected, edit_diagnostics, number_fields[*field].range);
+                observe();
+                return true;
+            }
+            scrub_origin = {*field, *origin.value};
+        }
+        if (result.steps && field && scrub_origin && scrub_origin->first == *field) {
+            const auto& item = state.item();
+            const auto origin = scrub_origin->second;
+            // Clamped steps can repeat the accepted value; only a change runs the command.
+            if (take(ui::step_number(number_fields[*field].range, origin, *result.steps)) !=
+                    number_value(item, *field) ||
+                pending(item, *field)) {
+                if (try_number(*field, NumberScrub{origin, *result.steps}, source).status !=
+                    CommandOutcomeStatus::success)
+                    number_drag.reset();
+            }
+        }
+        if (result.ended || !number_drag.pressed()) scrub_origin.reset();
+        if (result.focus) {
+            (void)take(focus.focus(view.hit(), *result.focus));
+            refresh(true);
+            return true;
+        }
+        if (result.consumed) observe();
+        return result.consumed;
     }
     // Hierarchy reordering by pointer. The press stays an ordinary row press until the drag
     // starts; a drop requests item.move. Returns true when the event was consumed.
@@ -1454,6 +1510,8 @@ private:
     MenuDispatcher menu{"actions-menu"}, context_menu{"item-menu"};
     ComboBoxDispatcher purpose{"purpose"};
     ColorPickerDispatcher display_color{"display-color"};
+    NumberDragDispatcher number_drag;
+    std::optional<std::pair<std::size_t, double>> scrub_origin; // Field and value the active scrub started at.
     CollectionDragDispatcher hierarchy_drag{"hierarchy"};
     Offsets offsets;
     std::optional<TextEditRequest> edit;
@@ -1550,6 +1608,7 @@ private:
             if (box.scroll) offsets[*view.tree->get(box.node)->id] = box.scroll->offset;
         (void)take(pointer.refresh(view.hit()));
         (void)take(splitter.refresh(view.hit()));
+        if (take(number_drag.refresh(view.hit())).ended) scrub_origin.reset();
         (void)take(focus.refresh(view.hit()));
         bool dismissed = false;
         for (const auto& transition : {take(menu.refresh(view.hit())), take(context_menu.refresh(view.hit()))}) {
@@ -1584,6 +1643,8 @@ private:
         state.focused = focused;
         if (slider_pointer) state.active.push_back(*candidate.tree->find("amount"));
         if (splitter.dragging()) state.active.push_back(*candidate.tree->find("panes-handle"));
+        if (const auto scrubbed = number_drag.captured())
+            if (const auto node = candidate.tree->find(*scrubbed)) state.active.push_back(*node);
         return state;
     }
     void observe() {
@@ -2862,6 +2923,107 @@ void position_smoke() {
                 app.state.item().position_draft[0].revision == revision + 1 && !app.view.tree->find("modified-badge"),
             "Reset must restore Position and clear the badge");
 }
+void scrub_smoke() {
+    App app;
+    // Leave room below the card for every General row.
+    app.resize({960, 540});
+    std::chrono::microseconds time{};
+    auto input = [&](auto event) { app.input({++time, event}, CommandSource::pointer); };
+    const auto focused = [&](std::string_view id) {
+        return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id);
+    };
+    const Color pressed{.8f, .87f, .98f, 1}; // The active control background.
+    const auto active = [&](std::string_view id) {
+        return app.view.styles[app.view.tree->find(id)->index].background == pressed;
+    };
+    app.focus_id("name");
+    const auto start = app.view.reachable("scale-label");
+    const auto at = [&](float dx, float dy = 0) { return Point{start.x + dx, start.y + dy}; };
+    require(app.horizontal_cursor(start) && app.horizontal_cursor(app.view.reachable("position-y-field")) &&
+                !app.horizontal_cursor(app.view.reachable("scale-increase")) &&
+                !app.horizontal_cursor(app.view.reachable("name")),
+            "Scrubbable fields, not step parts or text inputs, must show the horizontal cursor");
+    auto executions = app.executions;
+    input(PointerDown{{1}, start});
+    require(focused("scale") && active("scale") && app.executions == executions,
+            "A press on the Scale label must focus and press Scale without a command");
+    input(PointerMove{{1}, at(2, 20)});
+    require(app.executions == executions, "Travel below the threshold must not scrub");
+    input(PointerMove{{1}, at(12, 30)});
+    require(app.state.item().scale == 1.3 && app.state.item().scale_draft.text == "1.3" &&
+                app.observed_value("scale") == "1.3" && app.executions == executions + 1 && active("scale"),
+            "Dragging right must step Scale by 0.1 per 4 units through one command");
+    input(PointerMove{{1}, at(15.5f)});
+    require(app.executions == executions + 1, "An unchanged step count must not run a command");
+    input(PointerMove{{1}, at(4000)});
+    input(PointerMove{{1}, at(5000)});
+    require(app.state.item().scale == 10 && app.executions == executions + 2,
+            "Scrubbing must clamp to the maximum and skip unchanged clamped values");
+    input(PointerMove{{1}, at(-8)});
+    require(app.state.item().scale == .8 && app.observed_value("scale") == "0.8",
+            "Scrubbing back must step from the start value without binary noise");
+    input(KeyDown{Key::escape});
+    require(app.state.item().scale == 1 && app.state.item().scale_draft.text == "1" && !active("scale"),
+            "Escape must restore the value the scrub started at");
+    executions = app.executions;
+    input(PointerUp{{1}, at(30)});
+    require(app.state.item().scale == 1 && app.executions == executions,
+            "The release after cancellation must not run a command");
+
+    input(PointerDown{{1}, start});
+    input(PointerUp{{1}, at(20)});
+    require(app.state.item().scale == 1.5 && app.feedback.empty(), "A release must apply its own steps");
+    executions = app.executions;
+    input(PointerDown{{1}, start});
+    input(PointerUp{{1}, at(1)});
+    require(app.executions == executions && focused("scale") && app.state.item().scale == 1.5,
+            "A click on the label must only focus Scale");
+
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"2.5"});
+    input(PointerDown{{1}, start});
+    input(PointerMove{{1}, at(-8)});
+    require(app.state.item().scale == 2.3 && app.state.item().scale_draft.text == "2.3",
+            "A valid pending draft must be the start value");
+    input(PointerCancel{{1}});
+    require(app.state.item().scale == 2.3 && !active("scale"), "PointerCancel must keep the last scrubbed value");
+    input(KeyDown{Key::a, {.control = true}});
+    input(tessera::TextInput{"2,5"});
+    const auto invalid = app.state.item();
+    input(PointerDown{{1}, start});
+    input(PointerMove{{1}, at(12)});
+    require(app.state.item() == invalid && app.feedback == "Scale could not finish. Enter a number from 0 to 10.",
+            "An invalid draft must reject the scrub and keep its text");
+    input(PointerMove{{1}, at(30)});
+    input(PointerUp{{1}, at(30)});
+    require(app.state.item() == invalid, "A rejected scrub must not resume");
+    input(KeyDown{Key::escape});
+    require(app.state.item().scale_draft.text == "2.3", "Escape must still revert the draft afterwards");
+
+    const auto y = app.view.reachable("position-y-label");
+    input(PointerDown{{1}, y});
+    input(PointerMove{{1}, Point{y.x - 20, y.y}});
+    require(focused("position-y") && app.state.item().position == std::array<double, 3>{0, -.5, 0} &&
+                app.observed_value("position-y") == "-0.5" && active("position-y"),
+            "A Position component must scrub through its own command");
+    input(KeyDown{Key::tab});
+    require(focused("position-z") && !active("position-y") && app.state.item().position[1] == -.5,
+            "Tab must end the scrub, keep its value and move focus");
+    executions = app.executions;
+    input(PointerMove{{1}, Point{y.x + 40, y.y}});
+    input(PointerUp{{1}, Point{y.x + 40, y.y}});
+    require(app.executions == executions, "Moves after an ended scrub must not run commands");
+    const auto point = app.view.reachable("scale-increase");
+    input(PointerDown{{1}, point});
+    input(PointerUp{{1}, point});
+    require(app.state.item().scale == 2.4, "Step parts must keep stepping once per press");
+
+    const auto edited = app.state.item();
+    app.action("hierarchy-item-sphere");
+    require(app.state.item().scale == 1 && app.state.item().position[1] == 0, "Scrubs must edit only their item");
+    app.action("hierarchy-item-cube");
+    require(app.state.item() == edited, "The scrubbed item must retain its values");
+}
 void reorder_smoke() {
     App app;
     std::chrono::microseconds time{};
@@ -3393,6 +3555,7 @@ void smoke() {
     toolbar_smoke();
     scale_smoke();
     position_smoke();
+    scrub_smoke();
     reorder_smoke();
     visibility_smoke();
     shadows_smoke();
@@ -3619,11 +3782,7 @@ int native(bool smoke) {
     };
     window.ime_editing = [&] { return app.focused_text(take(app.focus.refresh(app.view.hit())).focused).has_value(); };
     window.resized = [&](Size viewport) { app.resize(viewport); };
-    window.resize_cursor = [&](Point point) {
-        const auto geometry = take(split_pane_geometry(app.view.hit(), "panes"));
-        return geometry && geometry->enabled &&
-               (app.resizing() || take(hit_test(app.view.hit(), point)).target == geometry->handle);
-    };
+    window.resize_cursor = [&](Point point) { return app.horizontal_cursor(point); };
     auto verify = [&](settings_native::Window& host) {
         // Exercise key mapping without changing the user's live OS clipboard.
         std::string clipboard;
@@ -3892,6 +4051,19 @@ int native(bool smoke) {
         host.message(WM_KEYDOWN, VK_DOWN, 1);
         require(app.state.item().position == std::array<double, 3>{0, -3.1, 0} && app.state.item().scale == 2.5,
                 "Native characters, Return and Down must edit only the focused Position component");
+        // Dragging the X label scrubs only that component under OS capture, with the resize cursor.
+        const auto x_label = app.view.reachable("position-x-label");
+        const auto grab = host.physical(x_label);
+        const auto scrubbed = host.physical({x_label.x + 12, x_label.y});
+        require(window.resize_cursor(x_label) && !window.resize_cursor(app.view.reachable("name")),
+                "Native scrubbable fields must request the horizontal cursor");
+        host.message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(grab.x, grab.y));
+        require(GetCapture() == host.handle && app.focused_on("position-x"), "A native scrub press must capture");
+        host.message(WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(scrubbed.x, scrubbed.y));
+        host.message(WM_LBUTTONUP, 0, MAKELPARAM(scrubbed.x, scrubbed.y));
+        require(app.state.item().position == std::array<double, 3>{.3, -3.1, 0} && app.state.item().scale == 2.5 &&
+                    app.observed_value("position-x") == "0.3",
+                "A native drag must scrub only the Position component under the pointer");
         // Notes take committed characters, Return as a line break and Up by row, with the IME attached.
         seek("notes");
         require(window.editing() && host.ime_attached(), "Native Notes must accept text and attach the IME");

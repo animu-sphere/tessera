@@ -1,6 +1,6 @@
 # TextInput and NumberInput
 
-`authoring::TextInput` and `authoring::NumberInput` present a host-owned `TextEditState` as a labelled single-line input. TextInput edits a string directly; NumberInput edits a text draft that the host parses into its own accepted number. The [Inspector](inspector-hierarchy.md#scale-number-input) uses a TextInput for the item name and a NumberInput for Scale. For vec2/vec3/vec4 values, [VectorInput](vector-input.md) composes one compact number input per component.
+`authoring::TextInput` and `authoring::NumberInput` present a host-owned `TextEditState` as a labelled single-line input. TextInput edits a string directly; NumberInput edits a text draft that the host parses into its own accepted number. The [Inspector](inspector-hierarchy.md#scale-number-input) uses a TextInput for the item name and a NumberInput for Scale. Number inputs can also be [scrubbed with the pointer](#scrub-with-the-pointer). For vec2/vec3/vec4 values, [VectorInput](vector-input.md) composes one compact number input per component.
 
 ## Compose an input
 
@@ -44,13 +44,24 @@ An invalid range (nonfinite bounds, minimum above maximum or a nonpositive step)
 - For a NumberInput, map unmodified Enter to apply (parse the draft, accept it, replace the draft with `format_number` text) and Escape to revert the draft to the accepted text. Up/Down and presses on the step parts parse the draft, call `step_number` and accept the result. An invalid draft rejects apply and step and stays as typed. The host hit-tests `<id>-decrease`/`<id>-increase` on primary press; the parts have no action of their own.
 - Execute each request with `CommandSnapshot::resolve_action` and `CommandExecutor`, then recompose. A rejected command leaves the accepted value and draft unchanged.
 
+## Scrub with the pointer
+
+Include [number_drag.hpp](../../include/tessera/input/number_drag.hpp) and retain one `NumberDragDispatcher` for all number inputs. It adds a horizontal drag to NumberInputs and [VectorInput](vector-input.md) components without changing their parts or semantics.
+
+1. Dispatch it before ordinary pointer routing and refresh it at every accepted view. A primary press on an input's label, field or own padding returns `consumed` and `focus`: focus the input, as a click would. Step parts and other controls are not targets, so their presses keep their ordinary meaning.
+2. When a result reports `started`, parse the draft and record that value, with the input that `action` addresses, as the scrub's origin. An invalid draft cannot scrub: call `reset()` and report the rejection, leaving the draft as typed.
+3. When a result carries `steps` and `action`, compute `step_number(range, origin, steps)` and, if it differs from the accepted value or the draft is pending, accept it through the input's command, replacing the draft with `format_number` text as a step does. A rejected command should `reset()` the dispatcher.
+4. A result with `canceled` carries 0 steps when the value moved, restoring the origin; `ended` clears the origin. Escape before the press becomes a scrub, Tab, typing and other keys end capture without consuming the event, so they reach the input as usual.
+
+By default the press must travel 3 logical units horizontally before it scrubs, and each further 4 units is one step; `NumberDragOptions` sets both. Steps count from the press position, so dragging back returns through the same values, and clamped values repeat without a command. Show a horizontal resize cursor over `number_drag_target` hits and during capture where the platform has one. Pointer scrubbing has no keyboard equivalent beyond Up/Down.
+
 ## Build and check
 
 ```powershell
-cmake --build build --config Debug --target tessera_edit_input_tests tessera_inspector_hierarchy
-ctest --test-dir build -C Debug -R '^(edit_input|inspector_hierarchy)$' --output-on-failure --no-tests=error
+cmake --build build --config Debug --target tessera_edit_input_tests tessera_number_drag_tests tessera_inspector_hierarchy
+ctest --test-dir build -C Debug -R '^(edit_input|number_drag|inspector_hierarchy)$' --output-on-failure --no-tests=error
 ```
 
-The [owner fixture](../../tests/input/edit_input_tests.cpp) covers composition and generated IDs, NumberInput geometry, reactive draft and preedit values, semantics, disabled inputs, Tab and pointer targeting, the number grammar, canonical text and steps, UI/Semantic JSON, inspection/invariant targets, Replay v1/v2 and lowering/document/snapshot rejection.
+The [scrubbing fixture](../../tests/input/number_drag_tests.cpp) covers targets, click versus threshold, truncated steps through each input's command, cancellation, replacement and rejection. The [owner fixture](../../tests/input/edit_input_tests.cpp) covers composition and generated IDs, NumberInput geometry, reactive draft and preedit values, semantics, disabled inputs, Tab and pointer targeting, the number grammar, canonical text and steps, UI/Semantic JSON, inspection/invariant targets, Replay v1/v2 and lowering/document/snapshot rejection.
 
-Multiple-line text (see [TextEditor](text-editor.md)), a generated caret for NumberInput, increment/decrement or numeric range semantics, a slider-like drag on the input, locale-aware number formats, native editable accessibility and physical-input validation are not included. [Support](../reference/support-matrix.md) owns validation scope.
+Multiple-line text (see [TextEditor](text-editor.md)), a generated caret for NumberInput, increment/decrement or numeric range semantics, modifier-scaled or vertical scrubbing, pointer caret placement, locale-aware number formats, native editable accessibility and physical-input validation are not included. [Support](../reference/support-matrix.md) owns validation scope.
