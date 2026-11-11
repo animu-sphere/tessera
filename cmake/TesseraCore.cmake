@@ -30,6 +30,7 @@ add_library(tessera_core
     src/input/split_pane.cpp
     src/input/popup.cpp
     src/input/number_drag.cpp
+    src/input/collection_drag.cpp
     src/input/modal.cpp
     src/commands/commands.cpp
     src/commands/execution.cpp
