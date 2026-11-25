@@ -228,11 +228,11 @@ void grid_contract() {
 void label_and_spacer() {
     Session ui;
     const auto caption = ui.state("caption", std::string("Display name"));
-    const auto form = Row({Label(caption, "name", {.id = "name-caption", .classes = {"muted"}, .source = origin}),
-                           Spacer({.id = "fill"}),
-                           Button("Name", "toggle", {.node = {.id = "name", .style = {.width = Dimension::points(40)}}}),
-                           Spacer({.style = {.width = Dimension::points(12), .grow = 0.f}})},
-                          {.style = {.width = Dimension::points(300)}});
+    const auto form = Row(
+        {Label(caption, "name", {.id = "name-caption", .classes = {"muted"}, .source = origin}), Spacer({.id = "fill"}),
+         Button("Name", "toggle", {.node = {.id = "name", .style = {.width = Dimension::points(40)}}}),
+         Spacer({.style = {.width = Dimension::points(12), .grow = 0.f}})},
+        {.style = {.width = Dimension::points(300)}});
     const auto first = take(ui.lower(form, actions));
     const auto& label = first.document.root.children[0];
     check(label.kind == NodeKind::text && label.classes == std::vector<std::string>{"muted"} &&
@@ -271,14 +271,12 @@ void label_and_spacer() {
     const auto over = take(hit_test(hit, {box("fill").origin.x + 1, box("fill").origin.y + 1})).target;
     check(over == tree->root(), "Spacer must not intercept pointer hits");
     const auto at = take(hit_test(hit, {box("name-caption").origin.x + 1, box("name-caption").origin.y + 1})).target;
-    check(at && take(label_target(*tree, *at)) == tree->find("name") &&
-              !take(label_target(*tree, *tree->find("name"))),
+    check(at && take(label_target(*tree, *at)) == tree->find("name") && !take(label_target(*tree, *tree->find("name"))),
           "A press on the Label must resolve its target, and other nodes none");
 
     const auto empty = ui.lower(Row({Label("Name", "", {.source = origin})}), actions);
-    check(!empty && empty.diagnostics.size() == 1 &&
-              has(empty.diagnostics, "label_target", "/root/children/0") && empty.diagnostics[0].source &&
-              empty.diagnostics[0].source->location == origin,
+    check(!empty && empty.diagnostics.size() == 1 && has(empty.diagnostics, "label_target", "/root/children/0") &&
+              empty.diagnostics[0].source && empty.diagnostics[0].source->location == origin,
           "An empty Label target needs one source-located diagnostic");
     const auto missing = ui.lower(Row({Label("Name", "absent", {.source = origin})}), actions);
     check(!missing && has(missing.diagnostics, "invalid_reference", "/root/children/0/properties/label_for/ref"),

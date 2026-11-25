@@ -92,8 +92,7 @@ void descriptor_table() {
           "Descriptors must be ordered by name");
     for (const auto name :
          {tessera::property_names::text, tessera::property_names::focusable, tessera::property_names::disabled,
-          tessera::property_names::label_for, tessera::property_names::labelled_by,
-          tessera::property_names::separator})
+          tessera::property_names::label_for, tessera::property_names::labelled_by, tessera::property_names::separator})
         check(names.contains(name), "Named property lacks a descriptor");
     check(!tessera::find_property_descriptor("Text") && !tessera::find_property_descriptor(""),
           "Lookup must be exact and case-sensitive");
