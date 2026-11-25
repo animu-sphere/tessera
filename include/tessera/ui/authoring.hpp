@@ -208,6 +208,8 @@ private:
     std::shared_ptr<const detail::ElementData> data_;
     friend struct detail::Lowerer;
     friend Element Text(Value<std::string>, Props);
+    friend Element Label(Value<std::string>, std::string, Props);
+    friend Element Spacer(Props);
     friend Element Button(Value<std::string>, std::string, ButtonProps);
     friend Element Checkbox(Value<std::string>, Value<bool>, std::string, CheckboxProps);
     friend Element Switch(Value<std::string>, Value<bool>, std::string, SwitchProps);
@@ -239,6 +241,14 @@ private:
 };
 
 Element Text(Value<std::string>, Props = {});
+// A Text naming the control with author ID `target` through `label_for`, which must resolve in the
+// document. Hosts focus the target on a primary press through label_target(); the Label adds no
+// activation, focus stop or semantic name of its own and leaves the target's name unchanged.
+Element Label(Value<std::string> text, std::string target, Props = {});
+// An empty Box taking the remaining main-axis space of its Row or Column: grow 1 unless Props::style
+// sets grow. It is transparent to pointer hits and has no semantics. Set grow 0 with a width or
+// height for a fixed space; Grid and Stack ignore grow.
+Element Spacer(Props = {});
 // An ordinary activate action; the host maps it to a CommandRegistry descriptor.
 Element Button(Value<std::string> label, std::string action, ButtonProps = {});
 // Controlled value: activation only requests a host command. A row with a

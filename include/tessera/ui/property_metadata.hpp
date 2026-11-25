@@ -17,6 +17,7 @@ inline constexpr std::string_view tree_parent = "tree_parent";
 inline constexpr std::string_view text = "text";
 inline constexpr std::string_view focusable = "focusable";
 inline constexpr std::string_view disabled = "disabled";
+inline constexpr std::string_view label_for = "label_for";
 inline constexpr std::string_view labelled_by = "labelled_by";
 inline constexpr std::string_view modal = "modal";
 inline constexpr std::string_view pointer_events = "pointer_events";

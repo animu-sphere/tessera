@@ -467,6 +467,29 @@ void compatible_cancellation_and_rejection_are_safe() {
 
 } // namespace
 
+void label_targets() {
+    auto caption = box();
+    caption.kind = tessera::NodeKind::text;
+    caption.properties["text"] = std::string("Start");
+    caption.properties["label_for"] = tessera::NodeReference{"start"};
+    auto target = button("start");
+    target.id = "start";
+    Fixture fixture(box({std::move(caption), std::move(target), button("quit")}));
+    const auto hit = fixture.hit({1, 1}).target;
+    check(hit == fixture.node(1), "A press on the label must hit its Text");
+    const auto resolved = tessera::label_target(*fixture.tree, *hit);
+    check(resolved && resolved.diagnostics.empty() && *resolved.value == fixture.tree->find("start"),
+          "A label must resolve the node its label_for names");
+    const auto plain = tessera::label_target(*fixture.tree, fixture.node(4));
+    check(plain && !*plain.value, "Nodes without label_for name no target");
+    const auto pressed = fixture.send(tessera::PointerDown{{1}, {1, 1}, tessera::PointerButton::primary});
+    check(pressed.pointers.size() == 1 && !pressed.pointers[0].pressed && pressed.actions.empty(),
+          "A label is not an activation owner of its own");
+    Fixture other;
+    const auto stale = tessera::label_target(*other.tree, *hit);
+    check(!stale && has(stale.diagnostics, "stale_target", "/target"), "A foreign handle must be rejected");
+}
+
 int main() {
     try {
         hit_order_edges_overflow_and_eligibility();
@@ -477,6 +500,7 @@ int main() {
         compatible_replacements_retarget_owned_identities();
         incompatible_replacements_cancel_permanently();
         compatible_cancellation_and_rejection_are_safe();
+        label_targets();
         std::cout << "Pointer targeting/binding/cancellation, multi-pointer, refresh, and validation checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

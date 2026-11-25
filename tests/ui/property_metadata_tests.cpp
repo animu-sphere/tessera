@@ -73,7 +73,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 21, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 22, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");
@@ -92,7 +92,8 @@ void descriptor_table() {
           "Descriptors must be ordered by name");
     for (const auto name :
          {tessera::property_names::text, tessera::property_names::focusable, tessera::property_names::disabled,
-          tessera::property_names::labelled_by, tessera::property_names::separator})
+          tessera::property_names::label_for, tessera::property_names::labelled_by,
+          tessera::property_names::separator})
         check(names.contains(name), "Named property lacks a descriptor");
     check(!tessera::find_property_descriptor("Text") && !tessera::find_property_descriptor(""),
           "Lookup must be exact and case-sensitive");
@@ -106,6 +107,10 @@ void descriptor_table() {
     const auto& disabled = *tessera::find_property_descriptor(tessera::property_names::disabled);
     check(tessera::affects(disabled.stages, tessera::PropertyStages::input),
           "Disabled must invalidate input targeting");
+    const auto& label_for = *tessera::find_property_descriptor(tessera::property_names::label_for);
+    check(label_for.type == tessera::PropertyType::reference && label_for.accepted == tessera::NodeKinds::text &&
+              label_for.stages == tessera::PropertyStages::input,
+          "label_for must be a Text-only reference affecting input");
     const auto& focusable = *tessera::find_property_descriptor(tessera::property_names::focusable);
     check(tessera::affects(focusable.stages, tessera::PropertyStages::input),
           "Focusable must invalidate focus eligibility");

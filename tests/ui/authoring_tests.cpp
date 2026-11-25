@@ -1,5 +1,7 @@
 #include <tessera/ui/authoring.hpp>
+#include <tessera/input/pointer.hpp>
 #include "../check.hpp"
+#include <algorithm>
 #include <iostream>
 #include <limits>
 
@@ -221,6 +223,66 @@ void grid_contract() {
     check(!invalid && has(invalid.diagnostics, "out_of_range", "/root/style/grid_columns/0/value") &&
               invalid.diagnostics[0].source && invalid.diagnostics[0].source->location == origin,
           "Invalid Grid tracks need source-located authoring diagnostics");
+}
+
+void label_and_spacer() {
+    Session ui;
+    const auto caption = ui.state("caption", std::string("Display name"));
+    const auto form = Row({Label(caption, "name", {.id = "name-caption", .classes = {"muted"}, .source = origin}),
+                           Spacer({.id = "fill"}),
+                           Button("Name", "toggle", {.node = {.id = "name", .style = {.width = Dimension::points(40)}}}),
+                           Spacer({.style = {.width = Dimension::points(12), .grow = 0.f}})},
+                          {.style = {.width = Dimension::points(300)}});
+    const auto first = take(ui.lower(form, actions));
+    const auto& label = first.document.root.children[0];
+    check(label.kind == NodeKind::text && label.classes == std::vector<std::string>{"muted"} &&
+              label.properties.at("text") == Property{std::string("Display name")} &&
+              label.properties.at("label_for") == Property{NodeReference{"name"}} && label.properties.size() == 2,
+          "Label must lower to a Text naming its target through label_for alone");
+    check(validate_sources(first.document, first.sources).empty() &&
+              first.sources.nodes[1].property_arguments.at("label_for") == origin,
+          "Label needs its caller's source origin");
+    const auto& spacer = first.document.root.children[1];
+    check(spacer.kind == NodeKind::box && spacer.children.empty() && spacer.events.empty() &&
+              spacer.properties == std::map<std::string, Property, std::less<>>{{"pointer_events", false}} &&
+              first.styles[2].grow == 1.f && first.styles[5].grow == 0.f,
+          "Spacer must lower to an empty input-transparent Box that grows unless grow is set");
+    ui.update([&] { caption.write("Name"); });
+    const auto second = take(ui.lower(form, actions));
+    check(second.document.root.children[0].properties.at("text") == Property{std::string("Name")} &&
+              first.document.root.children[0].properties.at("text") == Property{std::string("Display name")},
+          "Label text binding must settle in a new candidate");
+
+    const auto tree = take(UiTree::create(second.document, actions));
+    const StyleSheet sheet;
+    const auto styles = take(resolve_styles({tree.get(), &sheet, {}, second.styles}));
+    PlaceholderTextShaper shaper;
+    const auto layout = take(compute_layout({tree.get(), styles, {400, 100}, &shaper}));
+    const auto box = [&](std::string_view id) {
+        const auto node = *tree->find(id);
+        return std::find_if(layout.boxes.begin(), layout.boxes.end(), [&](const auto& b) { return b.node == node; })
+            ->border_box;
+    };
+    const auto caption_end = box("name-caption").origin.x + box("name-caption").size.width;
+    check(box("name").origin.x == 300 - 12 - 40 && box("fill").origin.x == caption_end &&
+              box("fill").size.width == box("name").origin.x - caption_end,
+          "Spacer must take the free space between its siblings");
+    const HitTestInput hit{tree.get(), styles, &layout};
+    const auto over = take(hit_test(hit, {box("fill").origin.x + 1, box("fill").origin.y + 1})).target;
+    check(over == tree->root(), "Spacer must not intercept pointer hits");
+    const auto at = take(hit_test(hit, {box("name-caption").origin.x + 1, box("name-caption").origin.y + 1})).target;
+    check(at && take(label_target(*tree, *at)) == tree->find("name") &&
+              !take(label_target(*tree, *tree->find("name"))),
+          "A press on the Label must resolve its target, and other nodes none");
+
+    const auto empty = ui.lower(Row({Label("Name", "", {.source = origin})}), actions);
+    check(!empty && empty.diagnostics.size() == 1 &&
+              has(empty.diagnostics, "label_target", "/root/children/0") && empty.diagnostics[0].source &&
+              empty.diagnostics[0].source->location == origin,
+          "An empty Label target needs one source-located diagnostic");
+    const auto missing = ui.lower(Row({Label("Name", "absent", {.source = origin})}), actions);
+    check(!missing && has(missing.diagnostics, "invalid_reference", "/root/children/0/properties/label_for/ref"),
+          "A Label target must resolve in the document");
 }
 
 void controlled_dropdown() {
@@ -535,6 +597,7 @@ int main() {
         bounded_descriptions();
         stack_contract();
         grid_contract();
+        label_and_spacer();
         controlled_dropdown();
         controlled_slider();
         lifetimes_and_recovery();
