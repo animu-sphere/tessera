@@ -166,6 +166,34 @@ void nesting_fallback_and_missing_names() {
           "Unnamed buttons produce a located warning");
 }
 
+void separator_names() {
+    // 0 root, 1 unnamed adjustable separator, 2 static separator.
+    tessera::UiDocument document;
+    auto adjustable = box();
+    adjustable.properties["separator"] = true;
+    adjustable.events["activate"] = "go";
+    auto divider = box();
+    divider.properties["separator"] = true;
+    document.root.children = {std::move(adjustable), std::move(divider)};
+    auto created = tessera::UiTree::create(document, {{"go"}});
+    check(static_cast<bool>(created), "Separator tree rejected");
+    const auto tree = std::move(*created.value);
+    const std::vector<tessera::ResolvedStyle> styles(tree->size());
+    tessera::PlaceholderTextShaper shaper;
+    const auto layout = tessera::compute_layout({tree.get(), styles, {200, 200}, &shaper});
+    check(static_cast<bool>(layout), "Separator layout rejected");
+    const auto result = tessera::build_semantic_tree({tree.get(), styles, &*layout.value});
+    check(result && result.value->nodes.size() == 3 &&
+              result.value->nodes[1].role == tessera::SemanticRole::separator &&
+              result.value->nodes[1].actions.size() == 1 &&
+              result.value->nodes[2].role == tessera::SemanticRole::separator &&
+              result.value->nodes[2].actions.empty() && result.value->nodes[2].name.empty(),
+          "Both separators must project, only the adjustable one with an action");
+    check(result.diagnostics.size() == 1 && result.diagnostics[0].code == "missing_name" &&
+              result.diagnostics[0].path == "/nodes/1",
+          "Only an unnamed separator with an activate binding warns");
+}
+
 void invocation_matches_pointer_activation() {
     const Fixture fixture;
     const auto requested = fixture.invoke(fixture.node(2));
@@ -313,6 +341,7 @@ int main() {
     try {
         projection_derives_roles_names_states_and_actions();
         nesting_fallback_and_missing_names();
+        separator_names();
         invocation_matches_pointer_activation();
         invocation_rejects_ineligible_and_stale_targets();
         focus_state_matches_dispatch_and_style();

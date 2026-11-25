@@ -229,6 +229,21 @@ Element Spacer(Props props) {
     data->properties["pointer_events"] = false;
     return Element(std::move(data));
 }
+namespace {
+std::shared_ptr<detail::ElementData> separator(Props props, bool vertical) {
+    auto& style = props.style;
+    if (auto& thickness = vertical ? style.width : style.height; !thickness) thickness = Dimension::points(1);
+    if (!style.shrink) style.shrink = 0.f;
+    if (!style.background) style.background = Color{.8f, .82f, .87f, 1};
+    auto data = std::make_shared<detail::ElementData>();
+    data->props = std::move(props);
+    data->properties[std::string(property_names::separator)] = true;
+    data->properties[std::string(property_names::pointer_events)] = false;
+    return data;
+}
+} // namespace
+Element HorizontalSeparator(Props props) { return Element(separator(std::move(props), false)); }
+Element VerticalSeparator(Props props) { return Element(separator(std::move(props), true)); }
 Element Popup(std::string anchor, std::vector<Element> children, PopupProps props) {
     auto data = std::make_shared<detail::ElementData>();
     data->props = std::move(props.node);

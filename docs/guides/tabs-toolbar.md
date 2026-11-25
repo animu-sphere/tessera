@@ -28,7 +28,7 @@ auto tools = ui::Toolbar("Item tools", {
 }, {.id = "item-tools"});
 ```
 
-A toolbar is a Row with centered alignment and a 4-unit gap unless `Props::style` sets them; it is always horizontal. It requires a stable nonempty ID and a nonempty label, reported as `toolbar_id`/`toolbar_label`. Its display-none `<id>-title` names it. Controls keep their own actions, roles and state, so a Menu trigger, Checkbox or Switch works as usual inside a toolbar. Collections (ListView, TreeView, Menu, RadioGroup, Tabs) and nested toolbars are rejected.
+A toolbar is a Row with centered alignment and a 4-unit gap unless `Props::style` sets them; it is always horizontal. It requires a stable nonempty ID and a nonempty label, reported as `toolbar_id`/`toolbar_label`. Its display-none `<id>-title` names it. Controls keep their own actions, roles and state, so a Menu trigger, Checkbox or Switch works as usual inside a toolbar. Collections (ListView, TreeView, Menu, RadioGroup, Tabs) and nested toolbars are rejected. A [VerticalSeparator](../architecture/ui-model.md#implemented-c-form-authoring) may group controls; it takes no focus, so toolbar movement skips it. Set the toolbar's `align` to `stretch` so the separator spans the controls' height.
 
 ## Semantics and document vocabulary
 

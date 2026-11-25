@@ -210,6 +210,8 @@ private:
     friend Element Text(Value<std::string>, Props);
     friend Element Label(Value<std::string>, std::string, Props);
     friend Element Spacer(Props);
+    friend Element HorizontalSeparator(Props);
+    friend Element VerticalSeparator(Props);
     friend Element Button(Value<std::string>, std::string, ButtonProps);
     friend Element Checkbox(Value<std::string>, Value<bool>, std::string, CheckboxProps);
     friend Element Switch(Value<std::string>, Value<bool>, std::string, SwitchProps);
@@ -249,6 +251,14 @@ Element Label(Value<std::string> text, std::string target, Props = {});
 // sets grow. It is transparent to pointer hits and has no semantics. Set grow 0 with a width or
 // height for a fixed space; Grid and Stack ignore grow.
 Element Spacer(Props = {});
+// A static divider: a Box with the separator marker and no action. It projects an unnamed
+// `separator` semantic entry without actions, takes no focus and is transparent to pointer hits.
+// HorizontalSeparator is a line 1 unit tall that spans a Column; VerticalSeparator is 1 unit wide
+// and spans a Row. Each keeps its thickness (shrink 0) and paints a neutral background unless
+// Props::style sets that height/width, shrink or background. It spans the cross axis only under
+// stretch alignment, the default; otherwise set its length.
+Element HorizontalSeparator(Props = {});
+Element VerticalSeparator(Props = {});
 // An ordinary activate action; the host maps it to a CommandRegistry descriptor.
 Element Button(Value<std::string> label, std::string action, ButtonProps = {});
 // Controlled value: activation only requests a host command. A row with a

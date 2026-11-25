@@ -212,6 +212,9 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
     auto tree = projection.build();
     std::vector<Diagnostic> warnings;
     for (const auto& entry : tree.nodes) {
+        // A static separator, one without an activate binding, divides content and needs no name.
+        const bool static_separator =
+            entry.role == SemanticRole::separator && !input.tree->get(entry.node)->events.contains("activate");
         if ((entry.role == SemanticRole::button || entry.role == SemanticRole::separator ||
              entry.role == SemanticRole::scrollbar || entry.role == SemanticRole::dialog ||
              entry.role == SemanticRole::list || entry.role == SemanticRole::tree ||
@@ -225,7 +228,7 @@ Result<SemanticTree> build_semantic_tree(const SemanticInput& input) {
              entry.role == SemanticRole::listbox || entry.role == SemanticRole::option ||
              entry.role == SemanticRole::group || entry.role == SemanticRole::color_picker ||
              entry.role == SemanticRole::text_editor) &&
-            entry.name.empty())
+            !static_separator && entry.name.empty())
             warnings.push_back({"missing_name",
                                 Severity::warning,
                                 "/nodes/" + std::to_string(entry.node.index),
