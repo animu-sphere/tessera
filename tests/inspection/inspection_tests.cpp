@@ -102,8 +102,8 @@ void capture_joins_one_generation() {
         {"toggle_role", std::nullopt, false},
         {"tree_parent", std::nullopt, false}};
     check(start.properties == box_properties, "Box properties follow descriptors with absence values");
-    check(elements[1].properties.size() == 5 && elements[1].properties[4].name == "text" &&
-              elements[1].properties[4].authored,
+    check(elements[1].properties.size() == 6 && elements[1].properties[5].name == "text" &&
+              elements[1].properties[5].authored,
           "Text elements also observe the text descriptor");
 
     const auto& box = fixture.layout.boxes[2];

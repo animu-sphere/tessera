@@ -2,6 +2,7 @@
 #include "../detail/checks.hpp"
 #include "../detail/layout_snapshot.hpp"
 #include "../detail/targeting.hpp"
+#include <tessera/ui/property_metadata.hpp>
 #include <type_traits>
 #include <utility>
 
@@ -57,6 +58,20 @@ Result<HitTestResult> hit_test(const HitTestInput& input, Point position) {
     detail::Checker(errors).point(position, "/position");
     if (!errors.empty()) return {std::nullopt, std::move(errors)};
     return {HitTestResult{detail::Targeting(input).hit(position)}, {}};
+}
+
+Result<std::optional<NodeHandle>> label_target(const UiTree& tree, NodeHandle hit) {
+    const auto* node = tree.get(hit);
+    if (!node)
+        return {std::nullopt,
+                {{"stale_target", Severity::error, "/target",
+                  "Resolve the hit again in the current snapshot; this handle belongs to another tree."}}};
+    Result<std::optional<NodeHandle>> result;
+    result.value.emplace();
+    // Document validation guarantees a label_for reference resolves in this tree.
+    if (const auto found = node->properties.find(property_names::label_for); found != node->properties.end())
+        *result.value = tree.find(std::get<NodeReference>(found->second).id);
+    return result;
 }
 
 Result<PointerDispatchResult> PointerDispatcher::refresh(const HitTestInput& input) {

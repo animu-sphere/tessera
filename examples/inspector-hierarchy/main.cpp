@@ -411,7 +411,7 @@ ui::Element Form(const State& state, Size viewport) {
     std::optional<ui::Element> purpose_list, color_panel;
     if (state.section == "general") {
         properties = {
-            ui::Text("Display name", {.classes = {"muted"}}),
+            ui::Label("Display name", "name", {.id = "name-caption", .classes = {"muted"}}),
             ui::TextInput("Name", item.name, "item.name", {.node = control("name")}),
             ui::Row({ui::Column({}, {.id = "enabled-indicator",
                                      .style = {.width = Dimension::points(8),
@@ -420,17 +420,18 @@ ui::Element Form(const State& state, Size viewport) {
                                                    item.enabled ? Color{.15f, .6f, .4f, 1} : Color{.55f, .6f, .68f, 1},
                                                .background_shape = FillShape::ellipse,
                                                .background_antialias = true}}),
-                     ui::Text("Enabled", {.classes = {"muted"}})},
+                     ui::Label("Enabled", "enabled", {.id = "enabled-caption", .classes = {"muted"}})},
                     {.style = {.align = Align::center, .gap = 4.f}}),
             ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
-            ui::Text("Amount", {.classes = {"muted"}}),
+            ui::Label("Amount", "amount", {.id = "amount-caption", .classes = {"muted"}}),
             ui::Slider("Amount", item.amount, amount_range, "item.amount",
                        {.node = {.id = "amount", .classes = {"control"}, .style = {.padding = Edges{6, 0, 6, 0}}}}),
-            ui::Text(item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *",
-                     {.id = "scale-caption", .classes = {"muted"}}),
+            ui::Label(item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *", "scale",
+                      {.id = "scale-caption", .classes = {"muted"}}),
             ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")}),
-            ui::Text(pending(item, 1) || pending(item, 2) || pending(item, 3) ? "Position *" : "Position",
-                     {.id = "position-caption", .classes = {"muted"}}),
+            // The group itself takes no focus; its caption names the first component.
+            ui::Label(pending(item, 1) || pending(item, 2) || pending(item, 3) ? "Position *" : "Position",
+                      "position-x", {.id = "position-caption", .classes = {"muted"}}),
             ui::VectorInput("Position",
                             {{"x", "X", item.position_draft[0], "item.position.x"},
                              {"y", "Y", item.position_draft[1], "item.position.y"},
@@ -440,31 +441,33 @@ ui::Element Form(const State& state, Size viewport) {
             ui::Text("Enter applies, Esc reverts, Up/Down or drag step.",
                      {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}}),
             // Multiple-line documentation; Enter starts a line and the field grows with its wrapped rows.
-            ui::Text("Notes", {.id = "notes-caption", .classes = {"muted"}}),
+            ui::Label("Notes", "notes", {.id = "notes-caption", .classes = {"muted"}}),
             ui::TextEditor("Notes", item.notes, "item.notes", {.node = control("notes")})};
         rows.resize(7);
     } else {
         properties = {
-            ui::Text("Visibility", {.classes = {"muted"}}),
+            // Like Tab entry, the caption reaches the checked choice.
+            ui::Label("Visibility", "visibility-option-" + item.visibility,
+                      {.id = "visibility-caption", .classes = {"muted"}}),
             // Choices share a line when the control column allows and wrap in narrow panes.
             ui::RadioGroup(
                 "Visibility", item.visibility, std::move(visibility),
                 {.node = {.id = "visibility",
                           .style = {.direction = FlexDirection::row, .flex_wrap = FlexWrap::wrap, .gap = 4.f}}}),
-            ui::Text("Shadows", {.classes = {"muted"}}),
+            ui::Label("Shadows", "shadows", {.id = "shadows-caption", .classes = {"muted"}}),
             ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})};
         std::vector<ui::ComboBoxOption> purposes;
         for (const auto& [key, label] : purpose_choices) purposes.push_back({key, label, "purpose." + key});
         auto purpose = ui::ComboBox(
             "Purpose", item.purpose, std::move(purposes), "purpose.toggle",
             {.node = control("purpose"), .list = {.classes = {"popup"}}, .open = state.menu == OpenMenu::purpose});
-        properties.push_back(ui::Text("Purpose", {.classes = {"muted"}}));
+        properties.push_back(ui::Label("Purpose", "purpose", {.id = "purpose-caption", .classes = {"muted"}}));
         properties.push_back(std::move(purpose.field));
         purpose_list = std::move(purpose.list);
         auto color = ui::ColorPicker(
             "Display color", item.color, {.toggle = "color.toggle", .area = "color.area", .hue = "color.hue"},
             {.node = control("display-color"), .panel = {.classes = {"popup"}}, .open = state.menu == OpenMenu::color});
-        properties.push_back(ui::Text("Color", {.classes = {"muted"}}));
+        properties.push_back(ui::Label("Color", "display-color", {.id = "color-caption", .classes = {"muted"}}));
         properties.push_back(std::move(color.field));
         color_panel = std::move(color.panel);
         rows.resize(4);
@@ -499,7 +502,9 @@ ui::Element Form(const State& state, Size viewport) {
     if (purpose_list) layers.push_back(std::move(*purpose_list));
     if (color_panel) layers.push_back(std::move(*color_panel));
     std::vector<ui::Element> content{
+        // The Spacer keeps the item tools at the trailing edge of the header.
         ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
+                 ui::Spacer({.id = "header-space"}),
                  ui::Toolbar("Item tools",
                              {ui::Button("Item actions", "menu.open", {.node = control("actions")}),
                               ui::Button("Rename", "item.rename", {.node = control("tool-rename")}),
@@ -1019,6 +1024,12 @@ public:
                             owner = *view.tree->find("hierarchy-item-" + id.substr(17));
                         (void)take(focus.focus(view.hit(), owner));
                     }
+            // A primary press on a property caption focuses the control it labels, without a command.
+            // An ineligible target, such as a disabled control, leaves focus unchanged.
+            if (const auto* down = std::get_if<PointerDown>(&event.data);
+                down && down->button == PointerButton::primary && dispatched.target)
+                if (const auto labelled = take(label_target(*view.tree, *dispatched.target)))
+                    (void)focus.focus(view.hit(), *labelled);
             for (const auto& request : dispatched.actions) checked(operate(request, source));
             if (std::holds_alternative<PointerDown>(event.data)) refresh(true);
             observe();
@@ -3548,6 +3559,57 @@ void notes_smoke() {
     require(notes() == edited && !app.view.tree->find("modified-badge"),
             "Reset must keep notes, and notes must not mark the item modified");
 }
+void label_smoke() {
+    App app;
+    // Leave room below the card for every General row.
+    app.resize({960, 540});
+    std::chrono::microseconds time{};
+    const auto focused = [&](std::string_view id) {
+        return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id);
+    };
+    const auto click = [&](std::string_view id) {
+        const auto point = app.view.reachable(id);
+        app.input({++time, PointerDown{{1}, point}}, CommandSource::pointer);
+        app.input({++time, PointerUp{{1}, point}}, CommandSource::pointer);
+    };
+    const auto header = app.view.box("application").padding_box();
+    const auto tools = app.view.box("item-tools").border_box;
+    const auto space = app.view.box("header-space").border_box;
+    // The application's 12-unit padding ends its content box.
+    require(std::abs(tools.origin.x + tools.size.width - (header.origin.x + header.size.width - 12)) < 1e-3f &&
+                space.size.width > 0 && std::abs(space.origin.x + space.size.width + 16 - tools.origin.x) < 1e-3f,
+            "The header Spacer must keep the item tools at the trailing edge");
+    const auto gap = Point{space.origin.x + space.size.width / 2, space.origin.y + space.size.height / 2};
+    require(take(hit_test(app.view.hit(), gap)).target != app.view.tree->find("header-space"),
+            "The header Spacer must not take pointer hits");
+
+    const auto item = app.state.item();
+    const auto executions = app.executions;
+    for (const auto& [caption, target] :
+         {std::pair{"name-caption", "name"}, std::pair{"enabled-caption", "enabled"},
+          std::pair{"amount-caption", "amount"}, std::pair{"scale-caption", "scale"},
+          std::pair{"position-caption", "position-x"}, std::pair{"notes-caption", "notes"}}) {
+        app.focus_id("actions");
+        click(caption);
+        require(focused(target) && app.observed(caption).role == SemanticRole::text,
+                "A press on a General caption must focus the control it labels");
+    }
+    require(app.executions == executions && app.state.item() == item,
+            "Caption presses must not run commands or change the item");
+    require(app.observed("name").name == "Name" && app.observed("scale").name == "Scale",
+            "Captions must not rename the controls they label");
+
+    app.action("sections-tab-display");
+    for (const auto& [caption, target] :
+         {std::pair{"visibility-caption", "visibility-option-inherited"}, std::pair{"shadows-caption", "shadows"},
+          std::pair{"purpose-caption", "purpose"}, std::pair{"color-caption", "display-color"}}) {
+        app.focus_id("actions");
+        click(caption);
+        require(focused(target) && app.state.menu == OpenMenu::none,
+                "A press on a Display caption must focus its control without opening it");
+    }
+    require(app.state.item() == item, "Display caption presses must not change the item");
+}
 void smoke() {
     sections_smoke();
     notes_smoke();
@@ -3556,6 +3618,7 @@ void smoke() {
     scale_smoke();
     position_smoke();
     scrub_smoke();
+    label_smoke();
     reorder_smoke();
     visibility_smoke();
     shadows_smoke();

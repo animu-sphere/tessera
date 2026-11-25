@@ -209,6 +209,26 @@ Element Text(Value<std::string> text, Props props) {
     data->text = std::move(text);
     return Element(std::move(data));
 }
+Element Label(Value<std::string> text, std::string target, Props props) {
+    auto data = std::make_shared<detail::ElementData>();
+    data->kind = NodeKind::text;
+    // An empty target reports label_target alone instead of a second empty-reference error.
+    if (target.empty())
+        data->diagnostics.push_back(
+            {"label_target", Severity::error, {}, "Name the author ID of the control this Label describes."});
+    else
+        data->properties["label_for"] = NodeReference{std::move(target)};
+    data->props = std::move(props);
+    data->text = std::move(text);
+    return Element(std::move(data));
+}
+Element Spacer(Props props) {
+    if (!props.style.grow) props.style.grow = 1.f;
+    auto data = std::make_shared<detail::ElementData>();
+    data->props = std::move(props);
+    data->properties["pointer_events"] = false;
+    return Element(std::move(data));
+}
 Element Popup(std::string anchor, std::vector<Element> children, PopupProps props) {
     auto data = std::make_shared<detail::ElementData>();
     data->props = std::move(props.node);

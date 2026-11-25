@@ -31,6 +31,10 @@ std::vector<Diagnostic> validate(const HitTestInput&);
 // Transparent/zero-opacity boxes remain eligible. pointer_events:false excludes a
 // subtree from pointer hits only. No implicit clips or transforms.
 Result<HitTestResult> hit_test(const HitTestInput&, Point position);
+// The control a Label names: the node its `label_for` references, or nullopt when `hit` carries
+// none. Under its press policy a host focuses the result through FocusDispatcher::focus, which
+// checks eligibility; the helper neither focuses nor activates. Rejects a handle from another tree.
+Result<std::optional<NodeHandle>> label_target(const UiTree&, NodeHandle hit);
 
 struct PointerState {
     PointerId pointer;
