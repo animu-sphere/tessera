@@ -40,6 +40,21 @@ ui::Text("Enter applies, Esc reverts, Up/Down or drag step.",
 
 Declare a row for it like any other child. Children still fill cells row-major in declared order; a span that does not fit the rest of the current row moves to the next one, leaving earlier holes empty rather than backfilling them. A spanning child aligns within its spanned tracks plus the gaps between them, and spanning text wraps at that width. Its size grows only content-sized tracks it crosses, in equal shares; across a fractional column it relies on that column's share of the width. A span longer than the declared axis reports `grid_span` at the child; one that finds no free area reports `grid_capacity`.
 
+## Compose property rows
+
+For a caption/control property list, `ui::PropertyGrid` builds this Grid from `InspectorRow` records and generates both columns, one row per record and the caption Labels:
+
+```cpp
+auto properties = ui::PropertyGrid({
+    {"Display name", "name", ui::TextInput("Name", name_value, "inspector.name", {.node = {.id = "name"}})},
+    {"Kind", "category", ui::TextInput("Group", category_value, "inspector.category", {.node = {.id = "category"}})},
+    ui::InspectorRow(ui::Text("Enter applies, Esc reverts.", {.id = "hint", .classes = {"muted"}}))},
+    {.node = {.id = "inspector"}, .caption_column = GridTrack{.maximum = 80}, .control_column = GridTrack::fraction(1, 32),
+     .caption_classes = {"muted"}});
+```
+
+Each captioned row generates a Label `<target>-caption` that focuses its control on a press; set the caption props' `id` when the target varies, as for a radio group's checked option. Pass an element as the caption, such as a Row holding a status mark and a Label, to compose it unchanged. A row built from one element spans both columns. Gaps default to 8 units. The [authoring contract](../architecture/ui-model.md#implemented-c-form-authoring) owns the generated parts; the [Inspector](inspector-hierarchy.md#property-captions) uses it for both property sections.
+
 ## Run the application operation
 
 After the [core configure procedure](development.md#core-build-workflow), with examples enabled:

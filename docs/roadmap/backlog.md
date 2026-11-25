@@ -23,10 +23,6 @@ The [PR Core / main Integration split](../guides/development.md#ci-scopes-and-re
 - Required-check changes after validating replacement coverage under the [testing policy](../guides/testing.md#measurement-and-safe-reduction).
 - Hosted timing and capacity/cost observations for the current core/integration split.
 
-## Widget candidates beyond the reference application
-
-InspectorRow, selected from application use. See [authoring](../proposals/cpp-authoring.md).
-
 ## Layout follow-ups
 
 - Positioned-ancestor containing boxes; percentage sizing, aspect ratio and responsive rules.

@@ -190,8 +190,15 @@ struct ColorPickerProps {
     Size area{160, 120}; // Saturation/value area size in logical units; the hue strip shares its width.
 };
 class Element;
+class InspectorRow;
 struct ComboBoxParts;
 struct ColorPickerParts;
+struct PropertyGridProps {
+    Props node;                 // Grid ID, classes, style and source; grid_columns and grid_rows are generated.
+    GridTrack caption_column{}; // Content-sized by default.
+    GridTrack control_column = GridTrack::fraction(1); // Remaining width by default.
+    std::vector<std::string> caption_classes;          // Appended to each generated caption Label.
+};
 // If the parent cannot hold both minima, keep them and clip the overflow.
 Result<float> split_pane_size_at(SplitPaneLimits, float available, float requested);
 
@@ -223,6 +230,7 @@ private:
     friend Element Column(std::vector<Element>, Props);
     friend Element Stack(std::vector<Element>, Props);
     friend Element Grid(std::vector<Element>, Props);
+    friend Element PropertyGrid(std::vector<InspectorRow>, PropertyGridProps);
     friend Element Popup(std::string, std::vector<Element>, PopupProps);
     friend Element Tooltip(std::string, Value<std::string>, PopupProps);
     friend Element Menu(std::string, std::string, std::vector<MenuItem>, PopupProps);
@@ -301,6 +309,35 @@ Element Column(std::vector<Element> children, Props = {});
 Element Stack(std::vector<Element> children, Props = {});
 // Row-major children, one per explicit cell; no implicit tracks or spanning.
 Element Grid(std::vector<Element> children, Props = {});
+// One property row of a PropertyGrid: a caption in the caption column and a control in the control
+// column, or one wide element spanning both.
+class InspectorRow final {
+public:
+    // A caption Label naming the control with author ID `target`. The caption's ID is
+    // <target>-caption unless caption.id is set; PropertyGridProps::caption_classes are appended.
+    InspectorRow(Value<std::string> text, std::string target, Element control, Props caption = {})
+        : text_(std::move(text)), target_(std::move(target)), caption_props_(std::move(caption)),
+          control_(std::move(control)) {}
+    // An authored caption, such as a Row holding a status mark and a Label; composed unchanged.
+    InspectorRow(Element caption, Element control) : caption_(std::move(caption)), control_(std::move(control)) {}
+    // An element spanning both columns, such as contextual help. Its grid_column_span is 2 unless
+    // its style sets one.
+    explicit InspectorRow(Element wide) : control_(std::move(wide)), wide_(true) {}
+
+private:
+    std::optional<Value<std::string>> text_;
+    std::string target_;
+    Props caption_props_;
+    std::optional<Element> caption_;
+    Element control_;
+    bool wide_ = false;
+    friend Element PropertyGrid(std::vector<InspectorRow>, PropertyGridProps);
+};
+// An Inspector property list: a Grid with the caption and control columns and one content-sized row
+// per InspectorRow, in order. Generated grid_columns/grid_rows replace any in node.style; column_gap
+// and row_gap default to 8. Adds no state, semantics or wrapper nodes: captions and controls are
+// the Grid's own children. Rejects an empty row list with property_grid_rows.
+Element PropertyGrid(std::vector<InspectorRow> rows, PropertyGridProps = {});
 // Root children, after ordinary content. Missing, hidden or fully clipped anchors
 // suppress the subtree. No reparenting, modal scope or focus trap.
 Element Popup(std::string anchor, std::vector<Element> children, PopupProps = {});
