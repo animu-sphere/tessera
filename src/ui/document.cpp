@@ -184,13 +184,10 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
     std::map<const UiNode*, std::size_t> selected_counts;
     std::size_t count = 0;
     std::size_t toolbars = 0; // Toolbar ancestors of the visited node.
-    std::function<void(const UiNode&, const std::string&, std::size_t, const UiNode*)> visit;
-    visit = [&](const UiNode& node, const std::string& path, std::size_t depth, const UiNode* parent) {
-        if (++count > max_document_nodes) return;
-        if (depth > max_document_depth) {
-            error("depth_limit", path, "Document exceeds the node nesting limit (64).");
-            return;
-        }
+    // Checks one node and returns whether it is a toolbar. It runs in its own frame, which returns before
+    // visit() descends, so deep documents stay within the stack in unoptimized builds.
+    const auto check_node = [&](const UiNode& node, const std::string& path, std::size_t depth,
+                                const UiNode* parent) -> bool {
         if (node.kind != NodeKind::box && node.kind != NodeKind::text)
             error("unknown_node_kind", path + "/type", "Supported node kinds are Box and Text.");
         if (node.id) {
@@ -300,7 +297,6 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
         if (role == "tree_item" || parent_role == "tree") tree_entries.push_back({&node, parent, path});
         if (node.properties.contains(property_names::tree_parent) && role != "tree_item")
             error("collection_state", path + "/properties/tree_parent", "Only tree items have a logical tree parent.");
-        // Kept out of this recursive frame so deep documents stay within the stack.
         const bool toggle = check_control_roles(node, path, role, errors);
         if (node.properties.contains(property_names::selected) && role != "list_item" && role != "tree_item" &&
             role != "radio" && role != "tab" && role != "option" && !toggle)
@@ -341,7 +337,17 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
                       "Register host action '" + action + "' in ValidationContext before loading.");
         }
         extensions(node.extensions, path + "/extensions", depth * 2);
-        const bool toolbar = role == "toolbar";
+        return role == "toolbar";
+    };
+    // Only this small frame recurses.
+    std::function<void(const UiNode&, const std::string&, std::size_t, const UiNode*)> visit;
+    visit = [&](const UiNode& node, const std::string& path, std::size_t depth, const UiNode* parent) {
+        if (++count > max_document_nodes) return;
+        if (depth > max_document_depth) {
+            error("depth_limit", path, "Document exceeds the node nesting limit (64).");
+            return;
+        }
+        const bool toolbar = check_node(node, path, depth, parent);
         toolbars += toolbar;
         for (std::size_t i = 0; i < node.children.size() && count <= max_document_nodes; ++i)
             visit(node.children[i], path + "/children/" + std::to_string(i), depth + 1, &node);
