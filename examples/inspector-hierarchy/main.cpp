@@ -502,14 +502,16 @@ ui::Element Form(const State& state, Size viewport) {
     if (purpose_list) layers.push_back(std::move(*purpose_list));
     if (color_panel) layers.push_back(std::move(*color_panel));
     std::vector<ui::Element> content{
-        // The Spacer keeps the item tools at the trailing edge of the header.
+        // The Spacer keeps the item tools at the trailing edge of the header. The tools stretch so the
+        // Separator between the menu trigger and the item commands spans their height.
         ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
                  ui::Spacer({.id = "header-space"}),
                  ui::Toolbar("Item tools",
                              {ui::Button("Item actions", "menu.open", {.node = control("actions")}),
+                              ui::VerticalSeparator({.id = "tools-separator"}),
                               ui::Button("Rename", "item.rename", {.node = control("tool-rename")}),
                               ui::Button("Reset", "item.reset", {.node = control("tool-reset")})},
-                             {.id = "item-tools"})},
+                             {.id = "item-tools", .style = {.align = Align::stretch}})},
                 {.style = {.align = Align::center, .gap = 16.f}}),
         ui::HorizontalSplitPane(
             ui::TreeView("Hierarchy", state.selected,
@@ -539,6 +541,7 @@ ui::Element Form(const State& state, Size viewport) {
                                                                                            {1, {.98f, .9f, .98f, 1}}}},
                                            .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
                                            .background_antialias = true}}),
+                            ui::HorizontalSeparator({.id = "help-separator"}),
                             ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
                                         ui::Text("Drag rows or Alt+Up/Down to reorder.", {.classes = {"muted"}}),
                                         ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
@@ -3199,6 +3202,41 @@ void sections_smoke() {
     app.action("tool-rename");
     require(app.state.section == "general" && focused("name"), "Rename must show General and focus the name editor");
 }
+// The header tools' Separator spans the toolbar between the menu trigger and Rename, and the help's
+// Separator spans the Inspector column below the card; neither takes hits, focus or a name.
+void separator_checks(const App& app) {
+    const auto same = [](float a, float b) { return std::abs(a - b) < 1e-3f; };
+    const auto tools = app.view.box("item-tools").border_box;
+    const auto actions = app.view.box("actions").border_box;
+    const auto bar = app.view.box("tools-separator").border_box;
+    const auto rename = app.view.box("tool-rename").border_box;
+    require(same(bar.size.width, 1) && same(bar.origin.y, tools.origin.y) && same(bar.size.height, tools.size.height) &&
+                same(actions.size.height, tools.size.height) &&
+                same(bar.origin.x, actions.origin.x + actions.size.width + 4) &&
+                same(rename.origin.x, bar.origin.x + 1 + 4),
+            "The tools Separator must span the toolbar between the menu trigger and Rename");
+    const auto card = app.view.box("item-card").border_box;
+    const auto rule = app.view.box("help-separator").border_box;
+    const auto help = app.view.box("help").border_box;
+    require(same(rule.size.height, 1) && same(rule.origin.x, card.origin.x) && same(rule.size.width, card.size.width) &&
+                same(rule.origin.y, card.origin.y + card.size.height + 12) &&
+                same(help.origin.y, rule.origin.y + 1 + 12),
+            "The help Separator must span the Inspector column between the card and the help");
+    for (const auto* id : {"tools-separator", "help-separator"}) {
+        const auto& entry = app.observed(id);
+        require(entry.role == SemanticRole::separator && entry.name.empty() && entry.actions.empty() &&
+                    !entry.focusable,
+                "A Separator must expose an unnamed separator without actions or focus");
+        const auto box = app.view.box(id).border_box;
+        const Point middle{box.origin.x + box.size.width / 2, box.origin.y + box.size.height / 2};
+        require(take(hit_test(app.view.hit(), middle)).target != app.view.tree->find(id),
+                "A Separator must not take pointer hits");
+    }
+    require(app.view.inspection.semantics.nodes[app.observed("tools-separator").parent].id == "item-tools" &&
+                std::none_of(app.view.inspection.diagnostics.begin(), app.view.inspection.diagnostics.end(),
+                             [](const Diagnostic& diagnostic) { return diagnostic.code == "missing_name"; }),
+            "The tools Separator must stay inside the toolbar without naming warnings");
+}
 void toolbar_smoke() {
     App app;
     std::chrono::microseconds time{};
@@ -3213,6 +3251,7 @@ void toolbar_smoke() {
                 app.observed("tool-reset").role == SemanticRole::button &&
                 app.view.inspection.semantics.nodes[app.observed("tool-reset").parent].id == "item-tools",
             "The header must expose a named toolbar of ordinary buttons");
+    separator_checks(app);
     app.focus_id("hierarchy-item-scene");
     input(KeyDown{Key::tab, {.shift = true}});
     require(focused("actions"), "Shift+Tab must enter the toolbar at its first control");

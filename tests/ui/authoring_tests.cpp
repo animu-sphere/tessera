@@ -1,5 +1,6 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/input/pointer.hpp>
+#include <tessera/semantics/semantics.hpp>
 #include "../check.hpp"
 #include <algorithm>
 #include <iostream>
@@ -281,6 +282,58 @@ void label_and_spacer() {
     const auto missing = ui.lower(Row({Label("Name", "absent", {.source = origin})}), actions);
     check(!missing && has(missing.diagnostics, "invalid_reference", "/root/children/0/properties/label_for/ref"),
           "A Label target must resolve in the document");
+}
+
+void separators() {
+    Session ui;
+    const auto form =
+        Column({Text("Above", {.id = "above"}), HorizontalSeparator({.id = "rule", .source = origin}),
+                Row({Button("Left", "toggle", {.node = {.id = "left"}}), VerticalSeparator({.id = "bar"}),
+                     Button("Right", "toggle", {.node = {.id = "right"}})},
+                    {.id = "tools", .style = {.gap = 4.f}}),
+                HorizontalSeparator(
+                    {.id = "thick", .style = {.height = Dimension::points(3), .background = Color{1, 0, 0, 1}}})},
+               {.style = {.width = Dimension::points(200), .gap = 8.f}});
+    const auto lowered = take(ui.lower(form, actions));
+    const auto& rule = lowered.document.root.children[1];
+    check(rule.kind == NodeKind::box && rule.children.empty() && rule.events.empty() &&
+              rule.properties ==
+                  std::map<std::string, Property, std::less<>>{{"pointer_events", false}, {"separator", true}},
+          "A Separator must lower to an empty input-transparent Box with the separator marker alone");
+    check(validate_sources(lowered.document, lowered.sources).empty() && lowered.sources.nodes[2].invocation == origin,
+          "A Separator needs its caller's source origin");
+    check(lowered.styles[2].height == Dimension::points(1) && !lowered.styles[2].width &&
+              lowered.styles[2].shrink == 0.f && lowered.styles[2].background &&
+              lowered.styles[6].width == Dimension::points(1) && !lowered.styles[6].height &&
+              lowered.styles[9].height == Dimension::points(3) && lowered.styles[9].background == Color{1, 0, 0, 1},
+          "Separators must default their thickness, shrink and color unless the caller sets them");
+
+    const auto tree = take(UiTree::create(lowered.document, actions));
+    const StyleSheet sheet;
+    const auto styles = take(resolve_styles({tree.get(), &sheet, {}, lowered.styles}));
+    PlaceholderTextShaper shaper;
+    const auto layout = take(compute_layout({tree.get(), styles, {400, 200}, &shaper}));
+    const auto box = [&](std::string_view id) {
+        const auto node = *tree->find(id);
+        return std::find_if(layout.boxes.begin(), layout.boxes.end(), [&](const auto& b) { return b.node == node; })
+            ->border_box;
+    };
+    check(box("rule").size == Size{200, 1} && box("thick").size == Size{200, 3} && box("bar").size.width == 1 &&
+              box("bar").size.height == box("tools").size.height &&
+              box("bar").origin.x == box("left").origin.x + box("left").size.width + 4 &&
+              box("right").origin.x == box("bar").origin.x + 1 + 4,
+          "A Separator must keep its thickness and span its parent's cross axis");
+    const HitTestInput hit{tree.get(), styles, &layout};
+    check(take(hit_test(hit, {box("rule").origin.x + 1, box("rule").origin.y})).target == tree->root() &&
+              take(hit_test(hit, {box("bar").origin.x, box("bar").origin.y + 1})).target == tree->find("tools"),
+          "A Separator must not intercept pointer hits");
+    const auto semantics = build_semantic_tree({tree.get(), styles, &layout});
+    check(semantics && semantics.diagnostics.empty(), "An unnamed static Separator must not warn");
+    const auto entry = std::find_if(semantics.value->nodes.begin(), semantics.value->nodes.end(),
+                                    [&](const auto& node) { return node.node == tree->find("bar"); });
+    check(entry != semantics.value->nodes.end() && entry->role == SemanticRole::separator && entry->name.empty() &&
+              entry->actions.empty() && !entry->focusable && semantics.value->nodes[entry->parent].node == tree->root(),
+          "A Separator must project an unnamed separator entry without actions or focus");
 }
 
 void controlled_dropdown() {
@@ -596,6 +649,7 @@ int main() {
         stack_contract();
         grid_contract();
         label_and_spacer();
+        separators();
         controlled_dropdown();
         controlled_slider();
         lifetimes_and_recovery();
