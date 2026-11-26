@@ -151,6 +151,10 @@ public:
                 entry.selected = std::get<bool>(*selected);
             if (const auto* value = effective_property(node, property_names::edit_value))
                 entry.value = std::get<std::string>(*value);
+            if (const auto* count = effective_property(node, property_names::item_count))
+                entry.item_count = static_cast<std::uint64_t>(std::get<double>(*count));
+            if (const auto* position = effective_property(node, property_names::item_position))
+                entry.item_position = static_cast<std::uint64_t>(std::get<double>(*position));
             if (const auto* expanded = effective_property(node, property_names::expanded)) {
                 entry.expanded = std::get<bool>(*expanded);
                 const auto binding_name = *entry.expanded ? "collapse" : "expand";

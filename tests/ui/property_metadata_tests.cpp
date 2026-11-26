@@ -63,6 +63,12 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
             result.root.children.push_back(std::move(parent));
         }
     }
+    if (except == "item_count" && kind == tessera::NodeKind::box)
+        child.properties["collection_role"] = std::string("list");
+    if (except == "item_position") {
+        result.root.properties["collection_role"] = std::string("list");
+        if (kind == tessera::NodeKind::box) child.properties["collection_role"] = std::string("list_item");
+    }
     for (const auto& descriptor : tessera::property_descriptors()) {
         if (descriptor.name != except && tessera::contains(descriptor.required, kind))
             child.properties.emplace(descriptor.name, sample(descriptor.type));
@@ -73,7 +79,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 22, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 24, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");
@@ -154,6 +160,13 @@ void validation_and_encoding_agreement() {
                         value = std::string("number_input");
                         encoding = "\"number_input\"";
                     }
+                }
+                if ((descriptor.name == "item_count" || descriptor.name == "item_position") &&
+                    type == tessera::PropertyType::number) {
+                    // Logical counts and positions are whole numbers; a position needs its collection's count.
+                    value = 2.0;
+                    encoding = "2";
+                    if (descriptor.name == "item_position") candidate.root.properties["item_count"] = 3.0;
                 }
                 if (descriptor.name == "tree_parent" && type == tessera::PropertyType::reference) {
                     value = tessera::NodeReference{"parent"};

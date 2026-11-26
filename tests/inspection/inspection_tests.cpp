@@ -87,6 +87,8 @@ void capture_joins_one_generation() {
         {"edit_value", std::nullopt, false},
         {"expanded", std::nullopt, false},
         {"focusable", tessera::Property{true}, true},
+        {"item_count", std::nullopt, false},
+        {"item_position", std::nullopt, false},
         {"labelled_by", std::nullopt, false},
         {"modal", tessera::Property{false}, false},
         {"pointer_events", tessera::Property{true}, false},

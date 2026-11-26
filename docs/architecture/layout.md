@@ -172,7 +172,7 @@ Verify logical-edge mapping, nested direction overrides, safe alignment, wrapped
 
 Virtualized geometry must match full realization within the viewport. Stable logical keys, explicit measurement/anchor policy and bounded realization cannot be replaced by recycled row indices.
 
-Possible mechanisms: [virtualization](../proposals/virtualization.md#proposed-virtualization-foundation). This direction is not an implementation task; only the active roadmap can require a bounded part.
+Possible mechanisms: [virtualization](../proposals/virtualization.md#proposed-virtualization-foundation). This direction is not an implementation task; only the active roadmap can require a bounded part. [VirtualListView/VirtualTreeView](../guides/virtual-list.md) implement the fixed-extent slice in authoring: they lower ordinary rows whose margins stand in for unrealized rows, so layout itself is unchanged and computes the same extents and offsets as full realization.
 
 ## Invalidation
 
