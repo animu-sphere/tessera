@@ -405,85 +405,77 @@ ui::Element Form(const State& state, Size viewport) {
         return ui::PopupProps{.node = {.id = id, .classes = {"popup"}, .style = {.width = Dimension::points(220)}},
                               .open = state.menu == kind};
     };
-    std::vector<ui::Element> properties;
-    std::vector<GridTrack> rows;
+    std::vector<ui::InspectorRow> properties;
     // Composed under the root, after the item menus.
     std::optional<ui::Element> purpose_list, color_panel;
     if (state.section == "general") {
         properties = {
-            ui::Label("Display name", "name", {.id = "name-caption", .classes = {"muted"}}),
-            ui::TextInput("Name", item.name, "item.name", {.node = control("name")}),
-            ui::Row({ui::Column({}, {.id = "enabled-indicator",
-                                     .style = {.width = Dimension::points(8),
-                                               .height = Dimension::points(8),
-                                               .background =
-                                                   item.enabled ? Color{.15f, .6f, .4f, 1} : Color{.55f, .6f, .68f, 1},
-                                               .background_shape = FillShape::ellipse,
-                                               .background_antialias = true}}),
-                     ui::Label("Enabled", "enabled", {.id = "enabled-caption", .classes = {"muted"}})},
-                    {.style = {.align = Align::center, .gap = 4.f}}),
-            ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")}),
-            ui::Label("Amount", "amount", {.id = "amount-caption", .classes = {"muted"}}),
-            ui::Slider("Amount", item.amount, amount_range, "item.amount",
-                       {.node = {.id = "amount", .classes = {"control"}, .style = {.padding = Edges{6, 0, 6, 0}}}}),
-            ui::Label(item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *", "scale",
-                      {.id = "scale-caption", .classes = {"muted"}}),
-            ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")}),
+            {"Display name", "name", ui::TextInput("Name", item.name, "item.name", {.node = control("name")})},
+            // The caption carries a status mark beside its Label.
+            {ui::Row({ui::Column({}, {.id = "enabled-indicator",
+                                      .style = {.width = Dimension::points(8),
+                                                .height = Dimension::points(8),
+                                                .background =
+                                                    item.enabled ? Color{.15f, .6f, .4f, 1} : Color{.55f, .6f, .68f, 1},
+                                                .background_shape = FillShape::ellipse,
+                                                .background_antialias = true}}),
+                      ui::Label("Enabled", "enabled", {.id = "enabled-caption", .classes = {"muted"}})},
+                     {.style = {.align = Align::center, .gap = 4.f}}),
+             ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")})},
+            {"Amount", "amount",
+             ui::Slider("Amount", item.amount, amount_range, "item.amount",
+                        {.node = {.id = "amount", .classes = {"control"}, .style = {.padding = Edges{6, 0, 6, 0}}}})},
+            {item.scale_draft.text == ui::format_number(item.scale) ? "Scale" : "Scale *", "scale",
+             ui::NumberInput("Scale", item.scale_draft, "item.scale", {.node = control("scale")})},
             // The group itself takes no focus; its caption names the first component.
-            ui::Label(pending(item, 1) || pending(item, 2) || pending(item, 3) ? "Position *" : "Position",
-                      "position-x", {.id = "position-caption", .classes = {"muted"}}),
-            ui::VectorInput("Position",
-                            {{"x", "X", item.position_draft[0], "item.position.x"},
-                             {"y", "Y", item.position_draft[1], "item.position.y"},
-                             {"z", "Z", item.position_draft[2], "item.position.z"}},
-                            {.node = {.id = "position"}}),
-            // Contextual help spans the label and control columns below Scale and Position.
-            ui::Text("Enter applies, Esc reverts, Up/Down or drag step.",
-                     {.id = "scale-hint", .classes = {"muted"}, .style = {.grid_column_span = std::uint16_t{2}}}),
+            {pending(item, 1) || pending(item, 2) || pending(item, 3) ? "Position *" : "Position",
+             "position-x",
+             ui::VectorInput("Position",
+                             {{"x", "X", item.position_draft[0], "item.position.x"},
+                              {"y", "Y", item.position_draft[1], "item.position.y"},
+                              {"z", "Z", item.position_draft[2], "item.position.z"}},
+                             {.node = {.id = "position"}}),
+             {.id = "position-caption"}},
+            // Contextual help spans the caption and control columns below Scale and Position.
+            ui::InspectorRow(ui::Text("Enter applies, Esc reverts, Up/Down or drag step.",
+                                      {.id = "scale-hint", .classes = {"muted"}})),
             // Multiple-line documentation; Enter starts a line and the field grows with its wrapped rows.
-            ui::Label("Notes", "notes", {.id = "notes-caption", .classes = {"muted"}}),
-            ui::TextEditor("Notes", item.notes, "item.notes", {.node = control("notes")})};
-        rows.resize(7);
+            {"Notes", "notes", ui::TextEditor("Notes", item.notes, "item.notes", {.node = control("notes")})}};
     } else {
-        properties = {
-            // Like Tab entry, the caption reaches the checked choice.
-            ui::Label("Visibility", "visibility-option-" + item.visibility,
-                      {.id = "visibility-caption", .classes = {"muted"}}),
-            // Choices share a line when the control column allows and wrap in narrow panes.
-            ui::RadioGroup(
-                "Visibility", item.visibility, std::move(visibility),
-                {.node = {.id = "visibility",
-                          .style = {.direction = FlexDirection::row, .flex_wrap = FlexWrap::wrap, .gap = 4.f}}}),
-            ui::Label("Shadows", "shadows", {.id = "shadows-caption", .classes = {"muted"}}),
-            ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})};
         std::vector<ui::ComboBoxOption> purposes;
         for (const auto& [key, label] : purpose_choices) purposes.push_back({key, label, "purpose." + key});
         auto purpose = ui::ComboBox(
             "Purpose", item.purpose, std::move(purposes), "purpose.toggle",
             {.node = control("purpose"), .list = {.classes = {"popup"}}, .open = state.menu == OpenMenu::purpose});
-        properties.push_back(ui::Label("Purpose", "purpose", {.id = "purpose-caption", .classes = {"muted"}}));
-        properties.push_back(std::move(purpose.field));
-        purpose_list = std::move(purpose.list);
         auto color = ui::ColorPicker(
             "Display color", item.color, {.toggle = "color.toggle", .area = "color.area", .hue = "color.hue"},
             {.node = control("display-color"), .panel = {.classes = {"popup"}}, .open = state.menu == OpenMenu::color});
-        properties.push_back(ui::Label("Color", "display-color", {.id = "color-caption", .classes = {"muted"}}));
-        properties.push_back(std::move(color.field));
+        properties = {
+            // Like Tab entry, the caption reaches the checked choice.
+            {"Visibility",
+             "visibility-option-" + item.visibility,
+             // Choices share a line when the control column allows and wrap in narrow panes.
+             ui::RadioGroup(
+                 "Visibility", item.visibility, std::move(visibility),
+                 {.node = {.id = "visibility",
+                           .style = {.direction = FlexDirection::row, .flex_wrap = FlexWrap::wrap, .gap = 4.f}}}),
+             {.id = "visibility-caption"}},
+            {"Shadows", "shadows",
+             ui::Switch("Cast shadows", item.shadows, "item.shadows", {.node = control("shadows")})},
+            {"Purpose", "purpose", purpose.field},
+            {"Color", "display-color", color.field, {.id = "color-caption"}}};
+        purpose_list = std::move(purpose.list);
         color_panel = std::move(color.panel);
-        rows.resize(4);
     }
     std::vector<ui::TabOption> tabs;
     for (const auto& [key, label] : sections) tabs.push_back({key, label, "section." + key});
     std::vector<ui::Element> card{
         ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
         ui::Tabs("Property sections", state.section, std::move(tabs),
-                 {ui::Grid(std::move(properties),
-                           {.id = "properties",
-                            .style = {.grid_columns =
-                                          std::vector<GridTrack>{GridTrack{.maximum = 72}, GridTrack::fraction(1, 202)},
-                                      .grid_rows = std::move(rows),
-                                      .column_gap = 8.f,
-                                      .row_gap = 12.f}})},
+                 {ui::PropertyGrid(std::move(properties), {.node = {.id = "properties", .style = {.row_gap = 12.f}},
+                                                           .caption_column = GridTrack{.maximum = 72},
+                                                           .control_column = GridTrack::fraction(1, 202),
+                                                           .caption_classes = {"muted"}})},
                  {.node = {.id = "sections", .style = {.gap = 12.f}}})};
     // Straddles the card's top edge without moving the card's flow content; painted last, above it.
     if (modified(item))

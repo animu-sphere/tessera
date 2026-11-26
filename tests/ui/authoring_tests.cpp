@@ -284,6 +284,88 @@ void label_and_spacer() {
           "A Label target must resolve in the document");
 }
 
+void property_grid() {
+    Session ui;
+    const auto caption = ui.state("caption", std::string("Display name"));
+    const auto help = Text("Help text", {.classes = {"hint"}});
+    const auto narrow = Text("Narrow", {.id = "narrow", .style = {.grid_column_span = std::uint16_t{1}}});
+    const auto form = Column(
+        {PropertyGrid({{caption,
+                        "name",
+                        Button("Name", "toggle", {.node = {.id = "name"}}),
+                        {.classes = {"own"}, .source = origin}},
+                       {"Size", "size-x", Button("Size", "toggle", {.node = {.id = "size-x"}}), {.id = "size-label"}},
+                       {Row({Label("On", "enabled")}, {.id = "custom"}),
+                        Button("Enabled", "toggle", {.node = {.id = "enabled"}})},
+                       InspectorRow(help),
+                       InspectorRow(narrow)},
+                      {.node = {.id = "properties",
+                                .style = {.grid_columns = std::vector<GridTrack>{GridTrack::points(5)},
+                                          .grid_rows = std::vector<GridTrack>{GridTrack{}},
+                                          .row_gap = 4.f},
+                                .source = origin},
+                       .caption_classes = {"muted"}}),
+         help},
+        {.style = {.width = Dimension::points(300)}});
+    const auto lowered = take(ui.lower(form, actions));
+    const auto& grid = lowered.document.root.children[0];
+    const auto& name = grid.children[0];
+    check(grid.id == "properties" && grid.children.size() == 8 && name.kind == NodeKind::text &&
+              name.id == "name-caption" && name.classes == std::vector<std::string>{"own", "muted"} &&
+              name.properties.at("text") == Property{std::string("Display name")} &&
+              name.properties.at("label_for") == Property{NodeReference{"name"}} && grid.children[1].id == "name" &&
+              grid.children[2].id == "size-label" && grid.children[4].id == "custom" &&
+              grid.children[4].classes.empty() && grid.children[5].id == "enabled" &&
+              grid.children[6].classes == std::vector<std::string>{"hint"} && grid.children[7].id == "narrow",
+          "PropertyGrid must compose captions and controls as its own children in row order");
+    check(validate_sources(lowered.document, lowered.sources).empty() &&
+              lowered.sources.nodes[2].property_arguments.at("label_for") == origin &&
+              lowered.sources.nodes[1].invocation == origin,
+          "PropertyGrid and its generated captions need their callers' source origins");
+    // Preorder: root, grid, then caption and Button (with its label Text) per row, the custom caption's Label,
+    // the wide help (12) and narrow (13) rows, and the help outside the grid last.
+    const auto& grid_style = lowered.styles[1];
+    check(grid_style.display == Display::grid &&
+              grid_style.grid_columns == std::vector<GridTrack>{GridTrack{}, GridTrack::fraction(1)} &&
+              grid_style.grid_rows == std::vector<GridTrack>(5) && grid_style.column_gap == 8.f &&
+              grid_style.row_gap == 4.f,
+          "PropertyGrid must generate its columns and one row per InspectorRow");
+    check(lowered.styles.size() == 15 && lowered.styles[12].grid_column_span == std::uint16_t{2} &&
+              lowered.styles[13].grid_column_span == std::uint16_t{1} && !lowered.styles[14].grid_column_span,
+          "A wide row spans both columns unless it sets a span, without changing other occurrences");
+
+    const auto tree = take(UiTree::create(lowered.document, actions));
+    const StyleSheet sheet;
+    const auto styles = take(resolve_styles({tree.get(), &sheet, {}, lowered.styles}));
+    PlaceholderTextShaper shaper;
+    const auto layout = take(compute_layout({tree.get(), styles, {400, 400}, &shaper}));
+    const auto box = [&](NodeHandle node) {
+        return std::find_if(layout.boxes.begin(), layout.boxes.end(), [&](const auto& b) { return b.node == node; })
+            ->border_box;
+    };
+    const auto by_id = [&](std::string_view id) { return box(*tree->find(id)); };
+    const auto wide = box(tree->children(*tree->find("properties"))[6]);
+    check(by_id("name").origin.x == by_id("size-x").origin.x && by_id("size-x").origin.x == by_id("enabled").origin.x &&
+              by_id("name").origin.x == by_id("name-caption").size.width + 8 &&
+              by_id("name-caption").size.width == 96 && by_id("size-label").size.width == 96 &&
+              by_id("size-x").origin.y >= by_id("name").origin.y + by_id("name").size.height + 4 &&
+              wide.origin.x == 0 && wide.size.width == 300 &&
+              by_id("narrow").size.width == by_id("name-caption").size.width,
+          "Rows must share the widest caption's column and a wide row must span both columns");
+    const HitTestInput hit{tree.get(), styles, &layout};
+    const auto at = take(hit_test(hit, {by_id("size-label").origin.x + 1, by_id("size-label").origin.y + 1})).target;
+    check(at && take(label_target(*tree, *at)) == tree->find("size-x"),
+          "A generated caption must resolve its control for label press focus");
+
+    const auto empty = ui.lower(PropertyGrid({}, {.node = {.source = origin}}), actions);
+    check(!empty && empty.diagnostics.size() == 1 && has(empty.diagnostics, "property_grid_rows", "/root") &&
+              empty.diagnostics[0].source && empty.diagnostics[0].source->location == origin,
+          "An empty PropertyGrid needs one source-located diagnostic");
+    const auto blank = ui.lower(PropertyGrid({{"Name", "", Text("Value")}}), actions);
+    check(!blank && blank.diagnostics.size() == 1 && has(blank.diagnostics, "label_target", "/root/children/0"),
+          "An empty caption target reports label_target without a generated ID");
+}
+
 void separators() {
     Session ui;
     const auto form =
@@ -649,6 +731,7 @@ int main() {
         stack_contract();
         grid_contract();
         label_and_spacer();
+        property_grid();
         separators();
         controlled_dropdown();
         controlled_slider();

@@ -872,6 +872,43 @@ Element Grid(std::vector<Element> children, Props props) {
     return Element(std::move(data));
 }
 
+Element PropertyGrid(std::vector<InspectorRow> rows, PropertyGridProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    if (rows.empty())
+        data->diagnostics.push_back(
+            {"property_grid_rows", Severity::error, {}, "Supply at least one InspectorRow to the PropertyGrid."});
+    for (auto& row : rows) {
+        if (row.wide_) {
+            // A copy of the shared description gains the span; other occurrences keep their own.
+            auto wide = std::move(row.control_);
+            if (wide.data_ && !wide.data_->props.style.grid_column_span) {
+                auto spanning = std::make_shared<detail::ElementData>(*wide.data_);
+                spanning->props.style.grid_column_span = std::uint16_t{2};
+                wide = Element(std::move(spanning));
+            }
+            data->children.push_back(std::move(wide));
+            continue;
+        }
+        if (row.caption_) {
+            data->children.push_back(std::move(*row.caption_));
+        } else {
+            auto caption = std::move(row.caption_props_);
+            if (!caption.id && !row.target_.empty()) caption.id = row.target_ + "-caption";
+            caption.classes.insert(caption.classes.end(), props.caption_classes.begin(), props.caption_classes.end());
+            data->children.push_back(Label(std::move(*row.text_), std::move(row.target_), std::move(caption)));
+        }
+        data->children.push_back(std::move(row.control_));
+    }
+    auto& style = props.node.style;
+    if (style.display != Display::none) style.display = Display::grid;
+    style.grid_columns = std::vector<GridTrack>{props.caption_column, props.control_column};
+    style.grid_rows = std::vector<GridTrack>(rows.size());
+    if (!style.column_gap) style.column_gap = 8.f;
+    if (!style.row_gap) style.row_gap = 8.f;
+    data->props = std::move(props.node);
+    return Element(std::move(data));
+}
+
 Element Dropdown(std::string label, std::string selected, std::vector<DropdownOption> options,
                  std::string toggle_action, DropdownProps props) {
     std::vector<Diagnostic> errors;
