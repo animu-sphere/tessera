@@ -16,6 +16,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include "cell_text.hpp"
 #ifdef _WIN32
@@ -54,6 +55,15 @@ const std::vector<std::pair<std::string, std::string>> visibility_choices{
 const std::vector<std::pair<std::string, std::string>> purpose_choices{
     {"default", "Default"}, {"render", "Render"}, {"proxy", "Proxy"}, {"guide", "Guide"}};
 const std::vector<std::pair<std::string, std::string>> sections{{"general", "General"}, {"display", "Display"}};
+// Collapsible help topics below the property card, each with its own `help.<key>` toggle.
+struct HelpTopic {
+    std::string key;
+    std::string label;
+    std::vector<std::string> lines;
+};
+const std::vector<HelpTopic> help_topics{
+    {"items", "Items", {"Edits are kept per item.", "Drag rows or Alt+Up/Down to reorder."}},
+    {"editing", "Text editing", {"Ctrl+A/C/X/V: select/copy/cut/paste.", "Arrows, Home/End, Backspace/Delete."}}};
 // USD's fallback display color, 50% gray, chosen through the Display tab's ColorPicker.
 constexpr HsvColor default_color{0, 0, 0.5};
 struct Item {
@@ -133,7 +143,8 @@ struct State {
     std::vector<Item> items;
     std::string selected = "cube";
     bool expanded = true;
-    std::string section = "general"; // Shown Inspector tab; shared by every item.
+    std::string section = "general";                       // Shown Inspector tab; shared by every item.
+    std::set<std::string, std::less<>> help_open{"items"}; // Expanded help topics; shared by every item.
     float split = 220;
     OpenMenu menu = OpenMenu::none;
     Point position;
@@ -218,6 +229,7 @@ ValidationContext action_context(const State& state) {
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
     for (const auto& [key, label] : purpose_choices) context.actions.insert("purpose." + key);
     for (const auto& [key, label] : sections) context.actions.insert("section." + key);
+    for (const auto& topic : help_topics) context.actions.insert("help." + topic.key);
     return context;
 }
 CommandRegistry command_registry(const ValidationContext& context) {
@@ -379,6 +391,15 @@ StyleSheet appearance(const State& state) {
         sheet.rules.push_back(
             {StyleSelector::of_id(id, {.focus = true}), {.outline = Outline{1.5f, 1.f, {.2f, .4f, .85f, 1}}}});
     for (const auto& [key, label] : purpose_choices) row("purpose-option-" + key);
+    // Help headers share the row feedback; markers are muted and open topics keep their lines compact.
+    for (const auto& topic : help_topics) {
+        row("help-header-" + topic.key);
+        sheet.rules.push_back({StyleSelector::of_id("help-header-" + topic.key), {.padding = Edges{0, 6, 0, 6}}});
+        sheet.rules.push_back({StyleSelector::of_id("help-marker-" + topic.key),
+                               {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id("help-panel-" + topic.key), {.padding = Edges{0, 0, 0, 8}, .gap = 4.f}});
+    }
     sheet.rules.push_back(
         {StyleSelector::of_id("purpose-label-" + state.item().purpose), {.color = Color{.12f, .26f, .6f, 1}}});
     for (const auto* menu : {"actions-menu", "item-menu"}) {
@@ -488,6 +509,13 @@ ui::Element Form(const State& state, Size viewport) {
                                                        .position = Position::absolute,
                                                        .top = std::optional<float>{-9.f},
                                                        .right = std::optional<float>{12.f}}}));
+    std::vector<ui::AccordionSection> help;
+    for (const auto& topic : help_topics) {
+        std::vector<ui::Element> lines;
+        for (const auto& line : topic.lines) lines.push_back(ui::Text(line, {.classes = {"muted"}}));
+        help.push_back({topic.key, topic.label, "help." + topic.key, state.help_open.contains(topic.key), false,
+                        std::move(lines)});
+    }
     std::vector<ui::Element> layers{
         ui::Menu("Item actions", "actions", commands, popup("actions-menu", OpenMenu::actions)),
         ui::ContextMenu("Item actions", "selected", state.position, commands, popup("item-menu", OpenMenu::context))};
@@ -534,11 +562,7 @@ ui::Element Form(const State& state, Size viewport) {
                                            .box_shadow = BoxShadow{{0, 4}, 8, {.18f, .22f, .38f, .18f}},
                                            .background_antialias = true}}),
                             ui::HorizontalSeparator({.id = "help-separator"}),
-                            ui::Column({ui::Text("Edits are kept per item.", {.classes = {"muted"}}),
-                                        ui::Text("Drag rows or Alt+Up/Down to reorder.", {.classes = {"muted"}}),
-                                        ui::Text("Ctrl+A/C/X/V: select/copy/cut/paste.", {.classes = {"muted"}}),
-                                        ui::Text("Arrows, Home/End, Backspace/Delete.", {.classes = {"muted"}})},
-                                       {.id = "help", .style = {.gap = 4.f}})},
+                            ui::Accordion(std::move(help), {.node = {.id = "help"}})},
                            {.id = "inspector",
                             .style = {.height = Dimension::points(height), .padding = Edges{0, 6, 0, 6}, .gap = 12.f}}),
             state.split, "panes.resize",
@@ -744,7 +768,10 @@ public:
             candidate.item().visibility = command.substr(11);
         else if (command.starts_with("section."))
             candidate.section = command.substr(8);
-        else if (command == "item.reset") {
+        else if (command.starts_with("help.")) {
+            const auto topic = command.substr(5);
+            if (!candidate.help_open.erase(topic)) candidate.help_open.insert(topic);
+        } else if (command == "item.reset") {
             // Restore every property except the display name; pending numeric drafts are discarded.
             auto& item = candidate.item();
             item.enabled = true;
@@ -3641,8 +3668,52 @@ void label_smoke() {
     }
     require(app.state.item() == item, "Display caption presses must not change the item");
 }
+// The help below the card is an Accordion: Items starts open and Text editing closed. Each header is a
+// Tab stop that toggles its own topic through one command and keeps focus; topics open independently.
+void help_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    const auto focused = [&](std::string_view id) {
+        return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id);
+    };
+    const auto shown = [&](std::string_view id) { return app.view.tree->find(id).has_value(); };
+    {
+        const auto& items = app.observed("help-header-items");
+        require(items.role == SemanticRole::button && items.name == "Items" && items.expanded == true &&
+                    items.focusable && app.observed_name("help-header-editing") == "Text editing" &&
+                    app.observed("help-header-editing").expanded == false && shown("help-panel-items") &&
+                    !shown("help-panel-editing"),
+                "Help must start with Items open and Text editing closed");
+    }
+    app.focus_id("help-header-items");
+    input(KeyDown{Key::tab});
+    require(focused("help-header-editing"), "Tab must move from one help header to the next");
+    auto executions = app.executions;
+    input(Activate{});
+    require(app.state.help_open.contains("editing") && app.executions == executions + 1 &&
+                focused("help-header-editing") && app.observed("help-header-editing").expanded == true &&
+                shown("help-panel-editing") && shown("help-panel-items"),
+            "Activate must open Text editing through one command without closing Items");
+    const auto point = app.view.reachable("help-header-items");
+    executions = app.executions;
+    input(PointerDown{{1}, point}, CommandSource::pointer);
+    input(PointerUp{{1}, point}, CommandSource::pointer);
+    require(!app.state.help_open.contains("items") && app.executions == executions + 1 &&
+                focused("help-header-items") && app.observed("help-header-items").expanded == false &&
+                !shown("help-panel-items") && shown("help-panel-editing"),
+            "A header press must focus it and close only its topic");
+    app.action("hierarchy-item-sphere");
+    require(!app.state.help_open.contains("items") && app.state.help_open.contains("editing"),
+            "Open help topics must survive item selection");
+    app.action("help-header-editing");
+    require(app.state.help_open.empty() && !shown("help-panel-editing"), "A header must close its open topic");
+}
 void smoke() {
     sections_smoke();
+    help_smoke();
     notes_smoke();
     placement_smoke();
     toolbar_smoke();

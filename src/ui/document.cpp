@@ -302,10 +302,15 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             role != "radio" && role != "tab" && role != "option" && !toggle)
             error("collection_state", path + "/properties/selected",
                   "Only list/tree items, radios, tabs, options and toggles have selection state.");
+        // A disclosure button is an ordinary activate Box without another role or control marker.
+        const bool disclosure = role.empty() && !toggle && node.events.contains("activate") &&
+                                !node.properties.contains(property_names::edit_role) &&
+                                !marked(property_names::modal) && !marked(property_names::separator) &&
+                                !marked(property_names::scrollbar);
         if (node.properties.contains(property_names::expanded) && role != "tree_item" && role != "combobox" &&
-            role != "color_picker")
+            role != "color_picker" && !disclosure)
             error("collection_state", path + "/properties/expanded",
-                  "Only tree items, comboboxes and color pickers have expansion state.");
+                  "Only tree items, comboboxes, color pickers and disclosure buttons have expansion state.");
         if (const auto* selected = effective_property(node, property_names::selected);
             selected && std::get_if<bool>(selected) && std::get<bool>(*selected) && detail::collection_item(role) &&
             ++selected_counts[parent] > 1)

@@ -843,6 +843,50 @@ Element Tabs(std::string label, std::string selected, std::vector<TabOption> tab
     return Element(std::move(data));
 }
 
+Element Accordion(std::vector<AccordionSection> sections, CollectionProps props) {
+    auto data = std::make_shared<detail::ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    const auto source = props.node.source;
+    auto error = [&](const char* code, const char* message) {
+        data->diagnostics.push_back({code, Severity::error, {}, message});
+    };
+    if (prefix.empty()) error("accordion_id", "Give the Accordion a stable nonempty author ID.");
+    if (sections.empty()) error("accordion_empty", "Supply at least one Accordion section.");
+    if (sections.size() > max_document_nodes) error("accordion_limit", "Keep sections within document node limits.");
+    auto part = [&](std::string id) { return Props{.id = std::move(id), .source = source}; };
+    std::set<std::string> keys;
+    for (std::size_t i = 0; i < sections.size() && i < max_document_nodes; ++i) {
+        auto& section = sections[i];
+        if (section.key.empty() || !keys.insert(section.key).second)
+            error("accordion_keys", "Supply unique nonempty Accordion section keys.");
+        if (section.label.empty()) error("accordion_label", "Give each Accordion section a nonempty label.");
+        const auto id = [&](const char* name) { return prefix + "-" + name + "-" + section.key; };
+        // The header is a disclosure button: the marker is presentational and the label names it.
+        auto header = std::make_shared<detail::ElementData>();
+        header->props = part(id("header"));
+        header->props.style.direction = FlexDirection::row;
+        header->props.style.align = Align::center;
+        header->props.style.gap = 6.f;
+        header->action = std::move(section.action);
+        header->disabled = props.disabled || section.disabled;
+        header->properties["expanded"] = section.expanded;
+        header->properties["labelled_by"] = NodeReference{id("label")};
+        header->children.push_back(Text(section.expanded ? "[-]" : "[+]", part(id("marker"))));
+        header->children.push_back(Text(std::move(section.label), part(id("label"))));
+        auto entry = std::make_shared<detail::ElementData>();
+        entry->props = part(id("section"));
+        entry->props.style.direction = FlexDirection::column;
+        entry->props.style.gap = 4.f;
+        entry->children.push_back(Element(std::move(header)));
+        if (section.expanded) entry->children.push_back(Column(std::move(section.content), part(id("panel"))));
+        data->children.push_back(Element(std::move(entry)));
+    }
+    data->props = std::move(props.node);
+    data->props.style.direction = FlexDirection::column;
+    if (!data->props.style.gap) data->props.style.gap = 4.f;
+    return Element(std::move(data));
+}
+
 Element Toolbar(std::string label, std::vector<Element> controls, Props props) {
     auto data = std::make_shared<detail::ElementData>();
     const auto prefix = props.id.value_or("");

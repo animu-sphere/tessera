@@ -259,10 +259,11 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
                           entry.role == SemanticRole::radio || entry.role == SemanticRole::checkbox ||
                           entry.role == SemanticRole::switch_ || entry.role == SemanticRole::tab ||
                           entry.role == SemanticRole::option;
-        if ((entry.selected && !item) || (entry.expanded && entry.role != SemanticRole::tree_item && !combobox))
+        if ((entry.selected && !item) || (entry.expanded && entry.role != SemanticRole::tree_item && !combobox &&
+                                          entry.role != SemanticRole::button))
             check.error("invalid_state", at,
                         "Selection belongs to collection items and toggles; expansion belongs to tree branches, "
-                        "comboboxes and color pickers.");
+                        "comboboxes, color pickers and disclosure buttons.");
         if (entry.actions.size() > (entry.role == SemanticRole::tree_item ? 2u : 1u) ||
             (!entry.actions.empty() &&
              (!entry.enabled ||
