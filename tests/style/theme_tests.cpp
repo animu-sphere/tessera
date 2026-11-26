@@ -313,6 +313,106 @@ void shadow_tokens() {
           "Missing shadow variables must use the explicitly typed fallback");
 }
 
+void procedural_tokens() {
+    const auto ui = tree();
+    const ProceduralFill dusk{"tessera.test.wash", {red, 2.f, Point{.25f, .5f}}, .5f, .8f, 1.5f};
+    auto dawn = dusk;
+    dawn.parameters = {green, 3.f, Point{.75f, .5f}};
+    dawn.time_rate = 0;
+    Theme theme{{{"surface", ThemeValue{std::optional<ProceduralFill>{dusk}}},
+                 {"surface-alias", ThemeReference{"surface", {}}}}};
+    StyleSheet sheet{{{StyleSelector::of_id("button"), {}, {binding("background_procedural", "surface-alias")}}}};
+    sheet.rules[0].declarations.background = blue;
+    auto result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).background_procedural == dusk && result.value->at(1).background == blue &&
+              !result.value->at(2).background_procedural,
+          "Procedural tokens must reach their destination through aliases, keep the literal fallback and not "
+          "inherit");
+
+    // A theme switch replaces only the request; geometry, fallback and other commands stay identical.
+    PlaceholderTextShaper text;
+    const auto paint_of = [&](const std::vector<ResolvedStyle>& styles) {
+        auto layout = compute_layout({ui.get(), styles, {200, 60}, &text});
+        check(bool(layout), "Procedural theme fixture lays out");
+        auto paint = build_paint_list({ui.get(), styles, &*layout.value, &text});
+        check(bool(paint), "Procedural theme fixture paints");
+        return std::pair{layout.value->boxes, std::move(*paint.value)};
+    };
+    const auto [dusk_boxes, dusk_paint] = paint_of(*result.value);
+    theme.variables[0].value = ThemeValue{std::optional<ProceduralFill>{dawn}};
+    auto switched = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(switched && switched.value->at(1).background_procedural == dawn, "Theme switch replaces the request");
+    const auto [dawn_boxes, dawn_paint] = paint_of(*switched.value);
+    std::size_t requests = 0, differing = 0;
+    bool fallback_kept = dusk_paint.commands.size() == dawn_paint.commands.size();
+    for (std::size_t i = 0; fallback_kept && i < dusk_paint.commands.size(); ++i) {
+        const auto* before = std::get_if<DrawRect>(&dusk_paint.commands[i]);
+        const auto* after = std::get_if<DrawRect>(&dawn_paint.commands[i]);
+        if (!before || !before->procedural) {
+            differing += dusk_paint.commands[i] != dawn_paint.commands[i];
+            continue;
+        }
+        ++requests;
+        fallback_kept = after && after->rect == before->rect && after->color == blue && before->color == blue &&
+                        after->procedural && after->procedural->parameters == dawn.parameters &&
+                        after->procedural->time_rate == 0 && before->procedural->time_rate == 1.5f;
+    }
+    check(dusk_boxes == dawn_boxes && fallback_kept && requests == 1 && differing == 0,
+          "Procedural theme switches must change only the paint request");
+    check(time_dependent(dusk_paint) && !time_dependent(dawn_paint),
+          "Token time rates must decide whether the host keeps requesting frames");
+
+    // Theme defaults may request a fill that an explicit rule clears with an empty token.
+    Theme layered{{{"surface", ThemeValue{std::optional<ProceduralFill>{dusk}}},
+                   {"none", ThemeValue{std::optional<ProceduralFill>{}}}},
+                  {{{StyleSelector::of_class("button"), {}, {binding("background_procedural", "surface")}}}}};
+    StyleSheet clear{{{StyleSelector::of_id("button"), {}, {binding("background_procedural", "none")}}}};
+    result = resolve_styles({ui.get(), &clear, {}, {}, &layered});
+    check(result && !result.value->at(1).background_procedural,
+          "Empty procedural tokens in a later layer must clear a theme default request");
+    const StyleSheet empty;
+    result = resolve_styles({ui.get(), &empty, {}, {}, &layered});
+    check(result && result.value->at(1).background_procedural == dusk, "Theme default layers request fills alone");
+
+    auto invalid = dusk;
+    invalid.shader = "has space";
+    invalid.parameters[1] = std::numeric_limits<float>::infinity();
+    invalid.opacity = 2;
+    theme.variables[0].value = ThemeValue{std::optional<ProceduralFill>{invalid}};
+    const auto errors = validate(theme);
+    check(has(errors, "invalid_identifier", "/theme/variables/0/value/shader") &&
+              has(errors, "invalid_number", "/theme/variables/0/value/parameters/1") &&
+              has(errors, "out_of_range", "/theme/variables/0/value/opacity"),
+          "Invalid procedural tokens must reject at their variable even before binding");
+    invalid = dusk;
+    invalid.parameters.assign(max_procedural_parameters + 1, 0.f);
+    theme.variables[0].value = ThemeValue{std::optional<ProceduralFill>{invalid}};
+    check(has(validate(theme), "procedural_parameter_limit", "/theme/variables/0/value/parameters"),
+          "Procedural token parameter bounds must apply to unused variables");
+
+    theme.variables[0].value = ThemeValue{blue};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(!result && has(result.diagnostics, "theme_type", "/sheet/rules/0/variables/0/variable"),
+          "Color tokens must not coerce to procedural fills");
+    StyleSheet gradient{{{StyleSelector::of_id("button"),
+                          {},
+                          {binding("background_procedural", "missing",
+                                   ThemeValue{std::optional<Gradient>{LinearGradient{{0, 0}, {1, 1}, red, blue}}})}}}};
+    check(has(validate(gradient), "theme_type", "/rules/0/variables/0/variable/fallback"),
+          "Gradient fallbacks must not convert to procedural fills");
+    StyleSheet fallback{
+        {{StyleSelector::of_id("button"),
+          {},
+          {binding("background_procedural", "missing", ThemeValue{std::optional<ProceduralFill>{dawn}})}}}};
+    result = resolve_styles({ui.get(), &fallback});
+    check(result && result.value->at(1).background_procedural == dawn,
+          "Missing procedural variables must use the explicitly typed fallback");
+    fallback.rules[0].variables[0].variable.fallback = ThemeValue{std::optional<ProceduralFill>{invalid}};
+    check(has(validate(fallback), "procedural_parameter_limit",
+              "/rules/0/variables/0/variable/fallback/background_procedural/parameters"),
+          "Unused procedural fallbacks must validate at their destination");
+}
+
 void diagnostic_and_candidate_boundaries() {
     const auto ui = tree();
     StyleSheet sheet;
@@ -495,6 +595,7 @@ int main() {
         shadow_tokens();
         outline_tokens();
         fill_shape_tokens();
+        procedural_tokens();
         cascade_and_inheritance();
         exact_types_and_destinations();
         diagnostic_and_candidate_boundaries();
