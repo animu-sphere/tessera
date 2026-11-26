@@ -1,6 +1,8 @@
 # Virtualization
 
-> Proposed design, not yet implemented. Active scope is in [current work](../roadmap/current.md).
+> The generalized foundation remains proposed. A bounded fixed-extent slice is implemented as [VirtualListView/VirtualTreeView](../guides/virtual-list.md). Active scope is in [current work](../roadmap/current.md).
+
+The implemented slice realizes a window of uniform-height rows plus overscan, logical ends, pinned keys with their neighbors and tree ancestors, keeping the scroll extent through row margins. Identity follows keys through ordinary generated IDs, so there are no recycled instances. The host retains anchors with `virtual_anchor`/`virtual_offset` and reveals unrealized rows with `virtual_reveal`; semantics expose realized rows with `item_count`/`item_position`. Its parity with full realization is checked by CPU pixels. It promotes none of the estimated or measured extents, recycling, follow-end, per-axis grid extents or retained state for unrealized keys below.
 
 ## Proposed virtualization foundation
 

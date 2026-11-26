@@ -71,6 +71,10 @@ struct SemanticNode {
     std::optional<bool> expanded; // Tree branches, comboboxes, color pickers and disclosure buttons; absent for leaves.
     std::optional<std::string> value; // Text inputs/editors and number inputs: presented text, never a parsed number;
                                       // comboboxes: the selected option label; color pickers: #RRGGBB.
+    // Virtual collections only: a list/tree's logical item count and each realized item's 1-based
+    // logical position, so unrealized items remain observable as a count, never as entries.
+    std::optional<std::uint64_t> item_count;
+    std::optional<std::uint64_t> item_position;
     bool operator==(const SemanticNode&) const = default;
 };
 

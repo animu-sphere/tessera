@@ -48,6 +48,12 @@ std::uint32_t index(const JsonValue& value, const std::string& path) {
         fail("schema_type", path, "Use an unsigned 32-bit integer.");
     return static_cast<std::uint32_t>(number);
 }
+std::uint64_t index64(const JsonValue& value, const std::string& path) {
+    const auto number = as<double>(value, path);
+    if (number < 0 || number > 9007199254740991.0 || std::floor(number) != number)
+        fail("schema_type", path, "Use an unsigned integer within 2^53 - 1.");
+    return static_cast<std::uint64_t>(number);
+}
 std::optional<std::uint32_t> optional_index(const JsonValue& value, const std::string& path) {
     if (std::holds_alternative<std::nullptr_t>(value.value)) return std::nullopt;
     return index(value, path);
@@ -94,7 +100,7 @@ SemanticSnapshot read(const JsonValue& json) {
         const auto& o = object(nodes[i], at,
                                {"node", "id", "parent", "role", "name", "name_source", "labelled_by", "enabled",
                                 "focusable", "focused", "actions"},
-                               {"selected", "expanded", "value"});
+                               {"selected", "expanded", "value", "item_count", "item_position"});
         SemanticRecord entry;
         entry.node = index(o.at("node"), at + "/node");
         entry.id = optional_string(o.at("id"), at + "/id");
@@ -113,6 +119,10 @@ SemanticSnapshot read(const JsonValue& json) {
         entry.expanded = optional_bool(o, "expanded", at);
         if (const auto found = o.find("value"); found != o.end())
             entry.value = as<std::string>(found->second, at + "/value");
+        if (const auto found = o.find("item_count"); found != o.end())
+            entry.item_count = index64(found->second, at + "/item_count");
+        if (const auto found = o.find("item_position"); found != o.end())
+            entry.item_position = index64(found->second, at + "/item_position");
         const auto& actions = as<Array>(o.at("actions"), at + "/actions");
         if (actions.size() > 2)
             fail("out_of_range", at + "/actions", "Expose at most activation and one expansion action.");
@@ -148,6 +158,8 @@ JsonValue write(const SemanticSnapshot& snapshot) {
         if (entry.selected) object["selected"] = JsonValue{*entry.selected};
         if (entry.expanded) object["expanded"] = JsonValue{*entry.expanded};
         if (entry.value) object["value"] = text(*entry.value);
+        if (entry.item_count) object["item_count"] = JsonValue{static_cast<double>(*entry.item_count)};
+        if (entry.item_position) object["item_position"] = JsonValue{static_cast<double>(*entry.item_position)};
     }
     return JsonValue{Object{{"version", number(snapshot.version)},
                             {"generation", text(std::to_string(snapshot.generation))},
@@ -164,7 +176,7 @@ std::vector<SemanticRecord> own_semantic_records(const SemanticTree& tree) {
         if (entry.labelled_by) labelled_by = entry.labelled_by->index;
         result.push_back({entry.node.index, entry.id, entry.parent, entry.role, entry.name, entry.name_source,
                           labelled_by, entry.enabled, entry.focusable, entry.focused, entry.actions, entry.selected,
-                          entry.expanded, entry.value});
+                          entry.expanded, entry.value, entry.item_count, entry.item_position});
     }
     return result;
 }
@@ -192,6 +204,7 @@ Result<ActionRequest> request_semantic_action(const SemanticInput& input, std::u
 }
 
 std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
+    constexpr std::uint64_t max_safe = 9007199254740991;
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
     if (snapshot.version != semantic_version) check.error("unsupported_version", "/version", "Use semantic version 1.");
@@ -264,6 +277,14 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
             check.error("invalid_state", at,
                         "Selection belongs to collection items and toggles; expansion belongs to tree branches, "
                         "comboboxes, color pickers and disclosure buttons.");
+        if (entry.item_count &&
+            ((entry.role != SemanticRole::list && entry.role != SemanticRole::tree) || *entry.item_count > max_safe))
+            check.error("invalid_state", at + "/item_count",
+                        "Only lists and trees report a logical item count, within 2^53 - 1.");
+        if (entry.item_position && ((entry.role != SemanticRole::list_item && entry.role != SemanticRole::tree_item) ||
+                                    *entry.item_position == 0 || *entry.item_position > max_safe))
+            check.error("invalid_state", at + "/item_position",
+                        "Only list and tree items report a 1-based logical position, within 2^53 - 1.");
         if (entry.actions.size() > (entry.role == SemanticRole::tree_item ? 2u : 1u) ||
             (!entry.actions.empty() &&
              (!entry.enabled ||

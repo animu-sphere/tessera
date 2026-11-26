@@ -5,6 +5,7 @@
 #include <tessera/style/style_sheet.hpp>
 #include <tessera/ui/serialization.hpp>
 #include <tessera/layout/layout_box.hpp>
+#include <span>
 
 namespace tessera::authoring {
 namespace detail {
@@ -164,6 +165,31 @@ struct CollectionProps {
     Props node; // Required stable ID; item keys are unique across the collection.
     bool disabled = false;
 };
+// The realization window of a virtual collection whose rows share one fixed border-box height.
+struct VirtualWindow {
+    float item_extent = 20;   // Every row's border-box height in logical units; positive and finite.
+    float viewport = 0;       // The collection's accepted padding-box height; an estimate before the first layout.
+    float offset = 0;         // The collection's requested vertical scroll offset; clamped like layout clamps it.
+    std::size_t overscan = 2; // Rows realized beyond each viewport edge, at most 64.
+    std::vector<std::string> pinned; // Keys kept realized with their navigation neighbors, such as focus; at most 64.
+};
+struct VirtualCollectionProps {
+    Props node; // Required stable ID; item keys are unique across the collection.
+    bool disabled = false;
+    VirtualWindow window;
+};
+// A half-open range [first, last) of logical rows.
+struct VirtualRange {
+    std::size_t first = 0;
+    std::size_t last = 0;
+    bool operator==(const VirtualRange&) const = default;
+};
+// A scroll position as the logical row at the viewport's leading edge plus the offset within it.
+struct VirtualAnchor {
+    std::string key;
+    float offset = 0;
+    bool operator==(const VirtualAnchor&) const = default;
+};
 using ComboBoxOption = ListItem;
 struct ComboBoxProps {
     Props node; // Required stable trigger ID; generated parts use it as a prefix.
@@ -240,6 +266,10 @@ private:
     friend Element Dialog(Value<std::string>, std::vector<Element>, DialogProps);
     friend Element ListView(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps);
     friend Element TreeView(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps);
+    friend Element VirtualListView(std::string, std::optional<std::string>, std::vector<ListItem>,
+                                   VirtualCollectionProps);
+    friend Element VirtualTreeView(std::string, std::optional<std::string>, std::vector<TreeItem>,
+                                   VirtualCollectionProps);
     friend Element RadioGroup(std::string, std::optional<std::string>, std::vector<RadioOption>, CollectionProps);
     friend Element Tabs(std::string, std::string, std::vector<TabOption>, std::vector<Element>, CollectionProps);
     friend Element Toolbar(std::string, std::vector<Element>, Props);
@@ -369,6 +399,34 @@ Element HorizontalScrollbar(std::string label, float viewport, ScrollGeometry, s
 // Arrow navigation moves focus, Activate selects; tree Left/Right collapse/expand.
 Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem>, CollectionProps = {});
 Element TreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem>, CollectionProps = {});
+// Virtual ListView/TreeView: the same controlled items, roles, generated IDs, actions and navigation,
+// realizing at most 1024 rows. Rows are <id>-item-<key> Rows of window.item_extent height whose top and
+// bottom margins cover the unrealized rows between them, so the scroll extent equals every logical row
+// stacked; the collection itself has zero padding and gap and is named by the display-none <id>-title.
+// Realized: rows intersecting the viewport plus overscan, the first and last enabled rows (Home/End),
+// each visible pinned key with its nearest enabled neighbors (arrows, Tab) and every tree ancestor of a
+// realized row. A pinned key under a collapsed branch stays a display-none row, with its hidden
+// ancestors, after that branch, so focus recovers to the logical parent. The collection reports
+// item_count (visible logical rows) and each displayed row its 1-based item_position. Validation covers
+// every logical item. Recompose after any scroll, resize or focus change; Tessera keeps no window state.
+Element VirtualListView(std::string label, std::optional<std::string> selected, std::vector<ListItem>,
+                        VirtualCollectionProps = {});
+Element VirtualTreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem>,
+                        VirtualCollectionProps = {});
+// The visible logical rows in order: every list key, or each tree key whose ancestors are all expanded.
+std::vector<std::string> virtual_keys(const std::vector<ListItem>&);
+std::vector<std::string> virtual_keys(const std::vector<TreeItem>&);
+// Rows intersecting the clamped viewport, extended by overscan. Empty for zero rows or an invalid window;
+// a zero viewport still realizes the leading row.
+VirtualRange virtual_range(std::size_t count, const VirtualWindow&);
+// The anchor at `offset`, or nullopt without rows. Retain it across data replacement, then restore the
+// offset with virtual_offset so prepending rows or reloading does not move visible content.
+std::optional<VirtualAnchor> virtual_anchor(std::span<const std::string> keys, float item_extent, float offset);
+// The offset placing the anchor's row and local offset at the leading edge; nullopt if its key is gone.
+std::optional<float> virtual_offset(std::span<const std::string> keys, float item_extent, const VirtualAnchor&);
+// The offset that reveals `key`'s row in the viewport, moving as little as possible, like
+// scroll_into_view for a row that may be unrealized; nullopt if the key is not a visible row.
+std::optional<float> virtual_reveal(std::span<const std::string> keys, const VirtualWindow&, std::string_view key);
 // Controlled single choice; nullopt means no option is checked. Each option is a radio
 // button with a "(o)"/"( )" marker; only its label names it. IDs: <id>-title,
 // <id>-option-<key> and <id>-label-<key>. A Column unless Props::style sets a direction.

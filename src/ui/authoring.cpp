@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 
 namespace tessera::authoring {
 namespace detail {
@@ -43,6 +44,12 @@ struct Lowerer {
                               std::string_view);
     static Element flat_collection(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps,
                                    std::string_view);
+    static std::shared_ptr<ElementData>
+    collection_row(const std::string& prefix, const std::optional<SourceLocation>& source, const TreeItem& value,
+                   std::size_t depth, bool disabled, const std::optional<std::string>& parent,
+                   const std::optional<std::string>& selected, std::string_view role);
+    static Element virtual_collection(std::string, std::optional<std::string>, std::vector<TreeItem>,
+                                      VirtualCollectionProps, bool tree);
     Presentation result;
     std::vector<const ElementData*> elements;
     std::vector<Diagnostic> errors;
@@ -653,19 +660,7 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
     std::size_t count = 0;
     std::function<void(const TreeItem&, std::size_t, bool, bool, std::optional<std::string>)> item;
     item = [&](const TreeItem& value, std::size_t depth, bool shown, bool disabled, std::optional<std::string> parent) {
-        auto entry = std::make_shared<ElementData>();
-        entry->props = part(prefix + "-item-" + value.key);
-        entry->props.style.direction = FlexDirection::row;
-        entry->props.style.padding = Edges{2, 4, 2, static_cast<float>(depth - 1) * 16 + 4};
-        entry->props.style.gap = 4.f;
-        if (!shown) entry->props.style.display = Display::none;
-        entry->action = value.action;
         disabled = disabled || value.disabled;
-        entry->disabled = disabled;
-        entry->properties["collection_role"] = std::string(menu ? "menu_item" : tree ? "tree_item" : "list_item");
-        if (!menu) entry->properties["selected"] = selected == value.key;
-        entry->properties["labelled_by"] = NodeReference{prefix + "-label-" + value.key};
-        if (parent) entry->properties["tree_parent"] = NodeReference{*parent};
         if (value.key.empty() || !keys.insert(value.key).second)
             error("collection_keys", "Supply unique nonempty item keys across the collection.");
         if (menu && value.label.empty()) error("menu_label", "Give each menu command a nonempty label.");
@@ -676,19 +671,14 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
         }
         if (!value.children.empty()) {
             if (value.toggle_action.empty()) error("tree_toggle", "Give each tree branch a host toggle action.");
-            entry->properties["expanded"] = value.expanded;
-            entry->events["expand"] = value.toggle_action;
-            entry->events["collapse"] = value.toggle_action;
-            auto toggle = Button(value.expanded ? "-" : "+", value.toggle_action,
-                                 {.node = part(prefix + "-toggle-" + value.key)});
-            auto toggle_data = std::make_shared<ElementData>(*toggle.data_);
-            toggle_data->properties["focusable"] = false;
-            entry->children.push_back(Element(std::move(toggle_data)));
         } else if (value.expanded || !value.toggle_action.empty()) {
             error("tree_leaf", "Leaves cannot be expanded or declare a toggle action.");
         }
-        if (!menu) entry->children.push_back(Text(selected == value.key ? "*" : " ", {.source = source}));
-        entry->children.push_back(Text(value.label, part(prefix + "-label-" + value.key)));
+        auto entry = collection_row(prefix, source, value, depth, disabled, parent, selected,
+                                    menu   ? "menu_item"
+                                    : tree ? "tree_item"
+                                           : "list_item");
+        if (!shown) entry->props.style.display = Display::none;
         data->children.push_back(Element(std::move(entry)));
         for (const auto& child : value.children) {
             if (count >= max_document_nodes) {
@@ -716,6 +706,235 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
     return Element(std::move(data));
 }
 
+std::shared_ptr<detail::ElementData>
+detail::Lowerer::collection_row(const std::string& prefix, const std::optional<SourceLocation>& source,
+                                const TreeItem& value, std::size_t depth, bool disabled,
+                                const std::optional<std::string>& parent, const std::optional<std::string>& selected,
+                                std::string_view role) {
+    const bool menu = role == "menu_item";
+    auto part = [&](std::string id) { return Props{.id = std::move(id), .source = source}; };
+    auto entry = std::make_shared<ElementData>();
+    entry->props = part(prefix + "-item-" + value.key);
+    entry->props.style.direction = FlexDirection::row;
+    entry->props.style.padding = Edges{2, 4, 2, static_cast<float>(depth - 1) * 16 + 4};
+    entry->props.style.gap = 4.f;
+    entry->action = value.action;
+    entry->disabled = disabled;
+    entry->properties["collection_role"] = std::string(role);
+    if (!menu) entry->properties["selected"] = selected == value.key;
+    entry->properties["labelled_by"] = NodeReference{prefix + "-label-" + value.key};
+    if (parent) entry->properties["tree_parent"] = NodeReference{*parent};
+    if (!value.children.empty()) {
+        entry->properties["expanded"] = value.expanded;
+        entry->events["expand"] = value.toggle_action;
+        entry->events["collapse"] = value.toggle_action;
+        auto toggle =
+            Button(value.expanded ? "-" : "+", value.toggle_action, {.node = part(prefix + "-toggle-" + value.key)});
+        auto toggle_data = std::make_shared<ElementData>(*toggle.data_);
+        toggle_data->properties["focusable"] = false;
+        entry->children.push_back(Element(std::move(toggle_data)));
+    }
+    if (!menu) entry->children.push_back(Text(selected == value.key ? "*" : " ", {.source = source}));
+    entry->children.push_back(Text(value.label, part(prefix + "-label-" + value.key)));
+    return entry;
+}
+
+namespace {
+constexpr std::size_t max_virtual_overscan = 64;
+constexpr std::size_t max_virtual_pinned = 64;
+constexpr std::size_t max_virtual_realized = 1024;
+// Float layout positions stay exact for integral extents while the stacked rows fit in 2^24 units.
+constexpr double max_virtual_extent = 16777216.0;
+bool valid_window(const VirtualWindow& window) {
+    return std::isfinite(window.item_extent) && window.item_extent > 0 && std::isfinite(window.viewport) &&
+           window.viewport >= 0 && std::isfinite(window.offset) && window.overscan <= max_virtual_overscan &&
+           window.pinned.size() <= max_virtual_pinned;
+}
+double clamped_offset(std::size_t count, const VirtualWindow& window) {
+    const double limit = std::max(0.0, static_cast<double>(count) * window.item_extent - window.viewport);
+    return std::clamp(static_cast<double>(window.offset), 0.0, limit);
+}
+std::optional<std::size_t> key_index(std::span<const std::string> keys, std::string_view key) {
+    const auto found = std::find(keys.begin(), keys.end(), key);
+    if (found == keys.end()) return std::nullopt;
+    return static_cast<std::size_t>(found - keys.begin());
+}
+void visible_keys(const std::vector<TreeItem>& items, std::vector<std::string>& keys, std::size_t depth) {
+    for (const auto& item : items) {
+        keys.push_back(item.key);
+        if (item.expanded && depth < max_document_depth) visible_keys(item.children, keys, depth + 1);
+    }
+}
+} // namespace
+
+Element detail::Lowerer::virtual_collection(std::string label, std::optional<std::string> selected,
+                                            std::vector<TreeItem> items, VirtualCollectionProps props, bool tree) {
+    auto data = std::make_shared<ElementData>();
+    const auto prefix = props.node.id.value_or("");
+    const auto source = props.node.source;
+    const auto& window = props.window;
+    // Large collections report each problem once rather than once per offending item.
+    auto error = [&](const char* code, const char* message) {
+        if (std::none_of(data->diagnostics.begin(), data->diagnostics.end(),
+                         [&](const Diagnostic& diagnostic) { return diagnostic.code == code; }))
+            data->diagnostics.push_back({code, Severity::error, {}, message});
+    };
+    if (prefix.empty()) error("collection_id", "Give the collection a stable nonempty author ID.");
+    if (label.empty()) error("collection_label", "Give the collection a nonempty label.");
+    const bool valid = valid_window(window);
+    if (!valid)
+        error("virtual_window", "Use a positive finite item extent, a finite nonnegative viewport, a finite offset, "
+                                "at most 64 overscan rows and at most 64 pinned keys.");
+    // Visible logical rows in preorder. A hidden pinned key keeps itself and its hidden ancestors as
+    // display-none rows after its nearest visible (collapsed) ancestor, as TreeView keeps collapsed
+    // descendants, so focus recovery still reaches the logical parent.
+    constexpr auto none = std::numeric_limits<std::size_t>::max();
+    struct Row {
+        const TreeItem* item;
+        std::size_t depth;
+        bool disabled;
+        std::size_t parent;
+    };
+    struct Hidden {
+        const TreeItem* item;
+        std::size_t depth;
+        bool disabled;
+        const TreeItem* parent;
+    };
+    std::vector<Row> rows;
+    std::vector<std::pair<std::size_t, Hidden>> path; // Walked ancestry with preorder serials; [d - 1] is depth d.
+    std::map<std::size_t, std::map<std::size_t, Hidden>> hidden; // Visible row -> serial -> hidden row.
+    std::size_t serials = 0, hidden_count = 0;
+    std::set<std::string_view> keys;
+    const std::set<std::string_view> pins(window.pinned.begin(), window.pinned.end());
+    std::vector<std::size_t> pinned; // Visible pinned rows.
+    bool found_selection = !selected;
+    std::function<void(const TreeItem&, std::size_t, std::size_t, bool, bool, const TreeItem*)> walk;
+    walk = [&](const TreeItem& value, std::size_t depth, std::size_t anchor, bool shown, bool disabled,
+               const TreeItem* parent) {
+        disabled = disabled || value.disabled;
+        path.push_back({serials++, {&value, depth, disabled, parent}});
+        if (value.key.empty() || !keys.insert(value.key).second)
+            error("collection_keys", "Supply unique nonempty item keys across the collection.");
+        if (selected == value.key) found_selection = true;
+        if (!value.children.empty()) {
+            if (value.toggle_action.empty()) error("tree_toggle", "Give each tree branch a host toggle action.");
+        } else if (value.expanded || !value.toggle_action.empty()) {
+            error("tree_leaf", "Leaves cannot be expanded or declare a toggle action.");
+        }
+        auto here = anchor;
+        if (shown) {
+            here = rows.size();
+            rows.push_back({&value, depth, disabled, anchor});
+        }
+        if (pins.contains(value.key)) {
+            if (shown)
+                pinned.push_back(here);
+            else {
+                auto& chain = hidden[anchor];
+                for (auto at = rows[anchor].depth; at < path.size(); ++at)
+                    hidden_count += chain.insert(path[at]).second;
+            }
+        }
+        if (!value.children.empty() && depth >= max_document_depth)
+            error("collection_limit", "Keep logical tree depth within 64 levels.");
+        else
+            for (const auto& child : value.children)
+                walk(child, depth + 1, here, shown && value.expanded, disabled, &value);
+        path.pop_back();
+    };
+    for (const auto& value : items) walk(value, 1, none, true, false, nullptr);
+    if (!found_selection) error("collection_selection", "Select an existing item key or use nullopt.");
+    const auto count = rows.size();
+    const bool bounded = valid && static_cast<double>(count) * window.item_extent <= max_virtual_extent;
+    if (valid && !bounded)
+        error("virtual_extent", "Keep the item count times the item extent within 2^24 logical units.");
+
+    std::set<std::size_t> realized;
+    if (bounded && count) {
+        const auto range = virtual_range(count, window);
+        for (auto i = range.first; i < range.last; ++i) realized.insert(i);
+        // Home/End and arrow movement reach only realized rows: keep the rows they target.
+        const auto enabled = [&](std::size_t i) { return !props.disabled && !rows[i].disabled; };
+        const auto previous = [&](std::size_t row) {
+            for (auto i = row; i-- > 0;)
+                if (enabled(i)) {
+                    realized.insert(i);
+                    return;
+                }
+        };
+        const auto following = [&](std::size_t row) {
+            for (auto i = row; i < count; ++i)
+                if (enabled(i)) {
+                    realized.insert(i);
+                    return;
+                }
+        };
+        if (!props.disabled) {
+            following(0);
+            previous(count);
+        }
+        for (const auto row : pinned) {
+            realized.insert(row);
+            if (!props.disabled) {
+                previous(row);
+                following(row + 1);
+            }
+        }
+        for (const auto& [row, chain] : hidden) realized.insert(row);
+        // Logical parents precede their children; realize every ancestor so tree_parent resolves.
+        const std::vector<std::size_t> base(realized.begin(), realized.end());
+        for (const auto i : base)
+            for (auto parent = rows[i].parent; parent != none && realized.insert(parent).second;)
+                parent = rows[parent].parent;
+        if (realized.size() + hidden_count > max_virtual_realized) {
+            error("collection_limit", "Keep the realized rows within 1024; reduce the viewport, overscan or pins.");
+            realized.clear();
+        }
+    }
+
+    auto title = Text(std::move(label), {.id = prefix + "-title", .source = source});
+    auto title_data = std::make_shared<ElementData>(*title.data_);
+    title_data->props.style.display = Display::none;
+    data->children.push_back(Element(std::move(title_data)));
+    // Unrealized rows become the margins of their realized neighbors: the scroll extent counts margin
+    // boxes, and no non-item child splits a logical subtree.
+    const float extent = bounded ? window.item_extent : 0;
+    std::size_t next = 0;
+    for (const auto i : realized) {
+        const auto& row = rows[i];
+        std::optional<std::string> parent;
+        if (row.parent != none) parent = prefix + "-item-" + rows[row.parent].item->key;
+        auto entry = collection_row(prefix, source, *row.item, row.depth, row.disabled, parent, selected,
+                                    tree ? "tree_item" : "list_item");
+        entry->props.style.height = Dimension::points(extent);
+        entry->props.style.overflow = Overflow::clip;
+        const auto after = i == *realized.rbegin() ? count - i - 1 : 0;
+        entry->props.style.margin =
+            Edges{static_cast<float>(i - next) * extent, 0, static_cast<float>(after) * extent, 0};
+        entry->properties["item_position"] = static_cast<double>(i + 1);
+        data->children.push_back(Element(std::move(entry)));
+        next = i + 1;
+        if (const auto chain = hidden.find(i); chain != hidden.end())
+            for (const auto& [serial, value] : chain->second) {
+                auto concealed = collection_row(prefix, source, *value.item, value.depth, value.disabled,
+                                                prefix + "-item-" + value.parent->key, selected, "tree_item");
+                concealed->props.style.display = Display::none;
+                data->children.push_back(Element(std::move(concealed)));
+            }
+    }
+    data->props = std::move(props.node);
+    data->props.style.direction = FlexDirection::column;
+    data->props.style.overflow = Overflow::scroll;
+    data->props.style.padding = Edges{};
+    data->props.style.gap = 0.f;
+    data->disabled = props.disabled;
+    data->properties["collection_role"] = std::string(tree ? "tree" : "list");
+    data->properties["labelled_by"] = NodeReference{prefix + "-title"};
+    data->properties["item_count"] = static_cast<double>(count);
+    return Element(std::move(data));
+}
+
 Element detail::Lowerer::flat_collection(std::string label, std::optional<std::string> selected,
                                          std::vector<ListItem> items, CollectionProps props, std::string_view role) {
     std::vector<TreeItem> entries;
@@ -738,6 +957,75 @@ Element TreeView(std::string label, std::optional<std::string> selected, std::ve
                  CollectionProps props) {
     return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(items), std::move(props),
                                        "tree");
+}
+
+Element VirtualListView(std::string label, std::optional<std::string> selected, std::vector<ListItem> items,
+                        VirtualCollectionProps props) {
+    std::vector<TreeItem> entries;
+    entries.reserve(items.size());
+    for (auto& item : items)
+        entries.push_back(
+            {std::move(item.key), std::move(item.label), std::move(item.action), {}, false, item.disabled, {}});
+    return detail::Lowerer::virtual_collection(std::move(label), std::move(selected), std::move(entries),
+                                               std::move(props), false);
+}
+
+Element VirtualTreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem> items,
+                        VirtualCollectionProps props) {
+    return detail::Lowerer::virtual_collection(std::move(label), std::move(selected), std::move(items),
+                                               std::move(props), true);
+}
+
+std::vector<std::string> virtual_keys(const std::vector<ListItem>& items) {
+    std::vector<std::string> keys;
+    keys.reserve(items.size());
+    for (const auto& item : items) keys.push_back(item.key);
+    return keys;
+}
+
+std::vector<std::string> virtual_keys(const std::vector<TreeItem>& items) {
+    std::vector<std::string> keys;
+    visible_keys(items, keys, 1);
+    return keys;
+}
+
+VirtualRange virtual_range(std::size_t count, const VirtualWindow& window) {
+    if (!count || !valid_window(window)) return {};
+    const double extent = window.item_extent;
+    const auto offset = clamped_offset(count, window);
+    const auto first = std::min(static_cast<std::size_t>(std::floor(offset / extent)), count - 1);
+    auto last =
+        static_cast<std::size_t>(std::min(static_cast<double>(count), std::ceil((offset + window.viewport) / extent)));
+    last = std::clamp(last, first + 1, count);
+    return {first > window.overscan ? first - window.overscan : 0,
+            count - last > window.overscan ? last + window.overscan : count};
+}
+
+std::optional<VirtualAnchor> virtual_anchor(std::span<const std::string> keys, float item_extent, float offset) {
+    if (keys.empty() || !std::isfinite(item_extent) || item_extent <= 0 || !std::isfinite(offset)) return std::nullopt;
+    const double position = std::max(0.0, static_cast<double>(offset));
+    const auto index = std::min(static_cast<std::size_t>(std::floor(position / item_extent)), keys.size() - 1);
+    return VirtualAnchor{keys[index], static_cast<float>(position - static_cast<double>(index) * item_extent)};
+}
+
+std::optional<float> virtual_offset(std::span<const std::string> keys, float item_extent, const VirtualAnchor& anchor) {
+    if (!std::isfinite(item_extent) || item_extent <= 0 || !std::isfinite(anchor.offset)) return std::nullopt;
+    const auto index = key_index(keys, anchor.key);
+    if (!index) return std::nullopt;
+    return static_cast<float>(static_cast<double>(*index) * item_extent + anchor.offset);
+}
+
+std::optional<float> virtual_reveal(std::span<const std::string> keys, const VirtualWindow& window,
+                                    std::string_view key) {
+    if (!valid_window(window)) return std::nullopt;
+    const auto index = key_index(keys, key);
+    if (!index) return std::nullopt;
+    const double extent = window.item_extent;
+    const double top = static_cast<double>(*index) * extent;
+    const auto offset = clamped_offset(keys.size(), window);
+    if (top < offset || extent > window.viewport) return static_cast<float>(top);
+    if (top + extent > offset + window.viewport) return static_cast<float>(top + extent - window.viewport);
+    return static_cast<float>(offset);
 }
 
 Element RadioGroup(std::string label, std::optional<std::string> selected, std::vector<RadioOption> options,

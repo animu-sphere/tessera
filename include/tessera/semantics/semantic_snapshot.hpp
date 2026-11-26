@@ -25,6 +25,8 @@ struct SemanticRecord {
     std::optional<bool> selected;
     std::optional<bool> expanded;
     std::optional<std::string> value;
+    std::optional<std::uint64_t> item_count;
+    std::optional<std::uint64_t> item_position;
     bool operator==(const SemanticRecord&) const = default;
 };
 

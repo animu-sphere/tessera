@@ -182,6 +182,7 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
     };
     std::vector<TreeEntry> tree_entries;
     std::map<const UiNode*, std::size_t> selected_counts;
+    std::map<const UiNode*, double> item_positions;
     std::size_t count = 0;
     std::size_t toolbars = 0; // Toolbar ancestors of the visited node.
     // Checks one node and returns whether it is a toolbar. It runs in its own frame, which returns before
@@ -287,6 +288,40 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             (role == "menu_item" && parent_role != "menu") || (role == "radio" && parent_role != "radio_group") ||
             (role == "tab" && parent_role != "tab_list") || (role == "option" && parent_role != "listbox"))
             error("collection_parent", path, "Place collection items directly under their matching collection.");
+        // Virtual collections report their logical size and each realized item's logical position.
+        const auto whole = [](double value, double minimum) {
+            return std::isfinite(value) && value == std::floor(value) && value >= minimum &&
+                   value <= 9007199254740991.0;
+        };
+        if (const auto found = node.properties.find(property_names::item_count); found != node.properties.end()) {
+            const auto* count = std::get_if<double>(&found->second);
+            if (role != "list" && role != "tree")
+                error("collection_state", path + "/properties/item_count",
+                      "Only lists and trees report a logical item count.");
+            else if (count && !whole(*count, 0))
+                error("item_count", path + "/properties/item_count", "Use a whole logical item count within 2^53 - 1.");
+        }
+        const auto* parent_count = [&]() -> const double* {
+            if (!parent || (role != "list_item" && role != "tree_item")) return nullptr;
+            const auto found = parent->properties.find(property_names::item_count);
+            return found == parent->properties.end() ? nullptr : std::get_if<double>(&found->second);
+        }();
+        if (const auto found = node.properties.find(property_names::item_position); found != node.properties.end()) {
+            const auto* position = std::get_if<double>(&found->second);
+            const auto location = path + "/properties/item_position";
+            if (role != "list_item" && role != "tree_item")
+                error("collection_state", location, "Only list and tree items report a logical position.");
+            else if (!parent_count)
+                error("item_position", location, "A logical position requires the collection's item_count.");
+            else if (position && (!whole(*position, 1) || *position > *parent_count))
+                error("item_position", location, "Use a whole 1-based position within the collection's item_count.");
+            else if (position) {
+                auto& last = item_positions[parent];
+                if (*position <= last)
+                    error("item_position", location, "Keep logical positions strictly increasing in collection order.");
+                last = *position;
+            }
+        }
         check_tabs_toolbar(node, path, role, parent_role, toolbars > 0, errors);
         if (role == "menu" && (!node.id || !node.properties.contains(property_names::popup_anchor)))
             error("menu_popup", path, "Give the root-sibling Menu a stable ID and popup_anchor.");

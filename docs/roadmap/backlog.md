@@ -77,7 +77,7 @@ Compare against full-tree/scalar references and report workload, conditions and 
 
 - [Lifecycle conveniences](../proposals/automatic-component-lifecycle.md), [contained UI fallback](../proposals/error-boundaries.md), [owned async resources](../proposals/async-resources.md) and provider integration.
 - Broader reload migration, property reflection and declaration/default origins.
-- Portal/palette operations and large keyed [virtual lists](../proposals/virtualization.md).
+- Portal/palette operations; variable-height, measured or follow-end [virtual lists](../proposals/virtualization.md) beyond the fixed-extent [VirtualListView/VirtualTreeView](../guides/virtual-list.md).
 - Control+Z/Control+Shift+Z for ordinary label-history commands, preserving editing-first routing.
 - Multiple-line fields, clipboard/composition and host shortcut adapters for the editor fixture.
 - [Snapshot bundles/CLI](../proposals/snapshot-bundles.md), [agent discovery](../proposals/agent-capability-manifest.md) and edit-to-verification measurements.
