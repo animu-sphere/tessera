@@ -109,10 +109,10 @@ struct StyleSelector {
 };
 
 // Exact style types; numeric conversions and string expressions are excluded.
-using ThemeValue =
-    std::variant<float, Color, Dimension, Edges, FontId, std::optional<float>, std::uint16_t, Display, FlexDirection,
-                 Justify, Align, Overflow, Visibility, std::vector<GridTrack>, std::optional<Gradient>,
-                 std::optional<BoxShadow>, std::optional<Outline>, FillShape, bool, Position, FlexWrap, std::int32_t>;
+using ThemeValue = std::variant<float, Color, Dimension, Edges, FontId, std::optional<float>, std::uint16_t, Display,
+                                FlexDirection, Justify, Align, Overflow, Visibility, std::vector<GridTrack>,
+                                std::optional<Gradient>, std::optional<BoxShadow>, std::optional<Outline>, FillShape,
+                                bool, Position, FlexWrap, std::int32_t, std::optional<ProceduralFill>>;
 struct ThemeReference {
     std::string name;
     std::optional<ThemeValue> fallback; // Used only when this name is absent.
