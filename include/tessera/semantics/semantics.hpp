@@ -68,7 +68,7 @@ struct SemanticNode {
     bool focused = false;                  // The supplied focus is this eligible node.
     std::vector<SemanticAction> actions;   // Eligible actions only; empty when disabled.
     std::optional<bool> selected;          // Collection items, radios, tabs and toggles only; independent of focus.
-    std::optional<bool> expanded;          // Tree branches, comboboxes and color pickers only; absent for leaves.
+    std::optional<bool> expanded; // Tree branches, comboboxes, color pickers and disclosure buttons; absent for leaves.
     std::optional<std::string> value; // Text inputs/editors and number inputs: presented text, never a parsed number;
                                       // comboboxes: the selected option label; color pickers: #RRGGBB.
     bool operator==(const SemanticNode&) const = default;

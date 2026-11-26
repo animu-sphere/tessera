@@ -191,6 +191,7 @@ struct ColorPickerProps {
 };
 class Element;
 class InspectorRow;
+struct AccordionSection;
 struct ComboBoxParts;
 struct ColorPickerParts;
 struct PropertyGridProps {
@@ -242,6 +243,7 @@ private:
     friend Element RadioGroup(std::string, std::optional<std::string>, std::vector<RadioOption>, CollectionProps);
     friend Element Tabs(std::string, std::string, std::vector<TabOption>, std::vector<Element>, CollectionProps);
     friend Element Toolbar(std::string, std::vector<Element>, Props);
+    friend Element Accordion(std::vector<AccordionSection>, CollectionProps);
     friend Element Dropdown(std::string, std::string, std::vector<DropdownOption>, std::string, DropdownProps);
     friend ComboBoxParts ComboBox(std::string, std::string, std::vector<ComboBoxOption>, std::string, ComboBoxProps);
     friend ColorPickerParts ColorPicker(std::string, HsvColor, ColorPickerActions, ColorPickerProps);
@@ -385,6 +387,22 @@ Element Tabs(std::string label, std::string selected, std::vector<TabOption> tab
 // Requires a stable ID. Tab enters once at the first eligible control; Left/Right (wrapping)
 // and Home/End move focus without requesting actions. No collections or nested toolbars.
 Element Toolbar(std::string label, std::vector<Element> controls, Props = {});
+// One Accordion section: a disclosure header and, only while expanded, its content.
+struct AccordionSection {
+    std::string key; // Unique nonempty key within the Accordion; forms generated IDs.
+    std::string label;
+    std::string action; // Requested by the header to expand or collapse this section.
+    bool expanded = false;
+    bool disabled = false; // Disables the header only; the content keeps its own state.
+    std::vector<Element> content;
+};
+// Controlled stacked disclosure sections. The host owns every section's expanded flag, so any number
+// may be open, and recomposes after executing a header's action. A Column of <id>-section-<key>
+// Columns, each holding the <id>-header-<key> Row (a presentational "[+]"/"[-]" <id>-marker-<key> Text
+// and the <id>-label-<key> Text naming it) and, only while expanded, the <id>-panel-<key> Column of the
+// content. Headers are ordinary Tab stops projecting a button with `expanded`; Activate requests the
+// section's action. Requires a stable ID; CollectionProps::disabled disables every header.
+Element Accordion(std::vector<AccordionSection> sections, CollectionProps = {});
 // Controlled inline dropdown: host commands own expansion and selected key.
 // With a node ID, generated controls use <id>-trigger / <id>-option-<key>.
 // Options are ordinary buttons in layout, reached through normal focus/scroll.

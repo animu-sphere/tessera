@@ -1,5 +1,6 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/input/pointer.hpp>
+#include <tessera/semantics/semantic_snapshot.hpp>
 #include <tessera/semantics/semantics.hpp>
 #include "../check.hpp"
 #include <algorithm>
@@ -418,6 +419,120 @@ void separators() {
           "A Separator must project an unnamed separator entry without actions or focus");
 }
 
+void accordion() {
+    Session ui;
+    const ValidationContext toggles{{"toggle", "tips", "keys"}};
+    const auto title = ui.state("accordion-title", std::string("Tip"));
+    const auto sections = [&](bool tips, bool keys) {
+        return std::vector<AccordionSection>{
+            {"tips", "Tips", "tips", tips, false, {Text(title, {.id = "tip"}), Button("Go", "toggle")}},
+            {"keys", "Keys", "keys", keys, false, {Text("Ctrl+C", {.id = "copy"})}}};
+    };
+    const auto lowered =
+        take(ui.lower(Accordion(sections(true, false), {.node = {.id = "help", .source = origin}}), toggles));
+    const auto& root = lowered.document.root;
+    const auto& tips = root.children[0];
+    const auto& keys = root.children[1];
+    const auto& header = tips.children[0];
+    check(root.children.size() == 2 && tips.id == "help-section-tips" && keys.id == "help-section-keys" &&
+              tips.children.size() == 2 && keys.children.size() == 1 && header.id == "help-header-tips" &&
+              header.events.at("activate") == "tips" && header.properties.at("expanded") == Property{true} &&
+              header.properties.at("labelled_by") == Property{NodeReference{"help-label-tips"}} &&
+              header.properties.at("focusable") == Property{true} &&
+              header.properties.at("disabled") == Property{false} && header.children[0].id == "help-marker-tips" &&
+              header.children[0].properties.at("text") == Property{std::string("[-]")} &&
+              header.children[1].id == "help-label-tips" &&
+              keys.children[0].properties.at("expanded") == Property{false} &&
+              keys.children[0].children[0].properties.at("text") == Property{std::string("[+]")},
+          "Accordion headers must be labelled disclosure buttons carrying their expanded state");
+    const auto& panel = tips.children[1];
+    check(panel.id == "help-panel-tips" && panel.children.size() == 2 &&
+              panel.children[0].properties.at("text") == Property{std::string("Tip")} &&
+              panel.children[1].events.at("activate") == "toggle",
+          "Only an expanded section must compose its panel content");
+    check(lowered.styles[0].direction == FlexDirection::column && lowered.styles[0].gap == 4.f &&
+              lowered.styles[1].gap == 4.f && lowered.styles[2].direction == FlexDirection::row &&
+              lowered.styles[2].align == Align::center && lowered.styles[5].direction == FlexDirection::column,
+          "Accordion parts must default to stacked sections and centered header rows");
+    check(validate_sources(lowered.document, lowered.sources).empty() &&
+              lowered.sources.nodes[2].invocation == origin && lowered.sources.nodes[4].invocation == origin,
+          "Accordion generated parts need the caller's source origin");
+
+    const auto tree = take(UiTree::create(lowered.document, toggles));
+    const StyleSheet sheet;
+    const auto styles = take(resolve_styles({tree.get(), &sheet, {}, lowered.styles}));
+    PlaceholderTextShaper shaper;
+    const auto layout = take(compute_layout({tree.get(), styles, {400, 300}, &shaper}));
+    const SemanticInput input{tree.get(), styles, &layout};
+    const auto semantics = take(build_semantic_tree(input));
+    const auto entry = [&](std::string_view id) {
+        return *std::find_if(semantics.nodes.begin(), semantics.nodes.end(),
+                             [&](const auto& node) { return node.node == tree->find(id); });
+    };
+    const auto open = entry("help-header-tips");
+    const auto closed = entry("help-header-keys");
+    check(open.role == SemanticRole::button && open.name == "Tips" && open.expanded == true && open.focusable &&
+              open.actions == std::vector<SemanticAction>{{"activate", "tips"}} && closed.name == "Keys" &&
+              closed.expanded == false && !tree->find("help-panel-keys") && !tree->find("copy"),
+          "Headers must project buttons named by their labels with their expansion state");
+    const auto request = take(request_semantic_action(input, *tree->find("help-header-keys"), "activate"));
+    check(request.action == "keys", "Activating a header must request its section action");
+    const auto snapshot = take(capture_semantics(input, 1));
+    const auto saved = take(save_semantics(snapshot));
+    check(validate(snapshot).empty() && take(load_semantics(saved)) == snapshot,
+          "Disclosure buttons must round trip their expansion state");
+
+    const auto disabled =
+        take(ui.lower(Accordion(sections(false, false), {.node = {.id = "help"}, .disabled = true}), toggles));
+    auto one = sections(false, true);
+    one[0].disabled = true;
+    const auto partly = take(ui.lower(Accordion(std::move(one), {.node = {.id = "help"}}), toggles));
+    check(disabled.document.root.children[0].children[0].properties.at("disabled") == Property{true} &&
+              disabled.document.root.children[1].children[0].properties.at("disabled") == Property{true} &&
+              partly.document.root.children[0].children[0].properties.at("disabled") == Property{true} &&
+              partly.document.root.children[1].children[0].properties.at("disabled") == Property{false} &&
+              partly.document.root.children[1].children[1].children[0].id == "copy",
+          "Accordion and section disabled flags must disable headers only");
+
+    int reads = 0;
+    const auto pending = ui.computed("accordion-pending", [&] {
+        ++reads;
+        return std::string("Pending");
+    });
+    auto duplicate = sections(false, false);
+    duplicate[1].key = "tips";
+    auto unlabelled = sections(false, false);
+    unlabelled[0].label.clear();
+    const std::pair<std::vector<AccordionSection>, const char*> invalid[]{
+        {{}, "accordion_empty"}, {duplicate, "accordion_keys"}, {unlabelled, "accordion_label"}};
+    for (const auto& [rejected, code] : invalid) {
+        const auto result =
+            ui.lower(Column({Text(pending), Accordion(rejected, {.node = {.id = "help", .source = origin}})}), toggles);
+        check(!result && reads == 0 && has(result.diagnostics, code, "/root/children/1") &&
+                  result.diagnostics[0].source && result.diagnostics[0].source->location == origin,
+              "Invalid Accordion sections must reject before evaluating bindings and locate the caller");
+    }
+    const auto anonymous = ui.lower(Accordion(sections(false, false)), toggles);
+    check(!anonymous && has(anonymous.diagnostics, "accordion_id", "/root"), "Accordion without an ID accepted");
+    auto unknown = sections(false, false);
+    unknown[0].action = "missing";
+    check(!ui.lower(Accordion(std::move(unknown), {.node = {.id = "help"}}), toggles),
+          "Unregistered header action accepted");
+
+    // Expansion state belongs to disclosure buttons, not to inert Boxes or other controls.
+    auto inert = lowered.document;
+    inert.root.children[0].children[0].events.clear();
+    check(has(UiTree::create(inert, toggles).diagnostics, "collection_state",
+              "/root/children/0/children/0/properties/expanded"),
+          "Expansion state without an activate binding accepted");
+    auto toggle = lowered.document;
+    toggle.root.children[0].children[0].properties["toggle_role"] = std::string("checkbox");
+    toggle.root.children[0].children[0].properties["selected"] = false;
+    check(has(UiTree::create(toggle, toggles).diagnostics, "collection_state",
+              "/root/children/0/children/0/properties/expanded"),
+          "Expansion state on a checkbox accepted");
+}
+
 void controlled_dropdown() {
     Session ui;
     const ValidationContext menu_actions{{"open", "system", "dark"}};
@@ -733,6 +848,7 @@ int main() {
         label_and_spacer();
         property_grid();
         separators();
+        accordion();
         controlled_dropdown();
         controlled_slider();
         lifetimes_and_recovery();

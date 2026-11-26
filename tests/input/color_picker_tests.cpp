@@ -480,9 +480,9 @@ void rejection() {
     check(has(validate(malformed, actions), "color_picker_child", "/root/children/1/children/3"),
           "A color picker contains only noninteractive parts");
     malformed = f.document;
-    malformed.root.children[0].properties["expanded"] = true;
-    check(has(validate(malformed, actions), "collection_state", "/root/children/0/properties/expanded"),
-          "Expansion state stays limited to its roles");
+    malformed.root.children[3].properties["expanded"] = true;
+    check(has(validate(malformed, actions), "collection_state", "/root/children/3/properties/expanded"),
+          "Expansion state stays limited to its roles, not the panel group");
 
     auto snapshot = take(capture_semantics(f.semantic(), 1));
     const auto copy = snapshot;

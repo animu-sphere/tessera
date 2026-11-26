@@ -408,9 +408,9 @@ void rejection() {
     check(has(validate(malformed, actions), "listbox_popup", "/root/children/3"),
           "A listbox is an anchored root-sibling popup");
     malformed = f.document;
-    malformed.root.children[0].properties["expanded"] = true;
-    check(has(validate(malformed, actions), "collection_state", "/root/children/0/properties/expanded"),
-          "Only tree items and comboboxes have expansion state");
+    malformed.root.children[3].properties["expanded"] = true;
+    check(has(validate(malformed, actions), "collection_state", "/root/children/3/properties/expanded"),
+          "A listbox has no expansion state; its combobox reports it");
 
     auto snapshot = take(capture_semantics(f.semantic(), 1));
     const auto at = [&](std::string_view id) {
