@@ -16,6 +16,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include "cell_text.hpp"
@@ -49,6 +50,7 @@ constexpr ui::NumberRange position_range{-1000, 1000, 0.1};
 constexpr std::uint64_t position_owner_base = 2000; // + 3 * item + axis
 constexpr std::uint64_t notes_owner_base = 3000;
 constexpr ui::SplitPaneLimits pane_limits{140, 320, 8};
+constexpr float heading_min_width = 640; // Narrower windows show the header tools without the heading.
 const std::vector<std::pair<std::string, std::string>> visibility_choices{
     {"inherited", "Inherited"}, {"visible", "Visible"}, {"hidden", "Hidden"}};
 // USD imageable purpose tokens, chosen through the Display tab's ComboBox.
@@ -137,6 +139,72 @@ bool modified(const Item& item) {
     return !item.enabled || item.amount != 50 || item.visibility != "inherited" || !item.shadows ||
            item.purpose != "default" || item.color != default_color;
 }
+// Application edit history. The host owns it: an entry records the accepted item data before and
+// after one edit, never view state such as selection, tabs, popups, panes or pending numeric drafts.
+struct TextData {
+    std::string text;
+    std::size_t anchor = 0, caret = 0; // Restored with the text; not part of content agreement.
+};
+struct ItemData {
+    std::string id;
+    TextData name, notes;
+    bool enabled = true;
+    int amount = 50;
+    double scale = 1;
+    std::array<double, 3> position{};
+    std::string visibility, purpose;
+    bool shadows = true;
+    HsvColor color;
+};
+using Document = std::vector<ItemData>; // In Hierarchy order.
+Document document(const std::vector<Item>& items) {
+    Document result;
+    for (const auto& item : items)
+        result.push_back({item.id,
+                          {item.name.text, item.name.anchor, item.name.caret},
+                          {item.notes.text, item.notes.anchor, item.notes.caret},
+                          item.enabled,
+                          item.amount,
+                          item.scale,
+                          item.position,
+                          item.visibility,
+                          item.purpose,
+                          item.shadows,
+                          item.color});
+    return result;
+}
+bool same_content(const ItemData& a, const ItemData& b) {
+    return a.id == b.id && a.name.text == b.name.text && a.notes.text == b.notes.text && a.enabled == b.enabled &&
+           a.amount == b.amount && a.scale == b.scale && a.position == b.position && a.visibility == b.visibility &&
+           a.purpose == b.purpose && a.shadows == b.shadows && a.color == b.color;
+}
+bool same_content(const Document& a, const Document& b) {
+    return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+                      [](const ItemData& x, const ItemData& y) { return same_content(x, y); });
+}
+// Replaces a restored text with a new revision, so requests against the replaced text reject.
+void restore_text(TextEditState& state, const TextData& data) {
+    if (state.text == data.text) return;
+    state.text = data.text;
+    state.anchor = std::min(data.anchor, data.text.size());
+    state.caret = std::min(data.caret, data.text.size());
+    state.composition.reset();
+    ++state.revision;
+}
+constexpr std::size_t history_limit = 100;
+struct HistoryEntry {
+    std::string command;           // The first command of a merged entry, such as `item.name`.
+    std::string selected, section; // Where the edit was made; Undo and Redo return there.
+    Document before, after;
+};
+struct History {
+    std::vector<std::shared_ptr<const HistoryEntry>> entries;
+    std::size_t cursor = 0; // Entries before the cursor are done; the rest form the redo branch.
+    // Merge key of the top entry while later edits may still join it.
+    std::optional<std::string> open;
+    bool can_undo() const { return cursor > 0; }
+    bool can_redo() const { return cursor < entries.size(); }
+};
 // At most one popup is open: an item menu, the Purpose list or the Display color panel.
 enum class OpenMenu { none, actions, context, purpose, color };
 struct State {
@@ -151,6 +219,7 @@ struct State {
     // Presentation of an active Hierarchy drag: the dimmed source row and a valid insertion point.
     std::optional<std::string> drag_source;
     std::optional<CollectionDropTarget> drop_target;
+    History history;
     const Item& item() const {
         const auto found =
             std::find_if(items.begin(), items.end(), [&](const Item& item) { return item.id == selected; });
@@ -215,16 +284,74 @@ bool move_item(State& state, std::string_view source, const CollectionDropTarget
     state.items.insert(state.items.begin() + 1 + static_cast<std::ptrdiff_t>(*index), std::move(moved));
     return true;
 }
+// Applies one side of a history entry: the Hierarchy order and every changed value. Unchanged fields
+// keep their editor state, including a pending numeric draft; a changed number replaces its draft.
+void restore(State& state, const Document& target) {
+    std::vector<Item> items;
+    for (const auto& data : target) {
+        const auto found =
+            std::find_if(state.items.begin(), state.items.end(), [&](const Item& item) { return item.id == data.id; });
+        require(found != state.items.end(), "History names a missing Inspector item");
+        auto item = std::move(*found);
+        restore_text(item.name, data.name);
+        restore_text(item.notes, data.notes);
+        item.enabled = data.enabled;
+        item.amount = data.amount;
+        for (std::size_t i = 0; i < number_fields.size(); ++i) {
+            const auto value = i == 0 ? data.scale : data.position[i - 1];
+            if (number_value(item, i) == value) continue;
+            number_value(item, i) = value;
+            auto& draft = number_draft(item, i);
+            draft.text = ui::format_number(value);
+            draft.anchor = draft.caret = draft.text.size();
+            ++draft.revision;
+        }
+        item.visibility = data.visibility;
+        item.shadows = data.shadows;
+        item.purpose = data.purpose;
+        item.color = data.color;
+        items.push_back(std::move(item));
+    }
+    require(items.size() == state.items.size(), "History must name every Inspector item");
+    state.items = std::move(items);
+}
+// Records the accepted change from `before` to `after` under a merge key. An edit with the top
+// entry's open key joins it; a joined entry that returns to its start is removed. A new entry
+// discards the redo branch.
+void record(const State& before, State& after, std::string_view command, std::string key) {
+    auto from = document(before.items), to = document(after.items);
+    if (same_content(from, to)) return;
+    auto& history = after.history;
+    if (history.open == key && history.can_undo() && !history.can_redo()) {
+        auto merged = *history.entries.back();
+        merged.after = std::move(to);
+        if (same_content(merged.before, merged.after)) {
+            history.entries.pop_back();
+            --history.cursor;
+            history.open.reset();
+        } else {
+            history.entries.back() = std::make_shared<const HistoryEntry>(std::move(merged));
+        }
+        return;
+    }
+    history.entries.resize(history.cursor);
+    history.entries.push_back(std::make_shared<const HistoryEntry>(
+        HistoryEntry{std::string(command), before.selected, before.section, std::move(from), std::move(to)}));
+    if (history.entries.size() > history_limit) history.entries.erase(history.entries.begin());
+    history.cursor = history.entries.size();
+    history.open = std::move(key);
+}
 CommandObjectIds item_ids(const State& state) {
     CommandObjectIds ids;
     for (const auto& item : state.items) ids.insert(item.id);
     return ids;
 }
 ValidationContext action_context(const State& state) {
-    ValidationContext context{{"scene.toggle", "item.name", "item.enabled", "item.amount", "item.scale", "item.shadows",
-                               "item.rename", "item.reset", "menu.open", "panes.resize", "purpose.toggle",
-                               "item.position.x", "item.position.y", "item.position.z", "color.toggle", "color.area",
-                               "color.hue", "item.notes"}};
+    ValidationContext context{{"scene.toggle",    "item.name",       "item.enabled",   "item.amount",
+                               "item.scale",      "item.shadows",    "item.rename",    "item.reset",
+                               "menu.open",       "panes.resize",    "purpose.toggle", "item.position.x",
+                               "item.position.y", "item.position.z", "color.toggle",   "color.area",
+                               "color.hue",       "item.notes",      "edit.undo",      "edit.redo"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
     for (const auto& [key, label] : purpose_choices) context.actions.insert("purpose." + key);
@@ -253,6 +380,12 @@ CommandStates command_states(const ValidationContext& context) {
     CommandStates states;
     for (const auto& action : context.actions) states.emplace(action, CommandState{true});
     states.emplace("item.move", CommandState{true});
+    return states;
+}
+// Undo and Redo are enabled by the candidate's own history.
+CommandStates history_states(CommandStates states, const History& history) {
+    states["edit.undo"] = history.can_undo() ? CommandState{true} : CommandState{false, false, "Nothing to undo."};
+    states["edit.redo"] = history.can_redo() ? CommandState{true} : CommandState{false, false, "Nothing to redo."};
     return states;
 }
 StyleSheet appearance(const State& state) {
@@ -521,18 +654,25 @@ ui::Element Form(const State& state, Size viewport) {
         ui::ContextMenu("Item actions", "selected", state.position, commands, popup("item-menu", OpenMenu::context))};
     if (purpose_list) layers.push_back(std::move(*purpose_list));
     if (color_panel) layers.push_back(std::move(*color_panel));
+    // The Spacer keeps the item tools at the trailing edge of the header. The tools stretch so the
+    // Separators between the menu trigger, the item commands and the history commands span their height.
+    // Narrow windows leave out the heading, which the window title repeats, so every tool stays visible.
+    std::vector<ui::Element> header;
+    if (viewport.width >= heading_min_width)
+        header.push_back(ui::Text("Hierarchy / Inspector",
+                                  {.id = "heading", .style = {.text = {.size = 20.f, .line_height = 24.f}}}));
+    header.push_back(ui::Spacer({.id = "header-space"}));
+    header.push_back(ui::Toolbar("Item tools",
+                                 {ui::Button("Item actions", "menu.open", {.node = control("actions")}),
+                                  ui::VerticalSeparator({.id = "tools-separator"}),
+                                  ui::Button("Rename", "item.rename", {.node = control("tool-rename")}),
+                                  ui::Button("Reset", "item.reset", {.node = control("tool-reset")}),
+                                  ui::VerticalSeparator({.id = "history-separator"}),
+                                  ui::Button("Undo", "edit.undo", {.node = control("tool-undo")}),
+                                  ui::Button("Redo", "edit.redo", {.node = control("tool-redo")})},
+                                 {.id = "item-tools", .style = {.align = Align::stretch}}));
     std::vector<ui::Element> content{
-        // The Spacer keeps the item tools at the trailing edge of the header. The tools stretch so the
-        // Separator between the menu trigger and the item commands spans their height.
-        ui::Row({ui::Text("Hierarchy / Inspector", {.style = {.text = {.size = 20.f, .line_height = 24.f}}}),
-                 ui::Spacer({.id = "header-space"}),
-                 ui::Toolbar("Item tools",
-                             {ui::Button("Item actions", "menu.open", {.node = control("actions")}),
-                              ui::VerticalSeparator({.id = "tools-separator"}),
-                              ui::Button("Rename", "item.rename", {.node = control("tool-rename")}),
-                              ui::Button("Reset", "item.reset", {.node = control("tool-reset")})},
-                             {.id = "item-tools", .style = {.align = Align::stretch}})},
-                {.style = {.align = Align::center, .gap = 16.f}}),
+        ui::Row(std::move(header), {.style = {.align = Align::center, .gap = 16.f}}),
         ui::HorizontalSplitPane(
             ui::TreeView("Hierarchy", state.selected,
                          {{"scene", state.items.front().name.text, "select.scene", "scene.toggle", state.expanded,
@@ -823,8 +963,30 @@ public:
             // An accepted choice closes the list; refresh then returns focus to the trigger.
             candidate.item().purpose = command.substr(8);
             candidate.menu = OpenMenu::none;
+        } else if (command == "edit.undo" || command == "edit.redo") {
+            // Traversal applies an existing entry; it records nothing and closes the open merge.
+            const bool redo = command == "edit.redo";
+            auto& history = candidate.history;
+            if (!(redo ? history.can_redo() : history.can_undo()))
+                return {CommandOutcomeStatus::error,
+                        {},
+                        {{"history_empty", Severity::error, "/history",
+                          redo ? "There is no edit to redo." : "There is no edit to undo."}}};
+            const auto entry = history.entries[redo ? history.cursor : history.cursor - 1];
+            if (!same_content(document(candidate.items), redo ? entry->before : entry->after))
+                return {CommandOutcomeStatus::error,
+                        {},
+                        {{"history_mismatch", Severity::error, "/history",
+                          "The accepted items no longer match the edit history."}}};
+            restore(candidate, redo ? entry->after : entry->before);
+            candidate.selected = entry->selected;
+            candidate.section = entry->section;
+            candidate.menu = OpenMenu::none;
+            history.cursor = redo ? history.cursor + 1 : history.cursor - 1;
+            history.open.reset();
         } else if (command != "item.rename")
             throw std::runtime_error("Unknown Inspector command");
+        if (command != "edit.undo" && command != "edit.redo") record(state, candidate, command, merge_key(command));
         if (command == "item.rename" || command == "item.enabled") candidate.menu = OpenMenu::none;
         // The name editor lives on the General tab; accepting Rename focuses it in the new view.
         if (command == "item.rename") candidate.section = "general";
@@ -870,6 +1032,7 @@ public:
             take(view.commands.resolve({view.commands.generation(), "item.move", arguments, source, ++sequence})));
     }
     CommandOutcome run(const CommandInvocation& invocation, const SemanticInput* semantic = nullptr) {
+        const auto pressed = focused_id();
         const auto result = take(executor.execute(view.commands, invocation, *this, semantic));
         if (pending_view) {
             require(result.outcome.status == CommandOutcomeStatus::success,
@@ -881,11 +1044,35 @@ public:
             pending_focus.reset();
             pending_view.reset();
             ++executions;
-            if (invocation.record().command == "item.rename") focus_id("name");
+            const auto& command = invocation.record().command;
+            if (command == "item.rename") focus_id("name");
+            // A history button that runs out of entries passes focus to its now-enabled partner.
+            if (command == "edit.undo" && pressed == "tool-undo" && !state.history.can_undo()) focus_id("tool-redo");
+            if (command == "edit.redo" && pressed == "tool-redo" && !state.history.can_redo()) focus_id("tool-undo");
         }
         return result.outcome;
     }
+    // Ctrl+Z undoes; Ctrl+Y and Ctrl+Shift+Z redo, repeating while held. Returns true when consumed.
+    bool history_key(const KeyDown& key, CommandSource source) {
+        const bool undo = key.key == Key::z && key.modifiers == Modifiers{.control = true};
+        const bool redo = (key.key == Key::y && key.modifiers == Modifiers{.control = true}) ||
+                          (key.key == Key::z && key.modifiers == Modifiers{.shift = true, .control = true});
+        if (!undo && !redo) return false;
+        // An unfinished pointer gesture keeps its edit open; history waits for its release.
+        if (!pressed_pointers.empty() || !(undo ? state.history.can_undo() : state.history.can_redo())) return true;
+        const auto outcome = run(take(view.commands.resolve(
+            {view.commands.generation(), undo ? "edit.undo" : "edit.redo", {}, source, ++sequence})));
+        report(undo ? "Undo" : "Redo", state.selected, outcome.diagnostics);
+        return true;
+    }
+    std::optional<std::string> focused_id() {
+        const auto node = take(focus.refresh(view.hit())).focused;
+        if (!node) return std::nullopt;
+        return view.tree->get(*node)->id;
+    }
+    // One discrete activation, like a press or key: it starts its own history gesture.
     void action(std::string_view id, CommandSource source = CommandSource::keyboard) {
+        ++gesture_serial;
         const auto request = take(request_semantic_action(view.semantic(), *view.tree->find(id), "activate"));
         const auto outcome = operate(request, source);
         checked(outcome);
@@ -908,6 +1095,21 @@ public:
         accept(std::move(candidate));
     }
     void input(InputEvent event, CommandSource source = CommandSource::keyboard) {
+        // Each press or discrete event starts a gesture; moves, releases and keys while a pointer
+        // is pressed (such as Escape during a scrub) continue it, so its edits merge into one entry.
+        const bool down = std::holds_alternative<PointerDown>(event.data);
+        if (down || pressed_pointers.empty()) ++gesture_serial;
+        if (down) pressed_pointers.insert(std::get<PointerDown>(event.data).pointer.value);
+        std::optional<std::uint32_t> released;
+        if (const auto* up = std::get_if<PointerUp>(&event.data)) released = up->pointer.value;
+        if (const auto* cancel = std::get_if<PointerCancel>(&event.data)) released = cancel->pointer.value;
+        const auto focused = focused_id();
+        route(std::move(event), source);
+        if (released) pressed_pointers.erase(*released);
+        // Typing joins one entry until focus moves to another control.
+        if (focused_id() != focused) state.history.open.reset();
+    }
+    void route(InputEvent event, CommandSource source = CommandSource::keyboard) {
         const auto diagnostics = validate(event);
         require(diagnostics.empty(), "Invalid normalized Inspector input");
         // Input that can move focus, selection or menus first closes the preedit; it never commits.
@@ -1059,13 +1261,16 @@ public:
         }
         slider_pointer.reset();
         focused = take(focus.refresh(view.hit())).focused;
+        if (const auto* key = std::get_if<KeyDown>(&event.data); key && history_key(*key, source)) return;
         if (const auto* key = std::get_if<KeyDown>(&event.data); key && clipboard_key(*key, source)) return;
         if (const auto field = focused_text(focused)) {
             std::optional<float> goal;
             auto request =
                 *field == TextField::notes ? notes_request(event, goal) : text_edit_request(event, state.item().name);
             if (request) {
+                typing = true;
                 const auto outcome = try_text(*field, std::move(*request), source);
+                typing = false;
                 edit_diagnostics = outcome.diagnostics;
                 if (outcome.status != CommandOutcomeStatus::success)
                     require(!edit_diagnostics.empty(), "Rejected text edit needs diagnostics");
@@ -1313,8 +1518,10 @@ public:
                 operation = TextCompositionUpdate{id, std::move(step.text), step.caret};
             else
                 operation = TextCompositionCommit{id, std::move(step.text)};
+            typing = true; // A committed composition joins the surrounding typing.
             edit_diagnostics =
                 try_text(ime_field, {edited.owner, edited.revision, std::move(*operation)}, source).diagnostics;
+            typing = false;
         }
         // A rejected commit still ends the platform session: drop preedit, keep committed bytes.
         if (step.kind == Kind::commit && !edit_diagnostics.empty()) {
@@ -1562,11 +1769,20 @@ private:
     std::optional<float> split;
     std::optional<HsvColor> picked_color; // The dispatcher's request for one color.area/color.hue command.
     std::optional<PointerId> slider_pointer;
+    // History merging: the input gesture an edit belongs to, pressed pointers and typed text edits.
+    std::uint64_t gesture_serial = 0;
+    std::set<std::uint32_t> pressed_pointers;
+    bool typing = false;
     std::optional<State> pending_state;
     std::optional<FocusDispatcher> pending_focus;
     std::optional<View> pending_view;
     std::uint64_t generation = 1, sequence = 0;
 
+    // Typed text joins per field and item; other edits join only within one input gesture.
+    std::string merge_key(std::string_view command) const {
+        return std::string(command) + '/' + state.selected + '/' +
+               (typing ? std::string("typing") : std::to_string(gesture_serial));
+    }
     static void checked(const CommandOutcome& outcome) {
         if (outcome.status == CommandOutcomeStatus::success) return;
         require(!outcome.diagnostics.empty(), "Inspector command failed without diagnostics");
@@ -1608,8 +1824,9 @@ private:
     }
     Result<View> stage(State& candidate, Size viewport, Offsets requested, FocusDispatcher& candidate_focus,
                        bool reveal) {
-        const auto commands = take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
-                                                            eligibility, item_ids(candidate)));
+        const auto commands =
+            take(CommandSnapshot::publish(registry, ++generation, CommandMode::production,
+                                          history_states(eligibility, candidate.history), item_ids(candidate)));
         auto result = prepare(candidate, viewport, requested, commands);
         if (!result) return result;
         const auto geometry = take(split_pane_geometry(result.value->hit(), "panes"));
@@ -3617,6 +3834,242 @@ void notes_smoke() {
     require(notes() == edited && !app.view.tree->find("modified-badge"),
             "Reset must keep notes, and notes must not mark the item modified");
 }
+void history_smoke() {
+    App app;
+    // Leave room below the card for every General row.
+    app.resize({960, 540});
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::keyboard) {
+        app.input({++time, event}, source);
+    };
+    const auto type = [&](std::string_view text) {
+        for (const char c : text) input(tessera::TextInput{std::string(1, c)});
+    };
+    const auto undo = [&] { input(KeyDown{Key::z, {.control = true}}); };
+    const auto redo = [&] { input(KeyDown{Key::y, {.control = true}}); };
+    const auto focused = [&](std::string_view id) {
+        return take(app.focus.refresh(app.view.hit())).focused == app.view.tree->find(id);
+    };
+    const auto& history = app.state.history;
+    const auto enabled = [&](const char* id) { return app.observed(id).enabled; };
+    const auto shown = [&](bool can_undo, bool can_redo) {
+        return history.can_undo() == can_undo && history.can_redo() == can_redo && enabled("tool-undo") == can_undo &&
+               enabled("tool-redo") == can_redo;
+    };
+    require(app.observed("tool-undo").role == SemanticRole::button && app.observed_name("tool-undo") == "Undo" &&
+                app.observed_name("tool-redo") == "Redo" && shown(false, false),
+            "Undo and Redo must be disabled toolbar buttons before any edit");
+    auto executions = app.executions;
+    undo();
+    redo();
+    require(app.executions == executions, "Shortcuts must run nothing without history");
+    for (const float width : {960.f, 492.f}) {
+        app.resize({width, 540});
+        const auto content = app.view.box("application").content_box();
+        const auto last = app.view.box("tool-redo").border_box;
+        const auto bar = app.view.box("history-separator").border_box;
+        require(last.origin.x + last.size.width <= content.origin.x + content.size.width + 1e-3f &&
+                    bar.size.width == 1 && bar.origin.x < app.view.box("tool-undo").border_box.origin.x &&
+                    app.view.tree->find("heading").has_value() == (width >= heading_min_width),
+                "Undo and Redo must follow their Separator inside the header at every supported width");
+    }
+    app.resize({960, 540});
+
+    // Consecutive typing in one field is one entry; Undo restores the text and its selection.
+    app.focus_id("name");
+    input(KeyDown{Key::end});
+    const auto original = app.state.item().name;
+    type("abc");
+    require(app.state.item().name.text == "Cubeabc" && history.entries.size() == 1 && shown(true, false),
+            "Typing must merge into one history entry");
+    const auto typed = app.state.item().name;
+    executions = app.executions;
+    undo();
+    const auto& undone = app.state.item().name;
+    require(undone.text == "Cube" && undone.caret == original.caret && undone.anchor == original.anchor &&
+                undone.revision > typed.revision && app.observed_name("hierarchy-item-cube") == "Cube" &&
+                app.executions == executions + 1 && shown(false, true) && focused("name"),
+            "Ctrl+Z must restore the typed name, its caret and the Hierarchy label through one command");
+    require(app.try_edit({typed.owner, typed.revision, TextEditInsert{"!"}}).status != CommandOutcomeStatus::success &&
+                app.state.item().name.text == "Cube",
+            "Requests against the replaced revision must reject");
+    redo();
+    require(app.state.item().name.text == "Cubeabc" && app.state.item().name.caret == typed.caret && shown(true, false),
+            "Ctrl+Y must reapply the typed name");
+    undo();
+    require(app.state.item().name.text == "Cube", "Ctrl+Z must undo again after Ctrl+Y");
+    input(KeyDown{Key::z, {.shift = true, .control = true}});
+    require(app.state.item().name.text == "Cubeabc" && history.entries.size() == 1, "Ctrl+Shift+Z must redo");
+
+    // Redo and moving focus away end the typing entry.
+    type("d");
+    require(history.entries.size() == 2, "Typing after Redo must start a new entry");
+    input(KeyDown{Key::tab});
+    input(KeyDown{Key::tab, {.shift = true}});
+    require(focused("name"), "Shift+Tab must return to the name editor");
+    type("e");
+    require(app.state.item().name.text == "Cubeabcde" && history.entries.size() == 3,
+            "Typing after a focus change must start a new entry");
+    undo();
+    require(app.state.item().name.text == "Cubeabcd", "Undo must remove only the typing after the focus change");
+    undo();
+    undo();
+    require(app.state.item().name.text == "Cube" && shown(false, true), "Undo must reach the first state");
+    redo();
+    // A new edit after Undo discards the redo branch.
+    app.action("enabled");
+    require(!app.state.item().enabled && app.state.item().name.text == "Cubeabc" && history.entries.size() == 2 &&
+                shown(true, false),
+            "A new edit must discard the redo branch");
+
+    // Paste is its own entry between typed text.
+    std::string clipboard = "yz";
+    app.clipboard_read = [&]() -> Result<std::string> { return {clipboard, {}}; };
+    app.focus_id("name");
+    input(KeyDown{Key::end});
+    type("x");
+    input(KeyDown{Key::v, {.control = true}});
+    type("w");
+    require(app.state.item().name.text == "Cubeabcxyzw" && history.entries.size() == 5,
+            "Paste must form its own entry between typed text");
+    undo();
+    undo();
+    require(app.state.item().name.text == "Cubeabcx", "Undo must remove typing, then the paste");
+    redo();
+    redo();
+    require(app.state.item().name.text == "Cubeabcxyzw", "Redo must restore the paste and the typing");
+
+    // View state is not history: selection, sections, help topics, disclosure and menus record nothing.
+    const auto entries = history.entries.size();
+    for (const auto* id : {"hierarchy-item-sphere", "hierarchy-item-cube", "help-header-editing",
+                           "sections-tab-display", "sections-tab-general", "actions"})
+        app.action(id);
+    input(KeyDown{Key::escape});
+    require(history.entries.size() == entries && app.state.menu == OpenMenu::none,
+            "Navigation and presentation must not record history");
+
+    // Undo returns to the item and Inspector section where the edit was made.
+    app.action("sections-tab-display");
+    app.action("visibility-option-hidden");
+    app.action("sections-tab-general");
+    app.action("hierarchy-item-sphere");
+    undo();
+    require(app.state.selected == "cube" && app.state.section == "display" &&
+                app.state.item().visibility == "inherited" &&
+                app.observed_checked("visibility-option-inherited") == true,
+            "Undo must restore the Display value and show the item and section it belongs to");
+    app.action("sections-tab-general");
+    redo();
+    require(app.state.section == "display" && app.state.item().visibility == "hidden", "Redo must reapply Visibility");
+    app.action("sections-tab-general");
+
+    // Reset is one entry; a pending numeric draft survives unrelated history traversal.
+    app.action("amount");
+    app.action("tool-reset");
+    require(app.state.item().enabled && app.state.item().amount == 50 && app.state.item().visibility == "inherited",
+            "Reset must restore the properties");
+    app.focus_id("scale");
+    input(KeyDown{Key::a, {.control = true}});
+    type("2.5");
+    const auto drafts = history.entries.size();
+    undo();
+    const auto& reset = app.state.item();
+    require(history.entries.size() == drafts && !reset.enabled && reset.amount == 55 && reset.visibility == "hidden" &&
+                reset.scale_draft.text == "2.5" && reset.scale == 1,
+            "Undo of Reset must restore every property and keep the pending Scale draft");
+    redo();
+    app.focus_id("scale");
+    input(KeyDown{Key::enter});
+    require(app.state.item().scale == 2.5, "Enter must apply the Scale draft");
+    undo();
+    require(app.state.item().scale == 1 && app.state.item().scale_draft.text == "1",
+            "Undo of an applied number must replace its draft with the restored value");
+    redo();
+
+    // A pointer scrub is one entry; Escape back to its start leaves none; shortcuts wait for release.
+    const auto start = app.view.reachable("scale-label");
+    input(PointerDown{{1}, start}, CommandSource::pointer);
+    input(PointerMove{{1}, {start.x + 12, start.y}}, CommandSource::pointer);
+    input(PointerMove{{1}, {start.x + 24, start.y}}, CommandSource::pointer);
+    undo();
+    require(app.state.item().scale == 3.1 && history.can_undo() && !history.can_redo(),
+            "Ctrl+Z must wait while a scrub is pressed");
+    input(PointerUp{{1}, {start.x + 24, start.y}}, CommandSource::pointer);
+    const auto scrubbed = history.entries.size();
+    undo();
+    require(app.state.item().scale == 2.5, "Undo must remove a whole scrub");
+    redo();
+    input(PointerDown{{1}, start}, CommandSource::pointer);
+    input(PointerMove{{1}, {start.x + 12, start.y}}, CommandSource::pointer);
+    input(KeyDown{Key::escape});
+    input(PointerUp{{1}, {start.x + 12, start.y}}, CommandSource::pointer);
+    require(app.state.item().scale == 3.1 && history.entries.size() == scrubbed,
+            "A scrub cancelled with Escape must leave no entry");
+
+    // A Slider drag is one entry.
+    const auto thumb = app.view.reachable("amount-thumb");
+    const auto track = app.view.box("amount-track").border_box;
+    input(PointerDown{{1}, thumb}, CommandSource::pointer);
+    input(PointerMove{{1}, {track.origin.x + track.size.width * .75f, thumb.y}}, CommandSource::pointer);
+    input(PointerMove{{1}, {track.origin.x + track.size.width + 40, thumb.y}}, CommandSource::pointer);
+    input(PointerUp{{1}, {track.origin.x + track.size.width + 40, thumb.y}}, CommandSource::pointer);
+    require(app.state.item().amount == 100 && history.entries.size() == scrubbed + 1,
+            "A Slider drag must record one entry");
+    undo();
+    require(app.state.item().amount == 50, "Undo must restore the value before the Slider drag");
+    redo();
+
+    // Reordering is history; Undo restores the Hierarchy order.
+    app.focus_id("hierarchy-item-sphere");
+    input(KeyDown{Key::down, {.alt = true}});
+    require(app.state.items[2].id == "light" && app.state.items[3].id == "sphere", "Alt+Down must move Sphere");
+    undo();
+    require(app.state.items[2].id == "sphere" && app.state.items[3].id == "light" && app.state.selected == "cube",
+            "Undo must restore the Hierarchy order");
+    redo();
+    require(app.state.items[3].id == "sphere", "Redo must move Sphere again");
+
+    // The toolbar buttons share the commands; an exhausted button passes focus to its partner.
+    while (history.cursor > 1) undo();
+    app.focus_id("tool-undo");
+    executions = app.executions;
+    input(Activate{});
+    require(app.executions == executions + 1 && !history.can_undo() && focused("tool-redo") && shown(false, true) &&
+                app.state.item().name.text == "Cube",
+            "The last toolbar Undo must move focus to Redo");
+    input(Activate{});
+    require(focused("tool-redo") && history.cursor == 1, "Toolbar Redo must run through its own command");
+    const auto point = app.view.reachable("tool-undo");
+    input(PointerDown{{1}, point}, CommandSource::pointer);
+    input(PointerUp{{1}, point}, CommandSource::pointer);
+    require(!history.can_undo(), "A pointer press must undo");
+
+    // A rejected presentation keeps the accepted state and history position.
+    redo();
+    app.text.reject = true;
+    undo();
+    app.text.reject = false;
+    require(history.cursor == 1 && app.state.item().name.text == "Cubeabc" &&
+                app.feedback == "Undo could not finish. Try again.",
+            "A rejected Undo must keep the accepted items and history");
+    undo();
+    require(!history.can_undo() && app.feedback.empty(), "A later Undo must succeed and clear the notice");
+
+    // History is bounded; the oldest entries are dropped. Recording needs no presentation.
+    auto bounded = initial_state();
+    for (std::size_t i = 0; i <= history_limit; ++i) {
+        auto next = bounded;
+        next.item().amount = static_cast<int>(i % 2) * 5;
+        record(bounded, next, "item.amount", std::to_string(i));
+        bounded = std::move(next);
+    }
+    require(bounded.history.entries.size() == history_limit && bounded.history.cursor == history_limit &&
+                bounded.history.entries.front()->before[1].amount == 0 &&
+                bounded.history.entries.front()->after[1].amount == 5,
+            "History must keep its latest entries up to the limit");
+    std::cout << "Inspector history: typing merge, focus split, paste, view state, item/section return, Reset, "
+                 "drafts, scrub, Slider, reorder, toolbar, rejection and bound passed.\n";
+}
 void label_smoke() {
     App app;
     // Leave room below the card for every General row.
@@ -3720,6 +4173,7 @@ void smoke() {
     scale_smoke();
     position_smoke();
     scrub_smoke();
+    history_smoke();
     label_smoke();
     reorder_smoke();
     visibility_smoke();
@@ -4327,6 +4781,20 @@ int native(bool smoke) {
                     reset.visibility == "inherited" && reset.shadows && reset.purpose == "default" &&
                     reset.color == default_color,
                 "Native toolbar Reset must restore the properties and keep the name");
+        // Right reaches the now-enabled Undo; Control+Y and Control+Z traverse the same history.
+        host.message(WM_KEYDOWN, VK_RIGHT, 1);
+        require(app.focused_on("tool-undo"), "Native Right must reach the enabled Undo button");
+        host.message(WM_KEYDOWN, VK_SPACE, 1);
+        require(app.state.item().enabled == cube.enabled && app.state.item().amount == cube.amount &&
+                    app.state.item().position == cube.position && app.state.item().purpose == cube.purpose &&
+                    app.state.item().color == cube.color && app.state.history.can_redo(),
+                "Native toolbar Undo must restore the reset properties");
+        control_key('Y');
+        require(app.state.item().amount == 50 && app.state.item().purpose == "default",
+                "Native Control+Y must redo Reset");
+        control_key('Z');
+        require(app.state.item().amount == cube.amount && app.state.item().purpose == cube.purpose,
+                "Native Control+Z must undo Reset again");
         std::cout << "Inspector native injected-message smoke passed: " << host.presentations << " presentations.\n";
     };
     if (smoke) return window.run(verify);
