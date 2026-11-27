@@ -91,6 +91,7 @@ void capture_joins_one_generation() {
         {"item_position", std::nullopt, false},
         {"labelled_by", std::nullopt, false},
         {"modal", tessera::Property{false}, false},
+        {"multiselectable", std::nullopt, false},
         {"pointer_events", tessera::Property{true}, false},
         {"popup_anchor", std::nullopt, false},
         {"popup_gap", tessera::Property{4.0}, false},

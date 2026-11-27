@@ -165,6 +165,14 @@ struct CollectionProps {
     Props node; // Required stable ID; item keys are unique across the collection.
     bool disabled = false;
 };
+// The controlled selection of a multiselectable ListView or TreeView: every listed key is selected, and an
+// empty list selects nothing. Keys are unique and name existing items, including collapsed descendants.
+// Construct it explicitly, so `{}` still means an empty single selection.
+struct MultipleSelection {
+    explicit MultipleSelection(std::vector<std::string> keys) : keys(std::move(keys)) {}
+    std::vector<std::string> keys;
+    bool operator==(const MultipleSelection&) const = default;
+};
 // The realization window of a virtual collection whose rows share one fixed border-box height.
 struct VirtualWindow {
     float item_extent = 20;   // Every row's border-box height in logical units; positive and finite.
@@ -399,6 +407,11 @@ Element HorizontalScrollbar(std::string label, float viewport, ScrollGeometry, s
 // Arrow navigation moves focus, Activate selects; tree Left/Right collapse/expand.
 Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem>, CollectionProps = {});
 Element TreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem>, CollectionProps = {});
+// Multiselectable forms: the same rows, IDs, actions and navigation, marking every selected row and the
+// collection `multiselectable`. Activation still requests the item's action; the host decides how a
+// request changes its selection, for example with select_items in input/collection_selection.
+Element ListView(std::string label, MultipleSelection, std::vector<ListItem>, CollectionProps = {});
+Element TreeView(std::string label, MultipleSelection, std::vector<TreeItem>, CollectionProps = {});
 // Virtual ListView/TreeView: the same controlled items, roles, generated IDs, actions and navigation,
 // realizing at most 1024 rows. Rows are <id>-item-<key> Rows of window.item_extent height whose top and
 // bottom margins cover the unrealized rows between them, so the scroll extent equals every logical row
@@ -413,9 +426,15 @@ Element VirtualListView(std::string label, std::optional<std::string> selected, 
                         VirtualCollectionProps = {});
 Element VirtualTreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem>,
                         VirtualCollectionProps = {});
+Element VirtualListView(std::string label, MultipleSelection, std::vector<ListItem>, VirtualCollectionProps = {});
+Element VirtualTreeView(std::string label, MultipleSelection, std::vector<TreeItem>, VirtualCollectionProps = {});
 // The visible logical rows in order: every list key, or each tree key whose ancestors are all expanded.
 std::vector<std::string> virtual_keys(const std::vector<ListItem>&);
 std::vector<std::string> virtual_keys(const std::vector<TreeItem>&);
+// The visible logical rows a user can select: virtual_keys without disabled items or descendants of a
+// disabled branch. Pass them to select_items as the selection order.
+std::vector<std::string> selectable_keys(const std::vector<ListItem>&);
+std::vector<std::string> selectable_keys(const std::vector<TreeItem>&);
 // Rows intersecting the clamped viewport, extended by overscan. Empty for zero rows or an invalid window;
 // a zero viewport still realizes the leading row.
 VirtualRange virtual_range(std::size_t count, const VirtualWindow&);

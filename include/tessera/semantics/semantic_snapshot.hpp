@@ -27,6 +27,7 @@ struct SemanticRecord {
     std::optional<std::string> value;
     std::optional<std::uint64_t> item_count;
     std::optional<std::uint64_t> item_position;
+    std::optional<bool> multiselectable;
     bool operator==(const SemanticRecord&) const = default;
 };
 

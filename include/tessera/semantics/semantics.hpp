@@ -75,6 +75,8 @@ struct SemanticNode {
     // logical position, so unrealized items remain observable as a count, never as entries.
     std::optional<std::uint64_t> item_count;
     std::optional<std::uint64_t> item_position;
+    // Lists and trees that allow selecting several items at once; absent for single selection.
+    std::optional<bool> multiselectable;
     bool operator==(const SemanticNode&) const = default;
 };
 

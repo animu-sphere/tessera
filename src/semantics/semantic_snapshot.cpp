@@ -100,7 +100,7 @@ SemanticSnapshot read(const JsonValue& json) {
         const auto& o = object(nodes[i], at,
                                {"node", "id", "parent", "role", "name", "name_source", "labelled_by", "enabled",
                                 "focusable", "focused", "actions"},
-                               {"selected", "expanded", "value", "item_count", "item_position"});
+                               {"selected", "expanded", "value", "item_count", "item_position", "multiselectable"});
         SemanticRecord entry;
         entry.node = index(o.at("node"), at + "/node");
         entry.id = optional_string(o.at("id"), at + "/id");
@@ -123,6 +123,7 @@ SemanticSnapshot read(const JsonValue& json) {
             entry.item_count = index64(found->second, at + "/item_count");
         if (const auto found = o.find("item_position"); found != o.end())
             entry.item_position = index64(found->second, at + "/item_position");
+        entry.multiselectable = optional_bool(o, "multiselectable", at);
         const auto& actions = as<Array>(o.at("actions"), at + "/actions");
         if (actions.size() > 2)
             fail("out_of_range", at + "/actions", "Expose at most activation and one expansion action.");
@@ -160,6 +161,7 @@ JsonValue write(const SemanticSnapshot& snapshot) {
         if (entry.value) object["value"] = text(*entry.value);
         if (entry.item_count) object["item_count"] = JsonValue{static_cast<double>(*entry.item_count)};
         if (entry.item_position) object["item_position"] = JsonValue{static_cast<double>(*entry.item_position)};
+        if (entry.multiselectable) object["multiselectable"] = JsonValue{*entry.multiselectable};
     }
     return JsonValue{Object{{"version", number(snapshot.version)},
                             {"generation", text(std::to_string(snapshot.generation))},
@@ -176,7 +178,7 @@ std::vector<SemanticRecord> own_semantic_records(const SemanticTree& tree) {
         if (entry.labelled_by) labelled_by = entry.labelled_by->index;
         result.push_back({entry.node.index, entry.id, entry.parent, entry.role, entry.name, entry.name_source,
                           labelled_by, entry.enabled, entry.focusable, entry.focused, entry.actions, entry.selected,
-                          entry.expanded, entry.value, entry.item_count, entry.item_position});
+                          entry.expanded, entry.value, entry.item_count, entry.item_position, entry.multiselectable});
     }
     return result;
 }
@@ -285,6 +287,8 @@ std::vector<Diagnostic> validate(const SemanticSnapshot& snapshot) {
                                     *entry.item_position == 0 || *entry.item_position > max_safe))
             check.error("invalid_state", at + "/item_position",
                         "Only list and tree items report a 1-based logical position, within 2^53 - 1.");
+        if (entry.multiselectable && entry.role != SemanticRole::list && entry.role != SemanticRole::tree)
+            check.error("invalid_state", at + "/multiselectable", "Only lists and trees allow multiple selection.");
         if (entry.actions.size() > (entry.role == SemanticRole::tree_item ? 2u : 1u) ||
             (!entry.actions.empty() &&
              (!entry.enabled ||
