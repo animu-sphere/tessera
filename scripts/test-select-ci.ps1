@@ -9,6 +9,7 @@ $cases = @(
     @{ Paths = @('examples/settings-starter/main.cpp', 'docs/README.md'); Core = $true; Import = $false },
     @{ Paths = @('src/ui/document.cpp', 'tests/serialization/document_tests.cpp', 'tests/serialization/fixtures/button.json'); Core = $true; Import = $false },
     @{ Paths = @('src/ui/detail.hpp', 'modules/fonts/shaper.cpp'); Core = $true; Import = $false },
+    @{ Paths = @('tools/snapshot/src/png.cpp', 'tools/snapshot/include/tessera/snapshot/snapshot_bundle.hpp', 'tests/tools/fixtures/menu.replay.json'); Core = $true; Import = $false },
     @{ Paths = @('include/tessera/ui/authoring.hpp'); Core = $true; Import = $true },
     @{ Paths = @('include/tessera/new_api.h', 'examples/settings/main.cpp'); Core = $true; Import = $true },
     @{ Paths = @('backends/vulkan/vulkan.cpp', 'examples/vulkan-menu/main.cpp'); Core = $true; Import = $false },

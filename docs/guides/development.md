@@ -145,16 +145,30 @@ Use `Release` for the other configuration. `CpuRenderer` borrows host target byt
 
 To compare both Vulkan paths with CPU output, use the [optional Vulkan workflow](#optional-vulkan-workflow) and its `vulkan` CTest check. `cpu-compare-{reference,batch}-{1,2,3,4}.ppm` and the premultiplied-image scene's `cpu-compare-premultiplied-{reference,batch}-{1,2,3,4}.ppm` appear in `<build>/backends/vulkan/artifacts`. The fixture fixes bilinear clamp sampling, target format, scales, glyph data and boundary conditions; it requires a real eligible GPU and does not replace a failing device with CPU rendering. Recorded configuration and tolerances are in [support](https://github.com/animu-sphere/tessera/blob/cf86d0992d0f81f606b557e46ad0ddcba758eaf7/docs/reference/support-matrix.md#scalar-cpu-rendering-evidence--2026-10-12).
 
+## Snapshot bundle workflow
+
+`TESSERA_BUILD_TOOLS` builds the [snapshot bundle library](../architecture/inspection.md#implemented-snapshot-bundle-tooling) `tessera::snapshot` and the `tessera_snapshot` CLI. It is ON for standalone development builds and OFF when Tessera is embedded. Examples link the library, so enabling examples without tools is a configure error. A bundle is a directory to read or attach to a review: `g<n>/tree.txt` holds a compact node list, `g<n>/frame.png` the pixels, and the JSON members the exact values.
+
+To capture a placeholder-text Replay JSON recording, here the CLI's committed fixture:
+
+```powershell
+cmake --build build --config Release --target tessera_snapshot_cli
+& .\build\Release\tessera_snapshot.exe capture tests\tools\fixtures\menu.replay.json --out build\snapshots\menu --generation all
+ctest --test-dir build -C Release -R '^(snapshot_bundle|snapshot_cli)$' --output-on-failure --no-tests=error
+```
+
+Applications with their own text or glyph services write bundles in-process instead; the [Inspector's scenarios](inspector-hierarchy.md#snapshot-bundles) are the reference. Writing into a directory replaces an earlier bundle there and refuses any other content. The [owner test](../../tests/tools/snapshot_bundle_tests.cpp) rejects a CLI fixture that no longer matches its fixture recording. After changing that recording, regenerate the file with `tessera_snapshot_bundle_tests --write-fixture tests/tools/fixtures/menu.replay.json`.
+
 ## Library-only workflow
 
 Use a fresh build directory for a clean library-only check:
 
 ```powershell
-cmake -S . -B build-core -G "Visual Studio 18 2026" -A x64 -DBUILD_TESTING=OFF -DTESSERA_BUILD_EXAMPLES=OFF
+cmake -S . -B build-core -G "Visual Studio 18 2026" -A x64 -DBUILD_TESTING=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_TOOLS=OFF
 cmake --build build-core --config Debug
 ```
 
-This produces `build-core/Debug/tessera_core.lib`. Test and example options are independently selectable. Build directories are ignored by Git.
+This produces `build-core/Debug/tessera_core.lib`. Test and tool options are independently selectable; examples require `TESSERA_BUILD_TOOLS`. Build directories are ignored by Git.
 
 ## Source-consumption workflow
 

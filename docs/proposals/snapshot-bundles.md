@@ -1,6 +1,6 @@
 # Snapshot bundles and CLI
 
-> Proposed design, not yet implemented. Active scope is in [current work](../roadmap/current.md).
+> Partly implemented: bundle v1 capture, the PNG encoder and `tessera_snapshot capture` are described under [snapshot bundle tooling](../architecture/inspection.md#implemented-snapshot-bundle-tooling). Verification, comparison and the remaining artifacts below are still proposed. Active scope is in [current work](../roadmap/current.md).
 
 ## Proposed runner and snapshot bundle
 
@@ -22,7 +22,7 @@ Separate interactive application execution from deterministic one-shot observati
 | Sources | Owned source map and property/component provenance with explicit unavailable origins |
 | Metrics | Allocation/memory and render counters when available, plus optional CPU/GPU timing with measurement conditions |
 
-Capture CPU observations coherently, then associate completed readback with that same generation/frame. Do not combine a later semantic tree with an earlier image. Missing artifacts carry an explicit reason; a core-only snapshot needs no screenshot. Names and encoding of bundle members remain open until bounded validation, version rejection, and round trips are specified.
+Capture CPU observations coherently, then associate completed readback with that same generation/frame. Do not combine a later semantic tree with an earlier image. Missing artifacts carry an explicit reason; a core-only snapshot needs no screenshot. Bundle v1 fixes the capture member names and encodings. Loading a bundle, with bounded validation and version rejection, is still to be specified together with verification and comparison.
 
 A small inspection/render CLI consumer loads a fixture, replays declared interactions, captures one coherent generation, and emits versioned machine-readable artifacts for CI, Path-finder, and agents. Select the scalar CPU renderer explicitly as the deterministic reference by default; unavailable requested backends are diagnosed under the runner boundary. Compare Vulkan output against the same scene under declared device/format tolerances. Inspection, rendering, bundle verification, and bundle comparison are intended operations, without committing to executable names, switches, or artifact filenames.
 

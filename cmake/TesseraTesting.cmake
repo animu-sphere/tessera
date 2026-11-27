@@ -57,6 +57,16 @@ tessera_add_contract_test(edit_input tests/input/edit_input_tests.cpp)
 tessera_add_contract_test(text_editor tests/input/text_editor_tests.cpp)
 tessera_add_contract_test(vector_input tests/input/vector_input_tests.cpp)
 tessera_add_contract_test(color_picker tests/input/color_picker_tests.cpp)
+if(TESSERA_BUILD_TOOLS)
+    add_executable(tessera_snapshot_bundle_tests tests/tools/snapshot_bundle_tests.cpp)
+    target_link_libraries(tessera_snapshot_bundle_tests PRIVATE tessera::snapshot)
+    tessera_add_check(snapshot_bundle tessera_snapshot_bundle_tests contract
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/fixtures/menu.replay.json)
+    # The CLI replaces its own earlier bundle, so repeated runs reuse one directory.
+    tessera_add_check(snapshot_cli tessera_snapshot_cli contract capture
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/fixtures/menu.replay.json
+        --out ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle --generation all)
+endif()
 if(TESSERA_BUILD_EXAMPLES)
     tessera_add_check(first_app tessera_first_app smoke)
     tessera_add_check(settings_starter tessera_settings_starter smoke)
@@ -83,6 +93,11 @@ if(TESSERA_BUILD_EXAMPLES)
     tessera_add_check(viewport_toolbar tessera_viewport_toolbar smoke)
     tessera_add_check(grid_inspector tessera_grid_inspector smoke)
     tessera_add_check(inspector_hierarchy tessera_inspector_hierarchy smoke)
+    # Names match the Inspector's snapshot scenario table, which rejects unknown ones.
+    foreach(scenario IN ITEMS initial edit-name ime display narrow)
+        tessera_add_check(inspector_hierarchy_snapshot.${scenario} tessera_inspector_hierarchy smoke
+            --snapshot ${scenario} ${CMAKE_CURRENT_BINARY_DIR}/inspector-snapshots/${scenario})
+    endforeach()
     tessera_add_check(popup_tooltip tessera_popup_tooltip smoke)
     tessera_add_check(modal_dialog tessera_modal_dialog smoke)
     tessera_add_check(tree_list tessera_tree_list smoke)

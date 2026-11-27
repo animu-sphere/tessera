@@ -80,7 +80,7 @@ Compare against full-tree/scalar references and report workload, conditions and 
 - Portal/palette operations; variable-height, measured or follow-end [virtual lists](../proposals/virtualization.md) beyond the fixed-extent [VirtualListView/VirtualTreeView](../guides/virtual-list.md).
 - Control+Z/Control+Shift+Z for ordinary label-history commands, preserving editing-first routing.
 - Multiple-line fields, clipboard/composition and host shortcut adapters for the editor fixture.
-- [Snapshot bundles/CLI](../proposals/snapshot-bundles.md), [agent discovery](../proposals/agent-capability-manifest.md) and edit-to-verification measurements.
+- [Snapshot bundle](../proposals/snapshot-bundles.md) members beyond capture and comparison: invariant declarations, source maps, inspection property records and font-profile or GPU capture through the CLI. Also [agent discovery](../proposals/agent-capability-manifest.md) and edit-to-verification measurements.
 
 Use concrete friction in the [editor fixture](../integrations/path-finder.md) to choose scope, rather than treating all extensions as required.
 

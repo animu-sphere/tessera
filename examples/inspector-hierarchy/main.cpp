@@ -10,6 +10,7 @@
 #include <tessera/render/paint.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
+#include <tessera/snapshot/snapshot_bundle.hpp>
 #include <tessera/text/text_caret.hpp>
 #include <algorithm>
 #include <array>
@@ -4349,6 +4350,127 @@ void smoke() {
         << "Inspector: select/edit/return, independent items, rejected staging, input, menus, inspection and replay passed.\n";
 }
 
+// Window-free snapshot scenarios. Each drives the ordinary App, then records its accepted view and host focus
+// through a ReplaySession, so the bundle's offscreen run reproduces what the scenario left on screen.
+// Scroll offsets and hover/press state reach the bundle only through the recorded document and styles.
+class SnapshotRecorder {
+public:
+    explicit SnapshotRecorder(App& app) : app_(app), session_(take(ReplaySession::open(initial(app), app.text))) {}
+    void record() {
+        (void)take(session_.apply(app_.recorded_view()));
+        if (const auto id = app_.focused_id()) (void)take(session_.apply(ReplayFocus{AuthorIdTarget{*id}}));
+    }
+    void resize(Size size) {
+        app_.resize(size);
+        (void)take(session_.apply(ReplayResize{size}));
+    }
+    template<class Event> void input(Event event, CommandSource source = CommandSource::keyboard) {
+        app_.input({++time_, std::move(event)}, source);
+    }
+    void click(std::string_view id) {
+        const auto point = app_.view.reachable(id);
+        input(PointerDown{{1}, point}, CommandSource::pointer);
+        input(PointerUp{{1}, point}, CommandSource::pointer);
+    }
+    const ReplaySession& session() const { return session_; }
+
+private:
+    static ReplayRecording initial(const App& app) {
+        ReplayRecording recording;
+        recording.context = app.context;
+        recording.viewport = app.viewport;
+        recording.document = app.view.tree->document();
+        recording.styles = app.view.styles;
+        return recording;
+    }
+    App& app_;
+    ReplaySession session_;
+    std::chrono::microseconds time_{};
+};
+
+struct SnapshotScenario {
+    std::string_view name;
+    std::string_view summary;
+    void (*run)(App&, SnapshotRecorder&);
+};
+constexpr SnapshotScenario snapshot_scenarios[] = {
+    {"initial", "Launch state", [](App&, SnapshotRecorder&) {}},
+    {"edit-name", "Sphere selected from the Hierarchy, its name replaced while the name editor keeps focus",
+     [](App& app, SnapshotRecorder& recorder) {
+         recorder.click("hierarchy-item-sphere");
+         app.focus_id("name");
+         recorder.input(KeyDown{Key::a, {.control = true}});
+         recorder.input(tessera::TextInput{"Edited sphere"});
+     }},
+    {"ime", "Japanese preedit open at the end of the name editor",
+     [](App& app, SnapshotRecorder& recorder) {
+         app.focus_id("name");
+         recorder.input(KeyDown{Key::end});
+         app.ime({ImeStep::Kind::start});
+         app.ime({ImeStep::Kind::update, "\xe3\x81\xab\xe3\x81\xbb\xe3\x82\x93\xe3\x81\x94", 12}); // nihongo
+     }},
+    {"display", "Display section tab with the Visibility choices",
+     [](App& app, SnapshotRecorder&) { app.action("sections-tab-display"); }},
+    {"narrow", "Smallest supported 492x360 window with wrapped Inspector controls",
+     [](App&, SnapshotRecorder& recorder) { recorder.resize({492, 360}); }},
+};
+
+std::string snapshot_usage() {
+    std::string usage =
+        "Usage: tessera_inspector_hierarchy [--native | --native-smoke | --snapshot <scenario> <directory>]\n"
+        "Snapshot scenarios:\n";
+    for (const auto& scenario : snapshot_scenarios)
+        usage += "  " + std::string(scenario.name) + ": " + std::string(scenario.summary) + "\n";
+    return usage;
+}
+
+// Fixed-cell placeholder marks where no host glyph rasterizer is available.
+struct SnapshotMarks final : GlyphRasterizer {
+    std::uint64_t face_revision(FontId font) const override { return font.value == 0 ? 1 : 0; }
+    Result<GlyphBitmap> rasterize(const GlyphRasterRequest& request) override {
+        GlyphBitmap bitmap{5, 7, 0, 7, std::vector<std::uint8_t>(35)};
+        for (std::size_t i = 0; i < bitmap.coverage.size(); ++i)
+            bitmap.coverage[i] = (request.glyph >> (i % 21)) & 1 ? 255 : 0;
+        return {std::move(bitmap), {}};
+    }
+};
+
+int snapshot(std::string_view name, const std::string& directory) {
+    const auto scenario = std::find_if(std::begin(snapshot_scenarios), std::end(snapshot_scenarios),
+                                       [&](const SnapshotScenario& entry) { return entry.name == name; });
+    if (scenario == std::end(snapshot_scenarios)) {
+        std::cerr << "Unknown snapshot scenario '" << name << "'.\n" << snapshot_usage();
+        return 2;
+    }
+    App app;
+    SnapshotRecorder recorder(app);
+    scenario->run(app, recorder);
+    recorder.record();
+    const auto& recording = recorder.session().recording();
+#ifdef _WIN32
+    // Readable fixed-cell coverage from installed Windows fonts; images depend on those fonts.
+    settings_native::Glyphs glyphs;
+    glyphs.cells = inspector_text::cells;
+    const std::string glyph_identity = "win32-gdi-fixed-cell";
+#else
+    SnapshotMarks glyphs;
+    const std::string glyph_identity = "synthetic-fixture";
+#endif
+    GlyphCache cache(glyphs);
+    CpuFrameCapture frames(&cache);
+    auto run = take(run_offscreen({&recording, &app.text, frames.backend(), &frames}));
+    SnapshotOptions options{.producer = "tessera_inspector_hierarchy",
+                            .scenario = std::string(scenario->name),
+                            .text_service = "inspector-cell-text",
+                            .glyphs = glyph_identity};
+    const auto bundle = take(build_snapshot_bundle(recording, run, options));
+    if (const auto written = write_snapshot_bundle(bundle, directory); !written.empty())
+        (void)take(Result<int>{std::nullopt, written});
+    std::cout << "Inspector snapshot '" << scenario->name << "' written to " << directory << ":\n";
+    for (const auto& file : bundle.files) std::cout << "  " << file.path << '\n';
+    return 0;
+}
+
 #ifdef _WIN32
 int native(bool smoke) {
     App app;
@@ -4809,8 +4931,9 @@ int main(int argc, char** argv) {
             smoke();
             return 0;
         }
+        if (argc == 4 && std::string_view(argv[1]) == "--snapshot") return snapshot(argv[2], argv[3]);
         require(argc == 2 && (std::string_view(argv[1]) == "--native" || std::string_view(argv[1]) == "--native-smoke"),
-                "Usage: tessera_inspector_hierarchy [--native | --native-smoke]");
+                snapshot_usage().c_str());
 #ifdef _WIN32
         return native(std::string_view(argv[1]) == "--native-smoke");
 #else

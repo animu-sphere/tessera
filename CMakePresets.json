@@ -11,6 +11,7 @@
         "BUILD_TESTING": "ON",
         "TESSERA_BUILD_TESTING": "ON",
         "TESSERA_BUILD_EXAMPLES": "ON",
+        "TESSERA_BUILD_TOOLS": "ON",
         "TESSERA_BUILD_VULKAN": "OFF",
         "TESSERA_BUILD_FONTS": "OFF"
       }

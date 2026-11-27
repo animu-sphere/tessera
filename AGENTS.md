@@ -7,6 +7,11 @@
 - `docs/architecture/overview.md` states the dependency boundaries to keep (core free of GPU/platform/browser/USD/editor SDKs; layout independent of rendering).
 - `docs/guides/development.md` has the build and test commands; `docs/guides/testing.md` lists the existing owner tests per subsystem.
 
+## Observing UI changes
+
+- To see what a UI change does without opening a window, build Release and run `tessera_inspector_hierarchy --snapshot <scenario> <directory>`. Each scenario takes under a second. Read `g<n>/tree.txt` first, then `g<n>/frame.png`. Scenarios are listed in `docs/guides/inspector-hierarchy.md#snapshot-bundles`.
+- `tessera_snapshot capture <recording.json> --out <directory>` writes the same kind of bundle for a placeholder-text Replay JSON recording. Write bundles outside the repository or under `build/`.
+
 ## Git workflow
 
 - Never commit or push directly to `main` unless the user explicitly requests it.

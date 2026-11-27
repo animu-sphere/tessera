@@ -29,11 +29,11 @@ endif()
 if(NOT BUILD_TESTING OR NOT CMAKE_PROJECT_NAME STREQUAL "TesseraSourceConsumer")
     message(FATAL_ERROR "Tessera changed the host's testing or project ownership.")
 endif()
-if(TESSERA_BUILD_TESTING OR TESSERA_BUILD_EXAMPLES OR
+if(TESSERA_BUILD_TESTING OR TESSERA_BUILD_EXAMPLES OR TESSERA_BUILD_TOOLS OR TARGET tessera_snapshot OR
    TARGET tessera_pr_tests OR TARGET tessera_fixture_tests OR TARGET tessera_wide_tests OR
    TARGET tessera_document_tests OR TARGET tessera_hello_ui OR TARGET tessera_vulkan_tests OR
    TARGET tessera_vulkan_menu OR TARGET tessera_fonts)
-    message(FATAL_ERROR "Embedded defaults must exclude Tessera tests/examples and fonts.")
+    message(FATAL_ERROR "Embedded defaults must exclude Tessera tests/examples/tools and fonts.")
 endif()
 if(NOT CONSUMER_WITH_VULKAN AND (TARGET tessera::vulkan OR TARGET Vulkan::Vulkan OR TESSERA_SLANGC))
     message(FATAL_ERROR "Core-only consumption must perform no Vulkan/Slang discovery.")
