@@ -90,7 +90,7 @@ Use the [replay contract](../architecture/replay.md) for controlled time/readine
 
 ## Inspection and snapshot fixtures
 
-Use in-process [inspection](../architecture/inspection.md) before transport wrappers. Select scoped/stale/ambiguous targets, coherent-generation observations and rejected state injection. Prefer numeric invariants over images; unavailable observations must not look successful. The [snapshot bundle owner](../../tests/tools/snapshot_bundle_tests.cpp) checks members, determinism, PNG round trips and directory replacement; `snapshot_cli` and `inspector_hierarchy_snapshot.<scenario>` consume it. Change the bundle format together with that owner. Add an Inspector scenario only for a screen state that reviewers or agents need to inspect repeatedly. Transport and browser fixtures become relevant when those mechanisms are implemented.
+Use in-process [inspection](../architecture/inspection.md) before transport wrappers. Select scoped/stale/ambiguous targets, coherent-generation observations and rejected state injection. Prefer numeric invariants over images; unavailable observations must not look successful. The [snapshot bundle owner](../../tests/tools/snapshot_bundle_tests.cpp) checks members, determinism, PNG round trips and decoding, directory replacement, bundle verification and comparison; `snapshot_cli`, `snapshot_cli_verify`, `snapshot_cli_diff` and `inspector_hierarchy_snapshot.<scenario>` consume it. Change the bundle format together with that owner. Add an Inspector scenario only for a screen state that reviewers or agents need to inspect repeatedly. Transport and browser fixtures become relevant when those mechanisms are implemented.
 
 ## Localization fixtures
 

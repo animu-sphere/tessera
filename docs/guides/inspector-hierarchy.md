@@ -323,7 +323,19 @@ An unknown name prints the scenario list. The scenarios are:
 | `display` | Display tab with the Visibility choices |
 | `narrow` | The 492×360 minimum window: header tools without the heading and the narrow Inspector pane |
 
-Start with `g<n>/tree.txt` for roles, IDs, names, geometry and state, then open `g<n>/frame.png` for the pixels; `manifest.json` says which generation `<n>` is. Each scenario drives the ordinary `App`, then records its accepted host view and host focus through a `ReplaySession`. The bundle's offscreen run therefore plays the same document and styles with the application's cell text service, declared as `inspector-cell-text`. On Windows, frames use the native host's GDI fixed-cell glyphs (`win32-gdi-fixed-cell`), so text is readable but depends on the installed Consolas and MS Gothic fonts. Other platforms use synthetic marks. Scroll offsets and pointer state reach the bundle only through the recorded document and styles. A Release scenario takes under a second; each is registered as an `inspector_hierarchy_snapshot.<scenario>` smoke.
+Start with `g<n>/tree.txt` for roles, IDs, names, geometry and state, then open `g<n>/frame.png` for the pixels; `manifest.json` says which generation `<n>` is.
+
+To see what a change does to a scenario, write its bundle before and after the change and [compare them](../architecture/inspection.md#implemented-snapshot-bundle-tooling):
+
+```powershell
+cmake --build build --config Release --target tessera_inspector_hierarchy tessera_snapshot_cli
+& .\build\Release\tessera_inspector_hierarchy.exe --snapshot edit-name build\snapshots\before\edit-name
+# Make the change and rebuild, then:
+& .\build\Release\tessera_inspector_hierarchy.exe --snapshot edit-name build\snapshots\after\edit-name
+& .\build\Release\tessera_snapshot.exe diff build\snapshots\before\edit-name build\snapshots\after\edit-name --out build\snapshots\edit-name.diff.json
+```
+
+The exit status is 0 when nothing changed and 1 when something did. The one-line summary names the first level that changed, and the report lists the changes. Semantic changes come first, such as names, values, selection, focus and actions. Layout changes come next, as border boxes, clips and scroll geometry by author ID, followed by requested actions, paint counts and the pixel count with its bounds. Different scenarios, such as `initial` and `narrow`, usually differ in viewport, so `diff` reports `incompatible` (exit status 3) instead of judging them. `tessera_snapshot verify <directory>` checks a single bundle. Each scenario drives the ordinary `App`, then records its accepted host view and host focus through a `ReplaySession`. The bundle's offscreen run therefore plays the same document and styles with the application's cell text service, declared as `inspector-cell-text`. On Windows, frames use the native host's GDI fixed-cell glyphs (`win32-gdi-fixed-cell`), so text is readable but depends on the installed Consolas and MS Gothic fonts. Other platforms use synthetic marks. Scroll offsets and pointer state reach the bundle only through the recorded document and styles. A Release scenario takes under a second; each is registered as an `inspector_hierarchy_snapshot.<scenario>` smoke.
 
 ## Host and observation boundary
 

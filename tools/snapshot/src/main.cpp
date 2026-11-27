@@ -1,9 +1,11 @@
-// tessera_snapshot: captures a snapshot bundle from a Replay JSON recording without a window.
+// tessera_snapshot: captures, verifies and compares snapshot bundles without a window.
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <tessera/snapshot/snapshot_bundle.hpp>
+#include <tessera/snapshot/snapshot_diff.hpp>
 #include <tessera/text/glyph_cache.hpp>
 #include <charconv>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -19,14 +21,26 @@ using namespace tessera;
 
 constexpr std::string_view usage = R"(Usage:
   tessera_snapshot capture <recording.json> --out <directory> [--generation last|all|<g>[,<g>...]] [--core-only]
+  tessera_snapshot verify <directory>
+  tessera_snapshot diff <before> <after> [--geometry-tolerance <units>] [--pixel-threshold <0-255>]
+                        [--pixel-count <n>] [--out <report.json>]
 
-Plays a Replay JSON v1/v2 recording offscreen and writes a snapshot bundle:
+capture plays a Replay JSON v1/v2 recording offscreen and writes a snapshot bundle:
   manifest.json, recording.json, actions.json, diagnostics.json and, per generation,
   g<g>/semantics.json, layout.json, paint.json, tree.txt and frame.png.
-Frames come from the scalar CPU reference renderer with synthetic placeholder glyph marks;
---core-only captures no frames. Only placeholder text recordings are reproducible here.
+  Frames come from the scalar CPU reference renderer with synthetic placeholder glyph marks;
+  --core-only captures no frames. Only placeholder text recordings are reproducible here.
+verify loads a bundle and checks every member against bundle v1.
+diff verifies two bundles, reports mismatched conditions and otherwise their semantic, layout,
+  action, paint and pixel differences as tessera-snapshot-diff JSON on stdout (or in --out).
+  Layout numbers within --geometry-tolerance logical units are equal (default 0). A pixel differs
+  when a channel changes by more than --pixel-threshold (default 0), and frames differ when more
+  than --pixel-count pixels differ (default 0).
 
-Exit status: 0 written, 1 rejected input or capture failure, 2 usage error.
+Exit status:
+  capture: 0 written, 1 rejected input or capture failure, 2 usage error.
+  verify:  0 valid, 1 invalid bundle, 2 usage error.
+  diff:    0 equal, 1 different, 2 invalid bundle or usage error, 3 incompatible conditions.
 )";
 
 // Deliberately synthetic marks for placeholder glyph IDs, not a real font.
@@ -40,9 +54,9 @@ struct SyntheticGlyphs final : GlyphRasterizer {
     }
 };
 
-void print(const std::vector<Diagnostic>& diagnostics) {
+void print(const std::vector<Diagnostic>& diagnostics, std::string_view prefix = {}) {
     for (const auto& d : diagnostics) {
-        std::cerr << (d.severity == Severity::error ? "error " : "warning ") << d.code << " at "
+        std::cerr << prefix << (d.severity == Severity::error ? "error " : "warning ") << d.code << " at "
                   << (d.path.empty() ? "/" : d.path);
         if (d.byte_offset) std::cerr << " (byte " << *d.byte_offset << ")";
         std::cerr << ": " << d.message << '\n';
@@ -56,8 +70,7 @@ struct Arguments {
     bool core_only = false;
 };
 
-std::optional<Arguments> parse(int argc, char** argv) {
-    if (argc < 3 || std::string_view(argv[1]) != "capture") return std::nullopt;
+std::optional<Arguments> parse_capture(int argc, char** argv) {
     Arguments result;
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg = argv[i];
@@ -76,6 +89,13 @@ std::optional<Arguments> parse(int argc, char** argv) {
     return result;
 }
 
+template<class T> std::optional<T> parse_number(std::string_view text) {
+    T value{};
+    const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (text.empty() || ec != std::errc{} || end != text.data() + text.size()) return std::nullopt;
+    return value;
+}
+
 // "last" -> empty selection; "all" -> every generation; otherwise comma-separated indices.
 std::optional<std::vector<std::size_t>> generations(std::string_view spec, std::size_t count) {
     std::vector<std::size_t> result;
@@ -86,11 +106,9 @@ std::optional<std::vector<std::size_t>> generations(std::string_view spec, std::
     }
     while (!spec.empty()) {
         const auto comma = spec.find(',');
-        const auto token = spec.substr(0, comma);
-        std::size_t value = 0;
-        const auto [end, ec] = std::from_chars(token.data(), token.data() + token.size(), value);
-        if (token.empty() || ec != std::errc{} || end != token.data() + token.size()) return std::nullopt;
-        result.push_back(value);
+        const auto value = parse_number<std::size_t>(spec.substr(0, comma));
+        if (!value) return std::nullopt;
+        result.push_back(*value);
         spec = comma == std::string_view::npos ? std::string_view{} : spec.substr(comma + 1);
     }
     return result;
@@ -156,15 +174,119 @@ int capture(const Arguments& arguments) {
     return 0;
 }
 
+int verify(int argc, char** argv) {
+    if (argc != 3) {
+        std::cerr << usage;
+        return 2;
+    }
+    const auto loaded = verify_snapshot_bundle(argv[2]);
+    print(loaded.diagnostics);
+    if (!loaded) {
+        std::cerr << argv[2] << " is not a valid snapshot bundle v" << snapshot_bundle_version << " ("
+                  << loaded.diagnostics.size() << " problems).\n";
+        return 1;
+    }
+    std::cout << argv[2] << " is a valid snapshot bundle v" << snapshot_bundle_version << " with generation";
+    std::cout << (loaded.value->generations.size() == 1 ? "" : "s");
+    for (const auto& g : loaded.value->generations) std::cout << " g" << g.generation;
+    std::cout << ".\n";
+    return 0;
+}
+
+int diff(int argc, char** argv) {
+    std::vector<std::string> bundles;
+    std::string out;
+    SnapshotDiffOptions options;
+    for (int i = 2; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        const bool value = i + 1 < argc;
+        if (arg == "--geometry-tolerance" && value) {
+            const auto number = parse_number<double>(argv[++i]);
+            if (!number || !std::isfinite(*number) || *number < 0) {
+                std::cerr << "error: --geometry-tolerance takes a nonnegative number of logical units\n";
+                return 2;
+            }
+            options.geometry_tolerance = *number;
+        } else if (arg == "--pixel-threshold" && value) {
+            const auto number = parse_number<unsigned>(argv[++i]);
+            if (!number || *number > 255) {
+                std::cerr << "error: --pixel-threshold takes a channel delta from 0 to 255\n";
+                return 2;
+            }
+            options.pixel_threshold = std::uint8_t(*number);
+        } else if (arg == "--pixel-count" && value) {
+            const auto number = parse_number<std::uint64_t>(argv[++i]);
+            if (!number) {
+                std::cerr << "error: --pixel-count takes a pixel count\n";
+                return 2;
+            }
+            options.pixel_count = *number;
+        } else if (arg == "--out" && value) {
+            out = argv[++i];
+        } else if (!arg.starts_with("--") && bundles.size() < 2) {
+            bundles.emplace_back(arg);
+        } else {
+            std::cerr << usage;
+            return 2;
+        }
+    }
+    if (bundles.size() != 2) {
+        std::cerr << usage;
+        return 2;
+    }
+    const auto before = verify_snapshot_bundle(bundles[0]);
+    print(before.diagnostics, "before: ");
+    const auto after = verify_snapshot_bundle(bundles[1]);
+    print(after.diagnostics, "after: ");
+    if (!before || !after) {
+        std::cerr << "error: both inputs must be valid snapshot bundles\n";
+        return 2;
+    }
+    const auto result = diff_snapshot_bundles(*before.value, *after.value, options);
+    print(result.diagnostics);
+    if (!result) return 2;
+    const auto report = save_snapshot_diff(*result.value);
+    if (out.empty()) {
+        std::cout << report;
+    } else {
+        std::ofstream file(out, std::ios::binary | std::ios::trunc);
+        file << report;
+        file.close();
+        if (!file) {
+            std::cerr << "error: cannot write " << out << '\n';
+            return 2;
+        }
+    }
+    const auto& d = *result.value;
+    std::ostream& summary = out.empty() ? std::cerr : std::cout;
+    if (d.status == SnapshotDiffStatus::incompatible) {
+        summary << "incompatible:";
+        for (const auto& c : d.conditions) summary << ' ' << c.condition;
+        summary << '\n';
+        return 3;
+    }
+    if (d.status == SnapshotDiffStatus::equal) {
+        summary << "equal\n";
+        return 0;
+    }
+    summary << "different (first: " << *d.first_difference << "): " << d.semantic.size() << " semantic, "
+            << d.layout.size() << " layout, " << d.actions.size() << " action, " << d.paint.size()
+            << " paint changes\n";
+    return 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     try {
-        if (argc == 2 && (std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "-h")) {
+        const std::string_view command = argc > 1 ? argv[1] : "";
+        if (argc == 2 && (command == "--help" || command == "-h")) {
             std::cout << usage;
             return 0;
         }
-        const auto arguments = parse(argc, argv);
+        if (command == "verify") return verify(argc, argv);
+        if (command == "diff") return diff(argc, argv);
+        const auto arguments = command == "capture" ? parse_capture(argc, argv) : std::nullopt;
         if (!arguments) {
             std::cerr << usage;
             return 2;
@@ -172,6 +294,7 @@ int main(int argc, char** argv) {
         return capture(*arguments);
     } catch (const std::exception& error) {
         std::cerr << "error: " << error.what() << '\n';
-        return 1;
+        // For diff, 1 would claim a difference.
+        return argc > 1 && std::string_view(argv[1]) == "capture" ? 1 : 2;
     }
 }
