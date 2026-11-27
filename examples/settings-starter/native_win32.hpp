@@ -411,6 +411,9 @@ private:
             case VK_RETURN: // Unshifted Return outside an editor became Activate above.
                 mapped = tessera::Key::enter;
                 break;
+            case VK_SPACE: // Control+Space and Shift+Space outside an editor; editors keep the character.
+                if (!editing() && (mods.control || mods.shift)) mapped = tessera::Key::space;
+                break;
             case VK_F10:
                 mapped = tessera::Key::f10;
                 break;

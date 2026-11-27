@@ -37,7 +37,7 @@ Contracts: [layout](../architecture/layout.md), [input](../architecture/input.md
 
 - Broader composition support.
 - [TextEditor](../guides/text-editor.md) follow-ups: host-drawn caret and selection highlight, pointer caret placement and drag selection, scrolling inside the editor and word movement.
-- Submenus, menu bars, richer menu items, additional dialogs/Inspector controls, multiple selection and extra focus scopes.
+- Submenus, menu bars, richer menu items, additional dialogs/Inspector controls, multiple selection beyond ListView/TreeView (such as editing shared Inspector properties with mixed values or dragging several rows) and extra focus scopes.
 - [ColorPicker](../guides/color-picker.md) follow-ups: hex or numeric channel entry, alpha, revert on Escape and numeric range semantics for its area and strip.
 - Shared Portal behavior or nested/stacked modal lifetimes when an overlay operation needs them.
 - A practical DevTools/inspection UI.

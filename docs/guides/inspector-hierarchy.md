@@ -20,6 +20,7 @@ Use `Release` for the other configuration. Without arguments the executable runs
 
 - Drag a Hierarchy row other than Scene up or down to reorder Scene's children; a blue line marks the insertion point and Escape cancels. With a row focused, Alt+Up/Down moves it one place. See [Reorder the Hierarchy](#reorder-the-hierarchy).
 - Select Cube or another row in the [TreeView](tree-list.md). Arrows move focus, Enter/Space selects, and Left/Right collapses/expands Scene. Disclosure never changes controlled selection. The selected row casts a small shadow onto the next row, even while that row is hovered; see [Selection elevation](#selection-elevation).
+- Control+click, Shift+click or Shift+arrows to select several rows; Enabled and Reset then apply to all of them. See [Multiple selection](#multiple-selection).
 - Tab to the General/Display [tabs](tabs-toolbar.md) above the properties; Left/Right switch sections. General holds Display name, Enabled, Amount, Scale, Position and Notes; Display holds Visibility, Cast shadows, Purpose and Color. See [Property sections](#property-sections).
 - Tab into the General [Grid Inspector](grid.md). Edit Display name with committed text, exact Ctrl+A, arrows, Shift selection, Home/End and Backspace/Delete. Text editing consumes supported keys before tree navigation.
 - Click a property caption, such as Display name or Scale, to focus the control beside it without changing it; see [Property captions](#property-captions).
@@ -37,11 +38,35 @@ Use `Release` for the other configuration. Without arguments the executable runs
 - Change any property and a blue Modified badge appears on the property card's top edge; Reset, or a property returning to its reset value, removes it. See [Scale hint and Modified badge](#scale-hint-and-modified-badge).
 - Select another item and return. Every item retains its own name and notes owners, revisions, UTF-8 byte selections, enabled flag, amount, accepted scale and pending scale draft, visibility, shadows value, purpose and display color. The edited display name also appears in the Hierarchy.
 - Wheel either pane or drag the [SplitPane](split-pane.md) boundary. Focus navigation reveals controls; scrolling and pane/window resizing do not change item values. Pane minima are 140/320 logical units plus the 8-unit handle; smaller windows clip overflowing minima.
-- Use the header [toolbar](tabs-toolbar.md): Tab enters at Item actions, and Left/Right/Home/End move to Rename and Reset without running them. Reset restores the selected item's properties except its name. See [Item tools](#item-tools).
+- Use the header [toolbar](tabs-toolbar.md): Tab enters at Item actions, and Left/Right/Home/End move to Rename and Reset without running them. Reset restores every selected item's properties except its name. See [Item tools](#item-tools).
 - Press Ctrl+Z to undo the last edit and Ctrl+Y or Ctrl+Shift+Z to redo it, or use the toolbar's Undo and Redo. Typing into one field undoes as a whole, and so does a drag. Undo shows the item and tab the edit was made on. See [Undo and Redo](#undo-and-redo).
 - Open Item actions, or right-click the selected-item button at the top of the Inspector. Shift+F10 opens the same context actions from that button. Rename, from the menu or the toolbar, shows General and focuses the retained name editor; Toggle enabled shares the Checkbox command. Escape/Cancel or an outside press dismisses the menu. These operations need no destructive confirmation, so no Dialog is added.
 
 The context target is the selected-item button, not arbitrary unselected hierarchy rows. No command silently selects a different item on right-click.
+
+## Multiple selection
+
+The Hierarchy is a [multiselectable TreeView](tree-list.md#select-several-items). The application keeps a `CollectionSelection` (the selected keys and the anchor) and the shown item, the one the Inspector edits, which is always one of the selected keys. Every row still requests its own `select.<key>` command; the host attaches a gesture and applies it with `select_items` over `selectable_keys` of the Hierarchy items.
+
+| Input on a Hierarchy row | Selection | Shown item |
+| --- | --- | --- |
+| Click, Enter, Space | Only the row | The row |
+| Control+click, Control+Space | Row added or removed; it becomes the anchor | The row if added; otherwise unchanged, or the first remaining key if it was the row |
+| Shift+click, Shift+Space | The rows from the anchor to the row | The row |
+| Control+Shift+click | The rows from the anchor to the row, added | The row |
+| Shift+Up/Down/Home/End | Focus moves as without Shift, then the rows from the anchor to the new row | The new row |
+| Control+A | Every visible row added (`hierarchy.select_all`) | Unchanged |
+
+Plain arrows still move focus without selecting. A click takes its modifiers from the release, which is when the row activates. Removing the only selected row with Control does nothing, because the Inspector always shows an item. Semantic activation and Replay use the plain gesture. Collapsing Scene keeps selected children, and Control+A keeps them too; a plain selection drops them.
+
+Every selected row has the [raised selection appearance](#selection-elevation); a following selected row covers the previous one's shadow. The Selected button reads `Selected: <id> +<n>` when n other items are selected. It now requests `selection.show`, which changes nothing, so activating it keeps the selection. The property card, Rename, clipboard and the name and number editors work on the shown item only. Two commands apply to every selected item, each as one [history](#undo-and-redo) entry:
+
+- `item.enabled` (the Enabled checkbox and Toggle enabled) sets every selected item to the opposite of the shown item's value, so a mixed selection becomes uniform.
+- `item.reset` (the Reset tool) restores every selected item as Reset restores one.
+
+A history entry also records the selection it applied to, and Undo and Redo restore that selection with the shown item. Dragging moves only the dragged row.
+
+The window-free smoke checks the `multiselectable` tree, every row of the table above, the selected rows' shared appearance and the Selected label, bulk Enabled and Reset with one entry each, Undo restoring both items and selection, the Selected button keeping the selection, the kept last row, and collapsed children kept by Control+A and dropped by a plain selection. The [`multi-select` snapshot](#snapshot-bundles) shows a Shift range plus a Control+click row. The sample Windows host sends Control+Space and Shift+Space outside editors. The injected native smoke does not cover multiple selection, because the host reads modifiers from the keyboard state rather than from the injected messages.
 
 ## Reorder the Hierarchy
 
@@ -74,7 +99,7 @@ The host does not mark commands as edits. After a command runs, the host compare
 
 `edit.undo` and `edit.redo` are ordinary commands. Their enabled state comes from the candidate's history, published with each generation as `CommandState` with "Nothing to undo." / "Nothing to redo." reasons. They are shown as Undo (`tool-undo`) and Redo (`tool-redo`) in the header toolbar, after a second VerticalSeparator (`history-separator`). Disabled tools are skipped by toolbar arrows. Windows narrower than 640 units leave out the `heading` text, which the window title repeats, so the whole toolbar fits the 492-unit minimum. Before this change, Reset was partly clipped at that width. When Undo runs out of entries while focused, focus moves to Redo, and Redo hands focus back the same way. Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z resolve the same node-free commands and repeat while held. They are routed before text editing, so they also work inside Display name, Notes and the numeric fields. While a pointer is pressed they do nothing, so an open gesture is never split.
 
-Undo and Redo first check that the accepted data still equals the entry's expected side, and reject with `history_mismatch` if it does not. They then reapply the Hierarchy order and each changed value, select the entry's item and show its tab, close any popup and close the open merge. Restored text gets a new revision with the recorded selection, so requests against the replaced revision reject. A restored number replaces that field's draft with its canonical text. A field whose value is unchanged keeps its pending draft. A presentation rejection keeps the accepted data and history position and reports `Undo could not finish. Try again.` (or `Redo ...`). A later success clears the notice.
+Undo and Redo first check that the accepted data still equals the entry's expected side, and reject with `history_mismatch` if it does not. They then reapply the Hierarchy order and each changed value, restore the entry's selection and shown item, show its tab, close any popup and close the open merge. Restored text gets a new revision with the recorded selection, so requests against the replaced revision reject. A restored number replaces that field's draft with its canonical text. A field whose value is unchanged keeps its pending draft. A presentation rejection keeps the accepted data and history position and reports `Undo could not finish. Try again.` (or `Redo ...`). A later success clears the notice.
 
 The window-free smoke checks: disabled tools and no-op shortcuts at the start; the tools inside the header at 960 and 492 units; one entry for typing, with the caret, Hierarchy label and stale-revision rejection restored; Ctrl+Y and Ctrl+Shift+Z; new entries after Redo and after a focus change; paste between typed text; no entries from navigation or presentation; returning to the item and Display tab; Reset as one entry with a pending draft kept; replaced drafts for applied numbers; scrub, cancelled scrub and Slider drags; shortcuts waiting for a pressed pointer; reorder; toolbar keyboard and pointer activation with focus hand-off; rejected presentation; and the 100-entry limit. The injected native smoke reaches Undo with Right after Reset and traverses with Control+Y/Control+Z. History is in memory only; it is not persisted, shown as a list, labelled per entry or shared between windows.
 
@@ -232,7 +257,7 @@ Outlines occupy existing outside space without changing control geometry, input 
 
 ## Selection elevation
 
-The selected Hierarchy row is raised with ordinary styles:
+Each selected Hierarchy row is raised with ordinary styles:
 
 ```cpp
 {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}, .z_index = 1,
@@ -320,6 +345,7 @@ An unknown name prints the scenario list. The scenarios are:
 | `initial` | Launch state |
 | `edit-name` | Sphere selected from the Hierarchy and renamed `Edited sphere`, with the name editor focused |
 | `ime` | Japanese preedit `にほんご` open at the end of the name editor |
+| `multi-select` | Cube through Light selected with Shift+click, then Extra 1 added with Control+click and shown as `Selected: extra1 +3` |
 | `display` | Display tab with the Visibility choices |
 | `narrow` | The 492×360 minimum window: header tools without the heading and the narrow Inspector pane |
 

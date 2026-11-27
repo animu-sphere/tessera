@@ -239,6 +239,7 @@ std::string tree_text(const Generation& g, const SnapshotOptions& options) {
             if (record->selected) line += *record->selected ? " selected" : " unselected";
             if (record->expanded) line += *record->expanded ? " expanded" : " collapsed";
             if (record->value) line += " value=" + display(*record->value);
+            if (record->multiselectable && *record->multiselectable) line += " multiselectable";
             if (record->item_position && record->item_count)
                 line += " item=" + std::to_string(*record->item_position) + "/" + std::to_string(*record->item_count);
         }

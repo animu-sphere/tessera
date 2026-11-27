@@ -32,6 +32,40 @@ struct ElementData {
     std::vector<Element> children;
     std::vector<Diagnostic> diagnostics;
 };
+// A collection's controlled selection: one optional key, or a multiselectable set of keys.
+struct ChosenKeys {
+    std::vector<std::string> keys;
+    bool multiple = false;
+    ChosenKeys() = default;
+    ChosenKeys(std::optional<std::string> key) {
+        if (key) keys.push_back(std::move(*key));
+    }
+    ChosenKeys(MultipleSelection selection) : keys(std::move(selection.keys)), multiple(true) {}
+};
+// Checks a selection against the collection's items as lowering visits them.
+class SelectionCheck {
+public:
+    explicit SelectionCheck(const ChosenKeys& chosen) : multiple_(chosen.multiple) {
+        for (const auto& key : chosen.keys)
+            if (!keys_.insert(key).second) duplicate_ = true;
+    }
+    bool selected(std::string_view key) const { return keys_.contains(key); }
+    void visit(std::string_view key) {
+        if (const auto found = keys_.find(key); found != keys_.end()) found_.insert(*found);
+    }
+    // The message for a repeated or unknown key, if any.
+    const char* problem() const {
+        if (duplicate_) return "List each selected key once.";
+        if (found_.size() != keys_.size())
+            return multiple_ ? "Select existing item keys." : "Select an existing item key or use nullopt.";
+        return nullptr;
+    }
+
+private:
+    std::set<std::string, std::less<>> keys_, found_;
+    bool multiple_ = false;
+    bool duplicate_ = false;
+};
 
 struct Lowerer {
     static void add_number_input_parts(ElementData& owner, Value<std::string> label, const Value<TextEditState>& draft,
@@ -40,16 +74,15 @@ struct Lowerer {
                                       TextLines lines);
     static Element split_pane(Element, Element, float, std::string, SplitPaneProps, FlexDirection);
     static Element scrollbar(bool horizontal, std::string, float, ScrollGeometry, std::string, ScrollbarProps);
-    static Element collection(std::string, std::optional<std::string>, std::vector<TreeItem>, CollectionProps,
-                              std::string_view);
-    static Element flat_collection(std::string, std::optional<std::string>, std::vector<ListItem>, CollectionProps,
-                                   std::string_view);
-    static std::shared_ptr<ElementData>
-    collection_row(const std::string& prefix, const std::optional<SourceLocation>& source, const TreeItem& value,
-                   std::size_t depth, bool disabled, const std::optional<std::string>& parent,
-                   const std::optional<std::string>& selected, std::string_view role);
-    static Element virtual_collection(std::string, std::optional<std::string>, std::vector<TreeItem>,
-                                      VirtualCollectionProps, bool tree);
+    static Element collection(std::string, ChosenKeys, std::vector<TreeItem>, CollectionProps, std::string_view);
+    static Element flat_collection(std::string, ChosenKeys, std::vector<ListItem>, CollectionProps, std::string_view);
+    static std::shared_ptr<ElementData> collection_row(const std::string& prefix,
+                                                       const std::optional<SourceLocation>& source,
+                                                       const TreeItem& value, std::size_t depth, bool disabled,
+                                                       const std::optional<std::string>& parent, bool selected,
+                                                       std::string_view role);
+    static Element virtual_collection(std::string, ChosenKeys, std::vector<TreeItem>, VirtualCollectionProps,
+                                      bool tree);
     Presentation result;
     std::vector<const ElementData*> elements;
     std::vector<Diagnostic> errors;
@@ -642,7 +675,7 @@ Element ScrollView(std::vector<Element> children, Props props) {
     return Column(std::move(children), std::move(props));
 }
 
-Element detail::Lowerer::collection(std::string label, std::optional<std::string> selected, std::vector<TreeItem> items,
+Element detail::Lowerer::collection(std::string label, ChosenKeys chosen, std::vector<TreeItem> items,
                                     CollectionProps props, std::string_view role) {
     const bool tree = role == "tree";
     const bool menu = role == "menu";
@@ -656,7 +689,7 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
     if (label.empty()) error("collection_label", "Give the collection a nonempty label.");
     auto part = [&](std::string id) { return Props{.id = std::move(id), .source = source}; };
     std::set<std::string> keys;
-    bool found_selection = !selected;
+    SelectionCheck selection(chosen);
     std::size_t count = 0;
     std::function<void(const TreeItem&, std::size_t, bool, bool, std::optional<std::string>)> item;
     item = [&](const TreeItem& value, std::size_t depth, bool shown, bool disabled, std::optional<std::string> parent) {
@@ -664,7 +697,7 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
         if (value.key.empty() || !keys.insert(value.key).second)
             error("collection_keys", "Supply unique nonempty item keys across the collection.");
         if (menu && value.label.empty()) error("menu_label", "Give each menu command a nonempty label.");
-        if (selected == value.key) found_selection = true;
+        selection.visit(value.key);
         if (++count > max_document_nodes || depth > max_document_depth) {
             error("collection_limit", "Keep collection items within document depth and node limits.");
             return;
@@ -674,7 +707,7 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
         } else if (value.expanded || !value.toggle_action.empty()) {
             error("tree_leaf", "Leaves cannot be expanded or declare a toggle action.");
         }
-        auto entry = collection_row(prefix, source, value, depth, disabled, parent, selected,
+        auto entry = collection_row(prefix, source, value, depth, disabled, parent, selection.selected(value.key),
                                     menu   ? "menu_item"
                                     : tree ? "tree_item"
                                            : "list_item");
@@ -696,12 +729,13 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
         }
         item(value, 1, true, false, std::nullopt);
     }
-    if (!found_selection) error("collection_selection", "Select an existing item key or use nullopt.");
+    if (const auto* problem = selection.problem()) error("collection_selection", problem);
     data->props = std::move(props.node);
     data->props.style.direction = FlexDirection::column;
     data->props.style.overflow = Overflow::scroll;
     data->disabled = props.disabled;
     data->properties["collection_role"] = std::string(role);
+    if (chosen.multiple) data->properties["multiselectable"] = true;
     data->properties["labelled_by"] = NodeReference{prefix + "-title"};
     return Element(std::move(data));
 }
@@ -709,8 +743,7 @@ Element detail::Lowerer::collection(std::string label, std::optional<std::string
 std::shared_ptr<detail::ElementData>
 detail::Lowerer::collection_row(const std::string& prefix, const std::optional<SourceLocation>& source,
                                 const TreeItem& value, std::size_t depth, bool disabled,
-                                const std::optional<std::string>& parent, const std::optional<std::string>& selected,
-                                std::string_view role) {
+                                const std::optional<std::string>& parent, bool selected, std::string_view role) {
     const bool menu = role == "menu_item";
     auto part = [&](std::string id) { return Props{.id = std::move(id), .source = source}; };
     auto entry = std::make_shared<ElementData>();
@@ -721,7 +754,7 @@ detail::Lowerer::collection_row(const std::string& prefix, const std::optional<S
     entry->action = value.action;
     entry->disabled = disabled;
     entry->properties["collection_role"] = std::string(role);
-    if (!menu) entry->properties["selected"] = selected == value.key;
+    if (!menu) entry->properties["selected"] = selected;
     entry->properties["labelled_by"] = NodeReference{prefix + "-label-" + value.key};
     if (parent) entry->properties["tree_parent"] = NodeReference{*parent};
     if (!value.children.empty()) {
@@ -734,7 +767,7 @@ detail::Lowerer::collection_row(const std::string& prefix, const std::optional<S
         toggle_data->properties["focusable"] = false;
         entry->children.push_back(Element(std::move(toggle_data)));
     }
-    if (!menu) entry->children.push_back(Text(selected == value.key ? "*" : " ", {.source = source}));
+    if (!menu) entry->children.push_back(Text(selected ? "*" : " ", {.source = source}));
     entry->children.push_back(Text(value.label, part(prefix + "-label-" + value.key)));
     return entry;
 }
@@ -767,8 +800,8 @@ void visible_keys(const std::vector<TreeItem>& items, std::vector<std::string>& 
 }
 } // namespace
 
-Element detail::Lowerer::virtual_collection(std::string label, std::optional<std::string> selected,
-                                            std::vector<TreeItem> items, VirtualCollectionProps props, bool tree) {
+Element detail::Lowerer::virtual_collection(std::string label, ChosenKeys chosen, std::vector<TreeItem> items,
+                                            VirtualCollectionProps props, bool tree) {
     auto data = std::make_shared<ElementData>();
     const auto prefix = props.node.id.value_or("");
     const auto source = props.node.source;
@@ -808,7 +841,7 @@ Element detail::Lowerer::virtual_collection(std::string label, std::optional<std
     std::set<std::string_view> keys;
     const std::set<std::string_view> pins(window.pinned.begin(), window.pinned.end());
     std::vector<std::size_t> pinned; // Visible pinned rows.
-    bool found_selection = !selected;
+    SelectionCheck selection(chosen);
     std::function<void(const TreeItem&, std::size_t, std::size_t, bool, bool, const TreeItem*)> walk;
     walk = [&](const TreeItem& value, std::size_t depth, std::size_t anchor, bool shown, bool disabled,
                const TreeItem* parent) {
@@ -816,7 +849,7 @@ Element detail::Lowerer::virtual_collection(std::string label, std::optional<std
         path.push_back({serials++, {&value, depth, disabled, parent}});
         if (value.key.empty() || !keys.insert(value.key).second)
             error("collection_keys", "Supply unique nonempty item keys across the collection.");
-        if (selected == value.key) found_selection = true;
+        selection.visit(value.key);
         if (!value.children.empty()) {
             if (value.toggle_action.empty()) error("tree_toggle", "Give each tree branch a host toggle action.");
         } else if (value.expanded || !value.toggle_action.empty()) {
@@ -844,7 +877,7 @@ Element detail::Lowerer::virtual_collection(std::string label, std::optional<std
         path.pop_back();
     };
     for (const auto& value : items) walk(value, 1, none, true, false, nullptr);
-    if (!found_selection) error("collection_selection", "Select an existing item key or use nullopt.");
+    if (const auto* problem = selection.problem()) error("collection_selection", problem);
     const auto count = rows.size();
     const bool bounded = valid && static_cast<double>(count) * window.item_extent <= max_virtual_extent;
     if (valid && !bounded)
@@ -905,8 +938,8 @@ Element detail::Lowerer::virtual_collection(std::string label, std::optional<std
         const auto& row = rows[i];
         std::optional<std::string> parent;
         if (row.parent != none) parent = prefix + "-item-" + rows[row.parent].item->key;
-        auto entry = collection_row(prefix, source, *row.item, row.depth, row.disabled, parent, selected,
-                                    tree ? "tree_item" : "list_item");
+        auto entry = collection_row(prefix, source, *row.item, row.depth, row.disabled, parent,
+                                    selection.selected(row.item->key), tree ? "tree_item" : "list_item");
         entry->props.style.height = Dimension::points(extent);
         entry->props.style.overflow = Overflow::clip;
         const auto after = i == *realized.rbegin() ? count - i - 1 : 0;
@@ -918,7 +951,8 @@ Element detail::Lowerer::virtual_collection(std::string label, std::optional<std
         if (const auto chain = hidden.find(i); chain != hidden.end())
             for (const auto& [serial, value] : chain->second) {
                 auto concealed = collection_row(prefix, source, *value.item, value.depth, value.disabled,
-                                                prefix + "-item-" + value.parent->key, selected, "tree_item");
+                                                prefix + "-item-" + value.parent->key,
+                                                selection.selected(value.item->key), "tree_item");
                 concealed->props.style.display = Display::none;
                 data->children.push_back(Element(std::move(concealed)));
             }
@@ -932,11 +966,12 @@ Element detail::Lowerer::virtual_collection(std::string label, std::optional<std
     data->properties["collection_role"] = std::string(tree ? "tree" : "list");
     data->properties["labelled_by"] = NodeReference{prefix + "-title"};
     data->properties["item_count"] = static_cast<double>(count);
+    if (chosen.multiple) data->properties["multiselectable"] = true;
     return Element(std::move(data));
 }
 
-Element detail::Lowerer::flat_collection(std::string label, std::optional<std::string> selected,
-                                         std::vector<ListItem> items, CollectionProps props, std::string_view role) {
+Element detail::Lowerer::flat_collection(std::string label, ChosenKeys chosen, std::vector<ListItem> items,
+                                         CollectionProps props, std::string_view role) {
     std::vector<TreeItem> entries;
     entries.reserve(std::min(items.size(), max_document_nodes + 1));
     for (auto& item : items) {
@@ -944,11 +979,27 @@ Element detail::Lowerer::flat_collection(std::string label, std::optional<std::s
         entries.push_back(
             {std::move(item.key), std::move(item.label), std::move(item.action), {}, false, item.disabled, {}});
     }
-    return collection(std::move(label), std::move(selected), std::move(entries), std::move(props), role);
+    return collection(std::move(label), std::move(chosen), std::move(entries), std::move(props), role);
 }
+
+namespace {
+std::vector<TreeItem> tree_entries(std::vector<ListItem> items) {
+    std::vector<TreeItem> entries;
+    entries.reserve(items.size());
+    for (auto& item : items)
+        entries.push_back(
+            {std::move(item.key), std::move(item.label), std::move(item.action), {}, false, item.disabled, {}});
+    return entries;
+}
+} // namespace
 
 Element ListView(std::string label, std::optional<std::string> selected, std::vector<ListItem> items,
                  CollectionProps props) {
+    return detail::Lowerer::flat_collection(std::move(label), std::move(selected), std::move(items), std::move(props),
+                                            "list");
+}
+
+Element ListView(std::string label, MultipleSelection selected, std::vector<ListItem> items, CollectionProps props) {
     return detail::Lowerer::flat_collection(std::move(label), std::move(selected), std::move(items), std::move(props),
                                             "list");
 }
@@ -959,18 +1010,30 @@ Element TreeView(std::string label, std::optional<std::string> selected, std::ve
                                        "tree");
 }
 
+Element TreeView(std::string label, MultipleSelection selected, std::vector<TreeItem> items, CollectionProps props) {
+    return detail::Lowerer::collection(std::move(label), std::move(selected), std::move(items), std::move(props),
+                                       "tree");
+}
+
 Element VirtualListView(std::string label, std::optional<std::string> selected, std::vector<ListItem> items,
                         VirtualCollectionProps props) {
-    std::vector<TreeItem> entries;
-    entries.reserve(items.size());
-    for (auto& item : items)
-        entries.push_back(
-            {std::move(item.key), std::move(item.label), std::move(item.action), {}, false, item.disabled, {}});
-    return detail::Lowerer::virtual_collection(std::move(label), std::move(selected), std::move(entries),
+    return detail::Lowerer::virtual_collection(std::move(label), std::move(selected), tree_entries(std::move(items)),
+                                               std::move(props), false);
+}
+
+Element VirtualListView(std::string label, MultipleSelection selected, std::vector<ListItem> items,
+                        VirtualCollectionProps props) {
+    return detail::Lowerer::virtual_collection(std::move(label), std::move(selected), tree_entries(std::move(items)),
                                                std::move(props), false);
 }
 
 Element VirtualTreeView(std::string label, std::optional<std::string> selected, std::vector<TreeItem> items,
+                        VirtualCollectionProps props) {
+    return detail::Lowerer::virtual_collection(std::move(label), std::move(selected), std::move(items),
+                                               std::move(props), true);
+}
+
+Element VirtualTreeView(std::string label, MultipleSelection selected, std::vector<TreeItem> items,
                         VirtualCollectionProps props) {
     return detail::Lowerer::virtual_collection(std::move(label), std::move(selected), std::move(items),
                                                std::move(props), true);
@@ -986,6 +1049,26 @@ std::vector<std::string> virtual_keys(const std::vector<ListItem>& items) {
 std::vector<std::string> virtual_keys(const std::vector<TreeItem>& items) {
     std::vector<std::string> keys;
     visible_keys(items, keys, 1);
+    return keys;
+}
+
+std::vector<std::string> selectable_keys(const std::vector<ListItem>& items) {
+    std::vector<std::string> keys;
+    for (const auto& item : items)
+        if (!item.disabled) keys.push_back(item.key);
+    return keys;
+}
+
+std::vector<std::string> selectable_keys(const std::vector<TreeItem>& items) {
+    std::vector<std::string> keys;
+    std::function<void(const std::vector<TreeItem>&, std::size_t)> walk = [&](const auto& level, std::size_t depth) {
+        for (const auto& item : level) {
+            if (item.disabled) continue;
+            keys.push_back(item.key);
+            if (item.expanded && depth < max_document_depth) walk(item.children, depth + 1);
+        }
+    };
+    walk(items, 1);
     return keys;
 }
 

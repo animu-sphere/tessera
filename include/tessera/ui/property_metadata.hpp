@@ -16,6 +16,7 @@ inline constexpr std::string_view expanded = "expanded";
 inline constexpr std::string_view tree_parent = "tree_parent";
 inline constexpr std::string_view item_count = "item_count";
 inline constexpr std::string_view item_position = "item_position";
+inline constexpr std::string_view multiselectable = "multiselectable";
 inline constexpr std::string_view text = "text";
 inline constexpr std::string_view focusable = "focusable";
 inline constexpr std::string_view disabled = "disabled";

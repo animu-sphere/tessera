@@ -346,10 +346,22 @@ std::vector<Diagnostic> detail::validate_document_parts(std::uint32_t version, c
             role != "color_picker" && !disclosure)
             error("collection_state", path + "/properties/expanded",
                   "Only tree items, comboboxes, color pickers and disclosure buttons have expansion state.");
+        // A multiselectable list or tree may select any number of its items.
+        if (const auto found = node.properties.find(property_names::multiselectable);
+            found != node.properties.end() && role != "list" && role != "tree")
+            error("collection_state", path + "/properties/multiselectable",
+                  "Only lists and trees allow multiple selection.");
+        const auto multiple = [](const UiNode* owner) {
+            if (!owner) return false;
+            const auto found = owner->properties.find(property_names::multiselectable);
+            const auto* value = found == owner->properties.end() ? nullptr : std::get_if<bool>(&found->second);
+            return value && *value;
+        };
         if (const auto* selected = effective_property(node, property_names::selected);
             selected && std::get_if<bool>(selected) && std::get<bool>(*selected) && detail::collection_item(role) &&
-            ++selected_counts[parent] > 1)
-            error("collection_selection", path + "/properties/selected", "Select at most one item in each collection.");
+            ++selected_counts[parent] > 1 && !multiple(parent))
+            error("collection_selection", path + "/properties/selected",
+                  "Select at most one item in each collection unless it is a multiselectable list or tree.");
         if ((detail::collection_owner_role(role) || role == "toolbar" || role == "group") &&
             node.events.contains("activate"))
             error("collection_action", path + "/events/activate", "Put actions on collection items.");

@@ -1,6 +1,7 @@
 #include <tessera/ui/authoring.hpp>
 #include <tessera/commands/execution.hpp>
 #include <tessera/input/collection_drag.hpp>
+#include <tessera/input/collection_selection.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/input/number_drag.hpp>
 #include <tessera/input/popup.hpp>
@@ -197,6 +198,7 @@ struct HistoryEntry {
     std::string command;           // The first command of a merged entry, such as `item.name`.
     std::string selected, section; // Where the edit was made; Undo and Redo return there.
     Document before, after;
+    CollectionSelection selection; // The Hierarchy selection the edit applied to.
 };
 struct History {
     std::vector<std::shared_ptr<const HistoryEntry>> entries;
@@ -210,7 +212,8 @@ struct History {
 enum class OpenMenu { none, actions, context, purpose, color };
 struct State {
     std::vector<Item> items;
-    std::string selected = "cube";
+    std::string selected = "cube";                   // The item the Inspector shows; always one of the selected keys.
+    CollectionSelection selection{{"cube"}, "cube"}; // The Hierarchy's multiple selection.
     bool expanded = true;
     std::string section = "general";                       // Shown Inspector tab; shared by every item.
     std::set<std::string, std::less<>> help_open{"items"}; // Expanded help topics; shared by every item.
@@ -233,7 +236,25 @@ struct State {
         require(found != items.end(), "Selected Inspector item is missing");
         return *found;
     }
+    // Every selected item, in Hierarchy order; bulk commands apply to all of them.
+    std::vector<Item*> chosen() {
+        std::vector<Item*> result;
+        for (auto& item : items)
+            if (std::find(selection.keys.begin(), selection.keys.end(), item.id) != selection.keys.end())
+                result.push_back(&item);
+        return result;
+    }
 };
+// Scene and its children as TreeView items.
+std::vector<ui::TreeItem> hierarchy_items(const State& state) {
+    std::vector<ui::TreeItem> children;
+    for (std::size_t i = 1; i < state.items.size(); ++i) {
+        const auto& item = state.items[i];
+        children.push_back({item.id, item.name.text, "select." + item.id});
+    }
+    return {{"scene", state.items.front().name.text, "select.scene", "scene.toggle", state.expanded, false,
+             std::move(children)}};
+}
 State initial_state() {
     State state;
     for (const auto& [id, label] : std::vector<std::pair<std::string, std::string>>{
@@ -336,8 +357,8 @@ void record(const State& before, State& after, std::string_view command, std::st
         return;
     }
     history.entries.resize(history.cursor);
-    history.entries.push_back(std::make_shared<const HistoryEntry>(
-        HistoryEntry{std::string(command), before.selected, before.section, std::move(from), std::move(to)}));
+    history.entries.push_back(std::make_shared<const HistoryEntry>(HistoryEntry{
+        std::string(command), before.selected, before.section, std::move(from), std::move(to), before.selection}));
     if (history.entries.size() > history_limit) history.entries.erase(history.entries.begin());
     history.cursor = history.entries.size();
     history.open = std::move(key);
@@ -348,11 +369,12 @@ CommandObjectIds item_ids(const State& state) {
     return ids;
 }
 ValidationContext action_context(const State& state) {
-    ValidationContext context{{"scene.toggle",    "item.name",       "item.enabled",   "item.amount",
-                               "item.scale",      "item.shadows",    "item.rename",    "item.reset",
-                               "menu.open",       "panes.resize",    "purpose.toggle", "item.position.x",
-                               "item.position.y", "item.position.z", "color.toggle",   "color.area",
-                               "color.hue",       "item.notes",      "edit.undo",      "edit.redo"}};
+    ValidationContext context{{"scene.toggle",    "item.name",           "item.enabled",   "item.amount",
+                               "item.scale",      "item.shadows",        "item.rename",    "item.reset",
+                               "menu.open",       "panes.resize",        "purpose.toggle", "item.position.x",
+                               "item.position.y", "item.position.z",     "color.toggle",   "color.area",
+                               "color.hue",       "item.notes",          "edit.undo",      "edit.redo",
+                               "selection.show",  "hierarchy.select_all"}};
     for (const auto& item : state.items) context.actions.insert("select." + item.id);
     for (const auto& [key, label] : visibility_choices) context.actions.insert("visibility." + key);
     for (const auto& [key, label] : purpose_choices) context.actions.insert("purpose." + key);
@@ -470,18 +492,22 @@ StyleSheet appearance(const State& state) {
         sheet.rules.push_back(
             {StyleSelector::of_id(id + "-label"), {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}});
     }
-    const auto selected = "hierarchy-item-" + state.selected;
-    // The selected row is raised: its elevation shadow falls on the next row and stays above that row's hover fill.
-    sheet.rules.push_back({StyleSelector::of_id(selected),
-                           {.background = Color{.2f, .34f, .67f, 1},
-                            .color = Color{1, 1, 1, 1},
-                            .z_index = 1,
-                            .box_shadow = BoxShadow{{0, 2}, 6, {.12f, .22f, .46f, .35f}}}});
-    sheet.rules.push_back(
-        {StyleSelector::of_id(selected, {.hover = true}), {.background = Color{.16f, .28f, .56f, 1}}});
-    sheet.rules.push_back(
-        {StyleSelector::of_id(selected, {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}});
-    sheet.rules.push_back({StyleSelector::of_id(selected, {.focus = true}), {.border_color = Color{.55f, .72f, 1, 1}}});
+    for (const auto& key : state.selection.keys) {
+        const auto selected = "hierarchy-item-" + key;
+        // A selected row is raised: its elevation shadow falls on the next row and stays above that row's hover
+        // fill. A following selected row is raised too and covers it, so a selected run reads as one block.
+        sheet.rules.push_back({StyleSelector::of_id(selected),
+                               {.background = Color{.2f, .34f, .67f, 1},
+                                .color = Color{1, 1, 1, 1},
+                                .z_index = 1,
+                                .box_shadow = BoxShadow{{0, 2}, 6, {.12f, .22f, .46f, .35f}}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(selected, {.hover = true}), {.background = Color{.16f, .28f, .56f, 1}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(selected, {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(selected, {.focus = true}), {.border_color = Color{.55f, .72f, 1, 1}}});
+    }
     if (state.drag_source)
         sheet.rules.push_back({StyleSelector::of_id("hierarchy-item-" + *state.drag_source), {.opacity = .45f}});
     if (state.drop_target) {
@@ -545,11 +571,6 @@ StyleSheet appearance(const State& state) {
 }
 ui::Element Form(const State& state, Size viewport) {
     const float height = std::max(100.f, viewport.height - 72);
-    std::vector<ui::TreeItem> children;
-    for (std::size_t i = 1; i < state.items.size(); ++i) {
-        const auto& item = state.items[i];
-        children.push_back({item.id, item.name.text, "select." + item.id});
-    }
     const auto& item = state.item();
     std::vector<ui::RadioOption> visibility;
     for (const auto& [key, label] : visibility_choices) visibility.push_back({key, label, "visibility." + key});
@@ -625,7 +646,10 @@ ui::Element Form(const State& state, Size viewport) {
     std::vector<ui::TabOption> tabs;
     for (const auto& [key, label] : sections) tabs.push_back({key, label, "section." + key});
     std::vector<ui::Element> card{
-        ui::Button("Selected: " + item.id, "select." + item.id, {.node = control("selected")}),
+        // Names the shown item and how many others are selected; activating it keeps the selection.
+        ui::Button("Selected: " + item.id +
+                       (state.selection.keys.size() > 1 ? " +" + std::to_string(state.selection.keys.size() - 1) : ""),
+                   "selection.show", {.node = control("selected")}),
         ui::Tabs("Property sections", state.section, std::move(tabs),
                  {ui::PropertyGrid(std::move(properties), {.node = {.id = "properties", .style = {.row_gap = 12.f}},
                                                            .caption_column = GridTrack{.maximum = 72},
@@ -675,9 +699,7 @@ ui::Element Form(const State& state, Size viewport) {
     std::vector<ui::Element> content{
         ui::Row(std::move(header), {.style = {.align = Align::center, .gap = 16.f}}),
         ui::HorizontalSplitPane(
-            ui::TreeView("Hierarchy", state.selected,
-                         {{"scene", state.items.front().name.text, "select.scene", "scene.toggle", state.expanded,
-                           false, std::move(children)}},
+            ui::TreeView("Hierarchy", ui::MultipleSelection{state.selection.keys}, hierarchy_items(state),
                          {.node = {.id = "hierarchy",
                                    .style = {.height = Dimension::points(height),
                                              .border = Edges{1, 1, 1, 1},
@@ -893,9 +915,28 @@ public:
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         State candidate = state;
         const auto& command = invocation.command;
-        if (command.starts_with("select."))
-            candidate.selected = command.substr(7);
-        else if (command == "scene.toggle")
+        if (command.starts_with("select.")) {
+            // The gesture comes from the input that requested it; semantic activation and replay replace.
+            const auto key = command.substr(7);
+            const auto order = ui::selectable_keys(hierarchy_items(candidate));
+            const auto next =
+                select_items(order, candidate.selection, key, selection_request.value_or(SelectionGesture::replace))
+                    .value_or(CollectionSelection{{key}, key});
+            // The Inspector always shows an item, so toggling off the last selected row keeps it.
+            if (!next.keys.empty()) {
+                const auto has = [&](const std::string& id) {
+                    return std::find(next.keys.begin(), next.keys.end(), id) != next.keys.end();
+                };
+                candidate.selection = next;
+                if (has(key))
+                    candidate.selected = key;
+                else if (!has(candidate.selected))
+                    candidate.selected = next.keys.front();
+            }
+        } else if (command == "hierarchy.select_all")
+            candidate.selection = select_all(ui::selectable_keys(hierarchy_items(candidate)), candidate.selection);
+        else if (command == "selection.show") {
+        } else if (command == "scene.toggle")
             candidate.expanded = !candidate.expanded;
         else if (const auto edited = text_command(command)) {
             require(edit.has_value(), "Text editing needs an owned request");
@@ -903,9 +944,11 @@ public:
             auto next = edit_text(field, *edit);
             if (!next) return {CommandOutcomeStatus::error, {}, std::move(next.diagnostics)};
             field = std::move(*next.value);
-        } else if (command == "item.enabled")
-            candidate.item().enabled = !candidate.item().enabled;
-        else if (command.starts_with("visibility."))
+        } else if (command == "item.enabled") {
+            // Every selected item takes the opposite of the shown item's value.
+            const bool enabled = !candidate.item().enabled;
+            for (auto* item : candidate.chosen()) item->enabled = enabled;
+        } else if (command.starts_with("visibility."))
             candidate.item().visibility = command.substr(11);
         else if (command.starts_with("section."))
             candidate.section = command.substr(8);
@@ -913,21 +956,24 @@ public:
             const auto topic = command.substr(5);
             if (!candidate.help_open.erase(topic)) candidate.help_open.insert(topic);
         } else if (command == "item.reset") {
-            // Restore every property except the display name; pending numeric drafts are discarded.
-            auto& item = candidate.item();
-            item.enabled = true;
-            item.amount = 50;
-            for (std::size_t i = 0; i < number_fields.size(); ++i) {
-                auto& draft = number_draft(item, i);
-                number_value(item, i) = number_fields[i].reset;
-                draft.text = ui::format_number(number_fields[i].reset);
-                draft.anchor = draft.caret = draft.text.size();
-                ++draft.revision;
+            // Restore every property of each selected item except the display name; pending numeric
+            // drafts are discarded.
+            for (auto* chosen : candidate.chosen()) {
+                auto& item = *chosen;
+                item.enabled = true;
+                item.amount = 50;
+                for (std::size_t i = 0; i < number_fields.size(); ++i) {
+                    auto& draft = number_draft(item, i);
+                    number_value(item, i) = number_fields[i].reset;
+                    draft.text = ui::format_number(number_fields[i].reset);
+                    draft.anchor = draft.caret = draft.text.size();
+                    ++draft.revision;
+                }
+                item.visibility = "inherited";
+                item.shadows = true;
+                item.purpose = "default";
+                item.color = default_color;
             }
-            item.visibility = "inherited";
-            item.shadows = true;
-            item.purpose = "default";
-            item.color = default_color;
         } else if (command == "item.move") {
             // Arguments are validated against the descriptor and the published item IDs.
             const auto& arguments = invocation.arguments;
@@ -981,6 +1027,7 @@ public:
                           "The accepted items no longer match the edit history."}}};
             restore(candidate, redo ? entry->after : entry->before);
             candidate.selected = entry->selected;
+            candidate.selection = entry->selection;
             candidate.section = entry->section;
             candidate.menu = OpenMenu::none;
             history.cursor = redo ? history.cursor + 1 : history.cursor - 1;
@@ -1255,7 +1302,11 @@ public:
                 down && down->button == PointerButton::primary && dispatched.target)
                 if (const auto labelled = take(label_target(*view.tree, *dispatched.target)))
                     (void)focus.focus(view.hit(), *labelled);
+            // A click's modifiers choose how it changes the Hierarchy selection.
+            if (const auto* up = std::get_if<PointerUp>(&event.data))
+                selection_request = selection_gesture(up->modifiers);
             for (const auto& request : dispatched.actions) checked(operate(request, source));
+            selection_request.reset();
             if (std::holds_alternative<PointerDown>(event.data)) refresh(true);
             observe();
             return;
@@ -1319,6 +1370,9 @@ public:
                 return;
             }
         }
+        if (const auto* key = std::get_if<KeyDown>(&event.data);
+            key && hierarchy_key(*key, event.timestamp, focused, source))
+            return;
         if (const auto* key = std::get_if<KeyDown>(&event.data);
             key && key->modifiers == Modifiers{.alt = true} && (key->key == Key::up || key->key == Key::down)) {
             if (const auto moved = focused_item(focused)) {
@@ -1476,6 +1530,56 @@ public:
                take(number_drag_target(view.hit(), point)).has_value();
     }
     bool reordering() const { return hierarchy_drag.dragging(); }
+    // The focused Hierarchy row's item, Scene included.
+    std::optional<std::string> focused_row(std::optional<NodeHandle> focused) const {
+        if (!focused) return {};
+        for (const auto& item : state.items)
+            if (focused == view.tree->find("hierarchy-item-" + item.id)) return item.id;
+        return {};
+    }
+    // Runs the row's own select.<key> command with a selection gesture.
+    void select_row(std::string_view key, SelectionGesture gesture, CommandSource source) {
+        ++gesture_serial;
+        selection_request = gesture;
+        const auto request = take(request_semantic_action(
+            view.semantic(), *view.tree->find("hierarchy-item-" + std::string(key)), "activate"));
+        const auto outcome = operate(request, source);
+        selection_request.reset();
+        checked(outcome);
+    }
+    // Selection keys on a focused Hierarchy row: Control+A selects every visible row, Control+Space
+    // toggles the row, Shift+Space extends to it, and Shift+Up/Down/Home/End move focus as the plain
+    // key does and extend the selection to the new row. Returns true when consumed.
+    bool hierarchy_key(const KeyDown& key, std::chrono::microseconds timestamp, std::optional<NodeHandle> focused,
+                       CommandSource source) {
+        const auto row = focused_row(focused);
+        if (!row) return false;
+        const auto mods = key.modifiers;
+        if (key.key == Key::a && mods == Modifiers{.control = true}) {
+            ++gesture_serial;
+            checked(run(take(
+                view.commands.resolve({view.commands.generation(), "hierarchy.select_all", {}, source, ++sequence}))));
+            return true;
+        }
+        if (key.key == Key::space && (mods == Modifiers{.control = true} || mods == Modifiers{.shift = true})) {
+            if (!key.repeat)
+                select_row(*row, mods.control ? SelectionGesture::toggle : SelectionGesture::extend, source);
+            return true;
+        }
+        if (mods != Modifiers{.shift = true}) return false;
+        InputEvent moved{timestamp, KeyDown{key.key}};
+        if (key.key == Key::up || key.key == Key::down)
+            moved.data = Navigate{key.key == Key::up ? Direction::up : Direction::down, key.repeat};
+        else if (key.key != Key::home && key.key != Key::end)
+            return false;
+        (void)take(focus.dispatch(view.hit(), moved));
+        const auto target = focused_row(take(focus.refresh(view.hit())).focused);
+        if (target && target != row)
+            select_row(*target, SelectionGesture::extend, source);
+        else
+            refresh(true);
+        return true;
+    }
     // The focused Hierarchy row's item when it is a Scene child.
     std::optional<std::string> focused_item(std::optional<NodeHandle> focused) const {
         if (!focused) return {};
@@ -1768,7 +1872,8 @@ private:
     std::optional<VerticalGoal> vertical_goal;
     std::optional<int> amount;
     std::optional<float> split;
-    std::optional<HsvColor> picked_color; // The dispatcher's request for one color.area/color.hue command.
+    std::optional<HsvColor> picked_color;              // The dispatcher's request for one color.area/color.hue command.
+    std::optional<SelectionGesture> selection_request; // How the next select.<key> combines with the selection.
     std::optional<PointerId> slider_pointer;
     // History merging: the input gesture an edit belongs to, pressed pointers and typed text edits.
     std::uint64_t gesture_serial = 0;
@@ -3381,6 +3486,119 @@ void reorder_smoke() {
                 order()[1] == "light",
             "item.move must reject moving the Scene root");
 }
+void multiple_selection_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    using Keys = std::vector<std::string>;
+    auto input = [&](auto event, CommandSource source = CommandSource::pointer) { app.input({++time, event}, source); };
+    const auto click = [&](const char* id, Modifiers modifiers = {}) {
+        const auto point = app.view.center(std::string("hierarchy-item-") + id);
+        input(PointerDown{{1}, point, PointerButton::primary, modifiers});
+        input(PointerUp{{1}, point, PointerButton::primary, modifiers});
+    };
+    const auto key = [&](Key pressed, Modifiers modifiers = {}) {
+        input(KeyDown{pressed, modifiers}, CommandSource::keyboard);
+    };
+    const auto keys = [&] { return app.state.selection.keys; };
+    const auto item = [&](std::string_view id) -> const Item& {
+        const auto& items = app.state.items;
+        return *std::find_if(items.begin(), items.end(), [&](const Item& item) { return item.id == id; });
+    };
+    const auto marked = [&](const char* id) {
+        return app.observed(std::string("hierarchy-item-") + id).selected == true;
+    };
+    require(app.observed("hierarchy").multiselectable == true && keys() == Keys{"cube"} &&
+                app.observed_name("selected") == "Selected: cube",
+            "The Hierarchy must be a multiselectable tree that starts with Cube");
+
+    click("sphere", {.control = true});
+    require(keys() == Keys{"cube", "sphere"} && app.state.selected == "sphere" && marked("cube") && marked("sphere") &&
+                app.observed_name("selected") == "Selected: sphere +1",
+            "Control+click must add the row and show it in the Inspector");
+    click("camera", {.shift = true});
+    require(keys() == Keys{"sphere", "light", "camera"} && app.state.selected == "camera" && !marked("cube"),
+            "Shift+click must select the range from the anchor instead");
+    click("cube", {.shift = true, .control = true});
+    require(keys() == Keys{"cube", "sphere", "light", "camera"} && app.state.selected == "cube",
+            "Control+Shift+click must add the range from the anchor");
+    click("camera", {.control = true});
+    require(keys() == Keys{"cube", "sphere", "light"} && app.state.selected == "cube" && !marked("camera"),
+            "Control+click must remove a selected row and keep the shown item");
+    const auto selected_row = app.view.styles[app.view.tree->find("hierarchy-item-sphere")->index];
+    require(selected_row.background == app.view.styles[app.view.tree->find("hierarchy-item-light")->index].background &&
+                selected_row.background !=
+                    app.view.styles[app.view.tree->find("hierarchy-item-camera")->index].background,
+            "Every selected row must share the selection appearance");
+
+    // Enabled and Reset apply to every selected item as one history entry each.
+    const auto history = app.state.history.entries.size();
+    app.action("enabled");
+    require(!item("cube").enabled && !item("sphere").enabled && !item("light").enabled && item("camera").enabled &&
+                app.state.history.entries.size() == history + 1,
+            "Enabled must set every selected item to the opposite of the shown value");
+    app.action("tool-reset");
+    require(item("cube").enabled && item("sphere").enabled && item("light").enabled &&
+                app.state.history.entries.size() == history + 2,
+            "Reset must restore every selected item");
+    click("camera");
+    require(keys() == Keys{"camera"} && app.state.selected == "camera", "A plain click must select only the row");
+    app.action("tool-undo");
+    require(!item("sphere").enabled && keys() == Keys{"cube", "sphere", "light"} && app.state.selected == "cube",
+            "Undo must restore every item the edit changed and its selection");
+    app.action("tool-undo");
+    require(item("cube").enabled && item("sphere").enabled && item("light").enabled,
+            "Undoing the bulk Enabled edit must restore every item at once");
+
+    app.action("selected");
+    require(keys() == Keys{"cube", "sphere", "light"}, "Selected must keep the multiple selection");
+    click("light");
+    click("light", {.control = true});
+    require(keys() == Keys{"light"} && app.state.selected == "light",
+            "Control+click on the only selected row must keep it, because the Inspector shows an item");
+
+    app.focus_id("hierarchy-item-sphere");
+    input(Activate{}, CommandSource::keyboard);
+    require(keys() == Keys{"sphere"}, "Enter/Space must select only the focused row");
+    key(Key::down, {.shift = true});
+    require(keys() == Keys{"sphere", "light"} && app.state.selected == "light" &&
+                app.focused_on("hierarchy-item-light"),
+            "Shift+Down must move focus and extend the selection to it");
+    key(Key::down, {.shift = true});
+    key(Key::up, {.shift = true});
+    require(keys() == Keys{"sphere", "light"} && app.focused_on("hierarchy-item-light"),
+            "Shift+Up must shrink the range back toward the anchor");
+    const auto executions = app.executions;
+    key(Key::down);
+    require(keys() == Keys{"sphere", "light"} && app.focused_on("hierarchy-item-camera") &&
+                app.executions == executions,
+            "A plain arrow must move focus without changing the selection");
+    key(Key::space, {.control = true});
+    require(keys() == Keys{"sphere", "light", "camera"} && app.state.selected == "camera" &&
+                app.state.selection.anchor == "camera",
+            "Control+Space must toggle the focused row and anchor it");
+    key(Key::down);
+    key(Key::space, {.shift = true});
+    require(keys() == Keys{"camera", "extra0"} && app.state.selected == "extra0",
+            "Shift+Space must select the range from the anchor to the focused row");
+    key(Key::home, {.shift = true});
+    require(keys() == Keys{"scene", "cube", "sphere", "light", "camera"} && app.focused_on("hierarchy-item-scene"),
+            "Shift+Home must focus Scene and select up to it");
+    key(Key::a, {.control = true});
+    require(keys().size() == app.state.items.size() && app.state.selected == "scene",
+            "Control+A must select every visible row and keep the shown item");
+
+    // Collapsing Scene keeps hidden selected rows; a plain selection then replaces them.
+    click("cube");
+    click("sphere", {.control = true});
+    app.action("hierarchy-toggle-scene");
+    require(!app.state.expanded && keys() == Keys{"cube", "sphere"} && app.state.selected == "sphere",
+            "Collapsing Scene must keep its selected children");
+    app.focus_id("hierarchy-item-scene");
+    key(Key::a, {.control = true});
+    require(keys() == Keys{"scene", "cube", "sphere"}, "Control+A adds the visible rows and keeps hidden ones");
+    input(Activate{}, CommandSource::keyboard);
+    require(keys() == Keys{"scene"} && app.state.selected == "scene", "Selecting Scene alone must drop hidden rows");
+}
 void sections_smoke() {
     App app;
     std::chrono::microseconds time{};
@@ -4177,6 +4395,7 @@ void smoke() {
     history_smoke();
     label_smoke();
     reorder_smoke();
+    multiple_selection_smoke();
     visibility_smoke();
     shadows_smoke();
     purpose_smoke();
@@ -4367,10 +4586,10 @@ public:
     template<class Event> void input(Event event, CommandSource source = CommandSource::keyboard) {
         app_.input({++time_, std::move(event)}, source);
     }
-    void click(std::string_view id) {
+    void click(std::string_view id, Modifiers modifiers = {}) {
         const auto point = app_.view.reachable(id);
-        input(PointerDown{{1}, point}, CommandSource::pointer);
-        input(PointerUp{{1}, point}, CommandSource::pointer);
+        input(PointerDown{{1}, point, PointerButton::primary, modifiers}, CommandSource::pointer);
+        input(PointerUp{{1}, point, PointerButton::primary, modifiers}, CommandSource::pointer);
     }
     const ReplaySession& session() const { return session_; }
 
@@ -4408,6 +4627,11 @@ constexpr SnapshotScenario snapshot_scenarios[] = {
          recorder.input(KeyDown{Key::end});
          app.ime({ImeStep::Kind::start});
          app.ime({ImeStep::Kind::update, "\xe3\x81\xab\xe3\x81\xbb\xe3\x82\x93\xe3\x81\x94", 12}); // nihongo
+     }},
+    {"multi-select", "Cube through Light selected with Shift+click, then Extra 1 added with Control+click and shown",
+     [](App&, SnapshotRecorder& recorder) {
+         recorder.click("hierarchy-item-light", {.shift = true});
+         recorder.click("hierarchy-item-extra1", {.control = true});
      }},
     {"display", "Display section tab with the Visibility choices",
      [](App& app, SnapshotRecorder&) { app.action("sections-tab-display"); }},

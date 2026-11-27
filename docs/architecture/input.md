@@ -277,6 +277,10 @@ Open decisions: concrete editing event/result types, editable-owner declaration,
 
 The [Web editing adapter](../proposals/web-host.md#proposed-text-editing-adapter) may use browser-native input facilities alongside GPU visuals. It translates index units, revisions, focus, and composition into this same contract without exposing browser-specific controls in the UI model.
 
+## Implemented collection multiple selection
+
+[collection_selection.hpp](../../include/tessera/input/collection_selection.hpp) is pure selection arithmetic for a [multiselectable ListView or TreeView](../guides/tree-list.md#select-several-items). It reads no tree and dispatches nothing: `selection_gesture` maps a click's modifiers to replace, toggle, extend or add-range, and `select_items`/`select_all` apply a gesture to a host-owned `CollectionSelection` (keys and anchor) over the rows the host passes in display order. Focus, activation and the item's command stay ordinary; the host chooses the gesture from the event that produced the request.
+
 ## Implemented collection item dragging
 
 [collection_drag.hpp](../../include/tessera/input/collection_drag.hpp) is the first slice of typed drag and drop below: moving one item within a single [ListView or TreeView](../guides/tree-list.md#drag-items-to-reorder). The payload is the dragged item's key and the only operation is move. It adds no document vocabulary, role or semantic state.

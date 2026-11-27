@@ -35,6 +35,31 @@ Generated IDs are `<id>-title`, `<id>-item-<key>`, `<id>-label-<key>` and, for b
 
 Replay v1/v2 retain collection roles, relationships and state and execute normalized navigation/semantic actions. As before, replay does not record raw key events, including Home/End; use a resolved focus step for those host operations. Controlled expansion/selection changes require explicit host-built replacement views.
 
+## Select several items
+
+Pass a `MultipleSelection` instead of one optional key to let users select several rows. The same overloads exist for `VirtualListView` and `VirtualTreeView`:
+
+```cpp
+auto assets = ui::ListView("Assets", ui::MultipleSelection{selected_assets}, items,
+                           {.node = {.id = "assets", .style = {.height = Dimension::points(100)}}});
+```
+
+Every listed key is selected and the collection carries `multiselectable`; an empty list selects nothing but stays multiselectable. Keys must be unique and name existing items, including collapsed descendants, or lowering rejects with `collection_selection`. The constructor is explicit, so `{}` still means an empty single selection. Rows, IDs, actions, navigation and drag reordering are unchanged: activation still requests the item's own command, and the host decides what it does to the selection.
+
+Include [collection_selection.hpp](../../include/tessera/input/collection_selection.hpp) for the conventional gestures. Keep a `CollectionSelection`, the selected keys plus the anchor that ranges start from, and apply each request with `select_items(order, selection, key, gesture)`:
+
+| Input | Gesture | Result |
+| --- | --- | --- |
+| Click, Enter, Space | `replace` | Only the key; it becomes the anchor |
+| Control+click, Control+Space | `toggle` | The key added or removed; it becomes the anchor |
+| Shift+click, Shift+Space, Shift+arrows, Shift+Home/End | `extend` | The rows from the anchor to the key, replacing the rest |
+| Control+Shift+click | `add_range` | The rows from the anchor to the key, added |
+| Control+A | `select_all` | Every row added |
+
+`selection_gesture(modifiers)` maps a click's modifiers to the first four rows. `order` is the rows a user can select now, in display order; `selectable_keys(items)` returns the visible rows without disabled items or descendants of a disabled branch. A key outside `order` returns nullopt. Without an anchor in `order`, the key starts the range. Toggles, ranges added with Control and select all keep selected keys outside `order`, such as rows under a collapsed branch; replace and extend drop them. Results list keys in `order` first.
+
+Pointer activation happens on release, so take the modifiers from the `PointerUp` that produced the request. For Shift+arrows, move focus as the plain key does, then extend to the newly focused row. The sample Windows host sends Control+Space and Shift+Space as `KeyDown{Key::space}` outside text editors. The [Inspector](inspector-hierarchy.md#multiple-selection) wires all of these and shows bulk commands over the selection.
+
 ## Drag items to reorder
 
 Include [collection_drag.hpp](../../include/tessera/input/collection_drag.hpp) and retain a `CollectionDragDispatcher` constructed with the collection's ID to let users drag rows to a new position. The host owns the order; the dispatcher only reports where a row would land.
@@ -54,6 +79,6 @@ ctest --test-dir build -C Debug -R '^(collection|tree_list)$' --output-on-failur
 & .\build\Debug\tessera_tree_list.exe
 ```
 
-The [drag fixture](../../tests/input/collection_drag_tests.cpp) covers insertion points, the threshold, click pass-through, cancellation, replacement and rejection. The [owner fixture](../../tests/input/collection_tests.cpp) covers logical hierarchy, state/actions, disabled ancestry, navigation/recovery, scroll, modal exclusion, rejection and UI/Semantic JSON and Replay v1/v2. The consumer verifies pointer/keyboard/gamepad command parity, dependent list/details, retained hidden selection, resize and focus reveal.
+The [selection fixture](../../tests/input/collection_selection_tests.cpp) covers every gesture, kept and dropped hidden keys, selectable keys, the multiselectable projection through UI JSON, Semantic JSON and Replay, and rejection. The [drag fixture](../../tests/input/collection_drag_tests.cpp) covers insertion points, the threshold, click pass-through, cancellation, replacement and rejection. The [owner fixture](../../tests/input/collection_tests.cpp) covers logical hierarchy, state/actions, disabled ancestry, navigation/recovery, scroll, modal exclusion, rejection and UI/Semantic JSON and Replay v1/v2. The consumer verifies pointer/keyboard/gamepad command parity, dependent list/details, retained hidden selection, resize and focus reveal.
 
-Multiple selection, lazy loading, filtering, type-ahead, dragging between collections or into other targets, automatic scrolling while dragging, horizontal trees, automatic selection-on-focus, native accessibility and physical-input validation are not included. For collections too large to realize every row, use [VirtualListView/VirtualTreeView](virtual-list.md). The optional [latest-UI Vulkan regression](development.md#latest-ui-gpu-regression) captures expansion, selection, collapse, scroll and resize through this same example. [Support](../reference/support-matrix.md) owns validation scope.
+Selection that follows focus, a separate keyboard cursor that Control+arrows move without focus, lazy loading, filtering, type-ahead, dragging between collections or into other targets, automatic scrolling while dragging, horizontal trees, automatic selection-on-focus, native accessibility and physical-input validation are not included. For collections too large to realize every row, use [VirtualListView/VirtualTreeView](virtual-list.md). The optional [latest-UI Vulkan regression](development.md#latest-ui-gpu-regression) captures expansion, selection, collapse, scroll and resize through this same example. [Support](../reference/support-matrix.md) owns validation scope.

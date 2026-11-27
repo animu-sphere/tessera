@@ -63,7 +63,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
             result.root.children.push_back(std::move(parent));
         }
     }
-    if (except == "item_count" && kind == tessera::NodeKind::box)
+    if ((except == "item_count" || except == "multiselectable") && kind == tessera::NodeKind::box)
         child.properties["collection_role"] = std::string("list");
     if (except == "item_position") {
         result.root.properties["collection_role"] = std::string("list");
@@ -79,7 +79,7 @@ tessera::UiDocument document(tessera::NodeKind kind, std::string_view except) {
 
 void descriptor_table() {
     const auto descriptors = tessera::property_descriptors();
-    check(descriptors.size() == 24, "Descriptor vocabulary size differs");
+    check(descriptors.size() == 25, "Descriptor vocabulary size differs");
     std::set<std::string_view> names;
     for (const auto& descriptor : descriptors) {
         check(!descriptor.name.empty() && names.insert(descriptor.name).second, "Descriptor names must be unique");
