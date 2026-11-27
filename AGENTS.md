@@ -11,6 +11,7 @@
 
 - To see what a UI change does without opening a window, build Release and run `tessera_inspector_hierarchy --snapshot <scenario> <directory>`. Each scenario takes under a second. Read `g<n>/tree.txt` first, then `g<n>/frame.png`. Scenarios are listed in `docs/guides/inspector-hierarchy.md#snapshot-bundles`.
 - `tessera_snapshot capture <recording.json> --out <directory>` writes the same kind of bundle for a placeholder-text Replay JSON recording. Write bundles outside the repository or under `build/`.
+- To check what a change did, write a scenario's bundle before and after it and run `tessera_snapshot diff <before> <after>`. The report lists the first changed level and the semantic, layout, action, paint and pixel changes. Exit status 0 means equal, 1 different, 2 invalid and 3 incompatible conditions such as a different viewport.
 
 ## Git workflow
 

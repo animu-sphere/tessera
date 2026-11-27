@@ -1,5 +1,6 @@
 #include <tessera/snapshot/snapshot_bundle.hpp>
 #include <tessera/replay/replay_serialization.hpp>
+#include "json.hpp"
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -11,6 +12,9 @@
 
 namespace tessera {
 namespace {
+
+using snapshot_detail::quote;
+using snapshot_detail::identity;
 
 constexpr std::array<std::string_view, 27> role_names{
     "root",      "button",    "text",       "separator",    "dialog",       "list",        "tree",
@@ -28,64 +32,7 @@ Diagnostic error(std::string code, std::string path, std::string message) {
     return {std::move(code), Severity::error, std::move(path), std::move(message)};
 }
 
-bool valid_utf8(std::string_view text) {
-    for (std::size_t i = 0; i < text.size();) {
-        const auto c = static_cast<unsigned char>(text[i]);
-        std::size_t extra = c < 0x80 ? 0 : (c & 0xe0) == 0xc0 ? 1 : (c & 0xf0) == 0xe0 ? 2 : (c & 0xf8) == 0xf0 ? 3 : 4;
-        if (extra == 4 || i + extra >= text.size()) return false;
-        std::uint32_t scalar = extra == 0 ? c : extra == 1 ? c & 0x1f : extra == 2 ? c & 0x0f : c & 0x07;
-        for (std::size_t k = 1; k <= extra; ++k) {
-            const auto next = static_cast<unsigned char>(text[i + k]);
-            if ((next & 0xc0) != 0x80) return false;
-            scalar = (scalar << 6) | (next & 0x3f);
-        }
-        constexpr std::array<std::uint32_t, 4> minimum{0, 0x80, 0x800, 0x10000};
-        if (scalar < minimum[extra] || scalar > 0x10ffff || (scalar >= 0xd800 && scalar <= 0xdfff)) return false;
-        i += extra + 1;
-    }
-    return true;
-}
-
-bool identity(std::string_view text) {
-    return !text.empty() && text.size() <= 256 && valid_utf8(text) &&
-           std::none_of(text.begin(), text.end(),
-                        [](char c) { return static_cast<unsigned char>(c) < 0x20 || c == 0x7f; });
-}
-
-// Minimal deterministic JSON spelling. Strings are escaped; floats use the shortest round-trip form.
-std::string quote(std::string_view text) {
-    std::string out = "\"";
-    for (const char c : text) {
-        switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                if (static_cast<unsigned char>(c) < 0x20) {
-                    constexpr char hex[] = "0123456789abcdef";
-                    out += "\\u00";
-                    out += hex[(c >> 4) & 0xf];
-                    out += hex[c & 0xf];
-                } else {
-                    out += c;
-                }
-        }
-    }
-    return out + '"';
-}
-
+// Floats use the shortest round-trip form.
 std::string number(float value) {
     if (value == 0) value = 0; // Spell negative zero as 0.
     std::array<char, 32> buffer{};

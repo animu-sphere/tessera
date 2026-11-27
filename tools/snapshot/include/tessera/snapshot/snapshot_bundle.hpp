@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace tessera {
@@ -60,5 +61,54 @@ std::vector<Diagnostic> write_snapshot_bundle(const SnapshotBundle&, const std::
 // Deterministic PNG (8-bit RGBA, sRGB chunk, fixed-Huffman deflate) of a completed rgba8_srgb frame.
 // Rejects a pixel buffer that disagrees with its extent as capture_mismatch at /pixels.
 Result<std::string> encode_png(const CapturedImage&);
+
+inline constexpr std::uint32_t max_png_dimension = 16384;
+inline constexpr std::uint64_t max_png_pixel_bytes = std::uint64_t(256) << 20;
+// Decodes a non-interlaced 8-bit RGBA PNG (any filter, stored/fixed/dynamic deflate) into rgba8_srgb pixels,
+// checking chunk CRCs and the Adler-32. Ancillary chunks are ignored. Anything else, an extent above
+// max_png_dimension or more than max_png_pixel_bytes of pixels is invalid_png.
+Result<CapturedImage> decode_png(std::string_view);
+
+// Reading bounds. Each member also has its own bound when it is loaded.
+inline constexpr std::size_t max_snapshot_entries = 2048;
+inline constexpr std::size_t max_snapshot_file_bytes = std::size_t(64) << 20;
+inline constexpr std::uint64_t max_snapshot_bundle_bytes = std::uint64_t(1) << 30;
+
+// Reads the regular files of a bundle directory and of its immediate subdirectories, without interpreting them.
+// A missing or unreadable directory or file is bundle_io; more than max_snapshot_entries entries, a file above
+// max_snapshot_file_bytes or more than max_snapshot_bundle_bytes in all is bundle_limit, and nothing is
+// returned. Deeper directories and entries that are not regular files are unlisted_member errors that
+// accompany the returned members.
+Result<SnapshotBundle> read_snapshot_bundle(const std::filesystem::path& directory);
+
+// One generation of a loaded bundle. JSON members are kept as parsed values after validation.
+struct LoadedSnapshotGeneration {
+    std::uint64_t generation = 0;
+    JsonValue entry;                    // The manifest's generation entry.
+    std::optional<JsonValue> semantics; // Semantic JSON v1; absent when the manifest records it unavailable.
+    JsonValue layout;
+    JsonValue paint;
+    std::optional<CapturedImage> frame; // Absent when the manifest records it unavailable.
+};
+struct LoadedSnapshotBundle {
+    JsonValue manifest;
+    ReplayRecording recording;
+    JsonValue actions;
+    JsonValue diagnostics;
+    std::vector<LoadedSnapshotGeneration> generations; // In manifest order.
+};
+
+// Validates bundle v1 members and returns them loaded. Every problem is reported, and a value is returned only
+// when there is none:
+// - missing_member / unlisted_member at /<path>: a listed member is absent, or a member is not listed.
+// - unsupported_version at the version field: a bundle or member version other than 1 (other replay versions
+//   than 1 and 2). An unsupported bundle version stops validation.
+// - invalid_member at /<path>[/<pointer>]: unparsable JSON, a schema violation, or a member that disagrees with
+//   the manifest or another member (generation, node count, viewport, scale, counts, frame extent).
+// - bundle_limit at /<path>: a member above its bound.
+// - Diagnostics of load_replay, load_semantics and decode_png, relocated below their member's path.
+Result<LoadedSnapshotBundle> load_snapshot_bundle(const SnapshotBundle&);
+// read_snapshot_bundle followed by load_snapshot_bundle, with the diagnostics of both.
+Result<LoadedSnapshotBundle> verify_snapshot_bundle(const std::filesystem::path& directory);
 
 } // namespace tessera

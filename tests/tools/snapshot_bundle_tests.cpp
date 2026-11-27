@@ -1,8 +1,10 @@
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <tessera/snapshot/snapshot_bundle.hpp>
+#include <tessera/snapshot/snapshot_diff.hpp>
 #include <tessera/text/glyph_cache.hpp>
 #include "../check.hpp"
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -163,6 +165,84 @@ void png_round_trip() {
     check(has(tessera::encode_png({{0, 4}, tessera::CaptureFormat::rgba8_srgb, {}}).diagnostics, "capture_mismatch",
               "/pixels"),
           "Empty extents must reject");
+}
+
+// Independently encoded PNGs (Python zlib): split IDATs, an ancillary tEXt chunk and rows cycling through
+// the Sub, Up, Average and Paeth filters, compressed with dynamic Huffman (24x10) and stored (4x3) blocks.
+constexpr std::string_view dynamic_png_hex =
+    "89504e470d0a1a0a0000000d49484452000000180000000a0806000000ae699e680000000e744558746e6f746500616e63696c6c61727918"
+    "783624000000cb4944415478dab5d1314b020118c6f1cc74b07338ee06d1411292be40cbbbd52a3808bd2019880ee2118742a283e8100685"
+    "05a143d82016849b5b9bb548cb51834424351c36880d62c36183584f05d517b8dff86eefffb1ccad2af56513cd6f420c9290822c14a00465"
+    "a8400d1ad084165c421b3aa041177aa0c3004660c014acfbe7578f81801608de0583dd5028b401e170b817893c47a2ba1e7d7989c7078944"
+    "42519457551d8dd26f6f69c3c864dedf73b9693e3f2d163f3e76ad56abdd6edf73380e0e9c87874ef15814abb22c990b217f000000cc4944"
+    "4154bb60e1eb038a1125e95796a84054222affdd6a440d7a6a12b588fa44c3e1783c6e4f261d9a6934eb92cd4682204892a4bbdd03faff81"
+    "65bbf1b0b86622f337b8eeed1ca1793882e85140f278e2bbf9aba28e54350d998c61e47e9ae78b888ee6bb48be87e40e24778aa2782c57ab"
+    "f2c989cb75eaf19c7abdf5baefcce7bbf0fbfddf1b30738c39c9a9147fb9e1db42e1bec45c667ee27ea532ac313798c73c993467ad165f32"
+    "db5810da92d4614d63372f2d7557567aacebfcef03fed9e0d1b99edd3291e91b7c027379c171fddaf64e0000000049454e44ae426082";
+constexpr std::string_view stored_png_hex =
+    "89504e470d0a1a0a0000000d4948445200000004000000030806000000b4f4aec60000000e744558746e6f746500616e63696c6c61727918"
+    "7836240000001f494441547801013300ccff0100356a9f252525252525252525252525025b5b5b5b6262638fafe20000001f494441546262"
+    "69696969707070700389a3bed84b4bcb4b4ece4e4ed25252526b5b1147040062660000000049454e44ae426082";
+
+std::string unhex(std::string_view hex) {
+    std::string out;
+    for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+        out.push_back(char(std::stoi(std::string(hex.substr(i, 2)), nullptr, 16)));
+    return out;
+}
+
+tessera::CapturedImage pattern(std::uint32_t width, std::uint32_t height) {
+    tessera::CapturedImage image{{width, height}, tessera::CaptureFormat::rgba8_srgb, {}};
+    for (std::uint32_t y = 0; y < height; ++y)
+        for (std::uint32_t x = 0; x < width; ++x)
+            for (std::uint32_t c = 0; c < 4; ++c)
+                image.pixels.push_back(std::uint8_t((x * 37 + y * 91 + c * 53 + x * y * 7) & 255));
+    return image;
+}
+
+// Rewrites a chunk's CRC after its data was changed in place.
+void reseal(std::string& png, std::size_t chunk) {
+    const auto length = be32(png, chunk);
+    std::uint32_t crc = 0xffffffffu;
+    for (std::size_t i = chunk + 4; i < chunk + 8 + length; ++i) {
+        crc ^= static_cast<unsigned char>(png[i]);
+        for (int k = 0; k < 8; ++k) crc = crc & 1 ? 0xedb88320u ^ (crc >> 1) : crc >> 1;
+    }
+    crc = ~crc;
+    for (int i = 0; i < 4; ++i) png[chunk + 8 + length + std::size_t(i)] = char((crc >> (24 - 8 * i)) & 0xff);
+}
+
+void png_decoding() {
+    const auto dynamic = tessera::decode_png(unhex(dynamic_png_hex));
+    check(dynamic && *dynamic.value == pattern(24, 10), "Dynamic Huffman, filtered rows and split IDATs must decode");
+    const auto stored = tessera::decode_png(unhex(stored_png_hex));
+    check(stored && *stored.value == pattern(4, 3), "Stored blocks must decode");
+    const auto image = pattern(37, 23);
+    const auto encoded = *tessera::encode_png(image).value;
+    check(*tessera::decode_png(encoded).value == image, "The decoder must read the encoder's output");
+
+    const auto rejects = [](std::string png, std::string_view what) {
+        check(has(tessera::decode_png(png).diagnostics, "invalid_png", ""), std::string(what) + " must reject");
+    };
+    auto crc = encoded;
+    crc[crc.size() - 20] ^= 1; // Inside the IDAT data, so its CRC no longer matches.
+    rejects(crc, "A corrupted chunk");
+    auto adler = encoded;
+    const auto idat = adler.find("IDAT") - 4;
+    adler[idat + 8 + be32(adler, idat) - 1] ^= 1; // Last Adler-32 byte.
+    reseal(adler, idat);
+    rejects(adler, "A wrong Adler-32");
+    auto gray = encoded;
+    gray[8 + 8 + 9] = 0; // IHDR color type: grayscale.
+    reseal(gray, 8);
+    rejects(gray, "A non-RGBA image");
+    auto huge = encoded;
+    for (int i = 0; i < 4; ++i) huge[16 + std::size_t(i)] = char(i == 2 ? 0x40 : i == 3 ? 0x01 : 0); // Width 16385.
+    reseal(huge, 8);
+    rejects(huge, "An extent above the bound");
+    rejects(encoded.substr(0, encoded.size() - 12), "A missing IEND");
+    rejects(encoded + "x", "Data after IEND");
+    rejects("not a png", "A missing signature");
 }
 
 // Every semantic role spelled by the bundle's tree must equal Semantic JSON v1.
@@ -415,6 +495,265 @@ void writer() {
     fs::remove_all(root);
 }
 
+tessera::SnapshotBundle built(const tessera::ReplayRecording& input, bool frames,
+                              std::vector<std::size_t> generations = {}) {
+    tessera::SnapshotOptions options{.producer = "snapshot-tests", .generations = std::move(generations)};
+    if (frames) options.glyphs = "synthetic-fixture";
+    auto bundle = tessera::build_snapshot_bundle(input, run(input, frames), options);
+    check(bundle.value.has_value(), "Fixture bundle must build");
+    return std::move(*bundle.value);
+}
+
+tessera::LoadedSnapshotBundle loaded(const tessera::SnapshotBundle& bundle) {
+    auto result = tessera::load_snapshot_bundle(bundle);
+    for (const auto& d : result.diagnostics) std::cerr << d.code << " at " << d.path << ": " << d.message << '\n';
+    check(result && result.diagnostics.empty(), "A built bundle must load");
+    return std::move(*result.value);
+}
+
+// A copy of `bundle` whose member at `path` has its first `from` replaced by `to`.
+tessera::SnapshotBundle edited(tessera::SnapshotBundle bundle, std::string_view path, std::string_view from,
+                               std::string_view to) {
+    for (auto& file : bundle.files)
+        if (file.path == path) {
+            const auto at = file.bytes.find(from);
+            check(at != std::string::npos, "Edit target must exist in " + std::string(path));
+            file.bytes.replace(at, from.size(), to);
+        }
+    return bundle;
+}
+
+std::vector<tessera::Diagnostic> problems(const tessera::SnapshotBundle& bundle) {
+    const auto result = tessera::load_snapshot_bundle(bundle);
+    check(!result.value, "A damaged bundle must not load");
+    return result.diagnostics;
+}
+
+void bundle_loading() {
+    const auto input = recording();
+    const auto captured = run(input, true);
+    const auto last = captured.output.generations.size() - 1;
+    const auto g = "g" + std::to_string(last);
+    const auto every = built(input, true, {0, 1, 2, last});
+    const auto bundle = loaded(every);
+    check(bundle.recording == input && bundle.generations.size() == 4 && bundle.generations.back().generation == last,
+          "Loading must keep the recording and every listed generation");
+    check(bundle.generations.back().frame == captured.frames[last].image && bundle.generations[0].semantics &&
+              std::get<double>(
+                  std::get<tessera::JsonValue::Object>(bundle.generations.back().paint.value).at("commands").value) ==
+                  double(captured.output.generations[last].paint.commands.size()),
+          "Loaded members must hold the generation's frame, semantics and paint summary");
+    const auto core = loaded(built(input, false));
+    check(!core.generations[0].frame && core.generations[0].semantics, "A core-only bundle loads without frames");
+
+    // The same bundle through the filesystem.
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / "tessera_snapshot_verify_tests";
+    fs::remove_all(root);
+    check(tessera::write_snapshot_bundle(every, root / "bundle").empty(), "Bundle must write");
+    const auto read = tessera::read_snapshot_bundle(root / "bundle");
+    check(read && read.diagnostics.empty() && *read.value == every, "Reading must return the written members");
+    check(tessera::verify_snapshot_bundle(root / "bundle").value.has_value(), "A written bundle must verify");
+    fs::create_directories(root / "bundle" / g / "nested");
+    const auto nested = tessera::verify_snapshot_bundle(root / "bundle");
+    check(!nested && has(nested.diagnostics, "unlisted_member", "/" + g + "/nested"), "Nested directories must reject");
+    check(has(tessera::verify_snapshot_bundle(root / "absent").diagnostics, "bundle_io", ""),
+          "A missing directory is bundle_io");
+    fs::remove_all(root);
+
+    // Versions, members and schemas.
+    check(has(problems(edited(every, "manifest.json", "\"version\": 1", "\"version\": 2")), "unsupported_version",
+              "/manifest.json/version"),
+          "An unsupported bundle version must reject");
+    check(has(problems(edited(every, g + "/layout.json", "\"version\": 1", "\"version\": 7")), "unsupported_version",
+              "/" + g + "/layout.json/version"),
+          "An unsupported member version must reject");
+    check(has(problems(edited(every, "manifest.json", "\"format\": \"tessera-paint-summary\", \"version\": 1",
+                              "\"format\": \"tessera-paint-summary\", \"version\": 3")),
+              "unsupported_version", "/manifest.json/generations/0/members/paint/version"),
+          "An unsupported listed member version must reject");
+    auto missing = every;
+    std::erase_if(missing.files, [&](const auto& file) { return file.path == g + "/paint.json"; });
+    check(has(problems(missing), "missing_member", "/" + g + "/paint.json"), "A listed member must exist");
+    auto extra = every;
+    extra.files.push_back({"notes.txt", "x"});
+    extra.files.push_back({"g1/frame.png.bak", "x"});
+    const auto unlisted = problems(extra);
+    check(has(unlisted, "unlisted_member", "/notes.txt") && has(unlisted, "unlisted_member", "/g1/frame.png.bak"),
+          "Unlisted members must reject");
+    const auto truncated = problems(edited(every, g + "/layout.json", "\"nodes\": [", "\"nodes\": [[,"));
+    check(has(truncated, "invalid_member", "/" + g + "/layout.json"), "Unparsable JSON must reject");
+    check(std::any_of(truncated.begin(), truncated.end(), [](const auto& d) { return d.byte_offset.has_value(); }),
+          "Parse failures keep their byte offset");
+    check(has(problems(edited(every, "recording.json", "\"version\":1,\"viewport\"", "\"version\":9,\"viewport\"")),
+              "unsupported_version", "/recording.json/version"),
+          "Replay JSON diagnostics must be relocated below recording.json");
+    check(has(problems(edited(every, g + "/semantics.json", "\"generation\":\"" + std::to_string(last) + "\"",
+                              "\"generation\":\"0\"")),
+              "invalid_member", "/" + g + "/semantics.json/generation"),
+          "Semantic JSON must belong to its generation");
+    check(has(problems(edited(every, "manifest.json", "\"viewport\": [150.3, 90]", "\"viewport\": [150, 90]")),
+              "invalid_member", "/g2/layout.json/viewport"),
+          "Layout must agree with the manifest viewport");
+    check(has(problems(edited(every, g + "/paint.json", "\"rect\": ", "\"rect\": 1")), "invalid_member",
+              "/" + g + "/paint.json/kinds"),
+          "Paint kinds must add up to the command count");
+    check(has(problems(edited(every, g + "/layout.json", "\"id\": \"quit\"", "\"id\": \"start\"")), "invalid_member",
+              "/" + g + "/layout.json/nodes/3/id"),
+          "Author IDs are unique in a layout");
+    check(has(problems(edited(every, "manifest.json", "\"producer\": \"snapshot-tests\"",
+                              "\"producer\": \"snapshot-tests\", \"comment\": 1")),
+              "invalid_member", "/manifest.json/comment"),
+          "Unknown manifest fields must reject");
+    check(has(problems(edited(every, "actions.json", "\"binding\": \"activate\", ", "")), "invalid_member",
+              "/actions.json/actions/0/binding"),
+          "Actions need every field");
+    auto frame = every;
+    for (auto& file : frame.files)
+        if (file.path == g + "/frame.png") file.bytes[file.bytes.size() - 20] ^= 1;
+    check(has(problems(frame), "invalid_png", "/" + g + "/frame.png"), "PNG diagnostics are relocated to the frame");
+    auto empty = every;
+    for (auto& file : empty.files)
+        if (file.path == "manifest.json") file.bytes = std::string(5u << 20, ' ');
+    check(has(problems(empty), "bundle_limit", "/manifest.json"), "Members are bounded");
+}
+
+tessera::ReplayRecording with_caption(std::string_view id, std::string caption) {
+    auto result = recording();
+    for (auto* document : {&result.document, &std::get<tessera::ReplayReload>(result.steps.back()).document})
+        for (auto& child : document->root.children)
+            if (child.id == id) child.children[0].properties["text"] = caption;
+    return result;
+}
+
+const tessera::SnapshotNodeChange* change(const std::vector<tessera::SnapshotNodeChange>& changes,
+                                          const tessera::SnapshotNodeKey& key) {
+    for (const auto& c : changes)
+        if (c.node == key) return &c;
+    return nullptr;
+}
+bool field(const tessera::SnapshotNodeChange* c, std::string_view name) {
+    return c && std::any_of(c->fields.begin(), c->fields.end(), [&](const auto& f) { return f.field == name; });
+}
+
+void bundle_diffs() {
+    const auto input = recording();
+    const auto base = loaded(built(input, true));
+    const auto same = tessera::diff_snapshot_bundles(base, loaded(built(input, true)));
+    check(same && same.value->status == tessera::SnapshotDiffStatus::equal && !same.value->first_difference &&
+              same.value->pixels.size() == 1 && same.value->pixels[0].compared > 0 && !same.value->pixels[0].different,
+          "Equal bundles compare equal, frames included");
+    const auto all = loaded(built(input, true, {0, 1, 2, 3}));
+    const auto paired = tessera::diff_snapshot_bundles(all, all);
+    check(paired.value->pairs.size() == 4 && paired.value->status == tessera::SnapshotDiffStatus::equal,
+          "Equal generation lists pair every generation");
+    const auto last = tessera::diff_snapshot_bundles(all, base);
+    check(last.value->pairs.size() == 1 && last.value->pairs[0].before == 3 && last.value->pairs[0].after == 3,
+          "Different generation lists pair their last generations");
+
+    // A renamed button changes semantics first, then its text layout and pixels.
+    const auto renamed = loaded(built(with_caption("quit", "Exit"), true));
+    const auto rename = tessera::diff_snapshot_bundles(base, renamed);
+    check(rename.value->status == tessera::SnapshotDiffStatus::different &&
+              rename.value->first_difference == "semantic",
+          "A name change is a semantic difference first");
+    const auto* quit = change(rename.value->semantic, {.id = "quit"});
+    check(quit && quit->change == tessera::SnapshotChange::changed && field(quit, "name") && quit->fields.size() == 1,
+          "The semantic change names only the changed field of #quit");
+    check(rename.value->paint.size() == 1 && rename.value->paint[0].fields.size() == 1 &&
+              rename.value->paint[0].fields[0].field == "glyphs" && !rename.value->pixels[0].different,
+          "The scrolled-out caption changes the glyph count but no pixels");
+    const auto json = tessera::save_snapshot_diff(*rename.value);
+    check(contains(json, "\"format\": \"tessera-snapshot-diff\"") && contains(json, "\"status\": \"different\"") &&
+              contains(json, "\"node\": {\"id\": \"quit\"}") &&
+              contains(json, "\"name\": {\"after\": \"Exit\", \"before\": \"Quit \\\"now\\\"\"}"),
+          "The report spells node keys and field changes");
+
+    // Unnamed nodes match within their nearest identified ancestor, so an inserted entry leaves others intact.
+    auto inserted_input = input;
+    for (auto* document :
+         {&inserted_input.document, &std::get<tessera::ReplayReload>(inserted_input.steps.back()).document})
+        document->root.children.insert(document->root.children.begin(), button("intro", "Intro", "show-help"));
+    inserted_input.styles = menu_styles(3);
+    auto& reload = std::get<tessera::ReplayReload>(inserted_input.steps.back());
+    reload.styles = menu_styles(4);
+    reload.styles[7].display = tessera::Display::none;
+    reload.styles[8].display = tessera::Display::none;
+    const auto inserted = tessera::diff_snapshot_bundles(base, loaded(built(inserted_input, true)));
+    const auto* intro = change(inserted.value->layout, {.id = "intro"});
+    const auto* intro_text = change(inserted.value->layout, {.within = "intro"});
+    const auto* start_text = change(inserted.value->layout, {.within = "start"});
+    check(intro && intro->change == tessera::SnapshotChange::added && !intro->before && intro->after == 1u &&
+              intro_text && intro_text->change == tessera::SnapshotChange::added &&
+              (!start_text || start_text->change == tessera::SnapshotChange::changed),
+          "Inserted nodes are added and unnamed nodes keep their scoped identity");
+    const auto* intro_entry = change(inserted.value->semantic, {.id = "intro"});
+    check(intro_entry && intro_entry->change == tessera::SnapshotChange::added,
+          "The inserted button is a semantic addition");
+
+    // Geometry within tolerance is equal; the remaining difference is reported at the next level.
+    auto padded_input = input;
+    padded_input.styles[0].padding = {8.25f, 8, 8, 8};
+    std::get<tessera::ReplayReload>(padded_input.steps.back()).styles[0].padding = {8.25f, 8, 8, 8};
+    const auto padded = loaded(built(padded_input, true));
+    const auto strict = tessera::diff_snapshot_bundles(base, padded);
+    check(strict.value->first_difference == "layout" && strict.value->semantic.empty(),
+          "A geometry change without semantic change is a layout difference");
+    const auto tolerant = tessera::diff_snapshot_bundles(base, padded, {.geometry_tolerance = 0.5});
+    check(tolerant.value->layout.empty() && tolerant.value->first_difference != "layout",
+          "Geometry within the tolerance is equal");
+    const auto forgiving =
+        tessera::diff_snapshot_bundles(base, padded, {.geometry_tolerance = 0.5, .pixel_threshold = 255});
+    check(forgiving.value->status == tessera::SnapshotDiffStatus::equal && !forgiving.value->pixels[0].different,
+          "A pixel threshold of 255 accepts every pixel");
+
+    // Only pixels change with a background color.
+    auto tinted_input = input;
+    tinted_input.styles[0].background = {0.1f, 0.05f, 0.05f, 1};
+    std::get<tessera::ReplayReload>(tinted_input.steps.back()).styles[0].background = {0.1f, 0.05f, 0.05f, 1};
+    const auto tinted = loaded(built(tinted_input, true));
+    const auto tint = tessera::diff_snapshot_bundles(base, tinted);
+    const auto& tint_pixels = tint.value->pixels[0];
+    check(tint.value->first_difference == "pixels" && tint_pixels.different && tint_pixels.bounds &&
+              tint_pixels.differing <= tint_pixels.compared && tint_pixels.max_delta > 0,
+          "A color change is a pixel difference with its bounds");
+    const auto counted = tessera::diff_snapshot_bundles(base, tinted, {.pixel_count = tint_pixels.differing});
+    check(counted.value->status == tessera::SnapshotDiffStatus::equal && counted.value->pixels[0].differing > 0,
+          "Differing pixels up to the count are tolerated but still counted");
+    const auto threshold =
+        tessera::diff_snapshot_bundles(base, tinted, {.pixel_threshold = std::uint8_t(tint_pixels.max_delta - 1)});
+    check(threshold.value->pixels[0].different, "Deltas above the threshold differ");
+
+    // Requested actions compare by position.
+    auto action_input = input;
+    std::get<tessera::ReplaySemanticAction>(action_input.steps[3]).target = tessera::AuthorIdTarget{"start"};
+    const auto acted = tessera::diff_snapshot_bundles(base, loaded(built(action_input, true)));
+    check(acted.value->first_difference == "actions" && acted.value->actions.size() == 1 &&
+              acted.value->actions[0].change == tessera::SnapshotChange::changed,
+          "A different requested action is an action difference");
+
+    // Conditions are reported before judging.
+    const auto core = tessera::diff_snapshot_bundles(base, loaded(built(input, false)));
+    check(core.value->status == tessera::SnapshotDiffStatus::incompatible && core.value->semantic.empty() &&
+              core.value->conditions.size() == 2 && core.value->conditions[0].condition == "capture_backend" &&
+              core.value->conditions[1].condition == "glyphs",
+          "Different capture conditions are incompatible");
+    check(contains(tessera::save_snapshot_diff(*core.value), "\"semantic\": null"), "Unjudged levels are null");
+    auto resized_input = input;
+    std::get<tessera::ReplayResize>(resized_input.steps[2]).viewport = {160, 90};
+    const auto resized = tessera::diff_snapshot_bundles(base, loaded(built(resized_input, true)));
+    check(resized.value->status == tessera::SnapshotDiffStatus::incompatible &&
+              resized.value->conditions[0].condition == "viewport" && resized.value->conditions[0].pair == 0u,
+          "A different viewport is incompatible");
+    auto scaled_input = input;
+    scaled_input.environment.scale = 2;
+    const auto scaled = tessera::diff_snapshot_bundles(base, loaded(built(scaled_input, true)));
+    check(scaled.value->conditions[0].condition == "environment", "A different environment is incompatible");
+    check(has(tessera::diff_snapshot_bundles(base, base, {.geometry_tolerance = -1}).diagnostics, "invalid_diff_option",
+              "/options/geometry_tolerance"),
+          "Negative tolerances reject");
+}
+
 // The CLI smoke's committed recording is this fixture's Replay JSON; --write-fixture <path> regenerates it.
 void fixture(const char* path) {
     const auto saved = tessera::save_replay(recording());
@@ -433,9 +772,12 @@ int main(int argc, char** argv) {
         check(argc == 2, "Usage: tessera_snapshot_bundle_tests <menu.replay.json> | --write-fixture <path>");
         fixture(argv[1]);
         png_round_trip();
+        png_decoding();
         role_names();
         bundle_members();
         writer();
+        bundle_loading();
+        bundle_diffs();
         std::cout << "Snapshot bundle checks passed.\n";
         return 0;
     } catch (const std::exception& error) {

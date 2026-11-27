@@ -66,6 +66,14 @@ if(TESSERA_BUILD_TOOLS)
     tessera_add_check(snapshot_cli tessera_snapshot_cli contract capture
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/fixtures/menu.replay.json
         --out ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle --generation all)
+    # verify and diff read the captured bundle; diff of a bundle with itself must exit 0 (equal).
+    tessera_add_check(snapshot_cli_verify tessera_snapshot_cli contract verify
+        ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle)
+    tessera_add_check(snapshot_cli_diff tessera_snapshot_cli contract diff
+        ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle
+        --out ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-diff.json)
+    set_tests_properties(snapshot_cli PROPERTIES FIXTURES_SETUP snapshot_cli_bundle)
+    set_tests_properties(snapshot_cli_verify snapshot_cli_diff PROPERTIES FIXTURES_REQUIRED snapshot_cli_bundle)
 endif()
 if(TESSERA_BUILD_EXAMPLES)
     tessera_add_check(first_app tessera_first_app smoke)
