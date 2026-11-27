@@ -30,7 +30,7 @@ Run the owner tests for changed guarantees and one consumer smoke for the applic
 | Menu triggers, placement and dismissal | [menu](../../tests/input/menu_tests.cpp), [popup](../../tests/input/popup_tests.cpp) | [Asset actions](../../examples/menu-context/main.cpp) |
 | Application edit history, merging and traversal | Application-owned; [commands](../../tests/commands/commands_tests.cpp) eligibility | [Inspector](../../examples/inspector-hierarchy/main.cpp) Undo/Redo |
 | Accepted settings after rejected staging | [Diagnostics](../../tests/integrations/renderer_diagnostics_tests.cpp), [Settings](../../examples/settings/main.cpp) | New branch and retained unrelated state |
-| CPU pixels and replay | [CPU](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [runner](../../tests/inspection/offscreen_runner_tests.cpp) | Images only for changed drawing behavior |
+| CPU pixels and replay | [CPU](../../tests/render/cpu_renderer_tests.cpp), [replay](../../tests/replay/replay_tests.cpp), [runner](../../tests/inspection/offscreen_runner_tests.cpp), [snapshot bundle](../../tests/tools/snapshot_bundle_tests.cpp) | Images only for changed drawing behavior |
 
 Add tests for new failure modes, state/command paths and actual regressions. One representative pointer versus keyboard/gamepad parity check per consumer is enough when both share ordinary commands.
 
@@ -90,7 +90,7 @@ Use the [replay contract](../architecture/replay.md) for controlled time/readine
 
 ## Inspection and snapshot fixtures
 
-Use in-process [inspection](../architecture/inspection.md) before transport wrappers. Select scoped/stale/ambiguous targets, coherent-generation observations and rejected state injection. Prefer numeric invariants over images; unavailable observations must not look successful. Bundle/transport/browser fixtures become relevant when those mechanisms are implemented.
+Use in-process [inspection](../architecture/inspection.md) before transport wrappers. Select scoped/stale/ambiguous targets, coherent-generation observations and rejected state injection. Prefer numeric invariants over images; unavailable observations must not look successful. The [snapshot bundle owner](../../tests/tools/snapshot_bundle_tests.cpp) checks members, determinism, PNG round trips and directory replacement; `snapshot_cli` and `inspector_hierarchy_snapshot.<scenario>` consume it. Change the bundle format together with that owner. Add an Inspector scenario only for a screen state that reviewers or agents need to inspect repeatedly. Transport and browser fixtures become relevant when those mechanisms are implemented.
 
 ## Localization fixtures
 

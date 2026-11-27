@@ -5,7 +5,7 @@ param([AllowEmptyCollection()][string[]]$Paths = @())
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $docs = '^(?:.+\.md|docs/.+|\.github/ISSUE_TEMPLATE/.+|scripts/check-docs\.ps1|LICENSE)$'
-$source = '^(?:(?:src|include|examples|backends|modules)/.+\.(?:cpp|hpp|json)|tests/(?!cmake/).+\.(?:cpp|hpp|json))$'
+$source = '^(?:(?:src|include|examples|backends|modules|tools)/.+\.(?:cpp|hpp|json)|tests/(?!cmake/).+\.(?:cpp|hpp|json))$'
 $runCore = $Paths.Count -eq 0
 $runImport = $Paths.Count -eq 0
 foreach ($path in $Paths) {

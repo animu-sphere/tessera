@@ -304,6 +304,27 @@ The application text service gives common wide East Asian scalars two 0.5 em pla
 
 The window-free smoke covers inline preedit, interior carets across two-cell glyphs, commit/selection replacement/cancel, late steps, Tab and pointer cancellation without redirecting to the new item, sessions outside the editor, an over-limit commit and presentation rejection/retry. The injected native smoke substitutes composition strings for an IME and checks UTF-16 conversion, a cursor inside a surrogate pair, malformed results, key suppression during a session, candidate placement, end/focus-loss cancellation, press completion and IME attachment following focus.
 
+## Snapshot bundles
+
+`--snapshot <scenario> <directory>` runs one named scenario without a window and writes a [snapshot bundle](../architecture/inspection.md#implemented-snapshot-bundle-tooling) of the final screen. Use it to see a change without the full smoke or a desktop session:
+
+```powershell
+cmake --build build --config Release --target tessera_inspector_hierarchy
+& .\build\Release\tessera_inspector_hierarchy.exe --snapshot edit-name build\snapshots\edit-name
+```
+
+An unknown name prints the scenario list. The scenarios are:
+
+| Scenario | Final screen |
+| --- | --- |
+| `initial` | Launch state |
+| `edit-name` | Sphere selected from the Hierarchy and renamed `Edited sphere`, with the name editor focused |
+| `ime` | Japanese preedit `にほんご` open at the end of the name editor |
+| `display` | Display tab with the Visibility choices |
+| `narrow` | The 492×360 minimum window: header tools without the heading and the narrow Inspector pane |
+
+Start with `g<n>/tree.txt` for roles, IDs, names, geometry and state, then open `g<n>/frame.png` for the pixels; `manifest.json` says which generation `<n>` is. Each scenario drives the ordinary `App`, then records its accepted host view and host focus through a `ReplaySession`. The bundle's offscreen run therefore plays the same document and styles with the application's cell text service, declared as `inspector-cell-text`. On Windows, frames use the native host's GDI fixed-cell glyphs (`win32-gdi-fixed-cell`), so text is readable but depends on the installed Consolas and MS Gothic fonts. Other platforms use synthetic marks. Scroll offsets and pointer state reach the bundle only through the recorded document and styles. A Release scenario takes under a second; each is registered as an `inspector_hierarchy_snapshot.<scenario>` smoke.
+
 ## Host and observation boundary
 
 The host owns all item data and order, selection, disclosure, scroll offsets, input dispatchers and command sequences. Item actions resolve against the accepted semantic tree and command snapshot. A candidate copies host state, applies the public text transform where needed, and stages lowering, eligibility, styles, layout, paint and inspection. Only a successful command outcome accepts that candidate and publishes the session. A stale/foreign text owner or rejected text measurement leaves the accepted values and inspection unchanged; retry uses the retained edit revision.

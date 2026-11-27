@@ -43,7 +43,7 @@ The `TESSERA_BUILD_FONTS` option defaults OFF and performs no HarfBuzz or FreeTy
 | CPU reference backend | C++ standard library; ISA-specific SIMD paths optional beside the scalar reference | No GPU SDK, window, or image encoder; presentation and encoding stay in hosts and tooling |
 | WebGPU backend | Implementation/toolchain to evaluate | Later module; no current WGSL, browser, or WASM claim |
 | Web host / WASM bridge | Compiler/packager and browser facilities to evaluate under [Web host](../proposals/web-host.md) | DOM, browser editing, JS bindings and worker APIs stay in optional host adapters |
-| Inspection/testing/agent tooling | Image encoder, CLI and optional RPC/MCP implementation to evaluate under [inspection](../architecture/inspection.md) | No agent SDK, transport server or image encoder required by core; production can exclude development facilities |
+| Inspection/testing/agent tooling | In-repository PNG encoder and `tessera_snapshot` CLI in the [`tessera::snapshot` tooling library](../architecture/inspection.md#implemented-snapshot-bundle-tooling), C++ standard library only, behind `TESSERA_BUILD_TOOLS`; optional RPC/MCP implementation to evaluate under [inspection](../architecture/inspection.md) | No agent SDK, transport server or image encoder required by core; production can exclude development facilities |
 | Example host | Win32 [Vulkan menu host](../architecture/rendering.md#implemented-win32-vulkan-example-host) | Window ownership remains outside the UI core and the backend library |
 | Additional authoring frontends | Compiler/parser to evaluate after IR stabilization | Runtime IR remains independent of source syntax; JSON v1 uses the adopted in-repository parser |
 
