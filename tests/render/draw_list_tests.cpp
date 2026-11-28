@@ -247,9 +247,9 @@ void gradients() {
 
 void layers() {
     using namespace tessera;
-    const UiDrawList nested{{PushLayer{.5f}, PushClip{{{0, 0}, {4, 4}}}, PushLayer{}, PushTransform{{0, 1, -1, 0, 4, 0}},
-                             DrawRect{{{0, 0}, {2, 2}}, {1, 0, 0, 1}}, PopTransform{}, PopLayer{}, PopClip{},
-                             PopLayer{}}};
+    const UiDrawList nested{{PushLayer{.5f}, PushClip{{{0, 0}, {4, 4}}}, PushLayer{},
+                             PushTransform{{0, 1, -1, 0, 4, 0}}, DrawRect{{{0, 0}, {2, 2}}, {1, 0, 0, 1}},
+                             PopTransform{}, PopLayer{}, PopClip{}, PopLayer{}}};
     check(validate(nested).empty(), "Layers nest with clips and rotated transforms");
     auto errors = validate(UiDrawList{{PushLayer{1.5f}, PopLayer{}, PushLayer{std::nanf("")}, PopLayer{}}});
     check(errors.size() == 2 && has(errors, "out_of_range", "/commands/0/opacity") &&

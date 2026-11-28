@@ -2165,7 +2165,8 @@ void layer_fixtures(Host& host) {
               "Layers without a layer command buffer must reject");
         gpu.set_target({host.commands, host.extent, host.layer_commands});
         UiDrawList many{{backdrop}};
-        for (std::size_t i = 0; i <= max_vulkan_layers; ++i) many.commands.insert(many.commands.end(), {PushLayer{}, blue, PopLayer{}});
+        for (std::size_t i = 0; i <= max_vulkan_layers; ++i)
+            many.commands.insert(many.commands.end(), {PushLayer{}, blue, PopLayer{}});
         check(has(gpu.submit({frame, {32, 32}, 2}, many), "layer_limit", "/commands"),
               "More than max_vulkan_layers layers per submission must reject");
         many.commands.resize(many.commands.size() - 3);

@@ -3689,16 +3689,17 @@ void reorder_smoke() {
         const auto last = std::find_if(first, commands.end(),
                                        [](const DrawCommand& c) { return std::holds_alternative<PopLayer>(c); });
         const auto cube_row = app.view.box("hierarchy-item-cube").border_box;
-        require(first != commands.end() && last != commands.end() && std::get<PushLayer>(*first).opacity == .45f &&
-                    std::count_if(commands.begin(), commands.end(),
-                                  [](const DrawCommand& c) { return std::holds_alternative<PushLayer>(c); }) == 1 &&
-                    std::any_of(first, last,
-                                [&](const DrawCommand& c) {
-                                    const auto* fill = std::get_if<DrawRect>(&c);
-                                    return fill && fill->rect == cube_row && fill->color.a == 1;
-                                }) &&
-                    std::any_of(first, last, [](const DrawCommand& c) { return std::holds_alternative<DrawShadow>(c); }),
-                "The dragged row must paint inside one layer at its drag opacity");
+        require(
+            first != commands.end() && last != commands.end() && std::get<PushLayer>(*first).opacity == .45f &&
+                std::count_if(commands.begin(), commands.end(),
+                              [](const DrawCommand& c) { return std::holds_alternative<PushLayer>(c); }) == 1 &&
+                std::any_of(first, last,
+                            [&](const DrawCommand& c) {
+                                const auto* fill = std::get_if<DrawRect>(&c);
+                                return fill && fill->rect == cube_row && fill->color.a == 1;
+                            }) &&
+                std::any_of(first, last, [](const DrawCommand& c) { return std::holds_alternative<DrawShadow>(c); }),
+            "The dragged row must paint inside one layer at its drag opacity");
         CpuFrameCapture frames;
         const auto capture = [&](UiDrawList paint) {
             std::erase_if(paint.commands, [](const auto& c) { return std::holds_alternative<DrawGlyphRun>(c); });
@@ -3713,9 +3714,9 @@ void reorder_smoke() {
         };
         // The same row without its shadow, and the same commands faded one by one.
         auto unshadowed = app.view.paint, flattened = app.view.paint;
-        unshadowed.commands.erase(std::find_if(unshadowed.commands.begin() + (first - commands.begin()),
-                                               unshadowed.commands.end(),
-                                               [](const DrawCommand& c) { return std::holds_alternative<DrawShadow>(c); }));
+        unshadowed.commands.erase(
+            std::find_if(unshadowed.commands.begin() + (first - commands.begin()), unshadowed.commands.end(),
+                         [](const DrawCommand& c) { return std::holds_alternative<DrawShadow>(c); }));
         for (auto it = flattened.commands.begin() + (first - commands.begin()) + 1;
              it != flattened.commands.begin() + (last - commands.begin()); ++it)
             std::visit(
@@ -4965,8 +4966,7 @@ void transition_smoke() {
     now += .5;
     app.present(now);
     app.input({0us, PointerCancel{{1}}}, CommandSource::pointer);
-    require(!app.state.drag_source && style(app.view.styles, "hierarchy-item-light").composition ==
-                                          Composition::direct,
+    require(!app.state.drag_source && style(app.view.styles, "hierarchy-item-light").composition == Composition::direct,
             "Cancelling the drag restores direct composition in the accepted view");
     app.present(now);
     fading = layer_opacity(app.present(now + .08));

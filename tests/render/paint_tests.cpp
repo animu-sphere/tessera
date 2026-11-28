@@ -523,8 +523,8 @@ void layers() {
     f.compute();
 
     for (const auto i : {1, 2, 3}) f.styles[std::size_t(i)].background = {};
-    const UiDrawList omitted{{DrawRect{boxes[0].border_box, white(1)}, PushClip{clip},
-                              DrawRect{boxes[4].border_box, white(1)}, PopClip{}}};
+    const UiDrawList omitted{
+        {DrawRect{boxes[0].border_box, white(1)}, PushClip{clip}, DrawRect{boxes[4].border_box, white(1)}, PopClip{}}};
     check(f.paint() == omitted, "Layers that paint nothing must be omitted");
     for (const auto i : {1, 2, 3}) f.styles[std::size_t(i)].background = white(1);
     f.styles[1].opacity = 0;

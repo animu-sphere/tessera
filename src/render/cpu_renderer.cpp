@@ -290,8 +290,7 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
     // Source-over at a target pixel into the innermost open layer, or into the target itself.
     const auto paint = [&](std::uint32_t x, std::uint32_t y, Pixel color, bool premultiplied) {
         if (surfaces.empty())
-            return blend(target_.pixels.data() + (std::size_t(y) * target_.extent.width + x) * 4, color,
-                         premultiplied);
+            return blend(target_.pixels.data() + (std::size_t(y) * target_.extent.width + x) * 4, color, premultiplied);
         auto& top = surfaces.back();
         blend(top.pixels.data() + (std::size_t(y - top.y0) * (top.x1 - top.x0) + (x - top.x0)) * 4, color,
               premultiplied);
@@ -320,8 +319,8 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                             paint(x, y, color, true);
                         }
                 } else if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawBorder> ||
-                              std::is_same_v<T, DrawImage> || std::is_same_v<T, DrawShadow> ||
-                              std::is_same_v<T, DrawStroke>) {
+                                     std::is_same_v<T, DrawImage> || std::is_same_v<T, DrawShadow> ||
+                                     std::is_same_v<T, DrawStroke>) {
                     auto rect = cmd.rect;
                     if constexpr (std::is_same_v<T, DrawShadow>)
                         rect = *detail::shadow_bounds(rect, cmd.softness, cmd.inset);

@@ -41,16 +41,15 @@ struct Packet {
     Primitive primitive{};
     VkRect2D scissor{};
     std::uint64_t image = 0;
-    bool premultiplied = false;    // Fixed by the image binding, so equal handles agree.
-    const void* program = nullptr; // Registered fill or shape whose pipelines draw this packet.
-    std::int32_t layer = -1;       // Closed layer pass whose surface this packet composes.
+    bool premultiplied = false;        // Fixed by the image binding, so equal handles agree.
+    const void* program = nullptr;     // Registered fill or shape whose pipelines draw this packet.
+    std::int32_t layer = -1;           // Closed layer pass whose surface this packet composes.
     std::array<std::int32_t, 4> box{}; // Conservative pixel bounds (x0, y0, x1, y1) inside the scissor.
 };
 bool compatible(const Packet& a, const Packet& b) {
     return a.image == b.image && a.program == b.program && a.layer == b.layer &&
-           a.scissor.offset.x == b.scissor.offset.x &&
-           a.scissor.offset.y == b.scissor.offset.y && a.scissor.extent.width == b.scissor.extent.width &&
-           a.scissor.extent.height == b.scissor.extent.height;
+           a.scissor.offset.x == b.scissor.offset.x && a.scissor.offset.y == b.scissor.offset.y &&
+           a.scissor.extent.width == b.scissor.extent.width && a.scissor.extent.height == b.scissor.extent.height;
 }
 // A pixel is inside the clip when its center is: edges [low, high) cover pixels ceil(low - 0.5) up
 // to ceil(high - 0.5), the same sample rule as primitive rasterization and pixel-center pointer mapping.
@@ -537,8 +536,7 @@ struct VulkanRenderer::Impl {
             created.pipeline = pipeline(render_pass, vertex_module, module, profile.entry);
             if (batch_module) created.batch = pipeline(render_pass, batch_module, module, profile.entry, true);
             created.layer_pipeline = pipeline(layer_pass, vertex_module, module, profile.entry);
-            if (batch_module)
-                created.layer_batch = pipeline(layer_pass, batch_module, module, profile.entry, true);
+            if (batch_module) created.layer_batch = pipeline(layer_pass, batch_module, module, profile.entry, true);
         } catch (...) {
             destroy(created);
             vkDestroyShaderModule(device, module, nullptr);
@@ -638,8 +636,7 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
     subpass.pColorAttachments = &reference;
     const VkSubpassDependency dependencies[2]{
         // Earlier sampling of a reused surface, and earlier layer passes, finish before this pass writes.
-        {VK_SUBPASS_EXTERNAL, 0,
-         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        {VK_SUBPASS_EXTERNAL, 0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
          VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0},
         // Later passes, including the host's main pass, sample the finished surface.
@@ -822,8 +819,8 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         std::vector<Packet> packets;
         std::optional<VkRect2D> clip; // Scissor at PushLayer; the surface and its composition stay inside it.
         float opacity = 1;
-        VkRect2D area{};          // Pixels the layer's packets can touch.
-        std::size_t surface = 0;  // Assigned Impl::surfaces entry.
+        VkRect2D area{};                // Pixels the layer's packets can touch.
+        std::size_t surface = 0;        // Assigned Impl::surfaces entry.
         std::size_t first = 0, end = 0; // Range in the uploaded packet order.
     };
     std::vector<Pass> open(1), passes; // open.back() receives packets; closed layers in completion order.
@@ -863,10 +860,9 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                     auto pass = std::move(open.back());
                     open.pop_back();
                     if (!pass.clip) return;
-                    std::array<std::int32_t, 4> box{std::numeric_limits<std::int32_t>::max(),
-                                                    std::numeric_limits<std::int32_t>::max(),
-                                                    std::numeric_limits<std::int32_t>::min(),
-                                                    std::numeric_limits<std::int32_t>::min()};
+                    std::array<std::int32_t, 4> box{
+                        std::numeric_limits<std::int32_t>::max(), std::numeric_limits<std::int32_t>::max(),
+                        std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::min()};
                     for (const auto& packet : pass.packets) {
                         if (packet.box[2] <= packet.box[0] || packet.box[3] <= packet.box[1]) continue;
                         box = {std::min(box[0], packet.box[0]), std::min(box[1], packet.box[1]),
@@ -1419,8 +1415,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
             };
             const auto pipeline =
                 fill ? pick(fill->pipeline, fill->batch, fill->layer_pipeline, fill->layer_batch)
-                : packet.layer < 0 && !packet.image
-                    ? pick(p.solid, p.batch_solid, p.layer_solid, p.layer_batch_solid)
+                : packet.layer < 0 && !packet.image ? pick(p.solid, p.batch_solid, p.layer_solid, p.layer_batch_solid)
                 : packet.premultiplied
                     ? pick(p.premultiplied, p.batch_premultiplied, p.layer_premultiplied, p.layer_batch_premultiplied)
                     : pick(p.textured, p.batch_textured, p.layer_textured, p.layer_batch_textured);

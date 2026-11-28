@@ -545,8 +545,9 @@ void layers() {
         check(capture(frames, layered) == capture(frames, flat), "A single-command layer differs from direct alpha");
     }
     // Content may leave the layer only through the clip in effect at PushLayer.
-    const auto clipped = capture(frames, {{PushClip{{{0, 0}, {4.4f, 8}}}, PushLayer{}, DrawRect{{{0, 0}, {8, 8}}, {1, 0, 0, 1}},
-                                PopLayer{}, PopClip{}, DrawRect{{{6, 0}, {2, 8}}, {0, 1, 0, 1}}}});
+    const auto clipped =
+        capture(frames, {{PushClip{{{0, 0}, {4.4f, 8}}}, PushLayer{}, DrawRect{{{0, 0}, {8, 8}}, {1, 0, 0, 1}},
+                          PopLayer{}, PopClip{}, DrawRect{{{6, 0}, {2, 8}}, {0, 1, 0, 1}}}});
     check(pixel(clipped, 3, 0) == Bytes{255, 0, 0, 255} && pixel(clipped, 4, 0)[3] == 0 &&
               pixel(clipped, 6, 0) == Bytes{0, 255, 0, 255},
           "A layer surface covers only its clip and restores later drawing");

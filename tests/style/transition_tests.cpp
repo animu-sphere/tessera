@@ -151,7 +151,8 @@ void layer_composition() {
           "A group fading back keeps composing as a layer until opacity settles");
     auto unrelated = resting;
     unrelated[2].color = blue;
-    check(transitions.update(*ui, unrelated, 1).empty() && transitions.present(1.2)[1].composition == Composition::layer,
+    check(transitions.update(*ui, unrelated, 1).empty() &&
+              transitions.present(1.2)[1].composition == Composition::layer,
           "The layer persists through unrelated generations while opacity eases");
     check(transitions.present(1.5)[1] == unrelated[1], "Settled opacity presents the target composition");
     auto recolored = resting;

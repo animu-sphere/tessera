@@ -183,9 +183,9 @@ std::string layout_json(const Generation& g) {
 }
 
 std::string paint_json(const Generation& g) {
-    constexpr std::array<std::string_view, 12> kinds{
-        "rect",          "border", "image",  "glyph_run",  "push_clip", "pop_clip", "push_transform",
-        "pop_transform", "shadow", "stroke", "push_layer", "pop_layer"};
+    constexpr std::array<std::string_view, 12> kinds{"rect",      "border",   "image",          "glyph_run",
+                                                     "push_clip", "pop_clip", "push_transform", "pop_transform",
+                                                     "shadow",    "stroke",   "push_layer",     "pop_layer"};
     // Layer kinds are written only when present, so summaries of lists without layers keep their bytes.
     constexpr std::size_t optional_kinds = 10;
     static_assert(kinds.size() == std::variant_size_v<DrawCommand>, "Every paint command needs a summary name");
