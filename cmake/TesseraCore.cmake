@@ -15,6 +15,7 @@ add_library(tessera_core
     src/style/resolved_style.cpp
     src/style/style_sheet.cpp
     src/style/theme.cpp
+    src/style/transition.cpp
     src/layout/layout_box.cpp
     src/layout/layout_snapshot.cpp
     src/layout/flex_layout.cpp

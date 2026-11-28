@@ -1,10 +1,12 @@
 # Animation system
 
-> Proposed design, not yet implemented. Active scope is in [current work](../roadmap/current.md).
+> Partly implemented: [property transitions](../architecture/styling.md#implemented-property-transitions) ease paint-only fields through a host clock. The rest is a proposed design. Active scope is in [current work](../roadmap/current.md).
 
 ## Proposed animation
 
-Animate resolved opacity, transforms, color, size, scroll offset and [Look parameters](look.md) through an injected host `AnimationClock`. Replay supplies that clock's values; no hidden wall clock or CSS animation compatibility is required. Geometry changes invalidate layout; paint-only changes need not. Interruption, easing, authored-versus-animated precedence, and scroll interaction are open decisions. Complex game animation remains host-owned.
+Animate resolved opacity, transforms, color, size, scroll offset and [Look parameters](look.md) through an injected host clock. No hidden wall clock or CSS animation compatibility is required. Geometry changes invalidate layout; paint-only changes need not. Complex game animation remains host-owned.
+
+The implemented slice settles interruption (retarget from the presented value and restart the duration), easing (fixed presets) and precedence (the accepted target is authoritative for every consumer except paint) for paint-only fields. Still open: geometry and transform animation, whose intermediate values must reach layout, hit testing and semantic bounds coherently; enter and exit transitions for added and removed nodes; scroll interaction; per-field timing, delays and custom curves; and Replay evaluation, where playback would present transitions at its recorded animation-clock ticks without changing the frames of recordings that declare transitions but never tick.
 
 Opacity/transform and other paint-only changes may avoid layout, but compositor-only execution needs a concrete retained-render contract and evidence. Color can require repaint/upload; clip/transform changes may also affect input or semantic bounds. Do not classify all visual animations as GPU-only or skip those consumers.
 

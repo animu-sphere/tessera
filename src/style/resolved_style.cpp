@@ -91,6 +91,10 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     if (style.outline) check.outline(*style.outline, path + "/outline");
     check.color(style.border_color, path + "/border_color");
     check.non_negative(style.corner_radius, path + "/corner_radius");
+    if (style.transition) {
+        check.non_negative(style.transition->duration, path + "/transition/duration");
+        check.enumeration(style.transition->easing, Easing::ease_in_out, path + "/transition/easing");
+    }
 
     auto text = validate(style.text, path + "/text");
     errors.insert(errors.end(), text.begin(), text.end());

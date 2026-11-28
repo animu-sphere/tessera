@@ -16,6 +16,7 @@
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <tessera/snapshot/snapshot_bundle.hpp>
+#include <tessera/style/style_transitions.hpp>
 #include <tessera/text/text_caret.hpp>
 #include <algorithm>
 #include <array>
@@ -445,6 +446,16 @@ CommandStates history_states(CommandStates states, const History& history) {
     states["edit.redo"] = history.can_redo() ? CommandState{true} : CommandState{false, false, "Nothing to redo."};
     return states;
 }
+// Feedback fades instead of flipping. Hover, press and focus feedback eases out quickly; rows and tabs also
+// ease their text color, selection elevation and drag fade; toggles move their fill a little more slowly.
+// Only paint-only fields move, so layout, hit testing and semantics follow each accepted view at once.
+constexpr Transition control_motion{
+    {.background = true, .border_color = true, .outline = true}, .12f, Easing::ease_out};
+constexpr Transition row_motion{
+    {.opacity = true, .background = true, .border_color = true, .color = true, .box_shadow = true, .outline = true},
+    .16f,
+    Easing::ease_out};
+constexpr Transition toggle_motion{{.background = true}, .18f, Easing::ease_in_out};
 StyleSheet appearance(const State& state) {
     StyleSheet sheet{
         {{StyleSelector::of_class("control"),
@@ -453,7 +464,8 @@ StyleSheet appearance(const State& state) {
            .padding = Edges{6, 10, 6, 10},
            .background = Color{1, 1, 1, 1},
            .border_color = Color{.65f, .72f, .83f, 1},
-           .corner_radius = 6.f}},
+           .corner_radius = 6.f,
+           .transition = control_motion}},
          {StyleSelector::of_class("control", {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}},
          {StyleSelector::of_class("control", {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}},
          {StyleSelector::of_class("control", {.focus = true}),
@@ -463,7 +475,8 @@ StyleSheet appearance(const State& state) {
          {StyleSelector::of_class("section-title"), {.text = {.size = 14.f}, .color = Color{.32f, .4f, .54f, 1}}},
          {StyleSelector::of_class("muted"), {.text = {.size = 12.f}, .color = Color{.32f, .4f, .54f, 1}}},
          {StyleSelector::of_id("name"), {.box_shadow = BoxShadow{{0, 1}, 4, {.18f, .22f, .38f, .2f}, true}}},
-         {StyleSelector::of_id("actions"), {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}}},
+         {StyleSelector::of_id("actions"),
+          {.background = Color{.2f, .34f, .67f, 1}, .color = Color{1, 1, 1, 1}, .transition = control_motion}},
          {StyleSelector::of_id("actions", {.hover = true}), {.background = Color{.16f, .28f, .56f, 1}}},
          {StyleSelector::of_id("actions", {.active = true}), {.background = Color{.12f, .22f, .46f, 1}}},
          {StyleSelector::of_id("actions", {.focus = true}),
@@ -479,7 +492,8 @@ StyleSheet appearance(const State& state) {
          {StyleSelector::of_id("amount-fill"), {.corner_radius = 4.f}},
          {StyleSelector::of_id("amount-thumb"), {.corner_radius = 4.f}},
          {StyleSelector::of_id("panes-handle"),
-          {.border = Edges{0, 2, 0, 2}, .border_color = Color{.95f, .95f, .98f, 1}}},
+          {.border = Edges{0, 2, 0, 2}, .border_color = Color{.95f, .95f, .98f, 1}, .transition = control_motion}},
+         {StyleSelector::of_id("shadows-track"), {.transition = toggle_motion}},
          {StyleSelector::of_id("panes-handle", {.hover = true}), {.border_color = Color{.65f, .75f, .94f, 1}}},
          {StyleSelector::of_id("panes-handle", {.active = true}), {.border_color = Color{.2f, .4f, .85f, 1}}},
          {StyleSelector::of_id("panes-handle", {.focus = true}), {.border_color = Color{.2f, .4f, .85f, 1}}},
@@ -497,7 +511,8 @@ StyleSheet appearance(const State& state) {
                                 .min_height = 30.f,
                                 .border = Edges{1, 1, 1, 1},
                                 .border_color = Color{0, 0, 0, 0},
-                                .corner_radius = 6.f}});
+                                .corner_radius = 6.f,
+                                .transition = row_motion}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
         // A focused row stacks above a raised selected neighbor, so its shadow never covers the focus ring.
@@ -517,7 +532,8 @@ StyleSheet appearance(const State& state) {
                                 .padding = Edges{6, 6, 6, 6},
                                 .background = Color{1, 1, 1, 1},
                                 .border_color = Color{.65f, .72f, .83f, 1},
-                                .corner_radius = 6.f}});
+                                .corner_radius = 6.f,
+                                .transition = control_motion}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
         sheet.rules.push_back(
@@ -563,7 +579,8 @@ StyleSheet appearance(const State& state) {
                                 .border = Edges{1, 1, 1, 1},
                                 .padding = Edges{2, 8, 2, 6},
                                 .border_color = Color{0, 0, 0, 0},
-                                .corner_radius = 6.f}});
+                                .corner_radius = 6.f,
+                                .transition = row_motion}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
         sheet.rules.push_back(
@@ -575,7 +592,8 @@ StyleSheet appearance(const State& state) {
     // Tabs carry their own bottom indicator; the application adds feedback that leaves it intact.
     for (const auto& [key, label] : sections) {
         const auto id = "sections-tab-" + key;
-        sheet.rules.push_back({StyleSelector::of_id(id), {.color = Color{.32f, .4f, .54f, 1}}});
+        sheet.rules.push_back(
+            {StyleSelector::of_id(id), {.color = Color{.32f, .4f, .54f, 1}, .transition = row_motion}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.hover = true}), {.background = Color{.9f, .94f, 1, 1}}});
         sheet.rules.push_back({StyleSelector::of_id(id, {.active = true}), {.background = Color{.8f, .87f, .98f, 1}}});
         sheet.rules.push_back(
@@ -632,7 +650,8 @@ ui::Element Form(const State& state, Size viewport) {
                                                 .background =
                                                     item.enabled ? Color{.15f, .6f, .4f, 1} : Color{.55f, .6f, .68f, 1},
                                                 .background_shape = FillShape::ellipse,
-                                                .background_antialias = true}}),
+                                                .background_antialias = true,
+                                                .transition = toggle_motion}}),
                       ui::Label("Enabled", "enabled", {.id = "enabled-caption", .classes = {"muted"}})},
                      {.style = {.align = Align::center, .gap = 4.f}}),
              ui::Checkbox("Enabled", item.enabled, "item.enabled", {.node = control("enabled")})},
@@ -803,6 +822,7 @@ struct View {
     LayoutResult layout;
     InspectionSnapshot inspection;
     UiDrawList paint;
+    std::vector<TextEditingPaint> editing; // Painted with `paint`; presentation repaints it with eased styles.
     StyleSheet sheet;
     std::vector<StyleDeclarations> overrides;
     HitTestInput hit() const { return {tree.get(), styles, &layout}; }
@@ -870,21 +890,25 @@ struct Visuals {
     std::vector<ResolvedStyle> styles;
     InspectionSnapshot inspection;
     UiDrawList paint;
+    std::vector<TextEditingPaint> editing;
 };
 Result<Visuals> prepare_visuals(const View& view, const InteractionState& state, const Item& item, TextShaper& text) {
     auto styles = resolve_styles({view.tree.get(), &view.sheet, state, view.overrides});
     if (!styles) return {std::nullopt, std::move(styles.diagnostics)};
-    const auto editing = editing_paint(view, *styles.value, item, state.focused, text);
+    auto editing = editing_paint(view, *styles.value, item, state.focused, text);
     auto paint = build_paint_list({view.tree.get(), *styles.value, &view.layout, &text, 0, editing});
     if (!paint) return {std::nullopt, std::move(paint.diagnostics)};
     auto inspection = capture_inspection({view.tree.get(), *styles.value, &view.layout, nullptr, state.focused});
     if (!inspection) return {std::nullopt, std::move(inspection.diagnostics)};
-    return {Visuals{std::move(*styles.value), std::move(*inspection.value), std::move(*paint.value)}, {}};
+    return {
+        Visuals{std::move(*styles.value), std::move(*inspection.value), std::move(*paint.value), std::move(editing)},
+        {}};
 }
 void accept_visuals(View& view, Visuals visuals) {
     view.styles = std::move(visuals.styles);
     view.inspection = std::move(visuals.inspection);
     view.paint = std::move(visuals.paint);
+    view.editing = std::move(visuals.editing);
 }
 struct TextService final : TextShaper {
     inspector_text::CellTextShaper delegate;
@@ -1013,8 +1037,26 @@ public:
     std::string feedback;
     // Optional host resource preparation, before a command publishes its candidate.
     std::function<std::vector<Diagnostic>(const UiDrawList&)> prepare_paint;
+    // Host-clock presentation: the paint-only fields a style's transition names ease between accepted views.
+    // Layout, hit testing, focus, semantics, inspection and replay keep the accepted target styles.
+    StyleTransitions transitions;
 
     App() { refresh(); }
+    // The paint list to present at host time `now`, in nondecreasing seconds: the accepted view's own paint
+    // unless a transition is running. Each call takes the current view's styles as the targets, so a change
+    // starts easing from the frame that first presents it.
+    const UiDrawList& present(double now) {
+        require(transitions.update(*view.tree, view.styles, now).empty(), "Accepted styles must be presentable");
+        if (!transitions.running(now)) return view.paint;
+        const auto shown = transitions.present(now);
+        auto paint = build_paint_list({view.tree.get(), shown, &view.layout, &text, 0, view.editing});
+        // A presentation that cannot paint falls back to the accepted frame rather than failing the host.
+        if (!paint) return view.paint;
+        presented = std::move(*paint.value);
+        return presented;
+    }
+    // Whether a frame at `now` would differ from the accepted view's paint; the host schedules frames until not.
+    bool animating(double now) const { return transitions.running(now); }
     CommandOutcome execute(const CommandInvocationRecord& invocation) override {
         State candidate = state;
         const auto& command = invocation.command;
@@ -1788,6 +1830,7 @@ public:
     }
 
 private:
+    UiDrawList presented; // The last eased frame returned by present().
     bool eligible_text(TextField field) {
         return state.menu == OpenMenu::none && focused_on(info(field).id) &&
                static_cast<bool>(
@@ -2134,6 +2177,7 @@ private:
                      std::move(*layout.value),
                      {},
                      std::move(*paint.value),
+                     {},
                      std::move(sheet),
                      std::move(authored.value->styles)},
                 {}};
@@ -4766,7 +4810,93 @@ void help_smoke() {
     app.action("help-header-editing");
     require(app.state.help_open.empty() && !shown("help-panel-editing"), "A header must close its open topic");
 }
+// Hover, selection and switch feedback ease through host-clock frames while layout, hit testing and semantics
+// follow each accepted view immediately; an interrupted fade reverses from the presented color.
+void transition_smoke() {
+    App app;
+    const auto style = [&](const std::vector<ResolvedStyle>& styles, std::string_view id) -> const ResolvedStyle& {
+        return styles[app.view.tree->find(id)->index];
+    };
+    double now = 100;
+    require(&app.present(now) == &app.view.paint && !app.animating(now),
+            "A settled Inspector presents its accepted frame");
+    const auto rest = style(app.view.styles, "hierarchy-item-sphere").background;
+    const auto layout = app.view.layout;
+    const auto semantic = take(capture_semantics(app.view.semantic(), 1));
+    // Pixels near the row's trailing edge, away from its label.
+    CpuFrameCapture frames;
+    const auto row = app.view.box("hierarchy-item-sphere").border_box;
+    const auto pixel = [&](UiDrawList paint) {
+        std::erase_if(paint.commands,
+                      [](const auto& command) { return std::holds_alternative<DrawGlyphRun>(command); });
+        const auto image = take(frames.capture({0, app.viewport, 1, take(capture_extent(app.viewport, 1)), &paint}));
+        const auto at = (std::size_t(row.origin.y + row.size.height / 2) * image.extent.width +
+                         std::size_t(row.origin.x + row.size.width - 6)) *
+                        4;
+        return std::array<int, 3>{image.pixels[at], image.pixels[at + 1], image.pixels[at + 2]};
+    };
+    const auto resting = pixel(app.view.paint);
+    app.input({0us, PointerMove{{1}, app.view.center("hierarchy-item-sphere")}}, CommandSource::pointer);
+    const auto hover = style(app.view.styles, "hierarchy-item-sphere").background;
+    require(hover == Color{.9f, .94f, 1, 1} && rest != hover, "Hover selects the row's hover fill");
+    app.present(now);
+    require(app.animating(now) && app.animating(now + .15) && !app.animating(now + .161),
+            "Row hover feedback eases over 0.16 seconds");
+    require(style(app.transitions.present(now), "hierarchy-item-sphere").background == rest,
+            "The first frame after hover still presents the resting fill");
+    const auto halfway = style(app.transitions.present(now + .08), "hierarchy-item-sphere").background;
+    require(halfway.a > .5f && halfway.a < 1 && halfway.b == 1,
+            "Ease-out passes halfway early and fades in the hover hue, not black");
+    require(app.view.layout == layout && take(capture_semantics(app.view.semantic(), 1)) == semantic &&
+                take(hit_test(app.view.hit(), app.view.center("hierarchy-item-sphere"))).target ==
+                    app.view.tree->find("hierarchy-item-sphere"),
+            "Easing paint leaves geometry, semantics and hit testing on the accepted view");
+    const auto hovered = pixel(app.view.paint);
+    const auto eased = pixel(app.present(now + .04));
+    require(resting != hovered && std::min(resting[0], hovered[0]) < eased[0] &&
+                eased[0] < std::max(resting[0], hovered[0]),
+            "A frame presented mid-fade lies between the resting and hovered pixels");
+    // Leaving mid-fade reverses from the presented color instead of jumping to the hover fill first.
+    now += .04;
+    const auto reversing = style(app.transitions.present(now), "hierarchy-item-sphere").background;
+    app.input({0us, PointerMove{{1}, app.view.center("actions")}}, CommandSource::pointer);
+    app.present(now);
+    require(style(app.transitions.present(now), "hierarchy-item-sphere").background == reversing &&
+                app.animating(now + .15) && !app.animating(now + .161),
+            "Leaving hover retargets from the presented fill and restarts the duration");
+    now += .16;
+    require(&app.present(now) == &app.view.paint && !app.animating(now), "The reversed fade settles at rest");
+
+    // Selecting another row fades its fill and raises its shadow from transparent.
+    app.action("hierarchy-item-sphere");
+    app.present(now);
+    const auto selected = style(app.view.styles, "hierarchy-item-sphere");
+    const auto raising = style(app.transitions.present(now + .05), "hierarchy-item-sphere");
+    require(selected.box_shadow && raising.box_shadow && raising.box_shadow->offset == selected.box_shadow->offset &&
+                raising.box_shadow->color.a > 0 && raising.box_shadow->color.a < selected.box_shadow->color.a &&
+                raising.z_index == selected.z_index,
+            "Selection fades its elevation in while stacking follows the accepted view at once");
+    now += .2;
+    app.present(now);
+    // The switch track on the Display tab eases between its on and off fills with the slower toggle timing.
+    app.action("sections-tab-display");
+    now += .2;
+    app.present(now);
+    const auto on = style(app.view.styles, "shadows-track").background;
+    app.action("shadows");
+    const auto off = style(app.view.styles, "shadows-track").background;
+    app.present(now);
+    require(on != off && app.animating(now + .17) && !app.animating(now + .181) &&
+                style(app.transitions.present(now + .09), "shadows-track").background != off &&
+                style(app.transitions.present(now + .09), "shadows-track").background != on,
+            "The switch track eases its fill over 0.18 seconds");
+    // Settling ends every transition at once, as a host does when motion is switched off.
+    app.transitions.settle();
+    require(&app.present(now) == &app.view.paint, "Settled transitions present the accepted frame");
+}
+
 void smoke() {
+    transition_smoke();
     sections_smoke();
     help_smoke();
     notes_smoke();
@@ -5203,10 +5333,21 @@ int native(bool smoke) {
         feedback(previous);
     };
     window.caret = [&] { return app.caret_rect(); };
-    window.capture = [&] {
-        return take(frames.capture({app.view.commands.generation(), app.viewport, 1,
-                                    take(capture_extent(app.viewport, 1)), &app.view.paint, 0us}));
+    // Host time for transitions, in seconds since the window opened. With Windows animations switched off
+    // ("Animation effects"), frames present each accepted view at once; the smoke always exercises motion.
+    const auto origin = std::chrono::steady_clock::now();
+    const auto clock = [origin] {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - origin).count();
     };
+    BOOL animations = TRUE;
+    if (SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0) == FALSE) animations = TRUE;
+    const bool motion = smoke || animations != FALSE;
+    window.capture = [&] {
+        const auto& paint = motion ? app.present(clock()) : app.view.paint;
+        return take(frames.capture(
+            {app.view.commands.generation(), app.viewport, 1, take(capture_extent(app.viewport, 1)), &paint, 0us}));
+    };
+    window.animating = [&] { return motion && app.animating(clock()); };
     window.focused = [&]() -> std::optional<Rect> {
         const auto focused = take(app.focus.refresh(app.view.hit())).focused;
         if (!focused || !take(scroll_into_view(app.view.hit(), *focused)).empty()) return {};
@@ -5261,6 +5402,30 @@ int native(bool smoke) {
             host.message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(point.x, point.y));
             host.message(WM_LBUTTONUP, 0, MAKELPARAM(point.x, point.y));
         };
+        // Hovering a row starts its fade on the next presentation; the frame timer keeps presenting until it
+        // settles, then stops.
+        {
+            const auto row = host.physical(app.view.center("hierarchy-item-sphere"));
+            const auto before = host.presentations;
+            host.message(WM_MOUSEMOVE, 0, MAKELPARAM(row.x, row.y));
+            require(app.animating(clock()), "A native hover must start a running transition");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (app.animating(clock()) && std::chrono::steady_clock::now() < deadline) {
+                MSG queued{};
+                while (PeekMessageW(&queued, nullptr, 0, 0, PM_REMOVE)) {
+                    TranslateMessage(&queued);
+                    DispatchMessageW(&queued);
+                }
+                MsgWaitForMultipleObjects(0, nullptr, FALSE, 5, QS_ALLINPUT);
+            }
+            // One more ordinary paint after settling presents the accepted frame exactly.
+            InvalidateRect(host.handle, nullptr, FALSE);
+            UpdateWindow(host.handle);
+            require(!app.animating(clock()) && host.presentations >= before + 3,
+                    "Native frame requests must present the fade and stop once it settles");
+            const auto away = host.physical(app.view.center("actions"));
+            host.message(WM_MOUSEMOVE, 0, MAKELPARAM(away.x, away.y));
+        }
         // Wheel a scroll view back to its top without moving focus.
         auto wheel_top = [&](const char* id) {
             const auto center = host.physical(app.view.center(id));

@@ -114,6 +114,25 @@ The Inspector uses a 72-unit label column and a control column with a 202-unit m
 
 The window-free smoke checks distinct hover/press/selection/focus pixels at scales 1, 1.25, 1.5 and 2, inherited selected-label color, stable row geometry, cancellation and once-only selection, stationary Slider feedback, minimum-width track containment and retained item data. Pixel comparisons omit glyph commands to isolate the changed decorations; the injected Windows smoke still presents the complete form with the existing GDI glyph adapter. Base appearance remains application styling, not a new widget skin API or text shaper; the focus decoration uses the built-in stroke below.
 
+## Feedback motion
+
+Feedback fades instead of flipping. The stylesheet declares [property transitions](../architecture/styling.md#implemented-property-transitions) on base rules, so every state rule for the same node shares their timing:
+
+```cpp
+constexpr Transition control_motion{{.background = true, .border_color = true, .outline = true}, .12f,
+                                    Easing::ease_out};
+constexpr Transition row_motion{
+    {.opacity = true, .background = true, .border_color = true, .color = true, .box_shadow = true, .outline = true},
+    .16f, Easing::ease_out};
+constexpr Transition toggle_motion{{.background = true}, .18f, Easing::ease_in_out};
+```
+
+Controls, the menu button, Position components and the splitter handle use `control_motion` for hover, press and focus. Hierarchy, menu, Purpose and help rows, Visibility choices and section tabs use `row_motion`, so selection fades its fill and text color and raises its elevation shadow from transparent, a focus ring fades in, and a dragged row fades to its drag opacity. The Cast shadows track and the Enabled status dot use `toggle_motion`. Stacking order, geometry, hit testing, focus and semantics change with the accepted view at once; only paint lags behind.
+
+`App::present(now)` takes the accepted view's styles as targets on each frame and returns its own paint list unless a transition is running, otherwise a list painted from `StyleTransitions::present(now)` with the same editing presentation. `App::animating(now)` reports whether more frames are needed. The Windows host passes seconds since the window opened, presents each paint through `present`, and requests frames through the shared window's optional `animating` callback: a 16 ms timer repaints while it holds, stops when it settles or the window is minimized, and the next ordinary paint presents the frame for its time. With Windows animation effects switched off (`SPI_GETCLIENTAREAANIMATION`), the host presents accepted frames directly.
+
+The window-free smoke drives an explicit clock: a hovered row presents its resting fill on the first frame, an ease-out fade passing halfway early with the hover hue rather than black, and a CPU pixel between the resting and hover pixels; layout, semantics and the hit stay on the accepted view. Leaving mid-fade reverses from the presented fill and restarts the duration. Selection fades its shadow in while `z_index` follows at once; the Display tab's Switch track eases over 0.18 seconds; settling presents the accepted frame. The injected native smoke hovers a row, requires a running transition, pumps the frame timer until it settles and requires at least three presentations. Snapshot bundles, capability manifests, semantic diffs and Replay record settled targets; the declared transitions appear in their recorded styles.
+
 ## Property sections
 
 The property card below the selected-item button is an ordinary [Tabs](tabs-toolbar.md) element with stable ID `sections`, named Property sections. The General tab shows Display name, Enabled, Amount and Scale in the `properties` Grid; the Display tab shows Visibility, Cast shadows, Purpose and Color in a four-row Grid with the same ID and columns. The host stores the shown section once for the application, not per item, so it survives item selection. Each tab requests its own `section.<key>` command; selection-follows-focus Left/Right and pointer presses share that path, and the controls of the hidden section are not composed. Tabs show the generated blue bottom indicator; the stylesheet adds muted text, a blue selected label, hover/press backgrounds and a solid focus outline without replacing the indicator.
