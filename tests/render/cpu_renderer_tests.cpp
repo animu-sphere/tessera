@@ -205,6 +205,10 @@ void procedural_fallbacks() {
     requested.procedural = ProceduralFill{"example.wave", {Color{1, 0, 0, 1}}, 2};
     check(capture(frames, {{requested}}) == capture(frames, {{plain}}),
           "The CPU reference must draw the declared fallback, not execute or approximate the shader");
+    auto textured = requested;
+    textured.procedural->parameters.push_back(ImageHandle{42});
+    check(capture(frames, {{textured}}) == capture(frames, {{plain}}),
+          "Texture fills fall back on the CPU without sampling or binding their textures");
     requested.color = {};
     check(capture(frames, {{requested}}) == capture(frames, {}), "A transparent fallback must omit the fill");
     requested.gradient = LinearGradient{{0, 0}, {1, 0}, {1, 0, 0, 1}, {0, 0, 1, 1}};

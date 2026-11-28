@@ -9,8 +9,8 @@ namespace tessera {
 namespace {
 using Object = JsonValue::Object;
 using Array = JsonValue::Array;
-constexpr std::array<std::string_view, 2> profiles{"fill-v1", "sdf-v1"};
-constexpr std::array<std::string_view, 3> kinds{"number", "point", "color"};
+constexpr std::array<std::string_view, 3> profiles{"fill-v1", "sdf-v1", "fill-texture-v1"};
+constexpr std::array<std::string_view, 4> kinds{"number", "point", "color", "texture"};
 struct Failure {
     std::vector<Diagnostic> diagnostics;
 };
@@ -71,10 +71,11 @@ ShaderParameters read(const JsonValue& json) {
 std::vector<Diagnostic> validate(const ShaderParameters& declaration) {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
-    check.enumeration(declaration.profile, ShaderProfile::sdf_v1, "/profile");
+    check.enumeration(declaration.profile, ShaderProfile::fill_texture_v1, "/profile");
     if (declaration.parameters.size() > max_procedural_parameters)
         check.error("parameter_limit", "/parameters", "Declare at most 16 shader parameters.");
     std::set<std::string_view> names;
+    std::size_t textures = 0;
     for (std::size_t i = 0; i < declaration.parameters.size(); ++i) {
         const auto& parameter = declaration.parameters[i];
         const auto at = "/parameters/" + std::to_string(i);
@@ -83,8 +84,17 @@ std::vector<Diagnostic> validate(const ShaderParameters& declaration) {
                         "Use an ASCII identifier of 1-64 bytes: a letter or '_', then letters, digits or '_'.");
         else if (!names.insert(parameter.name).second)
             check.error("duplicate_parameter", at + "/name", "Declare each parameter name once.");
-        check.enumeration(parameter.kind, ProceduralValueKind::color, at + "/kind");
+        check.enumeration(parameter.kind, ProceduralValueKind::texture, at + "/kind");
+        if (parameter.kind == ProceduralValueKind::texture) {
+            if (declaration.profile != ShaderProfile::fill_texture_v1)
+                check.error("texture_profile", at + "/kind",
+                            "Declare texture parameters only in profile fill-texture-v1.");
+            ++textures;
+        }
     }
+    if (declaration.profile == ShaderProfile::fill_texture_v1 && (textures == 0 || textures > max_shader_textures))
+        check.error("texture_limit", "/parameters",
+                    "Declare one to three texture parameters in fill-texture-v1; a fill without textures is fill-v1.");
     return errors;
 }
 

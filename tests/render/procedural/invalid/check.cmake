@@ -3,7 +3,7 @@
 #   cmake -DSLANGC=<slangc> -DABI=<backends/vulkan/shaders> -DSCRIPT=<shader_parameters.cmake>
 #         -DWORK=<scratch directory> -P check.cmake
 set(cases "plain|Parameters.alpha has type float32" "array|Parameters.colors has type array"
-    "wide|Parameters declares 17 fields")
+    "wide|Parameters declares 17 fields" "textures|Parameters declares 4 textures")
 file(MAKE_DIRECTORY "${WORK}")
 foreach(entry IN LISTS cases)
     string(FIND "${entry}" "|" split)

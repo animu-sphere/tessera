@@ -2,8 +2,9 @@
 #   cmake -DREFLECTION=<reflection.json> -DMANIFEST=<parameters.json> -DPROFILE=<fill-v1|sdf-v1>
 #         -DSOURCE=<module.slang> -P shader_parameters.cmake
 # The ABI macro declares `tesseraParameterDeclaration` with the module's Parameters struct. Each field
-# must be a ProceduralNumber, ProceduralPoint or ProceduralColor; the manifest lists their names and
-# kinds in slot order, in the canonical JSON that tessera::load_shader_parameters reads.
+# must be a ProceduralNumber, ProceduralPoint or ProceduralColor, or for a procedural fill a
+# ProceduralTexture; the manifest lists their names and kinds in slot order, in the canonical JSON that
+# tessera::load_shader_parameters reads. A fill with one to three textures is written as fill-texture-v1.
 foreach(variable IN ITEMS REFLECTION MANIFEST PROFILE SOURCE)
     if(NOT DEFINED ${variable})
         message(FATAL_ERROR "shader_parameters.cmake requires -D${variable}=...")
@@ -36,6 +37,7 @@ if(fields GREATER 16)
     message(FATAL_ERROR "${SOURCE}: ${struct_name} declares ${fields} fields; declare at most 16 parameters.")
 endif()
 set(entries "")
+set(textures 0)
 if(fields GREATER 0)
     math(EXPR last "${fields} - 1")
     foreach(i RANGE ${last})
@@ -54,15 +56,24 @@ if(fields GREATER 0)
             set(kind point)
         elseif(type_kind STREQUAL "struct" AND type_name STREQUAL "ProceduralColor")
             set(kind color)
+        elseif(type_kind STREQUAL "struct" AND type_name STREQUAL "ProceduralTexture" AND PROFILE STREQUAL "fill-v1")
+            set(kind texture)
+            math(EXPR textures "${textures} + 1")
         else()
             message(FATAL_ERROR "${SOURCE}: ${struct_name}.${field} has type ${type_name}; declare each "
-                "parameter as ProceduralNumber, ProceduralPoint or ProceduralColor.")
+                "parameter as ProceduralNumber, ProceduralPoint or ProceduralColor, or in a procedural fill "
+                "ProceduralTexture.")
         endif()
         if(NOT entries STREQUAL "")
             string(APPEND entries ",")
         endif()
         string(APPEND entries "{\"kind\":\"${kind}\",\"name\":\"${field}\"}")
     endforeach()
+endif()
+if(textures GREATER 3)
+    message(FATAL_ERROR "${SOURCE}: ${struct_name} declares ${textures} textures; declare at most 3 ProceduralTexture fields.")
+elseif(textures GREATER 0)
+    set(PROFILE fill-texture-v1)
 endif()
 set(manifest
     "{\"format\":\"tessera-shader-parameters\",\"parameters\":[${entries}],\"profile\":\"${PROFILE}\",\"version\":1}")

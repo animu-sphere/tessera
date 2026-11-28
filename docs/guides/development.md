@@ -245,7 +245,7 @@ foreach ($stage in 'vertex', 'batch', 'fragment', 'image') {
         "build-vulkan/backends/vulkan/shaders/primitive.$stage.spv"
     if ($LASTEXITCODE -ne 0) { throw "SPIR-V validation failed: $stage" }
 }
-foreach ($fill in 'solid', 'probe', 'aurora') {
+foreach ($fill in 'solid', 'probe', 'texture', 'aurora', 'mosaic') {
     & C:/VulkanSDK/1.4.350.0/Bin/spirv-val.exe --target-env vulkan1.1 `
         "build-vulkan/backends/vulkan/shaders/procedural.$fill.spv"
     if ($LASTEXITCODE -ne 0) { throw "SPIR-V validation failed: $fill" }
@@ -312,7 +312,7 @@ With `TESSERA_BUILD_VULKAN=ON` and examples enabled on Windows, the build above 
 & .\build-vulkan\backends\vulkan\Debug\tessera_vulkan_menu.exe --smoke  # scripted; exits 0 on success
 ```
 
-The executable loads the SPIR-V artifacts, including its aurora procedural backdrop and blob badge shape, from the build tree's shader directory. The smoke needs an interactive desktop session, the Khronos validation layer, and a device presenting an sRGB swapchain with transfer-source usage. It writes `vulkan-menu-{1,…,6}.ppm` presentation captures to `build-vulkan/backends/vulkan/artifacts` and fails after 30 seconds if the sequence stalls. It briefly minimizes and restores the window to check the paused clock. The interactive menu's aurora and badge move with its clock and pause while minimized. Physical mouse activity over the window during the smoke can perturb it; the smoke reads no game controller.
+The executable loads the SPIR-V artifacts, including its aurora procedural backdrop, blob badge shape and textured mosaic emblem, from the build tree's shader directory. The smoke needs an interactive desktop session, the Khronos validation layer, and a device presenting an sRGB swapchain with transfer-source usage. It writes `vulkan-menu-{1,…,6}.ppm` presentation captures to `build-vulkan/backends/vulkan/artifacts` and fails after 30 seconds if the sequence stalls. It briefly minimizes and restores the window to check the paused clock. The interactive menu's aurora, badge and emblem glint move with its clock and pause while minimized. Physical mouse activity over the window during the smoke can perturb it; the smoke reads no game controller.
 
 For the original Bluetooth Joy-Con L/R pair, run the interactive executable with `--joycons` and bring the menu window to the foreground. Both sides must be connected; use the left directions/stick to move, right A to activate, and right B to cancel. This explicitly selects the pair even when a DualSense or XInput controller is also attached. Device mapping and limits belong to the [input contract](../architecture/input.md#host-boundary).
 

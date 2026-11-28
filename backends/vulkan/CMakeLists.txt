@@ -81,7 +81,7 @@ endif()
 if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
     add_executable(tessera_vulkan_tests ../../tests/render/vulkan_tests.cpp)
     target_link_libraries(tessera_vulkan_tests PRIVATE tessera::vulkan)
-    foreach(fill IN ITEMS solid probe)
+    foreach(fill IN ITEMS solid probe texture)
         tessera_add_procedural_fill(tessera_vulkan_test_${fill}_fill ../../tests/render/procedural/${fill}.slang
             "${CMAKE_CURRENT_BINARY_DIR}/shaders/procedural.${fill}.spv")
         add_dependencies(tessera_vulkan_tests tessera_vulkan_test_${fill}_fill)
@@ -131,7 +131,9 @@ if(WIN32 AND TESSERA_BUILD_EXAMPLES)
         "${CMAKE_CURRENT_BINARY_DIR}/shaders/procedural.aurora.spv")
     tessera_add_custom_shape(tessera_vulkan_menu_blob ../../examples/vulkan-menu/blob.slang
         "${CMAKE_CURRENT_BINARY_DIR}/shaders/shape.blob.spv")
-    add_dependencies(tessera_vulkan_menu tessera_vulkan_menu_aurora tessera_vulkan_menu_blob)
+    tessera_add_procedural_fill(tessera_vulkan_menu_mosaic ../../examples/vulkan-menu/mosaic.slang
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders/procedural.mosaic.spv")
+    add_dependencies(tessera_vulkan_menu tessera_vulkan_menu_aurora tessera_vulkan_menu_blob tessera_vulkan_menu_mosaic)
     target_compile_definitions(tessera_vulkan_menu PRIVATE
         TESSERA_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders"
         TESSERA_GPU_ARTIFACT_DIR="${CMAKE_CURRENT_BINARY_DIR}/artifacts")

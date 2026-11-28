@@ -74,6 +74,13 @@ void failures() {
           "Handle overflow accepted");
     check(has(prepare_glyph_atlas(list, cache, 1, {7}).diagnostics, "image_collision", "/commands/5/image"),
           "Source image collision accepted");
+    auto textured = list;
+    DrawRect fill{{{0, 0}, {4, 4}}, {1, 1, 1, 1}};
+    fill.procedural = ProceduralFill{"example.texture", {1.f, ImageHandle{11}}};
+    textured.commands.push_back(fill);
+    check(has(prepare_glyph_atlas(textured, cache, 1, {10}, {256, 2, 4096}).diagnostics, "image_collision",
+              "/commands/" + std::to_string(list.commands.size()) + "/procedural/parameters/1"),
+          "Atlas handles must avoid procedural textures");
     check(has(prepare_glyph_atlas(list, cache, 1, {10}, {3, 1, 16}).diagnostics, "out_of_range", "/limits"),
           "Invalid page size accepted");
     check(
