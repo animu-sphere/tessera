@@ -1,6 +1,6 @@
 # Agent capability manifest
 
-> Proposed design, not yet implemented. Active scope is in [current work](../roadmap/current.md).
+> Partly implemented: one generation's operation inventory, commands with their state and schemas, permitted object IDs and semantic targets, saved as `tessera-capabilities` JSON v1, are described under the [capability manifest](../architecture/inspection.md#implemented-capability-manifest). A reader, a transport, production build switches and the operations the first adapter does not offer are still proposed. Active scope is in [current work](../roadmap/current.md).
 
 ## Proposed agent capability manifest
 

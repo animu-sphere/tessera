@@ -365,6 +365,20 @@ cmake --build build --config Release --target tessera_inspector_hierarchy tesser
 
 The exit status is 0 when nothing changed and 1 when something did. The one-line summary names the first level that changed, and the report lists the changes. Semantic changes come first, such as names, values, selection, focus and actions. Layout changes come next, as border boxes, clips and scroll geometry by author ID, followed by requested actions, paint counts and the pixel count with its bounds. Different scenarios, such as `initial` and `narrow`, usually differ in viewport, so `diff` reports `incompatible` (exit status 3) instead of judging them. `tessera_snapshot verify <directory>` checks a single bundle. Each scenario drives the ordinary `App`, then records its accepted host view and host focus through a `ReplaySession`. The bundle's offscreen run therefore plays the same document and styles with the application's cell text service, declared as `inspector-cell-text`. On Windows, frames use the native host's GDI fixed-cell glyphs (`win32-gdi-fixed-cell`), so text is readable but depends on the installed Consolas and MS Gothic fonts. Other platforms use synthetic marks. Scroll offsets and pointer state reach the bundle only through the recorded document and styles. A Release scenario takes under a second; each is registered as an `inspector_hierarchy_snapshot.<scenario>` smoke.
 
+## Capability manifest
+
+`--capabilities <scenario> <file>` runs the same scenario and writes a [capability manifest](../architecture/inspection.md#implemented-capability-manifest) of its final generation as `tessera-capabilities` JSON. Use it to find which commands the Inspector has, whether each is enabled and what arguments it takes, and which controls an agent could focus or activate, without reading `main.cpp`:
+
+```powershell
+& .\build\Release\tessera_inspector_hierarchy.exe --capabilities edit-name build\snapshots\edit-name.capabilities.json
+```
+
+- `operations` lists every operation. `inspect_tree` and `capture_frame` are supported through `--snapshot`, and `compare_snapshots` through `tessera_snapshot diff`. The others, including `invoke_command` and `semantic_action`, are `not_declared`: this window-free adapter only runs the named scenarios.
+- `commands` lists every production command, such as `edit.undo` with `"enabled": false` and `"disabled_reason": "Nothing to undo."` at launch, and the typed `item.move` with its `item` and `target` object IDs and `before`/`after` placement. `objects` lists the item IDs those arguments accept.
+- `targets` lists each control that can be focused or activated, with its preorder node, ID, role, name and the command its action requests, for example `hierarchy-item-sphere` selecting with `select.sphere`. Disabled controls, such as Redo with no history, are not targets.
+
+The manifest's `generation` is the Inspector's command generation, not a bundle generation index. Each `inspector_hierarchy_capabilities.<scenario>` smoke writes one.
+
 ## Host and observation boundary
 
 The host owns all item data and order, selection, disclosure, scroll offsets, input dispatchers and command sequences. Item actions resolve against the accepted semantic tree and command snapshot. A candidate copies host state, applies the public text transform where needed, and stages lowering, eligibility, styles, layout, paint and inspection. Only a successful command outcome accepts that candidate and publishes the session. A stale/foreign text owner or rejected text measurement leaves the accepted values and inspection unchanged; retry uses the retained edit revision.

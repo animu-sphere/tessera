@@ -8,6 +8,7 @@
 #include <tessera/input/scroll.hpp>
 #include <tessera/input/split_pane.hpp>
 #include <tessera/input/text_pointer.hpp>
+#include <tessera/inspection/capabilities.hpp>
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/render/cpu_renderer.hpp>
@@ -16,6 +17,8 @@
 #include <tessera/text/text_caret.hpp>
 #include <algorithm>
 #include <array>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -4791,7 +4794,8 @@ constexpr SnapshotScenario snapshot_scenarios[] = {
 
 std::string snapshot_usage() {
     std::string usage =
-        "Usage: tessera_inspector_hierarchy [--native | --native-smoke | --snapshot <scenario> <directory>]\n"
+        "Usage: tessera_inspector_hierarchy [--native | --native-smoke | --snapshot <scenario> <directory> |\n"
+        "                                    --capabilities <scenario> <file>]\n"
         "Snapshot scenarios:\n";
     for (const auto& scenario : snapshot_scenarios)
         usage += "  " + std::string(scenario.name) + ": " + std::string(scenario.summary) + "\n";
@@ -4809,13 +4813,17 @@ struct SnapshotMarks final : GlyphRasterizer {
     }
 };
 
-int snapshot(std::string_view name, const std::string& directory) {
+const SnapshotScenario* find_scenario(std::string_view name) {
     const auto scenario = std::find_if(std::begin(snapshot_scenarios), std::end(snapshot_scenarios),
                                        [&](const SnapshotScenario& entry) { return entry.name == name; });
-    if (scenario == std::end(snapshot_scenarios)) {
-        std::cerr << "Unknown snapshot scenario '" << name << "'.\n" << snapshot_usage();
-        return 2;
-    }
+    if (scenario != std::end(snapshot_scenarios)) return scenario;
+    std::cerr << "Unknown snapshot scenario '" << name << "'.\n" << snapshot_usage();
+    return nullptr;
+}
+
+int snapshot(std::string_view name, const std::string& directory) {
+    const auto* scenario = find_scenario(name);
+    if (!scenario) return 2;
     App app;
     SnapshotRecorder recorder(app);
     scenario->run(app, recorder);
@@ -4842,6 +4850,49 @@ int snapshot(std::string_view name, const std::string& directory) {
         (void)take(Result<int>{std::nullopt, written});
     std::cout << "Inspector snapshot '" << scenario->name << "' written to " << directory << ":\n";
     for (const auto& file : bundle.files) std::cout << "  " << file.path << '\n';
+    return 0;
+}
+
+// What this window-free adapter offers an agent: scenario bundles for the tree and frames, and bundle
+// comparison through tessera_snapshot. It neither invokes commands nor injects input, so those operations
+// are reported as not declared; the commands and targets describe the scenario's final generation.
+const CapabilityDeclaration snapshot_operations[] = {
+    {.operation = CapabilityOperation::inspect_tree,
+     .entry_point = "tessera_inspector_hierarchy --snapshot <scenario> <directory>",
+     .request = "inspector-scenario",
+     .result = "tessera-snapshot-bundle/1"},
+    {.operation = CapabilityOperation::capture_frame,
+     .entry_point = "tessera_inspector_hierarchy --snapshot <scenario> <directory>",
+     .request = "inspector-scenario",
+     .result = "tessera-snapshot-bundle/1"},
+    {.operation = CapabilityOperation::compare_snapshots,
+     .entry_point = "tessera_snapshot diff <before> <after>",
+     .request = "tessera-snapshot-bundle/1",
+     .result = "tessera-snapshot-diff/1"},
+};
+
+int capabilities(std::string_view name, const std::string& file) {
+    const auto* scenario = find_scenario(name);
+    if (!scenario) return 2;
+    App app;
+    SnapshotRecorder recorder(app);
+    scenario->run(app, recorder);
+    const auto& view = app.view;
+    const auto focused = take(app.focus.refresh(view.hit())).focused;
+    const auto semantics =
+        take(capture_semantics({view.tree.get(), view.styles, &view.layout, focused}, view.commands.generation()));
+    const auto manifest =
+        take(capture_capabilities({"tessera_inspector_hierarchy", &view.commands, &semantics, snapshot_operations}));
+    const auto json = take(save_capabilities(manifest));
+    const auto parent = std::filesystem::path(file).parent_path();
+    if (!parent.empty()) std::filesystem::create_directories(parent);
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    out << json;
+    out.close();
+    require(static_cast<bool>(out), "Could not write the capability manifest");
+    std::cout << "Inspector capabilities for '" << scenario->name << "' written to " << file << ": "
+              << manifest.commands().size() << " commands, " << manifest.targets().size() << " targets, generation "
+              << manifest.generation() << ".\n";
     return 0;
 }
 
@@ -5309,6 +5360,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc == 4 && std::string_view(argv[1]) == "--snapshot") return snapshot(argv[2], argv[3]);
+        if (argc == 4 && std::string_view(argv[1]) == "--capabilities") return capabilities(argv[2], argv[3]);
         require(argc == 2 && (std::string_view(argv[1]) == "--native" || std::string_view(argv[1]) == "--native-smoke"),
                 snapshot_usage().c_str());
 #ifdef _WIN32
