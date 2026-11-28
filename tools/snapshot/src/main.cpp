@@ -1,4 +1,5 @@
 // tessera_snapshot: captures, verifies and compares snapshot bundles without a window.
+#include <tessera/inspection/semantic_diff.hpp>
 #include <tessera/render/cpu_renderer.hpp>
 #include <tessera/replay/replay_serialization.hpp>
 #include <tessera/snapshot/snapshot_bundle.hpp>
@@ -24,6 +25,8 @@ constexpr std::string_view usage = R"(Usage:
   tessera_snapshot verify <directory>
   tessera_snapshot diff <before> <after> [--geometry-tolerance <units>] [--pixel-threshold <0-255>]
                         [--pixel-count <n>] [--out <report.json>]
+  tessera_snapshot semantic-diff <before.json> <after.json> [--scope <id>] [--kind <kind>[,<kind>...]]
+                                 [--out <report.json>]
 
 capture plays a Replay JSON v1/v2 recording offscreen and writes a snapshot bundle:
   manifest.json, recording.json, actions.json, diagnostics.json and, per generation,
@@ -36,11 +39,17 @@ diff verifies two bundles, reports mismatched conditions and otherwise their sem
   Layout numbers within --geometry-tolerance logical units are equal (default 0). A pixel differs
   when a channel changes by more than --pixel-threshold (default 0), and frames differ when more
   than --pixel-count pixels differ (default 0).
+semantic-diff compares two Semantic JSON v1 files, such as a bundle's g<g>/semantics.json, and
+  writes what changed in meaning as tessera-semantic-diff JSON on stdout (or in --out): focus,
+  added, removed and moved entries, and role, name, state, value and action changes, matched by
+  author ID. --scope compares only the subtree of one author ID; --kind reports only the listed
+  kinds, such as value_changed,enabled_changed.
 
 Exit status:
   capture: 0 written, 1 rejected input or capture failure, 2 usage error.
   verify:  0 valid, 1 invalid bundle, 2 usage error.
   diff:    0 equal, 1 different, 2 invalid bundle or usage error, 3 incompatible conditions.
+  semantic-diff: 0 equal, 1 different, 2 invalid input or usage error.
 )";
 
 // Deliberately synthetic marks for placeholder glyph IDs, not a real font.
@@ -275,6 +284,101 @@ int diff(int argc, char** argv) {
     return 1;
 }
 
+std::optional<SemanticSnapshot> read_semantics(const std::string& path, std::string_view label) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        std::cerr << label << ": error: cannot read " << path << '\n';
+        return std::nullopt;
+    }
+    in.seekg(0, std::ios::end);
+    const auto size = in.tellg();
+    if (size < 0 || std::size_t(size) > max_serialized_semantic_bytes) {
+        std::cerr << label << ": error: " << path << " exceeds the 16 MiB Semantic JSON bound\n";
+        return std::nullopt;
+    }
+    std::string json(std::size_t(size), '\0');
+    in.seekg(0);
+    in.read(json.data(), size);
+    auto loaded = load_semantics(json);
+    print(loaded.diagnostics, std::string(label) + ": ");
+    return loaded ? std::move(loaded.value) : std::nullopt;
+}
+
+std::optional<SemanticChangeKind> change_kind(std::string_view name) {
+    for (std::size_t k = 0; k < semantic_change_kind_count; ++k)
+        if (semantic_change_name(SemanticChangeKind(k)) == name) return SemanticChangeKind(k);
+    return std::nullopt;
+}
+
+int semantic_diff(int argc, char** argv) {
+    std::vector<std::string> files;
+    std::string out;
+    SemanticDiffOptions options;
+    for (int i = 2; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        const bool value = i + 1 < argc;
+        if (arg == "--scope" && value) {
+            options.scope = argv[++i];
+        } else if (arg == "--kind" && value) {
+            std::string_view spec = argv[++i];
+            while (true) {
+                const auto comma = spec.find(',');
+                const auto kind = change_kind(spec.substr(0, comma));
+                if (!kind) {
+                    std::cerr << "error: unknown change kind '" << spec.substr(0, comma) << "'\n";
+                    return 2;
+                }
+                options.kinds.push_back(*kind);
+                if (comma == std::string_view::npos) break;
+                spec = spec.substr(comma + 1);
+            }
+        } else if (arg == "--out" && value) {
+            out = argv[++i];
+        } else if (!arg.starts_with("--") && files.size() < 2) {
+            files.emplace_back(arg);
+        } else {
+            std::cerr << usage;
+            return 2;
+        }
+    }
+    if (files.size() != 2) {
+        std::cerr << usage;
+        return 2;
+    }
+    const auto before = read_semantics(files[0], "before");
+    const auto after = read_semantics(files[1], "after");
+    if (!before || !after) {
+        std::cerr << "error: both inputs must be valid Semantic JSON v" << semantic_version << '\n';
+        return 2;
+    }
+    const auto result = diff_semantics(*before, *after, options);
+    print(result.diagnostics);
+    if (!result) return 2;
+    const auto report = save_semantic_diff(*result.value);
+    print(report.diagnostics);
+    if (!report) return 2;
+    if (out.empty()) {
+        std::cout << *report.value;
+    } else {
+        std::ofstream file(out, std::ios::binary | std::ios::trunc);
+        file << *report.value;
+        file.close();
+        if (!file) {
+            std::cerr << "error: cannot write " << out << '\n';
+            return 2;
+        }
+    }
+    const auto& d = *result.value;
+    std::ostream& summary = out.empty() ? std::cerr : std::cout;
+    if (d.empty()) {
+        summary << "equal (generation " << d.from_generation() << " -> " << d.to_generation() << ")\n";
+        return 0;
+    }
+    summary << "different (generation " << d.from_generation() << " -> " << d.to_generation()
+            << "): " << d.changes().size() << " semantic changes\n";
+    return 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -286,6 +390,7 @@ int main(int argc, char** argv) {
         }
         if (command == "verify") return verify(argc, argv);
         if (command == "diff") return diff(argc, argv);
+        if (command == "semantic-diff") return semantic_diff(argc, argv);
         const auto arguments = command == "capture" ? parse_capture(argc, argv) : std::nullopt;
         if (!arguments) {
             std::cerr << usage;

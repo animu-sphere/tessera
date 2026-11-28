@@ -51,6 +51,7 @@ add_library(tessera_core
     src/semantics/semantics.cpp
     src/semantics/semantic_snapshot.cpp
     src/inspection/capabilities.cpp
+    src/inspection/semantic_diff.cpp
     src/inspection/inspection.cpp
     src/inspection/invariants.cpp
     src/inspection/offscreen_runner.cpp

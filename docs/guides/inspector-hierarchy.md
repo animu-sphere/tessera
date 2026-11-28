@@ -379,6 +379,24 @@ The exit status is 0 when nothing changed and 1 when something did. The one-line
 
 The manifest's `generation` is the Inspector's command generation, not a bundle generation index. Each `inspector_hierarchy_capabilities.<scenario>` smoke writes one.
 
+## Semantic diff
+
+`--semantic-diff <scenario> <file>` captures the launch state and the scenario's final generation and writes what the scenario changed in meaning as a [semantic diff](../architecture/inspection.md#implemented-semantic-diff) (`tessera-semantic-diff` JSON). It also prints one line per change. Use it to check what an interaction did without comparing screenshots or whole trees:
+
+```powershell
+& .\build\Release\tessera_inspector_hierarchy.exe --semantic-diff edit-name build\snapshots\edit-name.semantic-diff.json
+```
+
+For `edit-name` it reports ten changes from generation 2 to 7. Focus moves to `name`. `tool-undo` becomes enabled and focusable and gains its `edit.undo` action. `hierarchy-item-cube` is deselected and `hierarchy-item-sphere` is selected and renamed `Edited sphere`. The `selected` caption, the `name` value and the `notes` value change. Position, Enabled and the other fields report nothing, so an unintended side effect would show up as an extra change. `initial` reports no changes. `display` reports the tab selection, then the Display section's fields as added and the General section's as removed. `narrow` reports the splitter's new name and the heading that the narrow header leaves out. Generations are the Inspector's command generations. Each `inspector_hierarchy_semantic_diff.<scenario>` smoke writes one.
+
+To compare two bundles semantically, pass their `semantics.json` members to `tessera_snapshot semantic-diff`. Each bundle names its generation directory in `manifest.json`, for example `g1` for `edit-name` and `g2` for `narrow`. Add `--scope <id>` to compare one subtree, such as `hierarchy`, and `--kind value_changed,enabled_changed` to keep only those kinds:
+
+```powershell
+& .\build\Release\tessera_snapshot.exe semantic-diff build\snapshots\initial\g1\semantics.json build\snapshots\edit-name\g1\semantics.json --scope hierarchy
+```
+
+This reports the Cube and Sphere selection changes and the Sphere rename. It exits 0 when nothing changed and 1 when something did. Unlike `diff`, it does not need equal viewports, so `initial` and `narrow` can be compared. Bundle semantics carry Replay generation indices, so both sides of this example are generation 1.
+
 ## Host and observation boundary
 
 The host owns all item data and order, selection, disclosure, scroll offsets, input dispatchers and command sequences. Item actions resolve against the accepted semantic tree and command snapshot. A candidate copies host state, applies the public text transform where needed, and stages lowering, eligibility, styles, layout, paint and inspection. Only a successful command outcome accepts that candidate and publishes the session. A stale/foreign text owner or rejected text measurement leaves the accepted values and inspection unchanged; retry uses the retained edit revision.
