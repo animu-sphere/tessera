@@ -113,8 +113,10 @@ public:
                                            CommandObjectIds = {});
     std::uint64_t generation() const noexcept;
     std::uint64_t registry_revision() const noexcept;
-    bool permits_object(std::string_view id) const; // Settled host-ID permission, no callback.
-    std::vector<CommandInfo> discover() const;      // Available descriptors, sorted by ID.
+    CommandMode mode() const noexcept;
+    const CommandObjectIds& permitted_objects() const noexcept; // Settled host-ID permission set.
+    bool permits_object(std::string_view id) const;             // Settled host-ID permission, no callback.
+    std::vector<CommandInfo> discover() const;                  // Available descriptors, sorted by ID.
     Result<CommandInfo> lookup(std::string_view id) const;
     Result<CommandInfo> lookup_action(std::string_view action) const; // Exact explicit action mapping.
     // Copy the authored document and compose activation/applicable expansion command eligibility
