@@ -7,6 +7,7 @@
 #include <tessera/style/outline.hpp>
 #include <tessera/style/procedural_fill.hpp>
 #include <tessera/style/shadow.hpp>
+#include <tessera/style/transition.hpp>
 #include <tessera/text/text.hpp>
 #include <tessera/ui/document.hpp>
 #include <cstdint>
@@ -123,6 +124,9 @@ struct ResolvedStyle {
     // Requests a procedural fill inside the background shape; background/background_gradient
     // remain the fallback a backend draws when it lacks the shader. Not inherited.
     std::optional<ProceduralFill> background_procedural;
+    // How a presentation eases this node's paint-only fields toward it; consumed by StyleTransitions,
+    // never by layout or paint. Not inherited.
+    std::optional<Transition> transition;
 
     bool operator==(const ResolvedStyle&) const = default;
 };

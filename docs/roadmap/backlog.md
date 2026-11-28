@@ -134,7 +134,7 @@ Shared analytic coverage follows the [Look direction](#unscheduled--look-and-vis
 
 ## Unscheduled extensions
 
-Timeline/plotting, collaboration/presence, [animation](../proposals/animation.md), additional language bindings, optional DSL/JSX frontends, richer paint/path composition and broader editor transports remain consumer-driven candidates.
+Timeline/plotting, collaboration/presence, [animation](../proposals/animation.md) beyond paint-only property transitions (geometry, transforms, enter/exit and Replay evaluation), additional language bindings, optional DSL/JSX frontends, richer paint/path composition and broader editor transports remain consumer-driven candidates.
 
 ## Explicitly deferred
 

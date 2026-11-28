@@ -430,6 +430,37 @@ void outline_styles_round_trip() {
           "Absent outlines must preserve legacy replay encoding");
 }
 
+void transition_styles_round_trip() {
+    auto source = recording();
+    source.styles[0].transition =
+        tessera::Transition{{.background = true, .box_shadow = true, .outline = true}, .12f, tessera::Easing::ease_out};
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    for (auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        source.version = version;
+        const auto json = save(source);
+        check(json.find("\"transition\":{\"duration\":0.12") != std::string::npos &&
+                  json.find("\"properties\":[\"background\",\"box_shadow\",\"outline\"]") != std::string::npos,
+              "Transitions encode their duration, easing and properties in declaration order");
+        check(load(json) == source && save(load(json)) == json &&
+                  tessera::compare_replay(play(source), play(load(json))).empty(),
+              "Transition declarations must round-trip in initial/reloaded views in Replay v1/v2");
+        auto rejected = tessera::load_replay(changed(json, "\"ease_out\"", "\"bounce\""));
+        check(!rejected && has(rejected.diagnostics, "unknown_value", "/steps/0/styles/0/transition/easing"),
+              "Unknown easings must reject");
+        rejected = tessera::load_replay(changed(json, "\"box_shadow\",\"outline\"]", "\"box_shadow\",\"background\"]"));
+        check(!rejected && has(rejected.diagnostics, "duplicate_value", "/steps/0/styles/0/transition/properties/2"),
+              "Repeated transition properties must reject");
+        rejected = tessera::load_replay(changed(json, "\"outline\"]", "\"width\"]"));
+        check(!rejected && has(rejected.diagnostics, "unknown_value", "/steps/0/styles/0/transition/properties/2"),
+              "Transitions name only paint-only properties");
+        rejected = tessera::load_replay(changed(json, "\"duration\":0.12", "\"duration\":-1"));
+        check(!rejected && has(rejected.diagnostics, "out_of_range", "/steps/0/styles/0/transition/duration"),
+              "Negative durations must reject before playback");
+    }
+    check(save(recording()).find("\"transition\"") == std::string::npos,
+          "Absent transitions must preserve legacy replay encoding");
+}
+
 void fill_shapes_round_trip() {
     auto source = recording();
     source.styles[0].background_shape = tessera::FillShape::ellipse;
@@ -780,6 +811,7 @@ int main() {
         shadow_styles_round_trip();
         outline_styles_round_trip();
         fill_shapes_round_trip();
+        transition_styles_round_trip();
         procedural_styles_round_trip();
         loading_rejects_malformed_input();
         compatible_pointer_policy_round_trips();

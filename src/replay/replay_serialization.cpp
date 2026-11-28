@@ -98,6 +98,14 @@ constexpr std::array<std::string_view, 4> align_names{"start", "center", "end", 
 constexpr std::array<std::string_view, 3> overflow_names{"visible", "clip", "scroll"};
 constexpr std::array<std::string_view, 2> position_names{"flow", "absolute"};
 constexpr std::array<std::string_view, 4> inset_names{"left", "top", "right", "bottom"};
+constexpr std::array<std::string_view, 5> easing_names{"linear", "ease", "ease_in", "ease_out", "ease_in_out"};
+// TransitionProperties fields in declaration order.
+constexpr std::array<std::string_view, 7> transition_property_names{
+    "opacity", "background", "border_color", "color", "corner_radius", "box_shadow", "outline"};
+constexpr std::array<bool TransitionProperties::*, 7> transition_property_fields{
+    &TransitionProperties::opacity, &TransitionProperties::background,    &TransitionProperties::border_color,
+    &TransitionProperties::color,   &TransitionProperties::corner_radius, &TransitionProperties::box_shadow,
+    &TransitionProperties::outline};
 constexpr std::array<std::string_view, 2> visibility_names{"visible", "hidden"};
 constexpr std::array<std::string_view, 3> button_names{"primary", "secondary", "middle"};
 constexpr std::array<std::string_view, 4> direction_key_names{"up", "down", "left", "right"};
@@ -194,8 +202,26 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                 "outline",
                 "background_shape",
                 "background_antialias",
-                "background_procedural"});
+                "background_procedural",
+                "transition"});
     ResolvedStyle s;
+    if (const auto field = o.find("transition"); field != o.end()) {
+        const auto at = path + "/transition";
+        const auto& encoded = object(field->second, at, {"properties", "duration", "easing"});
+        Transition transition;
+        const auto& names = array(encoded.at("properties"), at + "/properties");
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            const auto item = at + "/properties/" + std::to_string(i);
+            const auto index =
+                static_cast<std::size_t>(choice<std::uint8_t>(names[i], item, transition_property_names));
+            auto& named = transition.properties.*transition_property_fields[index];
+            if (named) fail("duplicate_value", item, "Name each transition property once.");
+            named = true;
+        }
+        transition.duration = real(encoded.at("duration"), at + "/duration");
+        transition.easing = choice<Easing>(encoded.at("easing"), at + "/easing", easing_names);
+        s.transition = transition;
+    }
     if (const auto field = o.find("background_shape"); field != o.end())
         s.background_shape = choice<FillShape>(field->second, path + "/background_shape",
                                                std::array<std::string_view, 2>{"rectangle", "ellipse"});
@@ -757,6 +783,15 @@ JsonValue style_json(const ResolvedStyle& s) {
                        {"opacity", real_json(fill.opacity)}};
         if (fill.time_rate != 0) encoded["time_rate"] = real_json(fill.time_rate);
         result["background_procedural"] = JsonValue{std::move(encoded)};
+    }
+    if (s.transition) {
+        Array properties;
+        for (std::size_t i = 0; i < transition_property_names.size(); ++i)
+            if (s.transition->properties.*transition_property_fields[i])
+                properties.push_back(text(transition_property_names[i]));
+        result["transition"] = JsonValue{Object{{"properties", JsonValue{std::move(properties)}},
+                                                {"duration", real_json(s.transition->duration)},
+                                                {"easing", text(easing_names[std::size_t(s.transition->easing)])}}};
     }
     return JsonValue{std::move(result)};
 }

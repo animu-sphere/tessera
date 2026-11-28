@@ -99,6 +99,10 @@ public:
     std::function<bool(tessera::Point)> resize_cursor;
     // Optional: whether the point shows the text I-beam; a resize cursor takes precedence.
     std::function<bool(tessera::Point)> text_cursor;
+    // Optional: whether the presented frame is still changing with host time, checked after each presentation.
+    // While it is, a frame timer repaints about every 16 ms; it stops when the application settles or the window
+    // is minimized, and the next ordinary paint presents the frame for the time it runs.
+    std::function<bool()> animating;
     // Optional IME composition boundary. Without `composition`, Windows keeps its
     // default composition window and committed text arrives as WM_CHAR. With it,
     // the IME is attached only while editing(); the host hides the default
@@ -424,6 +428,14 @@ private:
         send(tessera::KeyDown{*mapped, mods, repeat});
         return true;
     }
+    static constexpr UINT_PTR frame_timer = 1;
+    bool changing() const { return animating && animating() && !IsIconic(handle); }
+    void schedule_frame() {
+        if (changing())
+            SetTimer(handle, frame_timer, 16, nullptr);
+        else
+            KillTimer(handle, frame_timer);
+    }
     void paint() {
         PAINTSTRUCT state{};
         const auto dc = BeginPaint(handle, &state);
@@ -469,6 +481,7 @@ private:
                 DrawFocusRect(dc, &ring);
             }
             ++presentations;
+            schedule_frame();
         } catch (...) {
             EndPaint(handle, &state);
             throw;
@@ -588,6 +601,13 @@ private:
                              SWP_NOZORDER | SWP_NOACTIVATE);
                 return 0;
             }
+            case WM_TIMER:
+                if (w != frame_timer) break;
+                if (changing())
+                    InvalidateRect(handle, nullptr, FALSE);
+                else
+                    KillTimer(handle, frame_timer);
+                return 0;
             case WM_CLOSE:
                 DestroyWindow(handle);
                 return 0;
