@@ -1,4 +1,5 @@
 #include <tessera/input/collection_drag.hpp>
+#include "../detail/drag_input.hpp"
 #include "../detail/targeting.hpp"
 #include <algorithm>
 #include <cmath>
@@ -72,18 +73,6 @@ std::optional<std::string> pressed_item(const HitTestInput& input, const detail:
         return {};
     }
     return {};
-}
-
-bool escape(const InputEvent& event) {
-    if (std::holds_alternative<Cancel>(event.data)) return true;
-    const auto* key = std::get_if<KeyDown>(&event.data);
-    return key && key->key == Key::escape && key->modifiers == Modifiers{};
-}
-
-bool interrupts(const InputEvent& event) {
-    return std::holds_alternative<KeyDown>(event.data) || std::holds_alternative<TextInput>(event.data) ||
-           std::holds_alternative<Navigate>(event.data) || std::holds_alternative<FocusNext>(event.data) ||
-           std::holds_alternative<FocusPrevious>(event.data) || std::holds_alternative<Activate>(event.data);
 }
 
 std::vector<Diagnostic> option_errors(const CollectionDragOptions& options) {
@@ -191,9 +180,9 @@ Result<CollectionDragDispatchResult> CollectionDragDispatcher::dispatch(const Hi
         reset();
         return {result, {}};
     }
-    if (escape(event) || interrupts(event)) {
+    if (detail::drag_escape(event) || detail::drag_interrupt(event)) {
         // Escape and Cancel belong to a drag; other input continues to ordinary routing.
-        result.consumed = drag_->dragging && escape(event);
+        result.consumed = drag_->dragging && detail::drag_escape(event);
         result.ended = result.canceled = drag_->dragging;
         reset();
     }
