@@ -1,16 +1,21 @@
-// Menu backdrop: a vertical two-color wash with one soft wave-shaped glow band.
-// Parameters: 0 top color, 1 bottom color, 2 glow color (alpha scales intensity),
-// 3 number wave cycles across the width, 4 point (band center, band half-thickness) as height fractions.
-// The smoke host evaluates the same formula independently; keep them in sync.
+// Menu backdrop: a vertical two-color wash with one soft wave-shaped glow band. `glow` alpha scales
+// its intensity, `cycles` counts waves across the width and `band` is (center, half-thickness) as
+// height fractions. The smoke host evaluates the same formula independently; keep them in sync.
 #include "procedural.slang"
 
 struct AuroraFill : IProceduralFill {
-    static float4 shade(ProceduralInput input) {
+    struct Parameters {
+        ProceduralColor top;
+        ProceduralColor bottom;
+        ProceduralColor glow;
+        ProceduralNumber cycles;
+        ProceduralPoint band;
+    };
+    static float4 shade(ProceduralInput input, Parameters parameters) {
         float2 uv = input.position / input.size;
-        float4 top = input.parameter(0), bottom = input.parameter(1), glow = input.parameter(2);
-        float cycles = input.parameter(3).x;
-        float2 band = input.parameter(4).xy;
-        float center = band.x + band.y * 0.5 * sin(6.283185307 * (uv.x * cycles) + input.time);
+        float4 top = parameters.top.value, bottom = parameters.bottom.value, glow = parameters.glow.value;
+        float2 band = parameters.band.value;
+        float center = band.x + band.y * 0.5 * sin(6.283185307 * (uv.x * parameters.cycles.value) + input.time);
         float d = (uv.y - center) / band.y;
         float intensity = exp(-d * d) * glow.a;
         float3 color = lerp(top.rgb, bottom.rgb, uv.y) + glow.rgb * intensity;

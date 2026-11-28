@@ -34,29 +34,39 @@ foreach(stage IN ITEMS vertex batch fragment image)
 endforeach()
 add_custom_target(tessera_vulkan_shaders DEPENDS ${shader_outputs})
 set(TESSERA_VULKAN_SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders" CACHE INTERNAL "")
-# Compiles one host shader module against an ABI header in shaders/ to a SPIR-V fragment artifact.
-function(tessera_add_fragment_artifact target source output entry header)
+set(TESSERA_VULKAN_CMAKE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cmake" CACHE INTERNAL "")
+# Compiles one host shader module against an ABI header in shaders/ to a SPIR-V fragment artifact and
+# reflects its Parameters struct into a parameter manifest beside it: <output> with its .spv
+# extension replaced by .parameters.json (see shaders/parameters.slang and cmake/shader_parameters.cmake).
+function(tessera_add_fragment_artifact target source output entry header profile)
     get_filename_component(source "${source}" ABSOLUTE)
     get_filename_component(directory "${output}" DIRECTORY)
+    string(REGEX REPLACE "[.]spv$" "" stem "${output}")
     set(abi "${TESSERA_VULKAN_SHADER_SOURCE_DIR}")
-    add_custom_command(OUTPUT "${output}"
+    set(script "${TESSERA_VULKAN_CMAKE_DIR}/shader_parameters.cmake")
+    add_custom_command(OUTPUT "${output}" "${stem}.parameters.json"
+        BYPRODUCTS "${stem}.reflection.json"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${directory}"
         COMMAND "${TESSERA_SLANGC}" "${source}" -I "${abi}"
             -target spirv -profile spirv_1_3 -entry ${entry} -stage fragment
             -fvk-use-entrypoint-name
-            -o "${output}"
-        DEPENDS "${source}" "${abi}/${header}" "${abi}/primitive_common.slang" VERBATIM)
-    add_custom_target(${target} DEPENDS "${output}")
+            -o "${output}" -reflection-json "${stem}.reflection.json"
+        COMMAND ${CMAKE_COMMAND} "-DREFLECTION=${stem}.reflection.json" "-DMANIFEST=${stem}.parameters.json"
+            "-DPROFILE=${profile}" "-DSOURCE=${source}" -P "${script}"
+        DEPENDS "${source}" "${abi}/${header}" "${abi}/parameters.slang" "${abi}/primitive_common.slang" "${script}"
+        VERBATIM)
+    add_custom_target(${target} DEPENDS "${output}" "${stem}.parameters.json")
 endfunction()
 # Compiles one Slang procedural fill (fill-v1 ABI in shaders/procedural.slang) to a SPIR-V fragment
-# artifact exposing `proceduralMain`; the host passes its words to register_procedural_fill.
+# artifact exposing `proceduralMain` and its parameter manifest; the host loads the manifest with
+# load_shader_parameters and passes both to register_procedural_fill.
 function(tessera_add_procedural_fill target source output)
-    tessera_add_fragment_artifact(${target} "${source}" "${output}" proceduralMain procedural.slang)
+    tessera_add_fragment_artifact(${target} "${source}" "${output}" proceduralMain procedural.slang fill-v1)
 endfunction()
 # Compiles one Slang custom shape (sdf-v1 ABI in shaders/shape.slang) to a SPIR-V fragment artifact
-# exposing `shapeMain`; the host passes its words to register_custom_shape.
+# exposing `shapeMain` and its parameter manifest; the host passes both to register_custom_shape.
 function(tessera_add_custom_shape target source output)
-    tessera_add_fragment_artifact(${target} "${source}" "${output}" shapeMain shape.slang)
+    tessera_add_fragment_artifact(${target} "${source}" "${output}" shapeMain shape.slang sdf-v1)
 endfunction()
 add_library(tessera_vulkan renderer.cpp)
 add_library(tessera::vulkan ALIAS tessera_vulkan)
@@ -85,6 +95,11 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         TESSERA_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders"
         TESSERA_GPU_ARTIFACT_DIR="${CMAKE_CURRENT_BINARY_DIR}/artifacts")
     add_test(NAME vulkan COMMAND tessera_vulkan_tests)
+    # Parameters structs the manifest step must reject; needs slangc but no device.
+    add_test(NAME vulkan_shader_parameters COMMAND ${CMAKE_COMMAND} "-DSLANGC=${TESSERA_SLANGC}"
+        "-DABI=${TESSERA_VULKAN_SHADER_SOURCE_DIR}" "-DSCRIPT=${TESSERA_VULKAN_CMAKE_DIR}/shader_parameters.cmake"
+        "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/shader_parameter_checks"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/render/procedural/invalid/check.cmake")
     if(TESSERA_BUILD_EXAMPLES)
         target_sources(tessera_vulkan_tests PRIVATE
             ../../examples/viewport-toolbar/main.cpp

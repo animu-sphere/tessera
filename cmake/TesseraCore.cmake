@@ -13,6 +13,7 @@ add_library(tessera_core
     src/ui/async.cpp
     src/style/color.cpp
     src/style/resolved_style.cpp
+    src/style/shader_parameters.cpp
     src/style/style_sheet.cpp
     src/style/theme.cpp
     src/style/transition.cpp

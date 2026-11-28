@@ -1,8 +1,10 @@
 #pragma once
 
 #include <tessera/render/renderer.hpp>
+#include <tessera/style/shader_parameters.hpp>
 #include <vulkan/vulkan.h>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -39,19 +41,21 @@ struct VulkanSubmissionStats {
 inline constexpr std::size_t max_vulkan_layers = 16;
 inline constexpr std::size_t max_vulkan_procedural_fills = 64;
 inline constexpr std::size_t max_vulkan_custom_shapes = 64;
-// A build-time compiled fill-v1 artifact (see tessera_add_procedural_fill). Spans are borrowed for
-// the call; the host trusts the artifact's code, which is not sandboxed.
+// A build-time compiled fill-v1 artifact and its reflected parameter manifest (see
+// tessera_add_procedural_fill and load_shader_parameters). Spans are borrowed for the call; the host
+// trusts the artifact's code, which is not sandboxed, and pairs it with its own manifest.
 struct VulkanProceduralFill {
-    std::string_view shader;                         // Logical identity matched by ProceduralFill::shader.
-    std::span<const std::uint32_t> fragment_spirv;   // Must expose fragment entry point proceduralMain.
-    std::span<const ProceduralValueKind> parameters; // Declared kinds, in slot order.
+    std::string_view shader;                       // Logical identity matched by ProceduralFill::shader.
+    std::span<const std::uint32_t> fragment_spirv; // Must expose fragment entry point proceduralMain.
+    ShaderParameters declaration;                  // Profile fill-v1; parameters in slot order.
 };
-// A build-time compiled sdf-v1 artifact (see tessera_add_custom_shape). Spans are borrowed for the
-// call; the host trusts the artifact's code, which is not sandboxed.
+// A build-time compiled sdf-v1 artifact and its reflected parameter manifest (see
+// tessera_add_custom_shape). Spans are borrowed for the call; the host trusts the artifact's code,
+// which is not sandboxed, and pairs it with its own manifest.
 struct VulkanCustomShape {
-    std::string_view shader;                         // Logical identity matched by CustomShape::shader.
-    std::span<const std::uint32_t> fragment_spirv;   // Must expose fragment entry point shapeMain.
-    std::span<const ProceduralValueKind> parameters; // Declared kinds, in slot order.
+    std::string_view shader;                       // Logical identity matched by CustomShape::shader.
+    std::span<const std::uint32_t> fragment_spirv; // Must expose fragment entry point shapeMain.
+    ShaderParameters declaration;                  // Profile sdf-v1; parameters in slot order.
 };
 struct VulkanTarget {
     VkCommandBuffer commands = VK_NULL_HANDLE; // Recording inside the compatible render pass.
@@ -81,6 +85,9 @@ public:
     // identity space. Submissions naming an unregistered shape draw the built-in fallback shape.
     std::vector<Diagnostic> register_custom_shape(const VulkanCustomShape&);
     std::vector<Diagnostic> unregister_custom_shape(std::string_view shader);
+    // The registered declaration, or no value for an unregistered identity.
+    std::optional<ShaderParameters> procedural_fill_parameters(std::string_view shader) const;
+    std::optional<ShaderParameters> custom_shape_parameters(std::string_view shader) const;
     std::vector<Diagnostic> submit(const FrameInfo&, const UiDrawList&) override;
     void retire(std::uint64_t completed_frame) override;
     // Last successful submission; rejection leaves these counters unchanged.

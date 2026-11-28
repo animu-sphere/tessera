@@ -61,6 +61,17 @@ std::vector<std::uint32_t> shader(const char* name) {
     check(bool(file), "Cannot read compiled shader");
     return code;
 }
+// The build-time parameter manifest beside an artifact, which must already be canonical.
+tessera::ShaderParameters parameters(const char* name) {
+    std::ifstream file(std::filesystem::path(TESSERA_SHADER_DIR) / name, std::ios::binary);
+    check(bool(file), "Cannot open shader parameter manifest");
+    const std::string text{std::istreambuf_iterator<char>(file), {}};
+    auto loaded = tessera::load_shader_parameters(text);
+    check(bool(loaded), "Generated shader parameter manifests load");
+    const auto saved = tessera::save_shader_parameters(*loaded.value);
+    check(saved && *saved.value == text, "Generated shader parameter manifests are canonical");
+    return std::move(*loaded.value);
+}
 std::atomic<unsigned> validation_errors = 0;
 VKAPI_ATTR VkBool32 VKAPI_CALL debug(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT,
                                      const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
@@ -1844,8 +1855,14 @@ void procedural_fixtures(Host& host) {
                image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
     const auto solid = shader("procedural.solid.spv"), probe = shader("procedural.probe.spv");
     using Kind = tessera::ProceduralValueKind;
-    const std::array<Kind, 1> solid_kinds{Kind::color};
-    const std::array<Kind, 2> probe_kinds{Kind::point, Kind::number};
+    using tessera::ShaderProfile;
+    const auto solid_kinds = parameters("procedural.solid.parameters.json"),
+               probe_kinds = parameters("procedural.probe.parameters.json");
+    // Reflection reads names, kinds and slot order from each fill's Parameters struct.
+    check(solid_kinds == tessera::ShaderParameters{ShaderProfile::fill_v1, {{"color", Kind::color}}} &&
+              probe_kinds ==
+                  tessera::ShaderParameters{ShaderProfile::fill_v1, {{"offset", Kind::point}, {"alpha", Kind::number}}},
+          "Fill manifests reflect the declared Parameters structs");
     const auto max_difference = [](const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
         check(a.size() == b.size(), "Procedural comparison sizes differ");
         int result = 0;
@@ -1903,13 +1920,28 @@ void procedural_fixtures(Host& host) {
         check(has(gpu.register_procedural_fill({"test.solid", garbage, solid_kinds}), "invalid_shader",
                   "/fragment_spirv"),
               "Non-SPIR-V words must be rejected");
-        const std::array<Kind, 1> unknown{static_cast<Kind>(255)};
-        check(has(gpu.register_procedural_fill({"test.solid", solid, unknown}), "unknown_value", "/parameters/0"),
+        auto unknown = solid_kinds;
+        unknown.parameters[0].kind = static_cast<Kind>(255);
+        check(has(gpu.register_procedural_fill({"test.solid", solid, unknown}), "unknown_value",
+                  "/declaration/parameters/0/kind"),
               "Unknown parameter kinds must be rejected");
-        check(has(gpu.unregister_procedural_fill("test.solid"), "unknown_shader", "/shader"),
+        auto renamed = solid_kinds;
+        renamed.parameters.push_back({"color", Kind::number});
+        check(has(gpu.register_procedural_fill({"test.solid", solid, renamed}), "duplicate_parameter",
+                  "/declaration/parameters/1/name"),
+              "Declarations are validated at registration");
+        auto shape_manifest = solid_kinds;
+        shape_manifest.profile = ShaderProfile::sdf_v1;
+        check(has(gpu.register_procedural_fill({"test.solid", solid, shape_manifest}), "procedural_abi",
+                  "/declaration/profile"),
+              "A custom shape manifest cannot declare a procedural fill");
+        check(has(gpu.unregister_procedural_fill("test.solid"), "unknown_shader", "/shader") &&
+                  !gpu.procedural_fill_parameters("test.solid"),
               "Rejected registration must not register the fill");
         check(gpu.register_procedural_fill({"test.solid", solid, solid_kinds}).empty(), "Solid fill registration");
         check(gpu.register_procedural_fill({"test.probe", probe, probe_kinds}).empty(), "Probe fill registration");
+        check(gpu.procedural_fill_parameters("test.probe") == probe_kinds && !gpu.custom_shape_parameters("test.probe"),
+              "Registered declarations are observable in their own identity space");
 
         std::uint64_t frame = 1;
         for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
@@ -1975,10 +2007,10 @@ void procedural_fixtures(Host& host) {
         const auto pending = gpu.pending_uploads();
         tessera::DrawRect wrong{{{0, 0}, {8, 8}}, red};
         wrong.procedural = tessera::ProceduralFill{"test.solid", {tessera::Point{1, 1}}};
-        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "procedural_parameter_mismatch",
-                  "/commands/0/procedural/parameters/0") &&
-                  gpu.pending_uploads() == pending,
-              "Parameter kind mismatch must reject without uploads");
+        const auto kind_errors = gpu.submit({frame, {32, 32}, 1}, {{wrong}});
+        check(has(kind_errors, "procedural_parameter_mismatch", "/commands/0/procedural/parameters/0") &&
+                  kind_errors.front().message == "Parameter color takes a color." && gpu.pending_uploads() == pending,
+              "Parameter kind mismatch must reject without uploads, naming the declared parameter");
         wrong.procedural->parameters = {blue, blue};
         check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "procedural_parameter_mismatch",
                   "/commands/0/procedural/parameters"),
@@ -2204,8 +2236,15 @@ void custom_shape_fixtures(Host& host) {
     const auto ellipse = shader("shape.ellipse.spv"), rounded = shader("shape.rounded.spv"),
                probe = shader("shape.probe.spv"), procedural = shader("procedural.solid.spv");
     using Kind = tessera::ProceduralValueKind;
-    const std::array<Kind, 1> rounded_kinds{Kind::number};
-    const std::array<Kind, 2> probe_kinds{Kind::number, Kind::point};
+    using tessera::ShaderProfile;
+    const auto ellipse_kinds = parameters("shape.ellipse.parameters.json"),
+               rounded_kinds = parameters("shape.rounded.parameters.json"),
+               probe_kinds = parameters("shape.probe.parameters.json");
+    check(ellipse_kinds == tessera::ShaderParameters{ShaderProfile::sdf_v1} &&
+              rounded_kinds == tessera::ShaderParameters{ShaderProfile::sdf_v1, {{"radius", Kind::number}}} &&
+              probe_kinds == tessera::ShaderParameters{ShaderProfile::sdf_v1,
+                                                       {{"extent", Kind::number}, {"expected", Kind::point}}},
+          "Shape manifests reflect the declared Parameters structs, including an empty one");
     const auto max_difference = [](const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
         check(a.size() == b.size(), "Custom shape comparison sizes differ");
         int result = 0;
@@ -2263,30 +2302,40 @@ void custom_shape_fixtures(Host& host) {
         tessera::VulkanRenderer gpu(context);
         const char* path = batched ? "batch" : "reference";
         // Registration failures are diagnostics, not exceptions, and register nothing.
-        check(has(gpu.register_custom_shape({"", ellipse, {}}), "invalid_identifier", "/shader"),
+        check(has(gpu.register_custom_shape({"", ellipse, ellipse_kinds}), "invalid_identifier", "/shader"),
               "Empty custom shape identities must be rejected");
-        check(has(gpu.register_custom_shape({"test.ellipse", procedural, {}}), "shape_abi", "/fragment_spirv"),
-              "Procedural fill artifacts lack fragment shapeMain");
-        check(has(gpu.register_custom_shape({"test.ellipse", image, {}}), "shape_abi", "/fragment_spirv"),
+        check(
+            has(gpu.register_custom_shape({"test.ellipse", procedural, ellipse_kinds}), "shape_abi", "/fragment_spirv"),
+            "Procedural fill artifacts lack fragment shapeMain");
+        check(has(gpu.register_custom_shape({"test.ellipse", image, ellipse_kinds}), "shape_abi", "/fragment_spirv"),
               "Image-sampling artifacts are outside sdf-v1");
         const std::array<std::uint32_t, 5> garbage{1, 2, 3, 4, 5};
-        check(has(gpu.register_custom_shape({"test.ellipse", garbage, {}}), "invalid_shader", "/fragment_spirv"),
+        check(has(gpu.register_custom_shape({"test.ellipse", garbage, ellipse_kinds}), "invalid_shader",
+                  "/fragment_spirv"),
               "Non-SPIR-V words must be rejected");
-        const std::array<Kind, 1> unknown{static_cast<Kind>(255)};
-        check(has(gpu.register_custom_shape({"test.ellipse", ellipse, unknown}), "unknown_value", "/parameters/0"),
+        auto unknown = rounded_kinds;
+        unknown.parameters[0].kind = static_cast<Kind>(255);
+        check(has(gpu.register_custom_shape({"test.ellipse", ellipse, unknown}), "unknown_value",
+                  "/declaration/parameters/0/kind"),
               "Unknown parameter kinds must be rejected");
-        const std::array<Kind, 17> too_many{};
-        check(
-            has(gpu.register_custom_shape({"test.ellipse", ellipse, too_many}), "shape_parameter_limit", "/parameters"),
-            "More than 16 declared parameters must be rejected");
+        tessera::ShaderParameters too_many{ShaderProfile::sdf_v1};
+        for (int i = 0; i < 17; ++i) too_many.parameters.push_back({"p" + std::to_string(i), Kind::number});
+        check(has(gpu.register_custom_shape({"test.ellipse", ellipse, too_many}), "parameter_limit",
+                  "/declaration/parameters"),
+              "More than 16 declared parameters must be rejected");
+        check(has(gpu.register_custom_shape({"test.ellipse", ellipse, {}}), "shape_abi", "/declaration/profile"),
+              "A procedural fill manifest cannot declare a custom shape");
         check(has(gpu.register_procedural_fill({"test.ellipse", ellipse, {}}), "procedural_abi", "/fragment_spirv"),
               "Custom shape artifacts lack fragment proceduralMain");
         check(has(gpu.unregister_custom_shape("test.ellipse"), "unknown_shader", "/shader"),
               "Rejected registration must not register the shape");
-        check(gpu.register_custom_shape({"test.ellipse", ellipse, {}}).empty(), "Ellipse shape registration");
+        check(gpu.register_custom_shape({"test.ellipse", ellipse, ellipse_kinds}).empty(),
+              "Ellipse shape registration");
         check(gpu.register_custom_shape({"test.rounded", rounded, rounded_kinds}).empty(),
               "Rounded shape registration");
         check(gpu.register_custom_shape({"test.probe", probe, probe_kinds}).empty(), "Probe shape registration");
+        check(gpu.custom_shape_parameters("test.probe") == probe_kinds && !gpu.procedural_fill_parameters("test.probe"),
+              "Registered shape declarations are observable in their own identity space");
         check(has(gpu.unregister_procedural_fill("test.ellipse"), "unknown_shader", "/shader"),
               "Custom shapes and procedural fills have separate identity spaces");
 
@@ -2350,10 +2399,10 @@ void custom_shape_fixtures(Host& host) {
         const auto pending = gpu.pending_uploads();
         tessera::DrawRect wrong{{{0, 0}, {8, 8}}, red};
         wrong.custom_shape = tessera::CustomShape{"test.rounded", {tessera::Point{1, 1}}};
-        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "shape_parameter_mismatch",
-                  "/commands/0/custom_shape/parameters/0") &&
-                  gpu.pending_uploads() == pending,
-              "Parameter kind mismatch must reject without uploads");
+        const auto kind_errors = gpu.submit({frame, {32, 32}, 1}, {{wrong}});
+        check(has(kind_errors, "shape_parameter_mismatch", "/commands/0/custom_shape/parameters/0") &&
+                  kind_errors.front().message == "Parameter radius takes a number." && gpu.pending_uploads() == pending,
+              "Parameter kind mismatch must reject without uploads, naming the declared parameter");
         wrong.custom_shape->parameters = {1.f, 2.f};
         check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "shape_parameter_mismatch",
                   "/commands/0/custom_shape/parameters"),

@@ -112,13 +112,13 @@ bool bounds(const Rect& rect, const Affine2D& t, float scale, std::array<double,
 }
 // Host shader profiles: which fragment entry point an artifact exposes and how diagnostics name it.
 struct Profile {
-    const char* kind;  // "procedural" or "shape": identity messages and the parameter-limit code.
-    const char* entry; // Required fragment entry point.
-    const char* name;  // Profile name in messages.
-    const char* macro; // ABI macro that defines the entry point.
+    ShaderProfile profile; // The parameter manifest profile registered with the artifact.
+    const char* entry;     // Required fragment entry point.
+    const char* name;      // Profile name in messages.
+    const char* macro;     // ABI macro that defines the entry point.
     const char *abi_code, *limit_code, *limit_message, *unknown_message;
 };
-constexpr Profile fill_profile{"procedural",
+constexpr Profile fill_profile{ShaderProfile::fill_v1,
                                "proceduralMain",
                                "fill-v1",
                                "TESSERA_PROCEDURAL_FILL",
@@ -126,7 +126,7 @@ constexpr Profile fill_profile{"procedural",
                                "procedural_fill_limit",
                                "Unregister a retired procedural fill first.",
                                "Procedural fill is not registered with this renderer."};
-constexpr Profile shape_profile{"shape",
+constexpr Profile shape_profile{ShaderProfile::sdf_v1,
                                 "shapeMain",
                                 "sdf-v1",
                                 "TESSERA_CUSTOM_SHAPE",
@@ -181,7 +181,7 @@ struct VulkanRenderer::Impl {
     struct Fill {
         VkPipeline pipeline = VK_NULL_HANDLE, batch = VK_NULL_HANDLE;
         VkPipeline layer_pipeline = VK_NULL_HANDLE, layer_batch = VK_NULL_HANDLE; // For layer passes.
-        std::vector<ProceduralValueKind> kinds;
+        ShaderParameters declaration;
         std::uint64_t last_use = 0;
     };
     using Programs = std::map<std::string, Fill, std::less<>>;
@@ -504,20 +504,20 @@ struct VulkanRenderer::Impl {
     }
     // Registration shared by procedural fills and custom shapes; failures register nothing.
     std::vector<Diagnostic> register_program(Programs& programs, std::string_view identity,
-                                             std::span<const std::uint32_t> code,
-                                             std::span<const ProceduralValueKind> parameters, const Profile& profile,
-                                             std::size_t limit) {
+                                             std::span<const std::uint32_t> code, const ShaderParameters& declaration,
+                                             const Profile& profile, std::size_t limit) {
         std::vector<Diagnostic> errors;
         detail::Checker check(errors);
         if (&profile == &fill_profile)
             check.procedural(ProceduralFill{std::string(identity)}, "");
         else
             check.custom_shape(CustomShape{std::string(identity)}, "");
-        if (parameters.size() > max_procedural_parameters)
-            check.error(std::string(profile.kind) + "_parameter_limit", "/parameters",
-                        "Declare at most 16 " + std::string(profile.kind) + " parameters.");
-        for (std::size_t i = 0; i < parameters.size(); ++i)
-            check.enumeration(parameters[i], ProceduralValueKind::color, "/parameters/" + std::to_string(i));
+        auto declared = validate(declaration);
+        for (auto& diagnostic : declared) diagnostic.path = "/declaration" + diagnostic.path;
+        errors.insert(errors.end(), declared.begin(), declared.end());
+        if (declared.empty() && declaration.profile != profile.profile)
+            check.error(profile.abi_code, "/declaration/profile",
+                        std::string("Register a ") + profile.name + " parameter manifest with this artifact.");
         if (code.size() < 5 || code[0] != 0x07230203)
             check.error("invalid_shader", "/fragment_spirv", "Provide compiled SPIR-V shader words.");
         else if (const auto problem = abi_problem(code, profile))
@@ -530,7 +530,7 @@ struct VulkanRenderer::Impl {
             check.error(profile.limit_code, "/shader", profile.limit_message);
         if (!errors.empty()) return errors;
         Fill created;
-        created.kinds = {parameters.begin(), parameters.end()};
+        created.declaration = declaration;
         const auto module = shader(code);
         try {
             created.pipeline = pipeline(render_pass, vertex_module, module, profile.entry);
@@ -760,18 +760,28 @@ std::vector<Diagnostic> VulkanRenderer::unbind_image(ImageHandle handle) {
     return {};
 }
 std::vector<Diagnostic> VulkanRenderer::register_procedural_fill(const VulkanProceduralFill& fill) {
-    return impl_->register_program(impl_->fills, fill.shader, fill.fragment_spirv, fill.parameters, fill_profile,
+    return impl_->register_program(impl_->fills, fill.shader, fill.fragment_spirv, fill.declaration, fill_profile,
                                    max_vulkan_procedural_fills);
 }
 std::vector<Diagnostic> VulkanRenderer::unregister_procedural_fill(std::string_view shader) {
     return impl_->unregister_program(impl_->fills, shader, fill_profile);
 }
 std::vector<Diagnostic> VulkanRenderer::register_custom_shape(const VulkanCustomShape& shape) {
-    return impl_->register_program(impl_->shapes, shape.shader, shape.fragment_spirv, shape.parameters, shape_profile,
+    return impl_->register_program(impl_->shapes, shape.shader, shape.fragment_spirv, shape.declaration, shape_profile,
                                    max_vulkan_custom_shapes);
 }
 std::vector<Diagnostic> VulkanRenderer::unregister_custom_shape(std::string_view shader) {
     return impl_->unregister_program(impl_->shapes, shader, shape_profile);
+}
+std::optional<ShaderParameters> VulkanRenderer::procedural_fill_parameters(std::string_view shader) const {
+    const auto found = impl_->fills.find(shader);
+    if (found == impl_->fills.end()) return std::nullopt;
+    return found->second.declaration;
+}
+std::optional<ShaderParameters> VulkanRenderer::custom_shape_parameters(std::string_view shader) const {
+    const auto found = impl_->shapes.find(shader);
+    if (found == impl_->shapes.end()) return std::nullopt;
+    return found->second.declaration;
 }
 void VulkanRenderer::retire(std::uint64_t frame) {
     impl_->completed = std::max(impl_->completed, std::min(frame, impl_->last_frame));
@@ -831,14 +841,19 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
     // Parameter count and kinds must equal the registered declaration; reports at `at`.
     const auto matches = [&](const std::vector<ProceduralValue>& values, const Impl::Fill& program,
                              const std::string& at, const char* code) {
-        if (values.size() != program.kinds.size()) {
-            errors.push_back(error(code, at, "Supply exactly the parameters the registered shader declares."));
+        static constexpr const char* kinds[] = {"number", "point", "color"};
+        const auto& declared = program.declaration.parameters;
+        if (values.size() != declared.size()) {
+            errors.push_back(error(code, at,
+                                   "Supply exactly the " + std::to_string(declared.size()) +
+                                       " parameters the registered shader declares."));
             return false;
         }
         for (std::size_t v = 0; v < values.size(); ++v)
-            if (kind_of(values[v]) != program.kinds[v]) {
-                errors.push_back(error(code, at + "/" + std::to_string(v),
-                                       "Parameter kind differs from the registered declaration."));
+            if (kind_of(values[v]) != declared[v].kind) {
+                errors.push_back(
+                    error(code, at + "/" + std::to_string(v),
+                          "Parameter " + declared[v].name + " takes a " + kinds[std::size_t(declared[v].kind)] + "."));
                 return false;
             }
         return true;

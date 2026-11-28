@@ -114,6 +114,7 @@ Improve ordinary screens and enable distinctive GPU visuals through the [Look pr
 
 - Visual basics beyond gradients, distance-based outer/inset shadows and smooth solid/dashed outlines: blurred shadows, additional stroke caps/joins and text-decoration improvements.
 - Additional built-in shapes, ellipse strokes and local glow beyond rectangle/ellipse fills.
+- Shader parameters beyond the [reflected declaration](../architecture/rendering.md#implemented-shader-parameter-reflection): requests and theme tokens that set values by name, declared defaults, ranges and editor metadata, and a check that a manifest belongs to its artifact.
 - Procedural fills beyond fill-v1: per-parameter theme tokens, an Inspector or other CPU-hosted consumer, recorded host time for Replay, and texture/multipass profiles with their own validation and resource bounds.
 - Custom shapes beyond sdf-v1: procedural paint inside a custom shape, distance-based smoothing, strokes/glow from a declared distance accuracy, and shape-aware input from separately supplied CPU geometry.
 - Layer effects over [offscreen layers](../architecture/rendering.md#implemented-offscreen-layers): blend modes, masks and shape clips, backdrop reads and blur, filters, layer bounds or a pixel budget, and retained layer caching, when a visual outcome needs them.
