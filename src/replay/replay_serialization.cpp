@@ -170,6 +170,25 @@ Modifiers modifiers(const JsonValue& value, const std::string& path) {
             boolean(o.at("alt"), path + "/alt"), boolean(o.at("super"), path + "/super")};
 }
 
+// Typed shader parameters shared by procedural fills and custom shapes; `kind` prefixes the bound code.
+std::vector<ProceduralValue> shader_parameters(const JsonValue& value, const std::string& path, std::string_view kind) {
+    const auto& values = array(value, path);
+    if (values.size() > max_procedural_parameters)
+        fail(std::string(kind) + "_parameter_limit", path, "Use at most 16 " + std::string(kind) + " parameters.");
+    std::vector<ProceduralValue> result;
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        const auto where = path + "/" + std::to_string(i);
+        const auto& typed = as<Object>(values[i], where, "an object");
+        if (typed.contains("number"))
+            result.push_back(real(object(values[i], where, {"number"}).at("number"), where + "/number"));
+        else if (typed.contains("point"))
+            result.push_back(point(object(values[i], where, {"point"}).at("point"), where + "/point"));
+        else
+            result.push_back(color(object(values[i], where, {"color"}).at("color"), where + "/color"));
+    }
+    return result;
+}
+
 template<class Style> auto& inset_field(Style& s, std::string_view key) {
     return key == "left" ? s.left : key == "top" ? s.top : key == "right" ? s.right : s.bottom;
 }
@@ -203,6 +222,7 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                 "background_shape",
                 "background_antialias",
                 "background_procedural",
+                "background_custom_shape",
                 "transition"});
     ResolvedStyle s;
     if (const auto field = o.find("transition"); field != o.end()) {
@@ -317,20 +337,18 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                               real(fill.at("opacity"), at + "/opacity")};
         if (const auto rate = fill.find("time_rate"); rate != fill.end())
             parsed.time_rate = real(rate->second, at + "/time_rate");
-        const auto& values = array(fill.at("parameters"), at + "/parameters");
-        if (values.size() > max_procedural_parameters)
-            fail("procedural_parameter_limit", at + "/parameters", "Use at most 16 procedural parameters.");
-        for (std::size_t i = 0; i < values.size(); ++i) {
-            const auto where = at + "/parameters/" + std::to_string(i);
-            const auto& typed = as<Object>(values[i], where, "an object");
-            if (typed.contains("number"))
-                parsed.parameters.push_back(real(object(values[i], where, {"number"}).at("number"), where + "/number"));
-            else if (typed.contains("point"))
-                parsed.parameters.push_back(point(object(values[i], where, {"point"}).at("point"), where + "/point"));
-            else
-                parsed.parameters.push_back(color(object(values[i], where, {"color"}).at("color"), where + "/color"));
-        }
+        parsed.parameters = shader_parameters(fill.at("parameters"), at + "/parameters", "procedural");
         s.background_procedural = std::move(parsed);
+    }
+    if (const auto field = o.find("background_custom_shape"); field != o.end()) {
+        const auto at = path + "/background_custom_shape";
+        const auto& shape = object(field->second, at, {"shader", "parameters", "time"}, {"time_rate"});
+        CustomShape parsed{string(shape.at("shader"), at + "/shader"),
+                           shader_parameters(shape.at("parameters"), at + "/parameters", "shape"),
+                           real(shape.at("time"), at + "/time")};
+        if (const auto rate = shape.find("time_rate"); rate != shape.end())
+            parsed.time_rate = real(rate->second, at + "/time_rate");
+        s.background_custom_shape = std::move(parsed);
     }
     s.border_color = color(o.at("border_color"), path + "/border_color");
     if (const auto field = o.find("box_shadow"); field != o.end()) {
@@ -762,10 +780,9 @@ JsonValue style_json(const ResolvedStyle& s) {
     }
     if (s.background_shape != FillShape::rectangle) result["background_shape"] = JsonValue{std::string("ellipse")};
     if (s.background_antialias) result["background_antialias"] = JsonValue{true};
-    if (s.background_procedural) {
-        const auto& fill = *s.background_procedural;
+    const auto parameters_json = [](const std::vector<ProceduralValue>& values) {
         Array parameters;
-        for (const auto& value : fill.parameters)
+        for (const auto& value : values)
             std::visit(
                 [&](const auto& v) {
                     using V = std::decay_t<decltype(v)>;
@@ -777,12 +794,24 @@ JsonValue style_json(const ResolvedStyle& s) {
                         parameters.push_back(JsonValue{Object{{"color", color_json(v)}}});
                 },
                 value);
+        return JsonValue{std::move(parameters)};
+    };
+    if (s.background_procedural) {
+        const auto& fill = *s.background_procedural;
         Object encoded{{"shader", text(fill.shader)},
-                       {"parameters", JsonValue{std::move(parameters)}},
+                       {"parameters", parameters_json(fill.parameters)},
                        {"time", real_json(fill.time)},
                        {"opacity", real_json(fill.opacity)}};
         if (fill.time_rate != 0) encoded["time_rate"] = real_json(fill.time_rate);
         result["background_procedural"] = JsonValue{std::move(encoded)};
+    }
+    if (s.background_custom_shape) {
+        const auto& shape = *s.background_custom_shape;
+        Object encoded{{"shader", text(shape.shader)},
+                       {"parameters", parameters_json(shape.parameters)},
+                       {"time", real_json(shape.time)}};
+        if (shape.time_rate != 0) encoded["time_rate"] = real_json(shape.time_rate);
+        result["background_custom_shape"] = JsonValue{std::move(encoded)};
     }
     if (s.transition) {
         Array properties;

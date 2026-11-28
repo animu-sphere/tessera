@@ -66,6 +66,33 @@ void invalid_lists() {
     check(has(tessera::validate(tessera::UiDrawList{{procedural}}), "procedural_parameter_limit",
               "/commands/0/procedural/parameters"),
           "Procedural parameters must be bounded");
+    tessera::DrawRect shaped{{{0, 0}, {10, 5}}, {1, 0, 0, 1}, 2, {}, tessera::FillShape::ellipse, true};
+    shaped.custom_shape = tessera::CustomShape{"example.blob", {1.f, tessera::Point{0, 1}}, 3};
+    check(tessera::validate(tessera::UiDrawList{{shaped}}).empty(), "Valid custom shape rejected");
+    shaped.custom_shape->shader = "bad id";
+    shaped.custom_shape->parameters = {std::numeric_limits<float>::infinity(), tessera::Color{2, 0, 0, 1}};
+    shaped.custom_shape->time = std::numeric_limits<float>::quiet_NaN();
+    shaped.custom_shape->time_rate = std::numeric_limits<float>::infinity();
+    const auto shape_errors = tessera::validate(tessera::UiDrawList{{shaped}});
+    check(has(shape_errors, "invalid_identifier", "/commands/0/custom_shape/shader") &&
+              has(shape_errors, "invalid_number", "/commands/0/custom_shape/parameters/0") &&
+              has(shape_errors, "out_of_range", "/commands/0/custom_shape/parameters/1/r") &&
+              has(shape_errors, "invalid_number", "/commands/0/custom_shape/time") &&
+              has(shape_errors, "invalid_number", "/commands/0/custom_shape/time_rate"),
+          "Custom shapes must use located shared shader-request validation");
+    shaped.custom_shape = tessera::CustomShape{"example.blob", std::vector<tessera::ProceduralValue>(17, 0.f)};
+    check(has(tessera::validate(tessera::UiDrawList{{shaped}}), "shape_parameter_limit",
+              "/commands/0/custom_shape/parameters"),
+          "Custom shape parameters must be bounded");
+    shaped.custom_shape = tessera::CustomShape{"example.blob"};
+    shaped.procedural = tessera::ProceduralFill{"example.wave"};
+    check(has(tessera::validate(tessera::UiDrawList{{shaped}}), "unsupported_combination", "/commands/0/custom_shape"),
+          "Profile sdf-v1 must reject a custom shape combined with a procedural fill");
+    shaped.procedural.reset();
+    tessera::UiDrawList morphing{{shaped}};
+    check(!tessera::time_dependent(morphing), "Static custom shapes must not request motion frames");
+    std::get<tessera::DrawRect>(morphing.commands[0]).custom_shape->time_rate = -.5f;
+    check(tessera::time_dependent(morphing), "A moving custom shape must request motion frames");
     const tessera::UiDrawList unbalanced{{
         tessera::PopClip{},
         tessera::PushClip{},

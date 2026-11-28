@@ -2,6 +2,7 @@
 
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
+#include <tessera/style/custom_shape.hpp>
 #include <tessera/style/gradient.hpp>
 #include <tessera/style/outline.hpp>
 #include <tessera/style/procedural_fill.hpp>
@@ -90,14 +91,26 @@ public:
         color(value.color, path + "/color");
     }
     void procedural(const ProceduralFill& value, const std::string& path) {
-        if (value.shader.empty() || value.shader.size() > max_procedural_shader_bytes ||
-            std::any_of(value.shader.begin(), value.shader.end(),
-                        [](unsigned char c) { return c <= 0x20 || c >= 0x7f; }))
+        shader_request(value.shader, value.parameters, value.time, value.time_rate, path, "procedural");
+        range(value.opacity, path + "/opacity", 0, 1, "an opacity in [0, 1]");
+    }
+    void custom_shape(const CustomShape& value, const std::string& path) {
+        shader_request(value.shader, value.parameters, value.time, value.time_rate, path, "shape");
+    }
+
+private:
+    // Shared by procedural fills and custom shapes: identity, typed parameters and host-time fields.
+    // `kind` names the request in messages and prefixes the parameter-limit code.
+    void shader_request(const std::string& shader, const std::vector<ProceduralValue>& parameters, float time,
+                        float time_rate, const std::string& path, std::string_view kind) {
+        if (shader.empty() || shader.size() > max_procedural_shader_bytes ||
+            std::any_of(shader.begin(), shader.end(), [](unsigned char c) { return c <= 0x20 || c >= 0x7f; }))
             error("invalid_identifier", path + "/shader",
-                  "Use 1-128 printable ASCII bytes without spaces for a procedural shader identity.");
-        if (value.parameters.size() > max_procedural_parameters)
-            error("procedural_parameter_limit", path + "/parameters", "Use at most 16 procedural parameters.");
-        for (std::size_t i = 0; i < value.parameters.size(); ++i) {
+                  "Use 1-128 printable ASCII bytes without spaces for a " + std::string(kind) + " shader identity.");
+        if (parameters.size() > max_procedural_parameters)
+            error(std::string(kind) + "_parameter_limit", path + "/parameters",
+                  "Use at most 16 " + std::string(kind) + " parameters.");
+        for (std::size_t i = 0; i < parameters.size(); ++i) {
             const auto at = path + "/parameters/" + std::to_string(i);
             std::visit(
                 [&](const auto& v) {
@@ -109,14 +122,11 @@ public:
                     else
                         color(v, at);
                 },
-                value.parameters[i]);
+                parameters[i]);
         }
-        finite(value.time, path + "/time");
-        finite(value.time_rate, path + "/time_rate");
-        range(value.opacity, path + "/opacity", 0, 1, "an opacity in [0, 1]");
+        finite(time, path + "/time");
+        finite(time_rate, path + "/time_rate");
     }
-
-private:
     template<class T> void gradient_fill(const T& value, const std::string& path) {
         if constexpr (std::is_same_v<T, LinearGradient>) {
             for (const auto& [point, name] : {std::pair{value.start, "/start"}, std::pair{value.end, "/end"}}) {

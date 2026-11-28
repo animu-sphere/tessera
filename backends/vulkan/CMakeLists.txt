@@ -33,21 +33,30 @@ foreach(stage IN ITEMS vertex batch fragment image)
     list(APPEND shader_outputs "${output}")
 endforeach()
 add_custom_target(tessera_vulkan_shaders DEPENDS ${shader_outputs})
-# Compiles one Slang procedural fill (fill-v1 ABI in shaders/procedural.slang) to a SPIR-V fragment
-# artifact exposing `proceduralMain`; the host passes its words to register_procedural_fill.
 set(TESSERA_VULKAN_SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders" CACHE INTERNAL "")
-function(tessera_add_procedural_fill target source output)
+# Compiles one host shader module against an ABI header in shaders/ to a SPIR-V fragment artifact.
+function(tessera_add_fragment_artifact target source output entry header)
     get_filename_component(source "${source}" ABSOLUTE)
     get_filename_component(directory "${output}" DIRECTORY)
     set(abi "${TESSERA_VULKAN_SHADER_SOURCE_DIR}")
     add_custom_command(OUTPUT "${output}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${directory}"
         COMMAND "${TESSERA_SLANGC}" "${source}" -I "${abi}"
-            -target spirv -profile spirv_1_3 -entry proceduralMain -stage fragment
+            -target spirv -profile spirv_1_3 -entry ${entry} -stage fragment
             -fvk-use-entrypoint-name
             -o "${output}"
-        DEPENDS "${source}" "${abi}/procedural.slang" "${abi}/primitive_common.slang" VERBATIM)
+        DEPENDS "${source}" "${abi}/${header}" "${abi}/primitive_common.slang" VERBATIM)
     add_custom_target(${target} DEPENDS "${output}")
+endfunction()
+# Compiles one Slang procedural fill (fill-v1 ABI in shaders/procedural.slang) to a SPIR-V fragment
+# artifact exposing `proceduralMain`; the host passes its words to register_procedural_fill.
+function(tessera_add_procedural_fill target source output)
+    tessera_add_fragment_artifact(${target} "${source}" "${output}" proceduralMain procedural.slang)
+endfunction()
+# Compiles one Slang custom shape (sdf-v1 ABI in shaders/shape.slang) to a SPIR-V fragment artifact
+# exposing `shapeMain`; the host passes its words to register_custom_shape.
+function(tessera_add_custom_shape target source output)
+    tessera_add_fragment_artifact(${target} "${source}" "${output}" shapeMain shape.slang)
 endfunction()
 add_library(tessera_vulkan renderer.cpp)
 add_library(tessera::vulkan ALIAS tessera_vulkan)
@@ -66,6 +75,11 @@ if(BUILD_TESTING AND TESSERA_BUILD_TESTING)
         tessera_add_procedural_fill(tessera_vulkan_test_${fill}_fill ../../tests/render/procedural/${fill}.slang
             "${CMAKE_CURRENT_BINARY_DIR}/shaders/procedural.${fill}.spv")
         add_dependencies(tessera_vulkan_tests tessera_vulkan_test_${fill}_fill)
+    endforeach()
+    foreach(shape IN ITEMS ellipse rounded probe)
+        tessera_add_custom_shape(tessera_vulkan_test_${shape}_shape ../../tests/render/shapes/${shape}.slang
+            "${CMAKE_CURRENT_BINARY_DIR}/shaders/shape.${shape}.spv")
+        add_dependencies(tessera_vulkan_tests tessera_vulkan_test_${shape}_shape)
     endforeach()
     target_compile_definitions(tessera_vulkan_tests PRIVATE
         TESSERA_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders"
@@ -100,7 +114,9 @@ if(WIN32 AND TESSERA_BUILD_EXAMPLES)
     target_link_libraries(tessera_vulkan_menu PRIVATE tessera::vulkan xinput dinput8 dxguid)
     tessera_add_procedural_fill(tessera_vulkan_menu_aurora ../../examples/vulkan-menu/aurora.slang
         "${CMAKE_CURRENT_BINARY_DIR}/shaders/procedural.aurora.spv")
-    add_dependencies(tessera_vulkan_menu tessera_vulkan_menu_aurora)
+    tessera_add_custom_shape(tessera_vulkan_menu_blob ../../examples/vulkan-menu/blob.slang
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders/shape.blob.spv")
+    add_dependencies(tessera_vulkan_menu tessera_vulkan_menu_aurora tessera_vulkan_menu_blob)
     target_compile_definitions(tessera_vulkan_menu PRIVATE
         TESSERA_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/shaders"
         TESSERA_GPU_ARTIFACT_DIR="${CMAKE_CURRENT_BINARY_DIR}/artifacts")

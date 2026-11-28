@@ -28,15 +28,25 @@ struct VulkanSubmissionStats {
     std::uint64_t primitives = 0;
     std::uint64_t draw_calls = 0;
     std::uint64_t upload_bytes = 0;
-    std::uint64_t procedural_fills = 0;     // Procedural DrawRects executed by a registered shader.
-    std::uint64_t procedural_fallbacks = 0; // Unregistered ones, drawn with their declared fallback.
+    std::uint64_t procedural_fills = 0;       // Procedural DrawRects executed by a registered shader.
+    std::uint64_t procedural_fallbacks = 0;   // Unregistered ones, drawn with their declared fallback.
+    std::uint64_t custom_shapes = 0;          // Custom-shape DrawRects executed by a registered shader.
+    std::uint64_t custom_shape_fallbacks = 0; // Unregistered ones, drawn with their built-in shape.
 };
 inline constexpr std::size_t max_vulkan_procedural_fills = 64;
+inline constexpr std::size_t max_vulkan_custom_shapes = 64;
 // A build-time compiled fill-v1 artifact (see tessera_add_procedural_fill). Spans are borrowed for
 // the call; the host trusts the artifact's code, which is not sandboxed.
 struct VulkanProceduralFill {
     std::string_view shader;                         // Logical identity matched by ProceduralFill::shader.
     std::span<const std::uint32_t> fragment_spirv;   // Must expose fragment entry point proceduralMain.
+    std::span<const ProceduralValueKind> parameters; // Declared kinds, in slot order.
+};
+// A build-time compiled sdf-v1 artifact (see tessera_add_custom_shape). Spans are borrowed for the
+// call; the host trusts the artifact's code, which is not sandboxed.
+struct VulkanCustomShape {
+    std::string_view shader;                         // Logical identity matched by CustomShape::shader.
+    std::span<const std::uint32_t> fragment_spirv;   // Must expose fragment entry point shapeMain.
     std::span<const ProceduralValueKind> parameters; // Declared kinds, in slot order.
 };
 struct VulkanTarget {
@@ -59,6 +69,10 @@ public:
     // fails with resource_in_use. Submissions naming an unregistered shader draw the fallback.
     std::vector<Diagnostic> register_procedural_fill(const VulkanProceduralFill&);
     std::vector<Diagnostic> unregister_procedural_fill(std::string_view shader);
+    // Custom shapes follow the same registration, replacement and retirement rules in their own
+    // identity space. Submissions naming an unregistered shape draw the built-in fallback shape.
+    std::vector<Diagnostic> register_custom_shape(const VulkanCustomShape&);
+    std::vector<Diagnostic> unregister_custom_shape(std::string_view shader);
     std::vector<Diagnostic> submit(const FrameInfo&, const UiDrawList&) override;
     void retire(std::uint64_t completed_frame) override;
     // Last successful submission; rejection leaves these counters unchanged.

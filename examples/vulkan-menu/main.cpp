@@ -57,7 +57,8 @@ constexpr const char* menu_json = R"({"version":1,"root":{"type":"Box","id":"scr
 {"type":"Box","id":"list","children":[
 {"type":"Box","id":"start","classes":["button"],"properties":{"focusable":true},"events":{"activate":"start-game"},"children":[{"type":"Text","id":"start-label","properties":{"text":"Start"}}]},
 {"type":"Box","id":"quit","classes":["button"],"properties":{"focusable":true},"events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]},
-{"type":"Box","id":"credits","classes":["button"],"properties":{"focusable":true},"events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]}]}]}})";
+{"type":"Box","id":"credits","classes":["button"],"properties":{"focusable":true},"events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]},
+{"type":"Box","id":"badge"}]}]}})";
 constexpr const char* buttons[]{"start", "quit", "credits"};
 
 void require(VkResult result, const char* operation) {
@@ -174,6 +175,16 @@ struct Menu {
     static constexpr std::array<tessera::ProceduralValueKind, 5> aurora_kinds{
         tessera::ProceduralValueKind::color, tessera::ProceduralValueKind::color, tessera::ProceduralValueKind::color,
         tessera::ProceduralValueKind::number, tessera::ProceduralValueKind::point};
+    // Title badge outlined by blob.slang and painted with a radial gradient; its ellipse background
+    // shape is the declared fallback. The rim's lobes travel at `blob_rate` radians per host second.
+    static constexpr const char* blob = "tessera.example.blob";
+    static constexpr tessera::Color blob_core = rgb(255, 214, 102), blob_rim = rgb(214, 84, 120);
+    static constexpr float blob_size = 30, blob_inset = 14;
+    static constexpr float blob_lobes = 5, blob_amplitude = .14f, blob_phase = .5f, blob_rate = 1.3f;
+    static constexpr tessera::Point blob_center{.38f, .34f}; // Radial gradient center, box fractions.
+    static constexpr tessera::Size blob_radius{.75f, .75f};
+    static constexpr std::array<tessera::ProceduralValueKind, 2> blob_kinds{tessera::ProceduralValueKind::number,
+                                                                            tessera::ProceduralValueKind::number};
     std::unique_ptr<tessera::UiTree> tree;
     std::vector<std::uint32_t> parents;
     tessera::StyleSheet sheet;
@@ -277,6 +288,18 @@ struct Menu {
             s.corner_radius = 10.0f;
             s.background = panel;
         });
+        // Absolute placement in the panel's top-right padding leaves the flow layout unchanged.
+        rule(S::of_id("badge"), [](auto& s) {
+            s.position = tessera::Position::absolute;
+            s.top = blob_inset;
+            s.right = blob_inset;
+            s.width = tessera::Dimension::points(blob_size);
+            s.height = tessera::Dimension::points(blob_size);
+            s.background_gradient = tessera::RadialGradient{blob_center, blob_radius, blob_core, blob_rim};
+            s.background_shape = tessera::FillShape::ellipse;
+            s.background_antialias = true;
+            s.background_custom_shape = tessera::CustomShape{blob, {blob_lobes, blob_amplitude}, blob_phase, blob_rate};
+        });
         rule(S::of_id("title"), [](auto& s) {
             s.text.size = 28.0f;
             s.color = rgb(235, 238, 245);
@@ -347,6 +370,14 @@ struct Menu {
                 return rect->procedural->time;
         throw std::logic_error("Aurora backdrop missing from paint");
     }
+    // Shader time of the badge's custom shape in the current paint.
+    float blob_time() const {
+        for (const auto& command : paint.commands)
+            if (const auto* rect = std::get_if<tessera::DrawRect>(&command);
+                rect && rect->custom_shape && rect->custom_shape->shader == blob)
+                return rect->custom_shape->time;
+        throw std::logic_error("Blob badge missing from paint");
+    }
     // Full-tree restyle for the current interaction state; changed styles re-run layout and paint.
     void show(tessera::InteractionState state) {
         auto resolved =
@@ -397,7 +428,7 @@ struct App {
     bool minimized = false, resizing = false, swapchain_dirty = true, quit = false;
     bool exposed = true; // The presented image needs a frame even if paint is unchanged.
     AnimationClock clock;
-    bool aurora_registered = false;
+    bool aurora_registered = false, blob_registered = false;
     std::chrono::microseconds smoke_clock{0}; // Smoke-only scripted source: 60 Hz frames plus 1 s per step.
     Menu menu;
     tessera::PointerDispatcher dispatcher;
@@ -447,6 +478,7 @@ struct App {
     unsigned step = 0;
     std::uint64_t step_ready = 1;
     std::optional<float> captured_aurora_time; // Shader time of the previous verified capture.
+    std::optional<float> captured_blob_time;   // Badge shape time of the previous verified capture.
     std::uint64_t hidden_from = 0;             // Presentations when the smoke minimized the window.
     double hidden_clock = 0;                   // Animation clock when the smoke minimized the window.
 
@@ -675,6 +707,14 @@ struct App {
         if (!registered.empty()) {
             print(registered);
             if (smoke) throw std::runtime_error("Aurora procedural fill registration failed");
+        }
+        // Build-time sdf-v1 artifact; a failed registration leaves the declared ellipse badge.
+        const auto blob = shader("shape.blob.spv");
+        const auto shaped = renderer->register_custom_shape({Menu::blob, blob, Menu::blob_kinds});
+        blob_registered = shaped.empty();
+        if (!shaped.empty()) {
+            print(shaped);
+            if (smoke) throw std::runtime_error("Blob custom shape registration failed");
         }
         if (menu.glyph_cache) {
             VkFormatProperties properties;
@@ -946,9 +986,11 @@ struct App {
             clock.resume(clock_source());
         minimized = hidden;
     }
-    // Motion needs frames only while shown and while the backend executes a moving fill; the declared
-    // static fallback of an unregistered fill would present identical frames.
-    bool moving() const { return !minimized && aurora_registered && tessera::time_dependent(menu.paint); }
+    // Motion needs frames only while shown and while the backend executes a moving fill or shape; the
+    // declared static fallbacks of unregistered shaders would present identical frames.
+    bool moving() const {
+        return !minimized && (aurora_registered || blob_registered) && tessera::time_dependent(menu.paint);
+    }
     // Presents a frame only for visible change: motion, new paint, a new swapchain or exposure.
     // Returns whether one was presented; otherwise the caller waits for messages.
     bool frame() {
@@ -1016,16 +1058,20 @@ struct App {
         const auto diagnostics = renderer->submit(frame, atlas ? atlas->draw_list : menu.paint);
         if (smoke && diagnostics.empty()) {
             const auto stats = renderer->submission_stats();
-            // Placeholder: the procedural backdrop, then two solid batches. Real glyphs alternate
-            // solid/image batches. Uploads add three 32-byte records for the five aurora parameters
-            // after an alignment of at most 256 bytes.
+            // Placeholder: the procedural backdrop, two solid batches, then the custom-shape badge.
+            // Real glyphs alternate solid/image batches. After an alignment of at most 256 bytes,
+            // uploads add 32-byte records: three for the five aurora parameters, two for the badge's
+            // gradient stops and two for its shape time plus two parameters.
             const auto vertices = stats.primitives * 112;
-            if ((!atlas && stats.draw_calls != 3) || stats.primitives <= stats.draw_calls ||
-                stats.upload_bytes < vertices + 96 || stats.upload_bytes >= vertices + 96 + 256 ||
+            constexpr std::uint64_t fill_data = 7 * 32;
+            if ((!atlas && stats.draw_calls != 4) || stats.primitives <= stats.draw_calls ||
+                stats.upload_bytes < vertices + fill_data || stats.upload_bytes >= vertices + fill_data + 256 ||
                 renderer->pending_uploads() > frames_in_flight)
                 fail("Menu adjacent batching or upload retirement counters disagree");
             if (stats.procedural_fills != 1 || stats.procedural_fallbacks != 0)
                 fail("Menu aurora backdrop did not execute its registered procedural fill");
+            if (stats.custom_shapes != 1 || stats.custom_shape_fallbacks != 0)
+                fail("Menu badge did not execute its registered custom shape");
             for (const auto& page : slot.atlas) {
                 const auto unbound = renderer->unbind_image(page.handle);
                 const auto rebound = renderer->bind_image(page.handle, page.view, glyph_sampler);
@@ -1276,6 +1322,70 @@ struct App {
         std::cout << "Aurora " << name << " host time=" << menu.host_time << " s shader time=" << time << '\n';
         captured_aurora_time = float(time);
     }
+    // Independent double-precision evaluation of blob.slang over the badge box at the shape time this
+    // frame's paint evaluated. Pixels farther than 1.5 physical pixels from the rim (the estimate's
+    // gradient stays below 1.2, so every 4x4 sample agrees) must show the radial gradient inside and
+    // the flat panel outside. The shape must differ from its ellipse fallback, and some verified pixel
+    // must lie on the other side of the rim evaluated at the previous capture's time.
+    void verify_blob(const std::vector<std::uint8_t>& pixels, const std::string& name) {
+        const auto linear = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+        const auto encode = [](double c) {
+            c = std::clamp(c, 0.0, 1.0);
+            return int(std::lround((c <= 0.0031308 ? c * 12.92 : 1.055 * std::pow(c, 1 / 2.4) - 0.055) * 255));
+        };
+        const auto box = menu.box("badge").border_box;
+        const double time = menu.blob_time();
+        if (time != float(Menu::blob_phase + double(Menu::blob_rate) * menu.host_time))
+            return fail("Blob time in " + name + " is not phase + rate * host time");
+        const double w = box.size.width, h = box.size.height;
+        const double base = std::min(w, h) * .5 / (1 + Menu::blob_amplitude);
+        const auto distance = [&](double x, double y, double t) {
+            const double dx = x - w * .5, dy = y - h * .5;
+            return std::hypot(dx, dy) -
+                   base * (1 + Menu::blob_amplitude * std::sin(Menu::blob_lobes * std::atan2(dy, dx) + t));
+        };
+        const double margin = 1.5 / scale;
+        int inside = 0, outside = 0, unlike_fallback = 0, moved = 0;
+        for (auto py = unsigned(std::floor(box.origin.y * scale)); py < unsigned((box.origin.y + h) * scale); ++py)
+            for (auto px = unsigned(std::floor(box.origin.x * scale)); px < unsigned((box.origin.x + w) * scale);
+                 ++px) {
+                const double x = (px + .5) / scale - box.origin.x, y = (py + .5) / scale - box.origin.y;
+                if (x < margin || y < margin || x > w - margin || y > h - margin) continue;
+                const double d = distance(x, y, time);
+                if (std::abs(d) < margin) continue;
+                const auto at = (std::size_t(py) * extent.width + px) * 4;
+                std::array<int, 3> want;
+                if (d < 0) {
+                    const double u = (x / w - Menu::blob_center.x) / Menu::blob_radius.width,
+                                 v = (y / h - Menu::blob_center.y) / Menu::blob_radius.height;
+                    const double t = std::min(1.0, std::hypot(std::clamp(u, -1.0, 1.0), std::clamp(v, -1.0, 1.0)));
+                    const float a[3]{Menu::blob_core.r, Menu::blob_core.g, Menu::blob_core.b};
+                    const float b[3]{Menu::blob_rim.r, Menu::blob_rim.g, Menu::blob_rim.b};
+                    for (int c = 0; c < 3; ++c) want[c] = encode(linear(a[c]) + (linear(b[c]) - linear(a[c])) * t);
+                    ++inside;
+                } else {
+                    want = {encode(linear(Menu::panel.r)), encode(linear(Menu::panel.g)),
+                            encode(linear(Menu::panel.b))};
+                    ++outside;
+                }
+                for (int c = 0; c < 3; ++c)
+                    if (std::abs(int(pixels[at + c]) - want[c]) > 3)
+                        return fail("Blob badge mismatch in " + name + " at pixel " + std::to_string(px) + ',' +
+                                    std::to_string(py) + " channel " + std::to_string(c) + ": got " +
+                                    std::to_string(pixels[at + c]) + " expected " + std::to_string(want[c]));
+                const double ellipse = std::hypot(2 * x / w - 1, 2 * y / h - 1) - 1;
+                unlike_fallback += (d < 0) != (ellipse <= 0) && std::abs(ellipse) * std::min(w, h) * .5 > margin;
+                // This verified pixel would have been on the other side of the previous capture's rim.
+                if (captured_blob_time) moved += (d < 0) != (distance(x, y, *captured_blob_time) < 0);
+            }
+        if (inside == 0 || outside == 0 || unlike_fallback == 0)
+            fail("Blob badge is indistinguishable from its ellipse fallback in " + name);
+        if (captured_blob_time && (time <= *captured_blob_time || moved == 0))
+            fail("Blob badge in " + name + " did not move since the previous capture");
+        std::cout << "Blob " << name << " shape time=" << time << " inside=" << inside << " outside=" << outside
+                  << " moved=" << moved << '\n';
+        captured_blob_time = float(time);
+    }
     // Checks presented pixels against the styles that produced this frame's paint.
     void verify_capture() {
         capture_next = false;
@@ -1316,6 +1426,7 @@ struct App {
         };
         const auto panel = menu.box("panel").border_box;
         verify_aurora(pixels, name, panel);
+        verify_blob(pixels, name);
         expect(panel.origin.x + 6, panel.origin.y + panel.size.height / 2, Menu::panel, "Panel padding");
         for (const char* id : {"start", "quit"}) {
             const auto button = menu.box(id).border_box;

@@ -224,6 +224,32 @@ void procedural_fallbacks() {
           "Rejected submissions must keep the last successful fallback count");
 }
 
+void custom_shape_fallbacks() {
+    CpuFrameCapture frames;
+    DrawRect plain{{{1.25f, 1}, {5.5f, 4}}, {.2f, .6f, .4f, .75f}, 100, {}, FillShape::ellipse, true};
+    auto requested = plain;
+    requested.custom_shape = CustomShape{"example.blob", {Point{1, 2}}, 2, 1};
+    check(capture(frames, {{requested}}) == capture(frames, {{plain}}),
+          "The CPU reference must draw the built-in fallback shape, not approximate the distance shader");
+    plain.shape = requested.shape = FillShape::rectangle;
+    plain.corner_radius = requested.corner_radius = 1.5f;
+    plain.color = requested.color = {};
+    plain.gradient = requested.gradient = LinearGradient{{0, 0}, {1, 0}, {1, 0, 0, 1}, {0, 0, 1, 1}};
+    check(capture(frames, {{requested}}) == capture(frames, {{plain}}),
+          "A gradient custom shape must fall back to the same gradient in the built-in shape");
+
+    CpuRenderer renderer;
+    std::vector<std::uint8_t> pixels(8 * 8 * 4);
+    renderer.set_target({{8, 8}, pixels});
+    check(renderer.submit({1, {8, 8}, 1}, {{requested, plain, requested}}).empty() &&
+              renderer.custom_shape_fallbacks() == 2 && renderer.procedural_fallbacks() == 0,
+          "Every custom shape request must be reported as a CPU fallback");
+    requested.procedural = ProceduralFill{"example.wave"};
+    check(has(renderer.submit({2, {8, 8}, 1}, {{requested}}), "unsupported_combination", "/commands/0/custom_shape") &&
+              renderer.custom_shape_fallbacks() == 2,
+          "Rejected submissions must keep the last successful fallback count");
+}
+
 void linear_gradients() {
     CpuFrameCapture frames;
     DrawRect rect{{{0, 0}, {8, 8}}, {}, 3, LinearGradient{{.25f, 0}, {.75f, 0}, {1, 0, 0, 0}, {0, 0, 1, 1}}};
@@ -670,6 +696,7 @@ int main() {
         strokes();
         analytic_fills();
         procedural_fallbacks();
+        custom_shape_fallbacks();
         linear_gradients();
         multi_stop_gradients();
         radial_gradients();

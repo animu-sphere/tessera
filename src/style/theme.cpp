@@ -85,6 +85,7 @@ Assignment assign(StyleDeclarations& d, std::string_view property, const ThemeVa
     FIELD("background_antialias", background_antialias)
     FIELD("background_procedural", background_procedural)
     FIELD("transition", transition)
+    FIELD("background_custom_shape", background_custom_shape)
     FIELD("border_color", border_color)
     FIELD("corner_radius", corner_radius)
     FIELD("text/font", text.font)
@@ -98,7 +99,7 @@ Assignment assign(StyleDeclarations& d, std::string_view property, const ThemeVa
 void value_check(const ThemeValue& value, const std::string& path, std::vector<Diagnostic>& errors) {
     // Float tokens permit zero and +infinity, with the destination's stricter
     // constraints checked on binding. Other types use their ordinary rules.
-    constexpr std::array<std::string_view, 24> representative{"max_width",
+    constexpr std::array<std::string_view, 25> representative{"max_width",
                                                               "background",
                                                               "width",
                                                               "padding",
@@ -121,7 +122,8 @@ void value_check(const ThemeValue& value, const std::string& path, std::vector<D
                                                               "flex_wrap",
                                                               "z_index",
                                                               "background_procedural",
-                                                              "transition"};
+                                                              "transition",
+                                                              "background_custom_shape"};
     static_assert(representative.size() == std::variant_size_v<ThemeValue>);
     StyleDeclarations d;
     const auto field = representative[value.index()];

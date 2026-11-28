@@ -8,8 +8,7 @@
 // multiplied by coverage and ProceduralFill::opacity and blended source-over like solid fills.
 #include "primitive_common.slang"
 
-// Parameters share the frame's fill-data buffer; each typed value occupies one float4 slot.
-[[vk::binding(0, 1)]] StructuredBuffer<float4> tesseraProceduralParameters;
+// Parameters share the frame's fill-data buffer (tesseraFillData); each typed value occupies one float4 slot.
 
 struct ProceduralInput {
     float2 position;
@@ -20,7 +19,7 @@ struct ProceduralInput {
     uint parameterCount;
     // Number: (v, 0, 0, 0). Point: (x, y, 0, 0). Color: linear RGB, straight alpha. Out of range: 0.
     float4 parameter(uint index) {
-        return index < parameterCount ? tesseraProceduralParameters[parameterBase + index] : float4(0);
+        return index < parameterCount ? tesseraFillData[parameterBase + index] : float4(0);
     }
 };
 

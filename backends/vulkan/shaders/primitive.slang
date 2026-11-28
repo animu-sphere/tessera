@@ -2,11 +2,6 @@
 
 [[vk::binding(0, 0)]] Texture2D<float4> image;
 [[vk::binding(1, 0)]] SamplerState imageSampler;
-struct GradientStopData {
-    float4 color; // Premultiplied linear-light color.
-    float4 position;
-};
-[[vk::binding(0, 1)]] StructuredBuffer<GradientStopData> gradientStops;
 
 [shader("vertex")]
 VertexOutput vertexMain(uint id : SV_VulkanVertexID) { return makeVertex(id, primitive); }
@@ -98,29 +93,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     }
     float coverage = fillCoverage(input);
     if (input.params.y >= 5 && input.params.y <= 8) {
-        float2 uv = input.local / input.rect.zw;
-        // Clamping each distance component first preserves saturated length without overflow.
-        float t = input.params.y >= 7
-            ? saturate(length(clamp((uv - input.source.xy) * input.source.zw, -1.0, 1.0)))
-            : saturate(dot(uv, input.source.xy) + input.source.z);
-        float4 color;
-        if (input.params.y == 5 || input.params.y == 7) {
-            color = lerp(input.color, input.widths, t);
-        } else {
-            uint first = uint(input.widths.x), end = first + uint(input.widths.y);
-            uint low = first, high = end;
-            while (low < high) {
-                uint middle = low + (high - low) / 2;
-                if (gradientStops[middle].position.x <= t) low = middle + 1;
-                else high = middle;
-            }
-            if (low == first) color = gradientStops[first].color;
-            else if (low == end) color = gradientStops[end - 1].color;
-            else {
-                GradientStopData a = gradientStops[low - 1], b = gradientStops[low];
-                color = lerp(a.color, b.color, (t - a.position.x) / (b.position.x - a.position.x));
-            }
-        }
+        float t = gradientParameter(input.local / input.rect.zw, input.source, input.params.y >= 7);
+        float4 color = input.params.y == 5 || input.params.y == 7
+            ? lerp(input.color, input.widths, t)
+            : gradientStops(uint(input.widths.x), uint(input.widths.y), t);
         return float4(color.a > 0 ? color.rgb / color.a : float3(0,0,0), color.a * coverage);
     }
     if (input.params.y == 1) {

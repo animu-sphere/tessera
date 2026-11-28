@@ -5,6 +5,7 @@
 #include <tessera/style/fill_shape.hpp>
 #include <tessera/style/gradient.hpp>
 #include <tessera/style/outline.hpp>
+#include <tessera/style/custom_shape.hpp>
 #include <tessera/style/procedural_fill.hpp>
 #include <tessera/style/shadow.hpp>
 #include <tessera/style/transition.hpp>
@@ -124,6 +125,11 @@ struct ResolvedStyle {
     // Requests a procedural fill inside the background shape; background/background_gradient
     // remain the fallback a backend draws when it lacks the shader. Not inherited.
     std::optional<ProceduralFill> background_procedural;
+    // Requests a backend-registered signed-distance shape for the background; background_shape and
+    // corner_radius remain the fallback a backend draws when it lacks the shader. Cannot be combined
+    // with background_procedural. Borders, shadows, outlines, layout and input stay rectangular.
+    // Not inherited.
+    std::optional<CustomShape> background_custom_shape;
     // How a presentation eases this node's paint-only fields toward it; consumed by StyleTransitions,
     // never by layout or paint. Not inherited.
     std::optional<Transition> transition;
