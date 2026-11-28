@@ -34,7 +34,7 @@ tessera_add_contract_test(z_index tests/layout/z_index_tests.cpp)
 tessera_add_contract_test(document tests/serialization/document_tests.cpp)
 target_compile_definitions(tessera_document_tests PRIVATE
     TESSERA_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/serialization/fixtures")
-foreach(contract IN ITEMS reactive/reactive ui/keyed ui/bindings ui/component ui/component_mount ui/component_tree_mount ui/component_cleanup ui/component_effect ui/component_async ui/component_event ui/component_style ui/component_invocation ui/component_source ui/source_diagnostic ui/async ui/async_allocation ui/property_metadata style/style_sheet style/theme layout/layout_contract layout/layout text/text text/text_caret text/glyph_cache input/event input/text_edit input/pointer input/focus input/scroll commands/commands commands/transactions commands/gestures commands/shortcuts render/draw_list render/paint render/glyph_atlas render/cpu_renderer replay/replay replay/replay_serialization replay/replay_host semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/capabilities inspection/invariants inspection/offscreen_runner)
+foreach(contract IN ITEMS reactive/reactive ui/keyed ui/bindings ui/component ui/component_mount ui/component_tree_mount ui/component_cleanup ui/component_effect ui/component_async ui/component_event ui/component_style ui/component_invocation ui/component_source ui/source_diagnostic ui/async ui/async_allocation ui/property_metadata style/style_sheet style/theme layout/layout_contract layout/layout text/text text/text_caret text/glyph_cache input/event input/text_edit input/pointer input/focus input/scroll commands/commands commands/transactions commands/gestures commands/shortcuts render/draw_list render/paint render/glyph_atlas render/cpu_renderer replay/replay replay/replay_serialization replay/replay_host semantics/semantics semantics/semantic_snapshot inspection/inspection inspection/capabilities inspection/semantic_diff inspection/invariants inspection/offscreen_runner)
     get_filename_component(name ${contract} NAME)
     tessera_add_contract_test(${name} tests/${contract}_tests.cpp)
 endforeach()
@@ -75,7 +75,13 @@ if(TESSERA_BUILD_TOOLS)
         ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle
         --out ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-diff.json)
     set_tests_properties(snapshot_cli PROPERTIES FIXTURES_SETUP snapshot_cli_bundle)
-    set_tests_properties(snapshot_cli_verify snapshot_cli_diff PROPERTIES FIXTURES_REQUIRED snapshot_cli_bundle)
+    # semantic-diff of a generation's Semantic JSON with itself must exit 0 (equal).
+    tessera_add_check(snapshot_cli_semantic_diff tessera_snapshot_cli contract semantic-diff
+        ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle/g0/semantics.json
+        ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-bundle/g0/semantics.json
+        --out ${CMAKE_CURRENT_BINARY_DIR}/snapshot-cli-semantic-diff.json)
+    set_tests_properties(snapshot_cli_verify snapshot_cli_diff snapshot_cli_semantic_diff
+        PROPERTIES FIXTURES_REQUIRED snapshot_cli_bundle)
 endif()
 if(TESSERA_BUILD_EXAMPLES)
     tessera_add_check(first_app tessera_first_app smoke)
@@ -109,6 +115,8 @@ if(TESSERA_BUILD_EXAMPLES)
             --snapshot ${scenario} ${CMAKE_CURRENT_BINARY_DIR}/inspector-snapshots/${scenario})
         tessera_add_check(inspector_hierarchy_capabilities.${scenario} tessera_inspector_hierarchy smoke
             --capabilities ${scenario} ${CMAKE_CURRENT_BINARY_DIR}/inspector-capabilities/${scenario}.json)
+        tessera_add_check(inspector_hierarchy_semantic_diff.${scenario} tessera_inspector_hierarchy smoke
+            --semantic-diff ${scenario} ${CMAKE_CURRENT_BINARY_DIR}/inspector-semantic-diff/${scenario}.json)
     endforeach()
     tessera_add_check(popup_tooltip tessera_popup_tooltip smoke)
     tessera_add_check(modal_dialog tessera_modal_dialog smoke)

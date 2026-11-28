@@ -9,6 +9,7 @@
 #include <tessera/input/split_pane.hpp>
 #include <tessera/input/text_pointer.hpp>
 #include <tessera/inspection/capabilities.hpp>
+#include <tessera/inspection/semantic_diff.hpp>
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/render/cpu_renderer.hpp>
@@ -4795,7 +4796,7 @@ constexpr SnapshotScenario snapshot_scenarios[] = {
 std::string snapshot_usage() {
     std::string usage =
         "Usage: tessera_inspector_hierarchy [--native | --native-smoke | --snapshot <scenario> <directory> |\n"
-        "                                    --capabilities <scenario> <file>]\n"
+        "                                    --capabilities <scenario> <file> | --semantic-diff <scenario> <file>]\n"
         "Snapshot scenarios:\n";
     for (const auto& scenario : snapshot_scenarios)
         usage += "  " + std::string(scenario.name) + ": " + std::string(scenario.summary) + "\n";
@@ -4871,28 +4872,57 @@ const CapabilityDeclaration snapshot_operations[] = {
      .result = "tessera-snapshot-diff/1"},
 };
 
+// The accepted view's semantics in the Inspector's command generation, with host focus.
+SemanticSnapshot accepted_semantics(App& app) {
+    const auto& view = app.view;
+    const auto focused = take(app.focus.refresh(view.hit())).focused;
+    return take(capture_semantics({view.tree.get(), view.styles, &view.layout, focused}, view.commands.generation()));
+}
+
+void write_file(const std::string& file, const std::string& contents, std::string_view what) {
+    const auto parent = std::filesystem::path(file).parent_path();
+    if (!parent.empty()) std::filesystem::create_directories(parent);
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    out << contents;
+    out.close();
+    require(static_cast<bool>(out), ("Could not write the " + std::string(what)).c_str());
+}
+
 int capabilities(std::string_view name, const std::string& file) {
     const auto* scenario = find_scenario(name);
     if (!scenario) return 2;
     App app;
     SnapshotRecorder recorder(app);
     scenario->run(app, recorder);
-    const auto& view = app.view;
-    const auto focused = take(app.focus.refresh(view.hit())).focused;
-    const auto semantics =
-        take(capture_semantics({view.tree.get(), view.styles, &view.layout, focused}, view.commands.generation()));
-    const auto manifest =
-        take(capture_capabilities({"tessera_inspector_hierarchy", &view.commands, &semantics, snapshot_operations}));
-    const auto json = take(save_capabilities(manifest));
-    const auto parent = std::filesystem::path(file).parent_path();
-    if (!parent.empty()) std::filesystem::create_directories(parent);
-    std::ofstream out(file, std::ios::binary | std::ios::trunc);
-    out << json;
-    out.close();
-    require(static_cast<bool>(out), "Could not write the capability manifest");
+    const auto semantics = accepted_semantics(app);
+    const auto manifest = take(
+        capture_capabilities({"tessera_inspector_hierarchy", &app.view.commands, &semantics, snapshot_operations}));
+    write_file(file, take(save_capabilities(manifest)), "capability manifest");
     std::cout << "Inspector capabilities for '" << scenario->name << "' written to " << file << ": "
               << manifest.commands().size() << " commands, " << manifest.targets().size() << " targets, generation "
               << manifest.generation() << ".\n";
+    return 0;
+}
+
+// What a scenario changed in meaning: the launch state against the scenario's final generation.
+int semantic_diff(std::string_view name, const std::string& file) {
+    const auto* scenario = find_scenario(name);
+    if (!scenario) return 2;
+    App app;
+    SnapshotRecorder recorder(app);
+    const auto before = accepted_semantics(app);
+    scenario->run(app, recorder);
+    const auto after = accepted_semantics(app);
+    const auto diff = take(diff_semantics(before, after));
+    write_file(file, take(save_semantic_diff(diff)), "semantic diff");
+    std::cout << "Inspector semantic diff for '" << scenario->name << "' written to " << file << ": generation "
+              << diff.from_generation() << " -> " << diff.to_generation() << ", " << diff.changes().size()
+              << " changes.\n";
+    for (const auto& change : diff.changes()) {
+        std::cout << "  " << semantic_change_name(change.kind);
+        if (change.target && change.target->id) std::cout << " #" << *change.target->id;
+        std::cout << '\n';
+    }
     return 0;
 }
 
@@ -5361,6 +5391,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 4 && std::string_view(argv[1]) == "--snapshot") return snapshot(argv[2], argv[3]);
         if (argc == 4 && std::string_view(argv[1]) == "--capabilities") return capabilities(argv[2], argv[3]);
+        if (argc == 4 && std::string_view(argv[1]) == "--semantic-diff") return semantic_diff(argv[2], argv[3]);
         require(argc == 2 && (std::string_view(argv[1]) == "--native" || std::string_view(argv[1]) == "--native-smoke"),
                 snapshot_usage().c_str());
 #ifdef _WIN32
