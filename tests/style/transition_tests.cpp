@@ -132,6 +132,38 @@ void interpolation_and_retargeting() {
           "Clearing forgets nodes and the previous time, so the next generation snaps");
 }
 
+void layer_composition() {
+    const auto ui = tree();
+    const Transition fade{{.opacity = true}, 1, Easing::linear};
+    auto resting = styles_for(*ui, white, fade);
+    auto dimmed = resting;
+    dimmed[1].opacity = .4f;
+    dimmed[1].composition = Composition::layer;
+    StyleTransitions transitions;
+    check(transitions.update(*ui, resting, 0).empty() && transitions.update(*ui, dimmed, 0).empty(),
+          "Dimming a group is accepted");
+    auto shown = transitions.present(.5);
+    check(near(shown[1].opacity, .7f) && shown[1].composition == Composition::layer,
+          "A group fading out composes as a layer from the start");
+    check(transitions.update(*ui, resting, .5).empty(), "Restoring the group is accepted");
+    shown = transitions.present(1);
+    check(near(shown[1].opacity, .85f) && shown[1].composition == Composition::layer,
+          "A group fading back keeps composing as a layer until opacity settles");
+    auto unrelated = resting;
+    unrelated[2].color = blue;
+    check(transitions.update(*ui, unrelated, 1).empty() && transitions.present(1.2)[1].composition == Composition::layer,
+          "The layer persists through unrelated generations while opacity eases");
+    check(transitions.present(1.5)[1] == unrelated[1], "Settled opacity presents the target composition");
+    auto recolored = resting;
+    recolored[1].composition = Composition::layer;
+    recolored[1].transition = Transition{{.background = true}, 1, Easing::linear};
+    recolored[1].background = blue;
+    StyleTransitions other;
+    check(other.update(*ui, recolored, 0).empty() && other.update(*ui, resting, 0).empty() &&
+              other.present(.5)[1].composition == Composition::direct,
+          "Only an easing opacity holds a layer");
+}
+
 void snapping_rules() {
     const auto ui = tree();
     StyleTransitions transitions;
@@ -294,6 +326,7 @@ void diagnostics_and_resolution() {
 
 int main() {
     try {
+        layer_composition();
         easing_curves();
         interpolation_and_retargeting();
         snapping_rules();

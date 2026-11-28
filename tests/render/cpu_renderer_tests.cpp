@@ -523,6 +523,66 @@ void inset_shadows() {
           "Inset shadows must blend over the fill in linear light while preserving its unaffected center");
 }
 
+void layers() {
+    CpuFrameCapture frames;
+    using Bytes = std::array<std::uint8_t, 4>;
+    const DrawRect white{{{0, 0}, {8, 8}}, {1, 1, 1, 1}};
+    const DrawRect red{{{0, 0}, {6, 8}}, {1, 0, 0, 1}}, blue{{{2, 0}, {6, 8}}, {0, 0, 1, 1}};
+    auto group = capture(frames, {{white, PushLayer{.5f}, red, blue, PopLayer{}}});
+    check(pixel(group, 3, 3) == Bytes{188, 188, 255, 255} && pixel(group, 0, 3) == Bytes{255, 188, 188, 255} &&
+              pixel(group, 7, 3) == Bytes{188, 188, 255, 255},
+          "Overlapping layer content must fade as one group in linear light");
+    auto faded_red = red, faded_blue = blue;
+    faded_red.color.a = faded_blue.color.a = .5f;
+    const auto direct = capture(frames, {{white, faded_red, faded_blue}});
+    check(pixel(direct, 3, 3) != pixel(group, 3, 3) && pixel(direct, 0, 3) == pixel(group, 0, 3),
+          "Per-command alpha shows the overlap a layer hides");
+    // A one-command layer composes exactly like that command at the layer's opacity.
+    for (const auto& base : {UiDrawList{}, UiDrawList{{white}}}) {
+        auto layered = base, flat = base;
+        layered.commands.insert(layered.commands.end(), {PushLayer{.5f}, blue, PopLayer{}});
+        flat.commands.push_back(faded_blue);
+        check(capture(frames, layered) == capture(frames, flat), "A single-command layer differs from direct alpha");
+    }
+    // Content may leave the layer only through the clip in effect at PushLayer.
+    const auto clipped = capture(frames, {{PushClip{{{0, 0}, {4.4f, 8}}}, PushLayer{}, DrawRect{{{0, 0}, {8, 8}}, {1, 0, 0, 1}},
+                                PopLayer{}, PopClip{}, DrawRect{{{6, 0}, {2, 8}}, {0, 1, 0, 1}}}});
+    check(pixel(clipped, 3, 0) == Bytes{255, 0, 0, 255} && pixel(clipped, 4, 0)[3] == 0 &&
+              pixel(clipped, 6, 0) == Bytes{0, 255, 0, 255},
+          "A layer surface covers only its clip and restores later drawing");
+    // Nested layers compose inner into outer, each once.
+    const auto nested = capture(frames, {{PushLayer{.5f}, PushLayer{.5f}, blue, PopLayer{}, PopLayer{}}});
+    auto quarter = blue;
+    quarter.color.a = .25f;
+    const auto expected = capture(frames, {{quarter}});
+    for (unsigned c = 0; c < 4; ++c)
+        check(std::abs(int(pixel(nested, 4, 4)[c]) - int(pixel(expected, 4, 4)[c])) <= 1,
+              "Nested layer opacities must multiply within one quantization step");
+    // Layer content keeps its own transforms, rotation and fractional-scale coverage.
+    const UiDrawList rotated{{white, PushLayer{.75f}, PushTransform{{0.8f, 0.6f, -0.6f, 0.8f, 4, 1}},
+                              DrawRect{{{0, 0}, {3, 3}}, {0, 0, 1, 1}, 0, {}, FillShape::rectangle, true},
+                              PopTransform{}, PopLayer{}}};
+    UiDrawList flat_rotated = rotated;
+    flat_rotated.commands.erase(flat_rotated.commands.begin() + 1);
+    flat_rotated.commands.pop_back();
+    std::get<DrawRect>(flat_rotated.commands[2]).color.a = .75f;
+    const auto a = capture(frames, rotated, {8, 8}, 1.25f), b = capture(frames, flat_rotated, {8, 8}, 1.25f);
+    int worst = 0;
+    for (std::size_t i = 0; i < a.pixels.size(); ++i) worst = std::max(worst, std::abs(int(a.pixels[i]) - b.pixels[i]));
+    check(worst <= 1 && a != capture(frames, {{white}}, {8, 8}, 1.25f),
+          "A transformed smooth fill in a layer must match direct alpha within one step");
+    CpuRenderer renderer;
+    std::vector<std::uint8_t> bytes(8 * 8 * 4);
+    renderer.set_target({{8, 8}, bytes});
+    check(renderer.submit({1, {8, 8}, 1}, {{PushLayer{}, PushLayer{}, PopLayer{}, PopLayer{}, PushLayer{}, PopLayer{}}})
+                  .empty() &&
+              renderer.layers() == 3,
+          "The CPU renderer counts composed layers");
+    check(has(renderer.submit({2, {8, 8}, 1}, {{PushLayer{2}, PopLayer{}}}), "out_of_range", "/commands/0/opacity") &&
+              renderer.layers() == 3,
+          "Rejected layer lists change nothing");
+}
+
 void images_and_lifetime() {
     CpuFrameCapture frames;
     std::vector<std::uint8_t> texels{0, 0, 0, 255, 255, 255, 255, 255};
@@ -692,6 +752,7 @@ void glyphs_and_runner() {
 }
 int main() {
     try {
+        layers();
         pixels_and_geometry();
         strokes();
         analytic_fills();

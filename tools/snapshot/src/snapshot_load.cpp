@@ -303,7 +303,8 @@ struct Loader {
         const auto* kinds = at(o, "kinds");
         if (const auto* k = c.object(kinds, p + "/kinds",
                                      {"rect", "border", "image", "glyph_run", "push_clip", "pop_clip", "push_transform",
-                                      "pop_transform", "shadow", "stroke"})) {
+                                      "pop_transform", "shadow", "stroke"},
+                                     {"push_layer", "pop_layer"})) {
             std::uint64_t sum = 0;
             bool complete = true;
             for (const auto kind : paint_kinds) {
@@ -311,6 +312,8 @@ struct Loader {
                 complete = complete && count;
                 sum += count.value_or(0);
             }
+            for (const auto kind : {"push_layer", "pop_layer"})
+                if (k->contains(kind)) sum += c.integer(at(k, kind), p + "/kinds/" + kind).value_or(0);
             if (complete && commands && sum != *commands)
                 c.fail(p + "/kinds", "Command kinds do not add up to the command count.");
         }

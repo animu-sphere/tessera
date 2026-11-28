@@ -43,9 +43,12 @@ struct Packet {
     std::uint64_t image = 0;
     bool premultiplied = false;    // Fixed by the image binding, so equal handles agree.
     const void* program = nullptr; // Registered fill or shape whose pipelines draw this packet.
+    std::int32_t layer = -1;       // Closed layer pass whose surface this packet composes.
+    std::array<std::int32_t, 4> box{}; // Conservative pixel bounds (x0, y0, x1, y1) inside the scissor.
 };
 bool compatible(const Packet& a, const Packet& b) {
-    return a.image == b.image && a.program == b.program && a.scissor.offset.x == b.scissor.offset.x &&
+    return a.image == b.image && a.program == b.program && a.layer == b.layer &&
+           a.scissor.offset.x == b.scissor.offset.x &&
            a.scissor.offset.y == b.scissor.offset.y && a.scissor.extent.width == b.scissor.extent.width &&
            a.scissor.extent.height == b.scissor.extent.height;
 }
@@ -60,6 +63,15 @@ std::optional<VkRect2D> scissor(const State& state, VkExtent2D extent) {
     if (right <= left || bottom <= top) return std::nullopt;
     return VkRect2D{{std::int32_t(left), std::int32_t(top)},
                     {std::uint32_t(right - left), std::uint32_t(bottom - top)}};
+}
+// Physical primitive bounds widened by a pixel for fractional rasterization, inside the scissor.
+std::array<std::int32_t, 4> pixel_box(const std::array<double, 4>& bounds, const VkRect2D& scissor) {
+    const double x0 = scissor.offset.x, y0 = scissor.offset.y;
+    const double x1 = x0 + scissor.extent.width, y1 = y0 + scissor.extent.height;
+    return {std::int32_t(std::clamp(std::floor(bounds[0]) - 1, x0, x1)),
+            std::int32_t(std::clamp(std::floor(bounds[1]) - 1, y0, y1)),
+            std::int32_t(std::clamp(std::ceil(bounds[2]) + 1, x0, x1)),
+            std::int32_t(std::clamp(std::ceil(bounds[3]) + 1, y0, y1))};
 }
 bool representable(double value) {
     return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
@@ -160,11 +172,16 @@ struct VulkanRenderer::Impl {
     VkPipeline solid = VK_NULL_HANDLE, textured = VK_NULL_HANDLE;
     VkPipeline batch_solid = VK_NULL_HANDLE, batch_textured = VK_NULL_HANDLE;
     VkPipeline premultiplied = VK_NULL_HANDLE, batch_premultiplied = VK_NULL_HANDLE;
+    // The same pipelines for layer passes.
+    VkPipeline layer_solid = VK_NULL_HANDLE, layer_textured = VK_NULL_HANDLE, layer_premultiplied = VK_NULL_HANDLE;
+    VkPipeline layer_batch_solid = VK_NULL_HANDLE, layer_batch_textured = VK_NULL_HANDLE,
+               layer_batch_premultiplied = VK_NULL_HANDLE;
     // Retained so procedural fills registered later share the primitive vertex stages.
     VkRenderPass render_pass = VK_NULL_HANDLE;
     VkShaderModule vertex_module = VK_NULL_HANDLE, batch_module = VK_NULL_HANDLE;
     struct Fill {
         VkPipeline pipeline = VK_NULL_HANDLE, batch = VK_NULL_HANDLE;
+        VkPipeline layer_pipeline = VK_NULL_HANDLE, layer_batch = VK_NULL_HANDLE; // For layer passes.
         std::vector<ProceduralValueKind> kinds;
         std::uint64_t last_use = 0;
     };
@@ -199,17 +216,123 @@ struct VulkanRenderer::Impl {
     std::map<std::uint64_t, std::unique_ptr<Upload>> uploads;
     std::unique_ptr<Upload> empty_gradients;
     VulkanSubmissionStats stats;
+    // Layer surfaces: linear half-float premultiplied color, quantized only when the main pass composes them.
+    static constexpr VkFormat layer_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    bool layer_support = false; // The format can be sampled and blended as an optimal-tiling attachment.
+    VkRenderPass layer_pass = VK_NULL_HANDLE;
+    VkSampler layer_sampler = VK_NULL_HANDLE;
+    VkDescriptorPool layer_pool = VK_NULL_HANDLE;
+    struct Surface {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        VkExtent2D extent{};
+        std::uint64_t last_use = 0;
+    };
+    std::vector<Surface> surfaces;
+
+    void destroy(Surface& surface) {
+        if (surface.set) vkFreeDescriptorSets(device, layer_pool, 1, &surface.set);
+        if (surface.framebuffer) vkDestroyFramebuffer(device, surface.framebuffer, nullptr);
+        if (surface.view) vkDestroyImageView(device, surface.view, nullptr);
+        if (surface.image) vkDestroyImage(device, surface.image, nullptr);
+        if (surface.memory) vkFreeMemory(device, surface.memory, nullptr);
+        surface = {};
+    }
+    // Device-local memory when available, otherwise any compatible type.
+    std::uint32_t memory_type(std::uint32_t bits, VkMemoryPropertyFlags preferred) const {
+        for (std::uint32_t i = 0; i < memory.memoryTypeCount; ++i)
+            if ((bits & (1u << i)) && (memory.memoryTypes[i].propertyFlags & preferred) == preferred) return i;
+        for (std::uint32_t i = 0; i < memory.memoryTypeCount; ++i)
+            if (bits & (1u << i)) return i;
+        throw std::runtime_error("No memory type for a layer surface.");
+    }
+    // Leaves `surface` empty when any step fails.
+    void create(Surface& surface, VkExtent2D size) {
+        try {
+            VkImageCreateInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            info.imageType = VK_IMAGE_TYPE_2D;
+            info.format = layer_format;
+            info.extent = {size.width, size.height, 1};
+            info.mipLevels = info.arrayLayers = 1;
+            info.samples = VK_SAMPLE_COUNT_1_BIT;
+            info.tiling = VK_IMAGE_TILING_OPTIMAL;
+            info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            require(vkCreateImage(device, &info, nullptr, &surface.image), "vkCreateImage");
+            VkMemoryRequirements requirements;
+            vkGetImageMemoryRequirements(device, surface.image, &requirements);
+            VkMemoryAllocateInfo allocation{};
+            allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocation.allocationSize = requirements.size;
+            allocation.memoryTypeIndex = memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            require(vkAllocateMemory(device, &allocation, nullptr, &surface.memory), "vkAllocateMemory");
+            require(vkBindImageMemory(device, surface.image, surface.memory, 0), "vkBindImageMemory");
+            VkImageViewCreateInfo view{};
+            view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            view.image = surface.image;
+            view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            view.format = layer_format;
+            view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            require(vkCreateImageView(device, &view, nullptr, &surface.view), "vkCreateImageView");
+            VkFramebufferCreateInfo framebuffer{};
+            framebuffer.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebuffer.renderPass = layer_pass;
+            framebuffer.attachmentCount = 1;
+            framebuffer.pAttachments = &surface.view;
+            framebuffer.width = size.width;
+            framebuffer.height = size.height;
+            framebuffer.layers = 1;
+            require(vkCreateFramebuffer(device, &framebuffer, nullptr, &surface.framebuffer), "vkCreateFramebuffer");
+            VkDescriptorSetAllocateInfo sets{};
+            sets.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            sets.descriptorPool = layer_pool;
+            sets.descriptorSetCount = 1;
+            sets.pSetLayouts = &image_layout;
+            require(vkAllocateDescriptorSets(device, &sets, &surface.set), "vkAllocateDescriptorSets");
+            const VkDescriptorImageInfo image{VK_NULL_HANDLE, surface.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            const VkDescriptorImageInfo sampling{layer_sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+            VkWriteDescriptorSet writes[2]{};
+            for (auto& write : writes) {
+                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet = surface.set;
+                write.descriptorCount = 1;
+            }
+            writes[0].dstBinding = 0;
+            writes[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            writes[0].pImageInfo = &image;
+            writes[1].dstBinding = 1;
+            writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+            writes[1].pImageInfo = &sampling;
+            vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+            surface.extent = size;
+            surface.last_use = 0;
+        } catch (...) {
+            destroy(surface);
+            throw;
+        }
+    }
 
     void destroy(Fill& fill) {
-        if (fill.batch) vkDestroyPipeline(device, fill.batch, nullptr);
-        if (fill.pipeline) vkDestroyPipeline(device, fill.pipeline, nullptr);
-        fill.batch = fill.pipeline = VK_NULL_HANDLE;
+        for (auto* pipeline : {&fill.batch, &fill.pipeline, &fill.layer_batch, &fill.layer_pipeline}) {
+            if (*pipeline) vkDestroyPipeline(device, *pipeline, nullptr);
+            *pipeline = VK_NULL_HANDLE;
+        }
     }
     ~Impl() {
+        for (auto& surface : surfaces) destroy(surface);
+        if (layer_pool) vkDestroyDescriptorPool(device, layer_pool, nullptr);
+        if (layer_sampler) vkDestroySampler(device, layer_sampler, nullptr);
+        if (layer_pass) vkDestroyRenderPass(device, layer_pass, nullptr);
         for (auto* programs : {&fills, &shapes})
             for (auto& entry : *programs) destroy(entry.second);
         if (batch_module) vkDestroyShaderModule(device, batch_module, nullptr);
         if (vertex_module) vkDestroyShaderModule(device, vertex_module, nullptr);
+        for (auto pipeline : {layer_solid, layer_textured, layer_premultiplied, layer_batch_solid, layer_batch_textured,
+                              layer_batch_premultiplied})
+            if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
         if (batch_premultiplied) vkDestroyPipeline(device, batch_premultiplied, nullptr);
         if (premultiplied) vkDestroyPipeline(device, premultiplied, nullptr);
         if (batch_textured) vkDestroyPipeline(device, batch_textured, nullptr);
@@ -407,11 +530,15 @@ struct VulkanRenderer::Impl {
         if (found == programs.end() && programs.size() == limit)
             check.error(profile.limit_code, "/shader", profile.limit_message);
         if (!errors.empty()) return errors;
-        Fill created{VK_NULL_HANDLE, VK_NULL_HANDLE, {parameters.begin(), parameters.end()}, 0};
+        Fill created;
+        created.kinds = {parameters.begin(), parameters.end()};
         const auto module = shader(code);
         try {
             created.pipeline = pipeline(render_pass, vertex_module, module, profile.entry);
             if (batch_module) created.batch = pipeline(render_pass, batch_module, module, profile.entry, true);
+            created.layer_pipeline = pipeline(layer_pass, vertex_module, module, profile.entry);
+            if (batch_module)
+                created.layer_batch = pipeline(layer_pass, batch_module, module, profile.entry, true);
         } catch (...) {
             destroy(created);
             vkDestroyShaderModule(device, module, nullptr);
@@ -487,6 +614,46 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
     require(vkCreatePipelineLayout(p.device, &layout, nullptr, &p.layout), "vkCreatePipelineLayout");
     // The solid fragment shader statically declares the stop buffer even for nongradient draws.
     p.empty_gradients = p.upload({}, {GradientStopData{}}, false);
+    // Layer surfaces have their own render pass, which clears the surface and leaves it shader-readable for the
+    // pass that composes it, so layer passes draw with their own copies of the primitive pipelines.
+    VkFormatProperties format_properties;
+    vkGetPhysicalDeviceFormatProperties(context.physical_device, Impl::layer_format, &format_properties);
+    constexpr VkFormatFeatureFlags layer_features = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+                                                    VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
+                                                    VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    p.layer_support = (format_properties.optimalTilingFeatures & layer_features) == layer_features;
+    VkAttachmentDescription attachment{};
+    attachment.format = Impl::layer_format;
+    attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    const VkAttachmentReference reference{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &reference;
+    const VkSubpassDependency dependencies[2]{
+        // Earlier sampling of a reused surface, and earlier layer passes, finish before this pass writes.
+        {VK_SUBPASS_EXTERNAL, 0,
+         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+         VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0},
+        // Later passes, including the host's main pass, sample the finished surface.
+        {0, VK_SUBPASS_EXTERNAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, 0}};
+    VkRenderPassCreateInfo pass_info{};
+    pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    pass_info.attachmentCount = 1;
+    pass_info.pAttachments = &attachment;
+    pass_info.subpassCount = 1;
+    pass_info.pSubpasses = &subpass;
+    pass_info.dependencyCount = 2;
+    pass_info.pDependencies = dependencies;
+    require(vkCreateRenderPass(p.device, &pass_info, nullptr, &p.layer_pass), "vkCreateRenderPass");
     // Clean up shader modules even when a later pipeline creation fails.
     VkShaderModule vertex = VK_NULL_HANDLE, fragment = VK_NULL_HANDLE, image = VK_NULL_HANDLE, batch = VK_NULL_HANDLE;
     try {
@@ -502,6 +669,14 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
             p.batch_textured = p.pipeline(context.render_pass, batch, image, "imageMain", true);
             p.batch_premultiplied = p.pipeline(context.render_pass, batch, image, "imageMain", true, true);
         }
+        p.layer_solid = p.pipeline(p.layer_pass, vertex, fragment, "fragmentMain");
+        p.layer_textured = p.pipeline(p.layer_pass, vertex, image, "imageMain");
+        p.layer_premultiplied = p.pipeline(p.layer_pass, vertex, image, "imageMain", false, true);
+        if (batch) {
+            p.layer_batch_solid = p.pipeline(p.layer_pass, batch, fragment, "fragmentMain", true);
+            p.layer_batch_textured = p.pipeline(p.layer_pass, batch, image, "imageMain", true);
+            p.layer_batch_premultiplied = p.pipeline(p.layer_pass, batch, image, "imageMain", true, true);
+        }
     } catch (...) {
         if (vertex) vkDestroyShaderModule(p.device, vertex, nullptr);
         if (fragment) vkDestroyShaderModule(p.device, fragment, nullptr);
@@ -514,6 +689,17 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
     p.render_pass = context.render_pass;
     p.vertex_module = vertex;
     p.batch_module = batch;
+    VkSamplerCreateInfo sampler{};
+    sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler.magFilter = sampler.minFilter = VK_FILTER_NEAREST;
+    sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    require(vkCreateSampler(p.device, &sampler, nullptr, &p.layer_sampler), "vkCreateSampler");
+    const VkDescriptorPoolSize layer_sizes[]{{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, std::uint32_t(max_vulkan_layers)},
+                                             {VK_DESCRIPTOR_TYPE_SAMPLER, std::uint32_t(max_vulkan_layers)}};
+    pool.maxSets = std::uint32_t(max_vulkan_layers);
+    pool.pPoolSizes = layer_sizes;
+    require(vkCreateDescriptorPool(p.device, &pool, nullptr, &p.layer_pool), "vkCreateDescriptorPool");
 }
 VulkanRenderer::~VulkanRenderer() = default;
 void VulkanRenderer::set_target(VulkanTarget target) { impl_->target = target; }
@@ -617,10 +803,30 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         std::ceil(double(frame.logical_size.height) * frame.device_scale) != extent.height)
         errors.push_back(error("extent_mismatch", "/target/extent",
                                "Framebuffer extent must equal ceil(logical_size * device_scale)."));
+    const auto layer_count = std::size_t(std::count_if(list.commands.begin(), list.commands.end(), [](const auto& c) {
+        return std::holds_alternative<PushLayer>(c);
+    }));
+    if (layer_count && !p.target.layers)
+        errors.push_back(error("invalid_target", "/target/layers",
+                               "Lists with layers need a command buffer recording outside any render pass."));
+    if (layer_count && !p.layer_support)
+        errors.push_back(error("unsupported_command", "/commands",
+                               "The device cannot render, blend and sample half-float layer surfaces."));
+    if (layer_count > max_vulkan_layers)
+        errors.push_back(error("layer_limit", "/commands", "Use at most 16 layers per submission."));
     if (!errors.empty()) return errors;
     State state{{}, 0, 0, double(extent.width), double(extent.height)};
     std::vector<State> stack;
-    std::vector<Packet> packets;
+    // A render pass's packets: the host's main pass, or a layer recorded into VulkanTarget::layers.
+    struct Pass {
+        std::vector<Packet> packets;
+        std::optional<VkRect2D> clip; // Scissor at PushLayer; the surface and its composition stay inside it.
+        float opacity = 1;
+        VkRect2D area{};          // Pixels the layer's packets can touch.
+        std::size_t surface = 0;  // Assigned Impl::surfaces entry.
+        std::size_t first = 0, end = 0; // Range in the uploaded packet order.
+    };
+    std::vector<Pass> open(1), passes; // open.back() receives packets; closed layers in completion order.
     std::vector<GradientStopData> gradient_stops;
     std::vector<std::uint64_t> referenced_images;
     std::vector<Impl::Fill*> referenced_fills; // Registered fills and shapes.
@@ -645,7 +851,46 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         std::visit(
             [&](const auto& command) {
                 using T = std::decay_t<decltype(command)>;
-                if constexpr (std::is_same_v<T, PushTransform>) {
+                if constexpr (std::is_same_v<T, PushLayer>) {
+                    stack.push_back(state);
+                    Pass pass;
+                    pass.clip = scissor(state, extent);
+                    pass.opacity = command.opacity;
+                    open.push_back(std::move(pass));
+                } else if constexpr (std::is_same_v<T, PopLayer>) {
+                    state = stack.back();
+                    stack.pop_back();
+                    auto pass = std::move(open.back());
+                    open.pop_back();
+                    if (!pass.clip) return;
+                    std::array<std::int32_t, 4> box{std::numeric_limits<std::int32_t>::max(),
+                                                    std::numeric_limits<std::int32_t>::max(),
+                                                    std::numeric_limits<std::int32_t>::min(),
+                                                    std::numeric_limits<std::int32_t>::min()};
+                    for (const auto& packet : pass.packets) {
+                        if (packet.box[2] <= packet.box[0] || packet.box[3] <= packet.box[1]) continue;
+                        box = {std::min(box[0], packet.box[0]), std::min(box[1], packet.box[1]),
+                               std::max(box[2], packet.box[2]), std::max(box[3], packet.box[3])};
+                    }
+                    if (box[2] <= box[0] || box[3] <= box[1]) return; // Nothing visible to compose.
+                    pass.area = {{box[0], box[1]}, {std::uint32_t(box[2] - box[0]), std::uint32_t(box[3] - box[1])}};
+                    // The composition samples surface texel centers at the area's pixel centers, untransformed.
+                    Packet composite;
+                    composite.scissor = *pass.clip;
+                    composite.box = box;
+                    composite.layer = std::int32_t(passes.size());
+                    composite.premultiplied = true;
+                    auto& data = composite.primitive;
+                    const double scale = frame.device_scale;
+                    data.transform0 = {1, 0, 0, frame.device_scale};
+                    data.transform1 = {0, 1, 0, 0};
+                    data.rect = {float(box[0] / scale), float(box[1] / scale), float((box[2] - box[0]) / scale),
+                                 float((box[3] - box[1]) / scale)};
+                    data.color = {1, 1, 1, pass.opacity};
+                    data.params = {0, 4, float(extent.width), float(extent.height)};
+                    passes.push_back(std::move(pass));
+                    open.back().packets.push_back(composite);
+                } else if constexpr (std::is_same_v<T, PushTransform>) {
                     stack.push_back(state);
                     if (!compose(state.transform, command.transform))
                         errors.push_back(error("geometry_overflow", path,
@@ -722,7 +967,8 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                         const auto rows = detail::placeholder_glyph(glyph.id);
                         for (std::size_t row = 0; row < 4; ++row) data.widths[row] = rows[row];
                         for (std::size_t row = 4; row < 7; ++row) data.source[row - 4] = rows[row];
-                        packets.push_back(packet);
+                        packet.box = pixel_box(transformed, packet.scissor);
+                        open.back().packets.push_back(packet);
                     }
                 } else {
                     auto rect = command.rect;
@@ -1049,14 +1295,79 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                             if (!encoded) return;
                         }
                     }
-                    packets.push_back(packet);
+                    packet.box = pixel_box(transformed, packet.scissor);
+                    open.back().packets.push_back(packet);
                 }
             },
             list.commands[i]);
     }
     if (!errors.empty()) return errors;
+    // Layers upload first in completion order, so a nested layer's pass precedes the pass that composes it.
+    std::vector<Packet> packets;
+    for (auto& pass : passes) {
+        pass.first = packets.size();
+        packets.insert(packets.end(), pass.packets.begin(), pass.packets.end());
+        pass.end = packets.size();
+    }
+    const auto main_first = packets.size();
+    packets.insert(packets.end(), open[0].packets.begin(), open[0].packets.end());
     if (packets.size() > std::numeric_limits<std::uint32_t>::max())
         return {error("primitive_limit", "/commands", "Use at most UINT32_MAX emitted primitives per submission.")};
+    // Surfaces of unretired frames stay untouched; retired ones are reused when large enough or replaced.
+    std::size_t available = max_vulkan_layers - p.surfaces.size();
+    for (const auto& surface : p.surfaces) available += surface.last_use <= p.completed;
+    if (passes.size() > available)
+        return {error("layer_limit", "/commands",
+                      "Every layer surface belongs to an unretired frame; retire completed frames first.")};
+    std::vector<bool> taken(p.surfaces.size());
+    for (auto& pass : passes) {
+        // Surfaces share the target's pixel grid from its origin, because shaders reconstruct sample positions
+        // from framebuffer coordinates; only the area is cleared, drawn and composed.
+        const VkExtent2D size{std::uint32_t(pass.area.offset.x) + pass.area.extent.width,
+                              std::uint32_t(pass.area.offset.y) + pass.area.extent.height};
+        std::optional<std::size_t> chosen, spare;
+        for (std::size_t s = 0; s < p.surfaces.size(); ++s) {
+            const auto& surface = p.surfaces[s];
+            if (taken[s] || surface.last_use > p.completed) continue;
+            if (surface.extent.width >= size.width && surface.extent.height >= size.height) {
+                const auto area = [&](std::size_t at) {
+                    return std::uint64_t(p.surfaces[at].extent.width) * p.surfaces[at].extent.height;
+                };
+                if (!chosen || area(s) < area(*chosen)) chosen = s;
+            } else if (!spare) {
+                spare = s;
+            }
+        }
+        if (!chosen) {
+            // Round up so small movements reuse the surface; the area already fits the device limits.
+            const auto rounded = [](std::uint32_t value, std::uint32_t limit) {
+                return std::max(value, std::min((value + 63) / 64 * 64, limit));
+            };
+            const VkExtent2D created{
+                rounded(size.width, std::min(p.limits.maxFramebufferWidth, p.limits.maxImageDimension2D)),
+                rounded(size.height, std::min(p.limits.maxFramebufferHeight, p.limits.maxImageDimension2D))};
+            if (p.surfaces.size() < max_vulkan_layers) {
+                p.surfaces.emplace_back();
+                taken.push_back(false);
+                chosen = p.surfaces.size() - 1;
+            } else {
+                chosen = spare;
+                p.destroy(p.surfaces[*chosen]);
+            }
+            p.create(p.surfaces[*chosen], created);
+        }
+        taken[*chosen] = true;
+        pass.surface = *chosen;
+    }
+    for (auto& packet : packets)
+        if (packet.layer >= 0) {
+            const auto& pass = passes[std::size_t(packet.layer)];
+            const auto& surface = p.surfaces[pass.surface];
+            packet.primitive.source = {float(double(pass.area.offset.x) / surface.extent.width),
+                                       float(double(pass.area.offset.y) / surface.extent.height),
+                                       float(double(pass.area.extent.width) / surface.extent.width),
+                                       float(double(pass.area.extent.height) / surface.extent.height)};
+        }
     const bool batch = p.batch_solid != VK_NULL_HANDLE;
     Impl::Upload* upload = nullptr;
     if (!packets.empty() && (batch || !gradient_stops.empty())) {
@@ -1064,49 +1375,94 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         upload = owned.get();
         p.uploads.emplace(frame.frame, std::move(owned));
     }
-    VulkanSubmissionStats stats{
-        packets.size(),        0, upload ? upload->bytes : 0, procedural_fills, procedural_fallbacks, custom_shapes,
-        custom_shape_fallbacks};
+    VulkanSubmissionStats stats{packets.size(),
+                                0,
+                                upload ? upload->bytes : 0,
+                                procedural_fills,
+                                procedural_fallbacks,
+                                custom_shapes,
+                                custom_shape_fallbacks,
+                                passes.size()};
     // All diagnostics and allocations precede command recording and resource-use changes.
-    const VkViewport viewport{0, 0, float(extent.width), float(extent.height), 0, 1};
-    vkCmdSetViewport(p.target.commands, 0, 1, &viewport);
-    VkPipeline bound = VK_NULL_HANDLE;
-    if (upload && batch) {
-        const VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(p.target.commands, 0, 1, &upload->buffer, &offset);
-    }
-    if (!packets.empty()) {
+    // Records packets [first, end) into a pass on the target's pixel grid, with scissors clamped to `area`.
+    const auto record = [&](VkCommandBuffer commands, std::size_t begin, std::size_t finish, VkRect2D area,
+                            bool layer_pass) {
+        const VkViewport viewport{0, 0, float(extent.width), float(extent.height), 0, 1};
+        vkCmdSetViewport(commands, 0, 1, &viewport);
+        if (begin == finish) return;
+        if (upload && batch) {
+            const VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(commands, 0, 1, &upload->buffer, &offset);
+        }
         const auto gradients = upload && upload->gradients ? upload->gradients : p.empty_gradients->gradients;
-        vkCmdBindDescriptorSets(p.target.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 1, 1, &gradients, 0,
-                                nullptr);
-    }
-    for (std::size_t first = 0; first < packets.size();) {
-        const auto& packet = packets[first];
-        std::size_t end = first + 1;
-        if (batch)
-            while (end < packets.size() && compatible(packet, packets[end])) ++end;
-        const auto* fill = static_cast<const Impl::Fill*>(packet.program);
-        const auto pipeline = fill                   ? (batch ? fill->batch : fill->pipeline)
-                              : !packet.image        ? (batch ? p.batch_solid : p.solid)
-                              : packet.premultiplied ? (batch ? p.batch_premultiplied : p.premultiplied)
-                                                     : (batch ? p.batch_textured : p.textured);
-        if (pipeline != bound) {
-            vkCmdBindPipeline(p.target.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-            bound = pipeline;
+        vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 1, 1, &gradients, 0, nullptr);
+        VkPipeline bound = VK_NULL_HANDLE;
+        for (std::size_t first = begin; first < finish;) {
+            const auto& packet = packets[first];
+            std::size_t end = first + 1;
+            if (batch)
+                while (end < finish && compatible(packet, packets[end])) ++end;
+            const std::int64_t x0 = std::max(packet.scissor.offset.x, area.offset.x);
+            const std::int64_t y0 = std::max(packet.scissor.offset.y, area.offset.y);
+            const std::int64_t x1 = std::min(std::int64_t(packet.scissor.offset.x) + packet.scissor.extent.width,
+                                             std::int64_t(area.offset.x) + area.extent.width);
+            const std::int64_t y1 = std::min(std::int64_t(packet.scissor.offset.y) + packet.scissor.extent.height,
+                                             std::int64_t(area.offset.y) + area.extent.height);
+            if (x1 <= x0 || y1 <= y0) {
+                first = end;
+                continue;
+            }
+            const auto* fill = static_cast<const Impl::Fill*>(packet.program);
+            const auto pick = [&](VkPipeline main_single, VkPipeline main_batch, VkPipeline layer_single,
+                                  VkPipeline layer_batch) {
+                return layer_pass ? (batch ? layer_batch : layer_single) : (batch ? main_batch : main_single);
+            };
+            const auto pipeline =
+                fill ? pick(fill->pipeline, fill->batch, fill->layer_pipeline, fill->layer_batch)
+                : packet.layer < 0 && !packet.image
+                    ? pick(p.solid, p.batch_solid, p.layer_solid, p.layer_batch_solid)
+                : packet.premultiplied
+                    ? pick(p.premultiplied, p.batch_premultiplied, p.layer_premultiplied, p.layer_batch_premultiplied)
+                    : pick(p.textured, p.batch_textured, p.layer_textured, p.layer_batch_textured);
+            if (pipeline != bound) {
+                vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                bound = pipeline;
+            }
+            if (packet.layer >= 0) {
+                const auto set = p.surfaces[passes[std::size_t(packet.layer)].surface].set;
+                vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &set, 0, nullptr);
+            } else if (packet.image) {
+                auto& image = p.images.at(packet.image);
+                vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &image.set, 0,
+                                        nullptr);
+            }
+            const VkRect2D scissor{{std::int32_t(x0), std::int32_t(y0)},
+                                   {std::uint32_t(x1 - x0), std::uint32_t(y1 - y0)}};
+            vkCmdSetScissor(commands, 0, 1, &scissor);
+            if (!batch)
+                vkCmdPushConstants(commands, p.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                   sizeof(Primitive), &packet.primitive);
+            vkCmdDraw(commands, 6, std::uint32_t(end - first), 0, batch ? std::uint32_t(first) : 0);
+            ++stats.draw_calls;
+            first = end;
         }
-        if (packet.image) {
-            auto& image = p.images.at(packet.image);
-            vkCmdBindDescriptorSets(p.target.commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &image.set, 0,
-                                    nullptr);
-        }
-        vkCmdSetScissor(p.target.commands, 0, 1, &packet.scissor);
-        if (!batch)
-            vkCmdPushConstants(p.target.commands, p.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                               0, sizeof(Primitive), &packet.primitive);
-        vkCmdDraw(p.target.commands, 6, std::uint32_t(end - first), 0, batch ? std::uint32_t(first) : 0);
-        ++stats.draw_calls;
-        first = end;
+    };
+    for (const auto& pass : passes) {
+        auto& surface = p.surfaces[pass.surface];
+        const VkClearValue clear{}; // Transparent black: an isolated layer starts empty.
+        VkRenderPassBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        begin.renderPass = p.layer_pass;
+        begin.framebuffer = surface.framebuffer;
+        begin.renderArea = pass.area;
+        begin.clearValueCount = 1;
+        begin.pClearValues = &clear;
+        vkCmdBeginRenderPass(p.target.layers, &begin, VK_SUBPASS_CONTENTS_INLINE);
+        record(p.target.layers, pass.first, pass.end, pass.area, true);
+        vkCmdEndRenderPass(p.target.layers);
+        surface.last_use = frame.frame;
     }
+    record(p.target.commands, main_first, packets.size(), {{0, 0}, extent}, false);
     for (auto image : referenced_images) p.images.at(image).last_use = frame.frame;
     for (auto* fill : referenced_fills) fill->last_use = frame.frame;
     p.last_frame = frame.frame;

@@ -37,6 +37,10 @@ public:
     // Custom-shape commands in the last successful submission, each drawn with its built-in
     // `shape`/`corner_radius` fallback because this backend executes no distance shaders.
     std::uint64_t custom_shape_fallbacks() const { return custom_shape_fallbacks_; }
+    // PushLayer commands in the last successful submission. Each opens a transparent surface of
+    // premultiplied linear float color over the pixels of its clip, which its PopLayer composes once;
+    // open surfaces (16 bytes per pixel) must fit max_cpu_pixel_bytes together.
+    std::uint64_t layers() const { return layers_; }
 
 private:
     friend class CpuFrameCapture;
@@ -49,7 +53,7 @@ private:
     };
     CpuTarget target_;
     std::map<std::uint64_t, Image> images_;
-    std::uint64_t submitted_ = 0, retired_ = 0, procedural_fallbacks_ = 0, custom_shape_fallbacks_ = 0;
+    std::uint64_t submitted_ = 0, retired_ = 0, procedural_fallbacks_ = 0, custom_shape_fallbacks_ = 0, layers_ = 0;
 };
 
 // Owns a transparent target per call and returns completed, owned bytes. Optional

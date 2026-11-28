@@ -91,6 +91,12 @@ void blend(std::uint8_t* dst, Pixel src, bool premultiplied = false) {
     for (unsigned c = 0; c < 3; ++c) dst[c] = quantize(encode(src[c] * weight + decode(dst[c] / 255.0) * (1 - src[3])));
     dst[3] = quantize(src[3] + dst[3] / 255.0 * (1 - src[3]));
 }
+// The same operator into a layer surface of unquantized premultiplied linear color.
+void blend(float* dst, Pixel src, bool premultiplied = false) {
+    const double weight = premultiplied ? 1 : src[3];
+    for (unsigned c = 0; c < 3; ++c) dst[c] = float(src[c] * weight + dst[c] * (1 - src[3]));
+    dst[3] = float(src[3] + dst[3] * (1 - src[3]));
+}
 template<class Image> Pixel sample(const Image& image, double u, double v) {
     // Clamp normalized coordinates before conversion to avoid unsafe integer casts.
     double x = std::clamp(u, 0.0, 1.0) * image.extent.width - 0.5,
@@ -116,6 +122,25 @@ struct State {
     Transform transform;
     Bounds clip;
 };
+// Pixels whose centers lie inside [low, high) along one axis: ceil(low - 0.5) up to ceil(high - 0.5).
+std::uint32_t pixel_edge(double e, std::uint32_t limit) {
+    return static_cast<std::uint32_t>(std::clamp(std::ceil(e - 0.5), 0.0, double(limit)));
+}
+// An open layer over the pixels of the clip at PushLayer: premultiplied linear RGBA floats, starting transparent,
+// so its content is quantized only once, when the outermost layer composes into the target.
+struct Surface {
+    std::uint32_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    std::vector<float> pixels;
+    double opacity = 1;
+};
+constexpr std::size_t surface_pixel_bytes = 4 * sizeof(float);
+Surface surface(Bounds clip, CaptureExtent extent) {
+    Surface s{pixel_edge(clip.left, extent.width), pixel_edge(clip.top, extent.height),
+              pixel_edge(clip.right, extent.width), pixel_edge(clip.bottom, extent.height)};
+    s.x1 = std::max(s.x0, s.x1);
+    s.y1 = std::max(s.y0, s.y1);
+    return s;
+}
 template<class F> struct ScopeExit {
     F fn;
     ~ScopeExit() { fn(); }
@@ -193,6 +218,9 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
     if (!errors.empty()) return errors;
     State state{{}, {0, 0, double(target_.extent.width), double(target_.extent.height)}};
     std::vector<State> stack;
+    std::vector<std::size_t> layer_bytes; // Open layers' surface bytes.
+    std::size_t live_layer_bytes = 0;
+    std::uint64_t layers = 0;
     // Compile one settled state per command; all geometry/resources checked before pixels change.
     std::vector<State> states;
     states.reserve(list.commands.size());
@@ -201,7 +229,22 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
         std::visit(
             [&](const auto& cmd) {
                 using T = std::decay_t<decltype(cmd)>;
-                if constexpr (std::is_same_v<T, PushTransform>) {
+                if constexpr (std::is_same_v<T, PushLayer>) {
+                    stack.push_back(state);
+                    const auto region = surface(state.clip, target_.extent);
+                    const auto bytes =
+                        std::size_t(region.x1 - region.x0) * (region.y1 - region.y0) * surface_pixel_bytes;
+                    if (bytes > max_cpu_pixel_bytes - std::min(live_layer_bytes, max_cpu_pixel_bytes))
+                        check.error("layer_limit", path, "Open layer surfaces must fit 256 MiB.");
+                    live_layer_bytes += bytes;
+                    layer_bytes.push_back(bytes);
+                    ++layers;
+                } else if constexpr (std::is_same_v<T, PopLayer>) {
+                    state = stack.back();
+                    stack.pop_back();
+                    live_layer_bytes -= layer_bytes.back();
+                    layer_bytes.pop_back();
+                } else if constexpr (std::is_same_v<T, PushTransform>) {
                     stack.push_back(state);
                     state.transform = compose(state.transform, cmd.transform);
                     if (!safe(state.transform))
@@ -243,12 +286,40 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
         states.push_back(state);
     }
     if (!errors.empty()) return errors;
+    std::vector<Surface> surfaces;
+    // Source-over at a target pixel into the innermost open layer, or into the target itself.
+    const auto paint = [&](std::uint32_t x, std::uint32_t y, Pixel color, bool premultiplied) {
+        if (surfaces.empty())
+            return blend(target_.pixels.data() + (std::size_t(y) * target_.extent.width + x) * 4, color,
+                         premultiplied);
+        auto& top = surfaces.back();
+        blend(top.pixels.data() + (std::size_t(y - top.y0) * (top.x1 - top.x0) + (x - top.x0)) * 4, color,
+              premultiplied);
+    };
     for (std::size_t i = 0; i < list.commands.size(); ++i) {
         const auto& s = states[i];
         std::visit(
             [&](const auto& cmd) {
                 using T = std::decay_t<decltype(cmd)>;
-                if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawBorder> ||
+                if constexpr (std::is_same_v<T, PushLayer>) {
+                    // Commands inside paint only within this clip, so the surface covers all of them.
+                    auto layer = surface(s.clip, target_.extent);
+                    layer.pixels.assign(std::size_t(layer.x1 - layer.x0) * (layer.y1 - layer.y0) * 4, 0);
+                    layer.opacity = cmd.opacity;
+                    surfaces.push_back(std::move(layer));
+                } else if constexpr (std::is_same_v<T, PopLayer>) {
+                    // Compose the premultiplied surface once, scaled by the layer opacity.
+                    auto layer = std::move(surfaces.back());
+                    surfaces.pop_back();
+                    const auto* source = layer.pixels.data();
+                    for (auto y = layer.y0; y < layer.y1; ++y)
+                        for (auto x = layer.x0; x < layer.x1; ++x, source += 4) {
+                            if (!source[0] && !source[1] && !source[2] && !source[3]) continue;
+                            Pixel color{};
+                            for (unsigned c = 0; c < 4; ++c) color[c] = source[c] * layer.opacity;
+                            paint(x, y, color, true);
+                        }
+                } else if constexpr (std::is_same_v<T, DrawRect> || std::is_same_v<T, DrawBorder> ||
                               std::is_same_v<T, DrawImage> || std::is_same_v<T, DrawShadow> ||
                               std::is_same_v<T, DrawStroke>) {
                     auto rect = cmd.rect;
@@ -267,11 +338,10 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                     if (box.right <= box.left || box.bottom <= box.top || cmd.rect.size.width == 0 ||
                         cmd.rect.size.height == 0)
                         return;
-                    auto edge = [](double e, std::uint32_t limit) {
-                        return static_cast<std::uint32_t>(std::clamp(std::ceil(e - 0.5), 0.0, double(limit)));
-                    };
-                    const auto x0 = edge(box.left, target_.extent.width), x1 = edge(box.right, target_.extent.width);
-                    const auto y0 = edge(box.top, target_.extent.height), y1 = edge(box.bottom, target_.extent.height);
+                    const auto x0 = pixel_edge(box.left, target_.extent.width),
+                               x1 = pixel_edge(box.right, target_.extent.width);
+                    const auto y0 = pixel_edge(box.top, target_.extent.height),
+                               y1 = pixel_edge(box.bottom, target_.extent.height);
                     const auto& t = s.transform;
                     const double det = t.a * t.d - t.b * t.c;
                     std::vector<std::pair<double, Pixel>> gradient_stops;
@@ -429,14 +499,14 @@ std::vector<Diagnostic> CpuRenderer::submit(const FrameInfo& frame, const UiDraw
                                     color = linear(cmd.color);
                                 }
                             }
-                            blend(target_.pixels.data() + (std::size_t(y) * target_.extent.width + x) * 4, color,
-                                  premultiplied);
+                            paint(x, y, color, premultiplied);
                         }
                 }
             },
             list.commands[i]);
     }
     procedural_fallbacks_ = custom_shape_fallbacks_ = 0;
+    layers_ = layers;
     for (const auto& command : list.commands) {
         if (auto image = std::get_if<DrawImage>(&command)) images_.at(image->image.value).last_frame = frame.frame;
         if (auto rect = std::get_if<DrawRect>(&command)) {

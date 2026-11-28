@@ -111,17 +111,33 @@ struct DrawStroke {
     bool operator==(const DrawStroke&) const = default;
 };
 
+// Starts an isolated offscreen layer. Commands up to the matching PopLayer paint into a transparent surface
+// covering the current clip, under the current clip and transform; PopLayer then composes that surface over the
+// earlier drawing once, source-over in linear light with every pixel's coverage multiplied by `opacity`. Overlapping
+// commands inside a layer therefore blend with each other before the group fades, unlike per-command alpha. The
+// layer itself has no geometry: clips and transforms pushed inside it apply to its commands only, and the clip in
+// effect at PushLayer limits the surface and its composition. Nested layers compose into their parent layer.
+struct PushLayer {
+    float opacity = 1; // In [0, 1].
+    bool operator==(const PushLayer&) const = default;
+};
+struct PopLayer {
+    bool operator==(const PopLayer&) const = default;
+};
+
 using DrawCommand = std::variant<DrawRect, DrawBorder, DrawImage, DrawGlyphRun, PushClip, PopClip, PushTransform,
-                                 PopTransform, DrawShadow, DrawStroke>;
+                                 PopTransform, DrawShadow, DrawStroke, PushLayer, PopLayer>;
 
 // Commands paint in order; later commands appear above earlier ones.
-// Clips and transforms share one LIFO stack that must be balanced.
+// Clips, transforms and layers share one LIFO stack that must be balanced.
 struct UiDrawList {
     std::vector<DrawCommand> commands;
     bool operator==(const UiDrawList&) const = default;
 };
 
 inline constexpr std::size_t max_draw_stack_depth = 64;
+// Layers open at once; each needs its own surface until it composes.
+inline constexpr std::size_t max_draw_layer_depth = 8;
 
 std::vector<Diagnostic> validate(const UiDrawList&);
 

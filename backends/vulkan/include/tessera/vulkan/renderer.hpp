@@ -32,7 +32,11 @@ struct VulkanSubmissionStats {
     std::uint64_t procedural_fallbacks = 0;   // Unregistered ones, drawn with their declared fallback.
     std::uint64_t custom_shapes = 0;          // Custom-shape DrawRects executed by a registered shader.
     std::uint64_t custom_shape_fallbacks = 0; // Unregistered ones, drawn with their built-in shape.
+    std::uint64_t layers = 0;                 // Layer passes recorded into VulkanTarget::layers.
 };
+// Renderer-owned layer surfaces in existence at once; each frame's layers use surfaces no unretired frame uses.
+// A surface spans the target's pixel grid from its origin to the far edges of the layer's visible content.
+inline constexpr std::size_t max_vulkan_layers = 16;
 inline constexpr std::size_t max_vulkan_procedural_fills = 64;
 inline constexpr std::size_t max_vulkan_custom_shapes = 64;
 // A build-time compiled fill-v1 artifact (see tessera_add_procedural_fill). Spans are borrowed for
@@ -52,6 +56,10 @@ struct VulkanCustomShape {
 struct VulkanTarget {
     VkCommandBuffer commands = VK_NULL_HANDLE; // Recording inside the compatible render pass.
     VkExtent2D extent{};
+    // Recording outside any render pass; required when the list contains layers. Each layer becomes its own
+    // render pass here, into a renderer-owned surface that `commands` then samples, so the host executes this
+    // buffer after every upload those layers read and before `commands`, for example first in the same submission.
+    VkCommandBuffer layers = VK_NULL_HANDLE;
 };
 
 class VulkanRenderer final : public UiRenderer {

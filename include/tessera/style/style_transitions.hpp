@@ -32,7 +32,8 @@ public:
 
     // Presented styles at `now` for the last accepted generation, by NodeHandle::index. Equal to the
     // targets once every transition has ended or before any update. Times before a transition's start
-    // present its start value; non-finite times present the targets.
+    // present its start value; non-finite times present the targets. While opacity eases, a node whose
+    // start presented Composition::layer keeps presenting it, so a group fades back as a group too.
     std::vector<ResolvedStyle> present(double now) const;
 
     // Host time when the last transition ends; empty when none was started by the last updates.

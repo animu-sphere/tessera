@@ -411,13 +411,20 @@ void test_placement_declarations() {
     placed.right = std::optional<float>{6.0f};
     placed.flex_wrap = tessera::FlexWrap::wrap;
     placed.z_index = std::int32_t{-2};
+    placed.composition = tessera::Composition::layer;
     tessera::ResolvedStyle style;
     style.left = 1.0f;
     tessera::apply(placed, style);
     check(style.grid_column_span == 2 && style.grid_row_span == 3 && style.position == tessera::Position::absolute &&
               style.top == -4.0f && style.right == 6.0f && style.left == 1.0f && !style.bottom &&
-              style.flex_wrap == tessera::FlexWrap::wrap && style.z_index == -2,
-          "Placement declarations must replace only the declared span, position, offsets, wrapping and z_index");
+              style.flex_wrap == tessera::FlexWrap::wrap && style.z_index == -2 &&
+              style.composition == tessera::Composition::layer,
+          "Placement declarations must replace only the declared span, position, offsets, wrapping, z_index and "
+          "composition");
+    tessera::ResolvedStyle unknown;
+    unknown.composition = static_cast<tessera::Composition>(7);
+    check(has(tessera::validate(unknown, "/s"), "unknown_value", "/s/composition"),
+          "Unknown composition values must reject");
     tessera::StyleDeclarations cleared;
     cleared.left = std::optional<float>{};
     cleared.position = tessera::Position::flow;

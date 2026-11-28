@@ -37,6 +37,10 @@ enum class Align : std::uint8_t { start, center, end, stretch };
 enum class Overflow : std::uint8_t { visible, clip, scroll };
 // absolute: removed from the parent's Flex/Stack/Grid flow and placed against its padding box.
 enum class Position : std::uint8_t { flow, absolute };
+// How a node's subtree reaches the surface below it. direct: each command paints straight through, its alpha
+// multiplied by the node's and its ancestors' opacity. layer: the node and its descendants paint into one isolated
+// offscreen layer that composes once with that cumulative opacity, so overlapping descendants fade as a group.
+enum class Composition : std::uint8_t { direct, layer };
 
 struct GridTrack {
     enum class Kind : std::uint8_t { automatic, points, fraction };
@@ -115,6 +119,9 @@ struct ResolvedStyle {
     // Paint and hit order among siblings: a parent's displayed children paint in ascending z_index, ties in tree
     // order, each with its whole subtree. Root layers ignore it. Layout geometry, focus and semantics keep tree order.
     std::int32_t z_index = 0;
+
+    // Paint only: layout, hit testing, focus and semantics are unchanged. Not inherited.
+    Composition composition = Composition::direct;
 
     // Replaces background when present; not inherited.
     std::optional<Gradient> background_gradient;

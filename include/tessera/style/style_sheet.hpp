@@ -66,6 +66,7 @@ struct StyleDeclarations {
     std::optional<std::optional<float>> right;
     std::optional<std::optional<float>> bottom;
     std::optional<std::int32_t> z_index;
+    std::optional<Composition> composition;
     std::optional<std::optional<Gradient>> background_gradient;
     std::optional<std::optional<BoxShadow>> box_shadow;
     std::optional<std::optional<Outline>> outline;
