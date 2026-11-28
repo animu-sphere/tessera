@@ -2,6 +2,7 @@
 #include <tessera/commands/execution.hpp>
 #include <tessera/input/collection_drag.hpp>
 #include <tessera/input/collection_selection.hpp>
+#include <tessera/input/drag_drop.hpp>
 #include <tessera/input/focus.hpp>
 #include <tessera/input/number_drag.hpp>
 #include <tessera/input/popup.hpp>
@@ -75,6 +76,8 @@ const std::vector<HelpTopic> help_topics{
     {"editing", "Text editing", {"Ctrl+A/C/X/V: select/copy/cut/paste.", "Arrows, Home/End, Backspace/Delete."}}};
 // USD's fallback display color, 50% gray, chosen through the Display tab's ColorPicker.
 constexpr HsvColor default_color{0, 0, 0.5};
+// The payload type of a Display color dragged from its swatch onto Hierarchy rows.
+constexpr std::string_view color_payload = "application/x-hsv-color";
 struct Item {
     std::string id;
     TextEditState name;
@@ -228,6 +231,10 @@ struct State {
     // Presentation of an active Hierarchy drag: the dimmed source row and a valid insertion point.
     std::optional<std::string> drag_source;
     std::optional<CollectionDropTarget> drop_target;
+    // Presentation of an active Display color drag: the pointer for the preview swatch and the
+    // Hierarchy item whose color a drop would replace.
+    std::optional<Point> color_drag;
+    std::optional<std::string> color_drop;
     History history;
     const Item& item() const {
         const auto found =
@@ -310,6 +317,22 @@ bool move_item(State& state, std::string_view source, const CollectionDropTarget
     state.items.erase(from);
     state.items.insert(state.items.begin() + 1 + static_cast<std::ptrdiff_t>(*index), std::move(moved));
     return true;
+}
+// The Hierarchy item a Display color drop over `target` would recolor with `from`'s color: another
+// item whose color differs. Drops that would change nothing show no ring and request nothing.
+std::optional<std::string> color_drop(const State& state, std::string_view from,
+                                      const std::optional<DragOver>& target) {
+    constexpr std::string_view prefix = "hierarchy-item-";
+    if (!target || target->operation != DragOperation::copy || !target->target.starts_with(prefix)) return {};
+    const auto key = std::string_view(target->target).substr(prefix.size());
+    const auto find = [&](std::string_view id) {
+        return std::find_if(state.items.begin(), state.items.end(), [&](const Item& item) { return item.id == id; });
+    };
+    const auto source = find(from), recolored = find(key);
+    if (source == state.items.end() || recolored == state.items.end() || source == recolored ||
+        source->color == recolored->color)
+        return {};
+    return std::string(key);
 }
 // Applies one side of a history entry: the Hierarchy order and every changed value. Unchanged fields
 // keep their editor state, including a pending numeric draft; a changed number replaces its draft.
@@ -402,12 +425,18 @@ CommandRegistry command_registry(const ValidationContext& context) {
              {.name = "item", .type = CommandParameterType::object_id},
              {.name = "target", .type = CommandParameterType::object_id},
              {.name = "placement", .type = CommandParameterType::enumeration, .choices = {"before", "after"}}}});
+    // Node-free typed drop command: copy one item's Display color onto another.
+    descriptors.push_back({.id = "item.color",
+                           .label = "Copy display color",
+                           .parameters = {{.name = "item", .type = CommandParameterType::object_id},
+                                          {.name = "from", .type = CommandParameterType::object_id}}});
     return take(CommandRegistry::create(std::move(descriptors), std::move(bindings)));
 }
 CommandStates command_states(const ValidationContext& context) {
     CommandStates states;
     for (const auto& action : context.actions) states.emplace(action, CommandState{true});
     states.emplace("item.move", CommandState{true});
+    states.emplace("item.color", CommandState{true});
     return states;
 }
 // Undo and Redo are enabled by the candidate's own history.
@@ -521,6 +550,10 @@ StyleSheet appearance(const State& state) {
         sheet.rules.push_back({StyleSelector::of_id("hierarchy-item-" + state.drop_target->key),
                                {.box_shadow = BoxShadow{{0, edge}, 0, {.2f, .4f, .85f, 1}, true}}});
     }
+    if (state.color_drop)
+        // A dashed ring around the row whose Display color a drop would replace.
+        sheet.rules.push_back({StyleSelector::of_id("hierarchy-item-" + *state.color_drop),
+                               {.outline = Outline{2.f, 0.f, {.2f, .4f, .85f, 1}, 4.f, 3.f}}});
     sheet.rules.push_back({StyleSelector::of_id("visibility-title"), {.display = Display::none}});
     for (const auto& [key, label] : visibility_choices) {
         const auto id = "visibility-option-" + key;
@@ -737,6 +770,21 @@ ui::Element Form(const State& state, Size viewport) {
             {.node = {.id = "panes", .style = {.height = Dimension::points(height)}},
              .limits = pane_limits,
              .label = "Resize hierarchy"})};
+    // A dragged Display color follows the pointer as a small swatch beside it, out of its way;
+    // it is ordinary content, so root popups still follow it.
+    if (state.color_drag)
+        content.push_back(ui::Spacer({.id = "color-drag-preview",
+                                      .style = {.width = Dimension::points(20),
+                                                .height = Dimension::points(20),
+                                                .border = Edges{2, 2, 2, 2},
+                                                .grow = 0.f,
+                                                .background = to_color(item.color),
+                                                .border_color = Color{1, 1, 1, 1},
+                                                .corner_radius = 6.f,
+                                                .position = Position::absolute,
+                                                .left = std::optional<float>{state.color_drag->x + 14},
+                                                .top = std::optional<float>{state.color_drag->y + 14},
+                                                .box_shadow = BoxShadow{{0, 2}, 6, {.12f, .22f, .46f, .35f}}}}));
     for (auto& layer : layers) content.push_back(std::move(layer));
     return ui::Column(std::move(content), {.id = "application",
                                            .style = {.overflow = Overflow::clip,
@@ -1040,6 +1088,21 @@ public:
                         {},
                         {{"item_move", Severity::error, "/arguments",
                           "Move a Scene child to a different position among the Scene's children."}}};
+        } else if (command == "item.color") {
+            // Arguments are validated against the descriptor and the published item IDs.
+            const auto& arguments = invocation.arguments;
+            const auto find = [&](const std::string& name) {
+                const auto& id = std::get<CommandObjectId>(arguments.at(name)).value;
+                return std::find_if(candidate.items.begin(), candidate.items.end(),
+                                    [&](const Item& item) { return item.id == id; });
+            };
+            const auto recolored = find("item"), source = find("from");
+            if (recolored == source)
+                return {CommandOutcomeStatus::error,
+                        {},
+                        {{"item_color", Severity::error, "/arguments",
+                          "Copy a Display color from one item onto a different item."}}};
+            recolored->color = source->color;
         } else if (command == "item.shadows")
             candidate.item().shadows = !candidate.item().shadows;
         else if (const auto field = number_command(command)) {
@@ -1133,6 +1196,14 @@ public:
             {"placement", std::string(target.placement == DropPlacement::after ? "after" : "before")}};
         return run(
             take(view.commands.resolve({view.commands.generation(), "item.move", arguments, source, ++sequence})));
+    }
+    // Requests the typed item.color command, as a Display color drop does.
+    CommandOutcome copy_color(std::string_view item, std::string_view from,
+                              CommandSource source = CommandSource::pointer) {
+        const CommandArguments arguments{{"item", CommandObjectId{std::string(item)}},
+                                         {"from", CommandObjectId{std::string(from)}}};
+        return run(
+            take(view.commands.resolve({view.commands.generation(), "item.color", arguments, source, ++sequence})));
     }
     CommandOutcome run(const CommandInvocation& invocation, const SemanticInput* semantic = nullptr) {
         const auto pressed = focused_id();
@@ -1271,6 +1342,7 @@ public:
             observe();
             return;
         }
+        if (drag_color(take(color_drag.dispatch(view.hit(), color_scope(), event)), source)) return;
         if (scrub(take(number_drag.dispatch(view.hit(), event)), source)) return;
         if (select_text(take(text_pointer.dispatch(view.hit(), event)), source)) return;
         if (drag(take(hierarchy_drag.dispatch(view.hit(), event)), source)) return;
@@ -1586,6 +1658,7 @@ public:
                take(number_drag_target(view.hit(), point)).has_value();
     }
     bool reordering() const { return hierarchy_drag.dragging(); }
+    bool dragging_color() const { return color_drag.dragging(); }
     // The text I-beam over the name and notes editors and while a text selection drag holds the pointer.
     bool text_cursor(Point point) const {
         return text_pointer.pressed() || take(text_pointer_target(view.hit(), point)).has_value();
@@ -1841,6 +1914,48 @@ private:
         if (result.consumed) observe();
         return result.consumed;
     }
+    // The Display color swatch is a copy source while its panel is closed; every Hierarchy row accepts
+    // its color. Validity beyond the payload type, such as an unchanged color, is the host's.
+    DragDropScope color_scope() const {
+        DragDropScope scope;
+        if (state.section == "display" && state.menu == OpenMenu::none)
+            scope.sources.push_back({"display-color", std::string(color_payload), {.copy = true}});
+        for (const auto& item : state.items)
+            scope.targets.push_back({"hierarchy-item-" + item.id, {std::string(color_payload)}, {.copy = true}});
+        return scope;
+    }
+    // Display color dragging by pointer. The press stays an ordinary trigger press until the drag
+    // starts; a drop on another item requests item.color. Returns true when the event was consumed.
+    bool drag_color(const DragDropDispatchResult& result, CommandSource source) {
+        if (result.started) {
+            pointer.reset();
+            slider_pointer.reset();
+        }
+        if (result.drop) {
+            const auto target = color_drop(state, state.selected, result.drop);
+            state.color_drag.reset();
+            state.color_drop.reset();
+            if (target)
+                checked(copy_color(*target, state.selected, source));
+            else
+                refresh();
+        } else {
+            present_color(result);
+        }
+        if (result.consumed) observe();
+        return result.consumed;
+    }
+    // Restages the view when the preview moves or the recolored row changes.
+    bool present_color(const DragDropDispatchResult& result) {
+        const bool active = result.source && !result.ended;
+        const auto position = active ? result.position : std::nullopt;
+        const auto target = active ? color_drop(state, state.selected, result.target) : std::nullopt;
+        if (state.color_drag == position && state.color_drop == target) return false;
+        state.color_drag = position;
+        state.color_drop = target;
+        refresh();
+        return true;
+    }
     // Restages the view when the drag presentation changes; only valid moves show an insertion point.
     bool present_drag(std::optional<std::string> source, std::optional<CollectionDropTarget> target) {
         if (!source || (target && !move_index(state, *source, *target))) target.reset();
@@ -1952,6 +2067,7 @@ private:
     TextPointerDispatcher text_pointer;
     std::optional<std::pair<std::size_t, double>> scrub_origin; // Field and value the active scrub started at.
     CollectionDragDispatcher hierarchy_drag{"hierarchy"};
+    DragDropDispatcher color_drag;
     Offsets offsets;
     std::optional<TextEditRequest> edit;
     std::optional<std::pair<std::size_t, NumberRequest>> number_request;
@@ -2082,6 +2198,7 @@ private:
         // Scrolling or replacement can move the insertion point under a stationary pointer.
         const auto reordered = take(hierarchy_drag.refresh(view.hit()));
         if (present_drag(reordered.source, reordered.target)) return;
+        if (present_color(take(color_drag.refresh(view.hit(), color_scope())))) return;
         observe();
         session.publish();
     }
@@ -3583,6 +3700,118 @@ void reorder_smoke() {
                 order()[1] == "light",
             "item.move must reject moving the Scene root");
 }
+void color_drop_smoke() {
+    App app;
+    std::chrono::microseconds time{};
+    auto input = [&](auto event, CommandSource source = CommandSource::pointer) { app.input({++time, event}, source); };
+    const auto color = [&](std::string_view id) {
+        return std::find_if(app.state.items.begin(), app.state.items.end(),
+                            [&](const Item& item) { return item.id == id; })
+            ->color;
+    };
+    const auto row = [&](const char* id) { return app.view.center(std::string("hierarchy-item-") + id); };
+    const auto ring = [&](const char* id) {
+        return app.view.styles[app.view.tree->find(std::string("hierarchy-item-") + id)->index].outline;
+    };
+    const auto preview = [&]() -> std::optional<Point> {
+        if (!app.view.tree->find("color-drag-preview")) return {};
+        return app.view.box("color-drag-preview").border_box.origin;
+    };
+    const auto info = take(app.view.commands.lookup("item.color"));
+    require(info.descriptor.parameters.size() == 2 && info.state.enabled && app.view.commands.permits_object("light"),
+            "item.color must be a typed command over published item IDs");
+    app.action("sections-tab-display");
+    app.focus_id("display-color");
+    input(KeyDown{Key::down, {.alt = true}}, CommandSource::keyboard);
+    input(KeyDown{Key::right}, CommandSource::keyboard);
+    input(KeyDown{Key::enter}, CommandSource::keyboard);
+    const auto tinted = color("cube");
+    require(app.state.menu == OpenMenu::none && tinted != default_color && color("light") == default_color,
+            "The shown item needs its own Display color");
+
+    auto executions = app.executions;
+    const auto swatch = [&] { return app.view.reachable("display-color"); };
+    app.focus_id("purpose");
+    input(PointerDown{{1}, swatch()});
+    input(PointerMove{{1}, Point{swatch().x + 2, swatch().y + 1}});
+    require(!app.dragging_color() && !preview() && app.focused_on("display-color"),
+            "A press must focus the swatch, and travel below the threshold must not drag");
+    input(PointerMove{{1}, row("light")});
+    require(app.dragging_color() && app.state.color_drop == "light" && ring("light") &&
+                ring("light")->dash_length > 0 && preview() == Point{row("light").x + 14, row("light").y + 14} &&
+                app.executions == executions && app.state.menu == OpenMenu::none,
+            "Dragging must show the preview beside the pointer and ring the target without a command");
+    const auto preview_style = app.view.styles[app.view.tree->find("color-drag-preview")->index];
+    const auto under = take(hit_test(app.view.hit(), Point{preview()->x + 10, preview()->y + 10})).target;
+    require(preview_style.background == to_color(tinted) && under != app.view.tree->find("color-drag-preview"),
+            "The preview must show the dragged color without taking pointer input");
+    input(PointerMove{{1}, row("cube")});
+    require(app.dragging_color() && !app.state.color_drop && !ring("cube") && !ring("light") && preview(),
+            "The shown item's own row would change nothing and must show no ring");
+    input(PointerMove{{1}, app.view.center("inspector-title")});
+    require(!app.state.color_drop && preview(), "Positions outside the Hierarchy must show no ring");
+    input(PointerMove{{1}, row("sphere"), {.shift = true}});
+    require(!app.state.color_drop, "Shift requests a move, which a Display color drop does not offer");
+    input(PointerMove{{1}, row("sphere"), {.control = true}});
+    require(app.state.color_drop == "sphere", "Control requests the copy a Display color drop offers");
+    input(PointerMove{{1}, row("light")});
+    input(PointerUp{{1}, row("light")});
+    require(color("light") == tinted && color("sphere") == default_color && app.executions == executions + 1 &&
+                !app.dragging_color() && !app.state.color_drop && !preview() && !ring("light") &&
+                app.state.menu == OpenMenu::none && app.state.selected == "cube" &&
+                app.state.selection.keys == std::vector<std::string>{"cube"},
+            "A drop must copy the color once, keep the selection and leave the panel closed");
+    input(KeyDown{Key::z, {.control = true}}, CommandSource::keyboard);
+    require(color("light") == default_color && color("cube") == tinted, "Undo must restore the recolored item");
+    input(KeyDown{Key::y, {.control = true}}, CommandSource::keyboard);
+    require(color("light") == tinted, "Redo must copy the color again");
+
+    executions = app.executions;
+    input(PointerDown{{1}, swatch()});
+    input(PointerMove{{1}, row("sphere")});
+    input(KeyDown{Key::escape}, CommandSource::keyboard);
+    require(!app.dragging_color() && !app.state.color_drop && !preview() && app.executions == executions,
+            "Escape must cancel without a command");
+    input(PointerUp{{1}, row("sphere")});
+    require(app.executions == executions && app.state.menu == OpenMenu::none && color("sphere") == default_color,
+            "The release after cancellation must neither copy nor open the panel");
+    input(PointerDown{{1}, swatch()});
+    input(PointerMove{{1}, row("sphere")});
+    input(KeyDown{Key::tab}, CommandSource::keyboard);
+    require(!app.dragging_color() && !preview() && !app.focused_on("display-color"),
+            "Tab must cancel the drag and still move focus");
+    input(PointerUp{{1}, row("sphere")});
+    input(PointerDown{{1}, swatch()});
+    input(PointerMove{{1}, row("sphere")});
+    input(PointerCancel{{1}});
+    require(!app.dragging_color() && !preview() && color("sphere") == default_color,
+            "PointerCancel must cancel without copying");
+    input(PointerDown{{1}, swatch()});
+    input(PointerMove{{1}, row("cube")});
+    input(PointerUp{{1}, row("cube")});
+    require(app.executions == executions && !preview() && app.state.menu == OpenMenu::none,
+            "Dropping where nothing would change must request nothing");
+    input(PointerDown{{1}, swatch()});
+    input(PointerMove{{1}, row("scene")});
+    require(app.state.color_drop == "scene", "Scene keeps a Display color and must accept drops");
+    input(PointerUp{{1}, app.view.center("inspector-title")});
+    require(app.executions == executions && color("scene") == default_color && !preview(),
+            "Releasing outside the Hierarchy must cancel");
+
+    // An ordinary click still opens the panel, and the open panel's trigger does not drag.
+    input(PointerDown{{1}, swatch()});
+    input(PointerUp{{1}, swatch()});
+    require(app.state.menu == OpenMenu::color && app.executions == executions + 1,
+            "A click without travel must still open the panel");
+    input(KeyDown{Key::escape}, CommandSource::keyboard);
+    require(app.state.menu == OpenMenu::none, "Escape must close the panel");
+    app.action("sections-tab-general");
+    require(!app.view.tree->find("display-color"), "The General tab presents no Display color source");
+
+    const auto rejected = app.copy_color("cube", "cube");
+    require(rejected.status != CommandOutcomeStatus::success && rejected.diagnostics.front().code == "item_color",
+            "item.color must reject copying an item's color onto itself");
+}
 void multiple_selection_smoke() {
     App app;
     std::chrono::microseconds time{};
@@ -4549,6 +4778,7 @@ void smoke() {
     history_smoke();
     label_smoke();
     reorder_smoke();
+    color_drop_smoke();
     multiple_selection_smoke();
     visibility_smoke();
     shadows_smoke();
@@ -4789,6 +5019,17 @@ constexpr SnapshotScenario snapshot_scenarios[] = {
      }},
     {"display", "Display section tab with the Visibility choices",
      [](App& app, SnapshotRecorder&) { app.action("sections-tab-display"); }},
+    {"color-drag", "Cube's tinted Display color dragged from its swatch and held over the Light row",
+     [](App& app, SnapshotRecorder& recorder) {
+         app.action("sections-tab-display");
+         app.focus_id("display-color");
+         recorder.input(KeyDown{Key::down, {.alt = true}});
+         for (int step = 0; step < 12; ++step) recorder.input(KeyDown{Key::right});
+         for (int step = 0; step < 6; ++step) recorder.input(KeyDown{Key::up});
+         recorder.input(KeyDown{Key::enter});
+         recorder.input(PointerDown{{1}, app.view.reachable("display-color")}, CommandSource::pointer);
+         recorder.input(PointerMove{{1}, app.view.center("hierarchy-item-light")}, CommandSource::pointer);
+     }},
     {"narrow", "Smallest supported 492x360 window with wrapped Inspector controls",
      [](App&, SnapshotRecorder& recorder) { recorder.resize({492, 360}); }},
 };

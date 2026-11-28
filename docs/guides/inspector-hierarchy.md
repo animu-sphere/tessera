@@ -35,6 +35,7 @@ Use `Release` for the other configuration. Without arguments the executable runs
 - Tab to Cast shadows and press Enter/Space, or click its track, thumb or label, to toggle the [Switch](checkbox-switch.md). See [Shadows switch](#shadows-switch).
 - Tab to Purpose, a [ComboBox](combobox.md). Enter/Space, Alt+Down or a click opens its list at the current choice; Up/Down/Home/End move, Enter or a click chooses, and Escape, Alt+Up, Tab or an outside press closes without choosing. See [Purpose ComboBox](#purpose-combobox).
 - Tab to Color, a [ColorPicker](color-picker.md) showing a swatch and `#RRGGBB`. Enter/Space, Alt+Down or a click opens its panel at the saturation/value area; arrows adjust saturation and value, Tab moves to the hue strip, whose arrows and Home/End adjust hue, and a press or drag on either applies the color under the pointer. Enter, Escape, Tab past the strip or an outside press closes the panel and keeps the applied color. See [Display color picker](#display-color-picker).
+- Drag the closed Color swatch onto a Hierarchy row to copy the shown item's Display color to that item; a dashed ring marks the row and a small swatch follows the pointer. See [Copy a Display color by dragging](#copy-a-display-color-by-dragging).
 - Change any property and a blue Modified badge appears on the property card's top edge; Reset, or a property returning to its reset value, removes it. See [Scale hint and Modified badge](#scale-hint-and-modified-badge).
 - Select another item and return. Every item retains its own name and notes owners, revisions, UTF-8 byte selections, enabled flag, amount, accepted scale and pending scale draft, visibility, shadows value, purpose and display color. The edited display name also appears in the Hierarchy.
 - Wheel either pane or drag the [SplitPane](split-pane.md) boundary. Focus navigation reveals controls; scrolling and pane/window resizing do not change item values. Pane minima are 140/320 logical units plus the 8-unit handle; smaller windows clip overflowing minima.
@@ -232,6 +233,23 @@ The fourth Display row is an ordinary [ColorPicker](color-picker.md) with stable
 
 The window-free smoke selects Display, then checks the closed `color_picker` role, name, `#808080` value and collapsed state, Tab arrival after Purpose, Alt+Down opening at the area, the panel's placement, area arrows adjusting saturation and value through one command each without closing, the swatch fill, hex value and Modified badge, Tab to the strip and its hue step, Tab closing and continuing past the trigger, pointer opening, a press and drag on the area with one command per changed color, an unchanged release, thumb placement, a hue press, an outside press without click-through, Escape and Enter closing while keeping the color, per-item retention and Reset. The injected native smoke reaches Color with Tab, opens it with Space, adjusts saturation and value with Right and Up, moves to the strip with Tab, steps hue with Right and closes with Return.
 
+## Copy a Display color by dragging
+
+The Display color swatch is a [typed drag source](../architecture/input.md#implemented-typed-drag-and-drop) and every Hierarchy row is a drop target. A `DragDropDispatcher`, routed after the Display color dispatcher and before scrubbing, receives a scope with one source and one target per item, all with payload type `application/x-hsv-color` and the copy operation. The swatch is a source only while the Display tab is shown and its panel is closed. The payload value is the shown item's accepted `HsvColor`, which the host keeps. A drop runs one node-free typed command, `item.color`, resolved with `CommandSnapshot::resolve`:
+
+| Argument | Type | Meaning |
+| --- | --- | --- |
+| `item` | object ID | The item whose Display color is replaced |
+| `from` | object ID | The item whose Display color is copied, the shown item for a drop |
+
+Stale or unknown IDs fail resolution, and copying an item onto itself rejects with `item_color`. The command changes only Display color, so the selection, shown item, focus and other values stay as they were.
+
+- A press on the swatch still focuses it, and a release without 4 units of travel still opens the panel.
+- While dragging, a 20-unit swatch of the dragged color follows 14 units below and right of the pointer without taking pointer input, and an accepting row shows a two-unit dashed blue ring. The shown item's own row and rows whose color already matches show no ring. Shift requests a move and Control+Shift a link, which this drop does not offer, so they show no ring either; Control requests the copy it does offer.
+- Releasing over a ringed row runs `item.color` once, which records one [history](#undo-and-redo) entry. Releasing elsewhere, Escape, `PointerCancel` and Tab cancel without a command, and the release does not open the panel.
+
+The window-free smoke checks the typed descriptor and published IDs, the threshold, the preview's color, position and pointer transparency, the ring without a command, unchanged and outside positions, Shift and Control, one command per drop with selection kept and the panel closed, Undo and Redo, Escape, `PointerCancel`, an unchanged drop, Scene as a target, a release outside, click opening the panel, no source on the General tab and direct rejection of copying onto itself. The [`color-drag` snapshot](#snapshot-bundles) holds a tinted color over the Light row. Keyboard and semantic operation, drag scrolling, a Windows drop cursor and native injected coverage are not included.
+
 ## Analytic backgrounds
 
 The Enabled label includes an eight-unit circular status mark, green when the selected item is enabled and gray otherwise. It is an ordinary borderless Column, not an image or special widget:
@@ -349,6 +367,7 @@ An unknown name prints the scenario list. The scenarios are:
 | `ime` | Japanese preedit `にほんご` open at the end of the name editor |
 | `multi-select` | Cube through Light selected with Shift+click, then Extra 1 added with Control+click and shown as `Selected: extra1 +3` |
 | `display` | Display tab with the Visibility choices |
+| `color-drag` | Cube's tinted Display color dragged from its swatch and held over the Light row, with the ring and preview |
 | `narrow` | The 492×360 minimum window: header tools without the heading and the narrow Inspector pane |
 
 Start with `g<n>/tree.txt` for roles, IDs, names, geometry and state, then open `g<n>/frame.png` for the pixels; `manifest.json` says which generation `<n>` is.

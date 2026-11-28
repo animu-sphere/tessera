@@ -47,6 +47,7 @@ tessera_add_contract_test(text_pointer tests/input/text_pointer_tests.cpp)
 tessera_add_contract_test(modal tests/input/modal_tests.cpp)
 tessera_add_contract_test(collection tests/input/collection_tests.cpp)
 tessera_add_contract_test(collection_drag tests/input/collection_drag_tests.cpp)
+tessera_add_contract_test(drag_drop tests/input/drag_drop_tests.cpp)
 tessera_add_contract_test(collection_selection tests/input/collection_selection_tests.cpp)
 tessera_add_contract_test(virtual_collection tests/input/virtual_collection_tests.cpp)
 tessera_add_contract_test(menu tests/input/menu_tests.cpp)
@@ -110,7 +111,7 @@ if(TESSERA_BUILD_EXAMPLES)
     tessera_add_check(grid_inspector tessera_grid_inspector smoke)
     tessera_add_check(inspector_hierarchy tessera_inspector_hierarchy smoke)
     # Names match the Inspector's snapshot scenario table, which rejects unknown ones.
-    foreach(scenario IN ITEMS initial edit-name ime display narrow)
+    foreach(scenario IN ITEMS initial edit-name ime display color-drag narrow)
         tessera_add_check(inspector_hierarchy_snapshot.${scenario} tessera_inspector_hierarchy smoke
             --snapshot ${scenario} ${CMAKE_CURRENT_BINARY_DIR}/inspector-snapshots/${scenario})
         tessera_add_check(inspector_hierarchy_capabilities.${scenario} tessera_inspector_hierarchy smoke
