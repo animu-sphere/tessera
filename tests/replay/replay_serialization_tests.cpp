@@ -543,6 +543,28 @@ void procedural_styles_round_trip() {
     }
     check(save(recording()).find("\"background_procedural\"") == std::string::npos,
           "Absent procedural fills must preserve legacy Replay bytes");
+
+    auto textured = recording();
+    textured.styles[0].background_procedural =
+        tessera::ProceduralFill{"example.texture", {tessera::ImageHandle{7ull}, .5f}, 0, 1};
+    const auto textured_json = save(textured);
+    check(textured_json.find("{\"texture\":7}") != std::string::npos && load(textured_json) == textured &&
+              save(load(textured_json)) == textured_json,
+          "Texture parameters must round-trip their image handles in Replay");
+    for (const auto* handle : {"0", "1.5", "9007199254740992", "\"7\""}) {
+        const auto invalid = tessera::load_replay(
+            changed(textured_json, "{\"texture\":7}", std::string("{\"texture\":") + handle + "}"));
+        check(!invalid &&
+                  has(invalid.diagnostics, "schema_type", "/styles/0/background_procedural/parameters/0/texture"),
+              "Encoded texture handles must be positive exact integers");
+    }
+    auto& handle = std::get<tessera::ImageHandle>(textured.styles[0].background_procedural->parameters[0]).value;
+    handle = 9007199254740991ull;
+    check(load(save(textured)) == textured, "The largest exact JSON integer is a valid texture handle");
+    handle = 9007199254740992ull;
+    const auto unencodable = tessera::save_replay(textured);
+    check(!unencodable && has(unencodable.diagnostics, "out_of_range", "/styles/0/background_procedural/parameters/0"),
+          "Texture handles beyond exact JSON integers must not be saved");
 }
 
 void custom_shape_styles_round_trip() {

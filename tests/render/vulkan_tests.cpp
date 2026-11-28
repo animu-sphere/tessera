@@ -28,6 +28,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <span>
 #include <stdexcept>
 
 using tessera::test::check;
@@ -92,6 +93,10 @@ struct Buffer {
 // Linear premultiplied RGBA8 UNORM texels, every channel at most its alpha, with partial coverage.
 constexpr std::array<std::uint8_t, 16> premultiplied_texels{128, 0, 0, 128, 0,  96,  0,   192,
                                                             0,   0, 0, 0,   64, 160, 200, 255};
+// sRGB-encoded straight-alpha 4x2 texels for textured procedural fills; one texel is half transparent.
+constexpr std::array<std::uint8_t, 32> wide_texels{255, 128, 0,   255, 0,   128, 255, 255, 255, 255, 0,
+                                                   255, 128, 0,   255, 255, 0,   0,   0,   255, 64,  64,
+                                                   64,  255, 200, 100, 50,  128, 50,  200, 100, 255};
 struct Host {
     VkInstance instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
@@ -107,8 +112,8 @@ struct Host {
     VkFramebuffer framebuffer = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
     VkSampler sampler = VK_NULL_HANDLE;
-    Image target, texture, premultiplied;
-    Buffer readback, staging, premultiplied_staging;
+    Image target, texture, premultiplied, wide;
+    Buffer readback, staging, premultiplied_staging, wide_staging;
     std::vector<Image> atlas_images;
     std::vector<Buffer> atlas_staging;
     VkExtent2D extent{};
@@ -119,9 +124,11 @@ struct Host {
             if (sampler) vkDestroySampler(device, sampler, nullptr);
             destroy(texture);
             destroy(premultiplied);
+            destroy(wide);
             destroy_target();
             destroy(staging);
             destroy(premultiplied_staging);
+            destroy(wide_staging);
             if (fence) vkDestroyFence(device, fence, nullptr);
             if (pool) vkDestroyCommandPool(device, pool, nullptr);
             if (pass) vkDestroyRenderPass(device, pass, nullptr);
@@ -414,13 +421,15 @@ struct Host {
         require(vkQueueSubmit(queue, 1, &submit, fence), "submit queue");
         require(vkWaitForFences(device, 1, &fence, VK_TRUE, 30'000'000'000ull), "wait fence");
     }
-    void upload_texture(Image& image, Buffer& buffer, const std::array<std::uint8_t, 16>& pixels, VkFormat format) {
+    void upload_texture(Image& image, Buffer& buffer, std::span<const std::uint8_t> pixels, VkFormat format,
+                        VkExtent2D size = {2, 2}) {
+        check(pixels.size() == std::size_t(size.width) * size.height * 4, "Texture data must cover its extent");
         make_buffer(buffer, pixels.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
         void* mapped;
         require(vkMapMemory(device, buffer.memory, 0, pixels.size(), 0, &mapped), "map texture staging");
         std::memcpy(mapped, pixels.data(), pixels.size());
         vkUnmapMemory(device, buffer.memory);
-        make_image(image, {2, 2}, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, format);
+        make_image(image, size, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, format);
         begin_commands();
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -434,7 +443,7 @@ struct Host {
                              0, nullptr, 1, &barrier);
         VkBufferImageCopy copy{};
         copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        copy.imageExtent = {2, 2, 1};
+        copy.imageExtent = {size.width, size.height, 1};
         vkCmdCopyBufferToImage(commands, buffer.buffer, image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         barrier.oldLayout = barrier.newLayout;
         barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -446,9 +455,11 @@ struct Host {
     }
     void make_texture() {
         // Procedural test data: red, green / blue, white. No external asset dependency.
-        upload_texture(texture, staging, {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255},
-                       VK_FORMAT_R8G8B8A8_SRGB);
+        constexpr std::array<std::uint8_t, 16> quadrants{255, 0, 0,   255, 0,   255, 0,   255,
+                                                         0,   0, 255, 255, 255, 255, 255, 255};
+        upload_texture(texture, staging, quadrants, VK_FORMAT_R8G8B8A8_SRGB);
         upload_texture(premultiplied, premultiplied_staging, premultiplied_texels, VK_FORMAT_R8G8B8A8_UNORM);
+        upload_texture(wide, wide_staging, wide_texels, VK_FORMAT_R8G8B8A8_SRGB, {4, 2});
         VkSamplerCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         info.magFilter = info.minFilter = VK_FILTER_NEAREST;
@@ -2039,6 +2050,239 @@ void procedural_fixtures(Host& host) {
         gpu.retire(frame++);
     }
 }
+// Textured procedural fills (fill-texture-v1): sampling a bound image must reproduce DrawImage pixels for straight
+// and premultiplied images, under clips, transforms and layers; a numeric probe checks two textures, the host
+// sampler's addressing, tint, straight alpha and size(). Lifetime, batching, registration and rejection are explicit.
+void texture_fill_fixtures(Host& host) {
+    using namespace tessera;
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
+    const auto artifact = shader("procedural.texture.spv");
+    using Kind = ProceduralValueKind;
+    const auto declaration = parameters("procedural.texture.parameters.json");
+    check(declaration == ShaderParameters{ShaderProfile::fill_texture_v1,
+                                          {{"image", Kind::texture},
+                                           {"tint", Kind::color},
+                                           {"overlay", Kind::texture},
+                                           {"weight", Kind::number},
+                                           {"repeat", Kind::point},
+                                           {"probe", Kind::number}}},
+          "Texture fill manifests reflect ProceduralTexture fields as fill-texture-v1");
+    VkSamplerCreateInfo sampler_info{};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = sampler_info.minFilter = VK_FILTER_NEAREST;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler_info.addressModeU = sampler_info.addressModeV = sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    struct Sampler {
+        VkDevice device;
+        VkSampler sampler = VK_NULL_HANDLE;
+        ~Sampler() {
+            if (sampler) vkDestroySampler(device, sampler, nullptr);
+        }
+    } repeat{host.device};
+    require(vkCreateSampler(host.device, &sampler_info, nullptr, &repeat.sampler), "create repeat sampler");
+    const auto max_difference = [](const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
+        check(a.size() == b.size(), "Texture fill comparison sizes differ");
+        int result = 0;
+        for (std::size_t i = 0; i < a.size(); ++i) result = std::max(result, std::abs(int(a[i]) - int(b[i])));
+        return result;
+    };
+    const auto decode = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+    const Color white{1, 1, 1, 1};
+    // image * tint + overlay-weighted overlay, with texture coordinates scaled by `tiles`.
+    const auto textured = [](DrawRect rect, std::uint64_t base, Color tint, std::uint64_t overlay, float weight,
+                             Point tiles, float probe = 0) {
+        rect.color = {1, 0, 0, 1}; // A visible fallback would fail the comparisons.
+        rect.procedural =
+            ProceduralFill{"test.texture", {ImageHandle{base}, tint, ImageHandle{overlay}, weight, tiles, probe}};
+        return rect;
+    };
+    // Handles: 1 the 2x2 straight sRGB texture, 2 the premultiplied UNORM one (both clamped), 3 the 4x2 texture
+    // with a repeating sampler.
+    const Rect first{{2.137f, 2.137f}, {12.71f, 8.71f}}, second{{17.25f, 3.5f}, {11.5f, 7.25f}},
+        turned{{0, 0}, {9.71f, 6.71f}}, grouped{{4.5f, 21.25f}, {10.25f, 7.5f}};
+    UiDrawList images{{DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}}}};
+    UiDrawList fills = images;
+    const auto shared = [&](DrawCommand command) {
+        images.commands.push_back(command);
+        fills.commands.push_back(std::move(command));
+    };
+    const auto pair = [&](const Rect& rect, std::uint64_t handle) {
+        images.commands.push_back(DrawImage{rect, {handle}});
+        fills.commands.push_back(textured(DrawRect{rect}, handle, white, handle, 0, {1, 1}));
+    };
+    pair(first, 1);
+    pair(second, 2);
+    shared(PushClip{{{1.125f, 12.125f}, {29.75f, 18.75f}}});
+    shared(PushTransform{{0, 1, -1, .25f, 28.137f, 19.137f}});
+    pair(turned, 1);
+    shared(PopTransform{});
+    shared(PopClip{});
+    shared(PushLayer{.6f});
+    pair(grouped, 1);
+    shared(PopLayer{});
+    const Rect probe_rect{{4, 4}, {16, 8}};
+    const Color tint{1, .5f, 1, 1};
+    const DrawRect mixed = textured(DrawRect{probe_rect}, 3, tint, 2, .5f, {2, 1});
+    const DrawRect sized = textured(DrawRect{probe_rect}, 3, white, 1, 0, {1, 1}, 1);
+
+    for (bool batched : {false, true}) {
+        VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+                              vertex,        fragment,    image,     8};
+        if (batched) context.batch_vertex_spirv = batch;
+        VulkanRenderer gpu(context);
+        const char* path = batched ? "batch" : "reference";
+        // Registration: the declaration, artifact and profile must agree.
+        auto plain = declaration;
+        plain.profile = ShaderProfile::fill_v1;
+        check(has(gpu.register_procedural_fill({"test.texture", artifact, plain}), "texture_profile",
+                  "/declaration/parameters/0/kind"),
+              "Texture parameters require a fill-texture-v1 declaration");
+        auto crowded = declaration;
+        for (const char* name : {"a", "b"}) crowded.parameters.push_back({name, Kind::texture});
+        check(has(gpu.register_procedural_fill({"test.texture", artifact, crowded}), "texture_limit",
+                  "/declaration/parameters"),
+              "fill-texture-v1 declares at most three textures");
+        const auto untextured =
+            gpu.register_procedural_fill({"test.texture", artifact, parameters("procedural.solid.parameters.json")});
+        check(has(untextured, "procedural_abi", "/fragment_spirv") &&
+                  untextured.front().message == "Profile fill-v1 does not permit image or sampler access.",
+              "A sampling artifact registered as fill-v1 must be rejected");
+        check(has(gpu.register_custom_shape({"test.texture", artifact, declaration}), "shape_abi",
+                  "/declaration/profile"),
+              "Custom shapes cannot register a fill-texture-v1 declaration");
+        const auto patched = [&](auto change) {
+            auto words = artifact;
+            for (std::size_t i = 5; i < words.size(); i += words[i] >> 16) change(words, i, words[i] & 0xffff);
+            return words;
+        };
+        // OpTypeImage's Sampled operand 2 declares a storage image; DescriptorSet 2 moved to set 5.
+        const auto storage = patched([](auto& w, std::size_t i, std::uint32_t op) {
+            if (op == 25) w[i + 7] = 2;
+        });
+        const auto stray = patched([](auto& w, std::size_t i, std::uint32_t op) {
+            if (op == 71 && w[i + 2] == 34 && w[i + 3] == 2) w[i + 3] = 5;
+        });
+        check(has(gpu.register_procedural_fill({"test.texture", storage, declaration}), "procedural_abi",
+                  "/fragment_spirv"),
+              "Storage images are outside fill-texture-v1");
+        check(has(gpu.register_procedural_fill({"test.texture", stray, declaration}), "procedural_abi",
+                  "/fragment_spirv"),
+              "Descriptor sets outside the profile must be rejected");
+        check(!gpu.procedural_fill_parameters("test.texture"), "Rejected registrations register nothing");
+        check(gpu.register_procedural_fill({"test.texture", artifact, declaration}).empty(),
+              "Texture fill registration");
+        check(gpu.procedural_fill_parameters("test.texture") == declaration, "Registered texture declaration");
+        check(gpu.bind_image({1}, host.texture.view, host.sampler).empty() &&
+                  gpu.bind_image({2}, host.premultiplied.view, host.sampler, ImageAlpha::premultiplied).empty() &&
+                  gpu.bind_image({3}, host.wide.view, repeat.sampler).empty(),
+              "Texture fill image binding failed");
+
+        std::uint64_t frame = 1;
+        for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+            const auto extent = *capture_extent({32, 32}, scale).value;
+            host.resize({extent.width, extent.height});
+            const auto render = [&](const UiDrawList& list, const std::string& name) {
+                host.begin(gpu);
+                const auto diagnostics = gpu.submit({frame, {32, 32}, scale}, list);
+                check(diagnostics.empty(), ("Texture fill scene rejected: " + name).c_str());
+                auto pixels = host.finish(
+                    ("texture-fill-" + name + "-" + path + "-" + std::to_string(extent.width) + ".ppm").c_str());
+                gpu.retire(frame++);
+                return pixels;
+            };
+            const auto expected = render(images, "image");
+            const auto actual = render(fills, "fill");
+            check(gpu.submission_stats().procedural_fills == 4 && gpu.submission_stats().procedural_fallbacks == 0 &&
+                      gpu.submission_stats().layers == 1,
+                  "Registered texture fills must execute without fallback");
+            check(max_difference(actual, expected) <= 1,
+                  "Texture fills must sample straight and premultiplied images like DrawImage under clips, transforms "
+                  "and layers");
+
+            // Probe: repeating 4x2 texels tinted, plus the clamped premultiplied overlay at half weight, over black.
+            // Texel centers of both textures lie at least half a physical pixel from every probed pixel center.
+            const auto mixed_pixels = render({{mixed}}, "probe");
+            for (const double lx : {1.0, 3.0, 5.0, 9.0, 15.0})
+                for (const double ly : {2.0, 6.0}) {
+                    const auto px = unsigned(std::floor((4 + lx) * scale)), py = unsigned(std::floor((4 + ly) * scale));
+                    const double x = (px + .5) / scale - 4, y = (py + .5) / scale - 4;
+                    const auto row = std::size_t(std::floor(y / 4));
+                    const auto* base = &wide_texels[(row * 4 + std::size_t(std::floor(x / 2)) % 4) * 4];
+                    const auto* over =
+                        &premultiplied_texels[(row * 2 + std::min<std::size_t>(1, std::size_t(x / 4))) * 4];
+                    const double tints[3]{1, decode(.5), 1}, alpha = base[3] / 255.0, weight = .5;
+                    std::array<int, 4> want{0, 0, 0, 255};
+                    for (int c = 0; c < 3; ++c) {
+                        const double straight = over[3] ? double(over[c]) / over[3] : 0;
+                        const double value = std::clamp(decode(base[c] / 255.0) * tints[c] +
+                                                            straight * weight * over[3] / 255.0 * weight,
+                                                        0.0, 1.0);
+                        want[c] = int(std::lround(srgb_encode(value * alpha) * 255));
+                    }
+                    pixel(mixed_pixels, extent.width, px, py, want, "Texture fill sampling probe mismatch");
+                }
+            const auto sized_pixels = render({{sized}}, "size");
+            const int half = int(std::lround(srgb_encode(.5) * 255)),
+                      quarter = int(std::lround(srgb_encode(.25) * 255));
+            pixel(sized_pixels, extent.width, unsigned(12 * scale), unsigned(8 * scale), {half, quarter, quarter, 255},
+                  "Texture size probe mismatch");
+
+            // Unregistered texture fills draw the fallback without needing their textures bound.
+            DrawRect missing = textured(DrawRect{probe_rect}, 9, white, 9, 0, {1, 1});
+            missing.procedural->shader = "test.missing";
+            missing.color = {.2f, .6f, .4f, 1};
+            const auto plain_pixels = render({{DrawRect{probe_rect, missing.color}}}, "fallback-expected");
+            check(max_difference(render({{missing}}, "fallback"), plain_pixels) == 0 &&
+                      gpu.submission_stats().procedural_fallbacks == 1,
+                  "Unregistered texture fills must draw the declared fallback");
+        }
+
+        // Rejections consume no frame or upload and name the parameter.
+        host.resize({32, 32});
+        host.begin(gpu);
+        const auto pending = gpu.pending_uploads();
+        auto wrong = textured(DrawRect{{{0, 0}, {8, 8}}}, 1, white, 9, 0, {1, 1});
+        check(
+            has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "invalid_handle", "/commands/0/procedural/parameters/2") &&
+                gpu.pending_uploads() == pending,
+            "Unbound textures must reject the frame");
+        wrong.procedural->parameters[2] = ImageHandle{};
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "invalid_handle", "/commands/0/procedural/parameters/2"),
+              "Zero texture handles are invalid draw data");
+        wrong.procedural->parameters[2] = white;
+        const auto kind = gpu.submit({frame, {32, 32}, 1}, {{wrong}});
+        check(has(kind, "procedural_parameter_mismatch", "/commands/0/procedural/parameters/2") &&
+                  kind.front().message == "Parameter overlay takes a texture.",
+              "A color where a texture is declared must reject");
+        wrong.procedural->parameters[2] = ImageHandle{1};
+        wrong.procedural->parameters[1] = ImageHandle{1};
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "procedural_parameter_mismatch",
+                  "/commands/0/procedural/parameters/1"),
+              "A texture where a color is declared must reject");
+        DrawRect shaped{{{0, 0}, {8, 8}}, white};
+        shaped.custom_shape = CustomShape{"test.shape", {ImageHandle{1}}};
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{shaped}}), "unsupported_combination",
+                  "/commands/0/custom_shape/parameters/0"),
+              "Custom shapes take no textures");
+
+        // Adjacent fills batch only with equal textures; textures stay bound until their frame retires.
+        const auto one = textured(DrawRect{{{0, 0}, {8, 8}}}, 1, white, 1, 0, {1, 1});
+        const auto other = textured(DrawRect{{{8, 0}, {8, 8}}}, 3, white, 1, 0, {1, 1});
+        check(gpu.submit({frame, {32, 32}, 1}, {{one, one, other}}).empty(), "Texture fill batch rejected");
+        check(gpu.submission_stats().draw_calls == (batched ? 2u : 3u),
+              "Texture fills must batch only with the same textures");
+        host.finish("texture-fill-retire.ppm");
+        for (const auto& [handle, view, sampler] : {std::tuple{ImageHandle{1}, host.texture.view, host.sampler},
+                                                    std::tuple{ImageHandle{3}, host.wide.view, repeat.sampler}})
+            check(has(gpu.unbind_image(handle), "resource_in_use", "/image") &&
+                      has(gpu.bind_image(handle, view, sampler), "resource_in_use", "/image"),
+                  "Textures of an in-flight fill must not be rebound or unbound");
+        check(gpu.unbind_image({2}).empty(), "Unreferenced textures stay unbindable");
+        gpu.retire(frame++);
+        check(gpu.unbind_image({1}).empty() && gpu.unbind_image({3}).empty(), "Retired textures may be unbound");
+    }
+}
 // Custom shapes: distance shaders equal to the built-in ellipse and rounded rectangle must reproduce
 // their coverage and paint; a probe shape reports the ABI's position, size, scale, time and parameters.
 // Offscreen layers against the scalar reference: group opacity over overlapping content, nested layers under
@@ -2764,6 +3008,7 @@ int main(int argc, char** argv) {
                 runner_fixtures(host);
                 cpu_reference_fixtures(host);
                 procedural_fixtures(host);
+                texture_fill_fixtures(host);
                 custom_shape_fixtures(host);
                 layer_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES

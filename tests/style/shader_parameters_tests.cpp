@@ -40,6 +40,25 @@ void canonical_round_trip() {
     check(has(load_shader_parameters(manifest("fill-v1", sixteen + R"(,{"name":"q","kind":"number"})")).diagnostics,
               "parameter_limit", "/parameters"),
           "A seventeenth parameter is rejected");
+
+    constexpr std::string_view textured =
+        R"({"format":"tessera-shader-parameters","parameters":[{"kind":"texture","name":"image"},)"
+        R"({"kind":"color","name":"tint"},{"kind":"texture","name":"overlay"}],"profile":"fill-texture-v1",)"
+        R"("version":1})"
+        "\n";
+    const auto loaded_textures = load_shader_parameters(textured);
+    check(loaded_textures &&
+              *loaded_textures.value ==
+                  ShaderParameters{ShaderProfile::fill_texture_v1,
+                                   {{"image", Kind::texture}, {"tint", Kind::color}, {"overlay", Kind::texture}}},
+          "Texture parameters load in fill-texture-v1");
+    const auto saved_textures = save_shader_parameters(*loaded_textures.value);
+    check(saved_textures && *saved_textures.value == textured, "Texture declarations save canonically");
+    const auto texture = R"({"name":"t0","kind":"texture"})";
+    check(bool(load_shader_parameters(
+              manifest("fill-texture-v1",
+                       std::string(texture) + R"(,{"name":"t1","kind":"texture"},{"name":"t2","kind":"texture"})"))),
+          "Three textures are accepted");
 }
 
 void located_rejection() {
@@ -78,8 +97,19 @@ void located_rejection() {
                   "/parameters/0/name"),
           "Names have at most 64 bytes");
     check(!load_shader_parameters("{"), "Malformed JSON is rejected");
+    const auto texture = R"({"name":"image","kind":"texture"})";
+    for (const auto* profile : {"fill-v1", "sdf-v1"})
+        check(rejects(manifest(profile, texture), "texture_profile", "/parameters/0/kind"),
+              "Texture parameters belong to fill-texture-v1 only");
+    check(rejects(manifest("fill-texture-v1", one), "texture_limit", "/parameters"),
+          "fill-texture-v1 declares at least one texture");
+    std::string four;
+    for (int i = 0; i < 4; ++i)
+        four += std::string(i ? "," : "") + R"({"name":"t)" + std::to_string(i) + R"(","kind":"texture"})";
+    check(rejects(manifest("fill-texture-v1", four), "texture_limit", "/parameters"),
+          "fill-texture-v1 declares at most three textures");
 
-    ShaderParameters invalid{static_cast<ShaderProfile>(2), {{"a", static_cast<Kind>(3)}}};
+    ShaderParameters invalid{static_cast<ShaderProfile>(3), {{"a", static_cast<Kind>(4)}}};
     const auto errors = validate(invalid);
     check(has(errors, "unknown_value", "/profile") && has(errors, "unknown_value", "/parameters/0/kind"),
           "Validation rejects out-of-range enums");

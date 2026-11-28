@@ -184,6 +184,10 @@ std::vector<ProceduralValue> shader_parameters(const JsonValue& value, const std
             result.push_back(real(object(values[i], where, {"number"}).at("number"), where + "/number"));
         else if (typed.contains("point"))
             result.push_back(point(object(values[i], where, {"point"}).at("point"), where + "/point"));
+        else if (typed.contains("texture"))
+            result.push_back(ImageHandle{static_cast<std::uint64_t>(
+                integer(object(values[i], where, {"texture"}).at("texture"), where + "/texture", 1, max_exact_integer,
+                        "a positive image handle of at most 2^53 - 1"))});
         else
             result.push_back(color(object(values[i], where, {"color"}).at("color"), where + "/color"));
     }
@@ -600,8 +604,18 @@ std::vector<Diagnostic> check_values(const ReplayRecording& recording, bool docu
     auto styles = [&](const std::vector<ResolvedStyle>& values, const std::string& path) {
         if (values.size() > max_document_nodes)
             check.error("out_of_range", path, "Use at most one style per document node (10000).");
-        for (std::size_t i = 0; i < values.size(); ++i)
+        for (std::size_t i = 0; i < values.size(); ++i) {
             relocate(errors, validate(values[i], path + "/" + std::to_string(i)), "");
+            if (!values[i].background_procedural) continue;
+            const auto& parameters = values[i].background_procedural->parameters;
+            for (std::size_t j = 0; j < parameters.size(); ++j)
+                if (const auto* texture = std::get_if<ImageHandle>(&parameters[j]);
+                    texture && texture->value > 9007199254740991ull)
+                    check.error("out_of_range",
+                                path + "/" + std::to_string(i) + "/background_procedural/parameters/" +
+                                    std::to_string(j),
+                                "Texture handles must stay within 2^53 - 1 to be exact in JSON.");
+        }
     };
     styles(recording.styles, "/styles");
     for (std::size_t i = 0; i < recording.steps.size(); ++i) {
@@ -795,8 +809,10 @@ JsonValue style_json(const ResolvedStyle& s) {
                         parameters.push_back(JsonValue{Object{{"number", real_json(v)}}});
                     else if constexpr (std::is_same_v<V, Point>)
                         parameters.push_back(JsonValue{Object{{"point", point_json(v)}}});
-                    else
+                    else if constexpr (std::is_same_v<V, Color>)
                         parameters.push_back(JsonValue{Object{{"color", color_json(v)}}});
+                    else
+                        parameters.push_back(JsonValue{Object{{"texture", number(double(v.value))}}});
                 },
                 value);
         return JsonValue{std::move(parameters)};

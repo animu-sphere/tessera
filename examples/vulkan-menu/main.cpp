@@ -60,7 +60,8 @@ constexpr const char* menu_json = R"({"version":1,"root":{"type":"Box","id":"scr
 {"type":"Box","id":"quit","classes":["button"],"properties":{"focusable":true},"events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]},
 {"type":"Box","id":"credits","classes":["button"],"properties":{"focusable":true},"events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]},
 {"type":"Box","id":"badge"},
-{"type":"Box","id":"preview","children":[{"type":"Text","id":"preview-label","properties":{"text":"Preview"}}]}]}]}})";
+{"type":"Box","id":"preview","children":[{"type":"Text","id":"preview-label","properties":{"text":"Preview"}}]}]},
+{"type":"Box","id":"emblem"}]}})";
 constexpr const char* buttons[]{"start", "quit", "credits"};
 
 void require(VkResult result, const char* operation) {
@@ -196,6 +197,22 @@ struct Menu {
     static constexpr tessera::Color preview_fill = rgb(214, 84, 120), preview_edge = rgb(255, 214, 102);
     static constexpr float preview_opacity = .7f;
     static constexpr tessera::Size blob_radius{.75f, .75f};
+    // Corner emblem drawn by mosaic.slang (fill-texture-v1) from `mosaic_tiles`, a host image with one sRGB texel
+    // per tessera in concentric diamonds of the palette; its grout-colored background is the declared fallback.
+    // A glint sweeps the tiles at `mosaic_rate` radians per host second.
+    static constexpr const char* mosaic = "tessera.example.mosaic";
+    static constexpr tessera::ImageHandle mosaic_tiles{atlas_pages_per_slot * frames_in_flight + 1};
+    static constexpr std::uint32_t mosaic_cells = 8;
+    static constexpr std::array<std::array<std::uint8_t, 3>, 4> mosaic_palette{
+        {{255, 214, 102}, {214, 84, 120}, {64, 196, 170}, {76, 98, 196}}};
+    static constexpr tessera::Color grout = rgb(28, 30, 38), glint{1, .95f, .8f, .6f};
+    static constexpr float emblem_size = 64, emblem_inset = 16, mosaic_joint = .14f, mosaic_phase = 0,
+                           mosaic_rate = 1.7f;
+    // sRGB bytes of tile (x, y).
+    static const std::array<std::uint8_t, 3>& mosaic_tile(std::uint32_t x, std::uint32_t y) {
+        const auto ring = (std::abs(int(2 * x) - 7) + std::abs(int(2 * y) - 7)) / 2;
+        return mosaic_palette[std::size_t(ring) % mosaic_palette.size()];
+    }
     std::unique_ptr<tessera::UiTree> tree;
     std::vector<std::uint32_t> parents;
     tessera::StyleSheet sheet;
@@ -325,6 +342,19 @@ struct Menu {
             s.opacity = preview_opacity;
             s.composition = tessera::Composition::layer;
         });
+        // Absolute placement in the screen's bottom-right corner, outside the panel and the backdrop checks.
+        rule(S::of_id("emblem"), [](auto& s) {
+            s.position = tessera::Position::absolute;
+            s.right = emblem_inset;
+            s.bottom = emblem_inset;
+            s.width = tessera::Dimension::points(emblem_size);
+            s.height = tessera::Dimension::points(emblem_size);
+            s.corner_radius = 8.0f;
+            s.background = grout;
+            s.background_antialias = true;
+            s.background_procedural = tessera::ProceduralFill{
+                mosaic, {mosaic_tiles, grout, mosaic_joint, glint}, mosaic_phase, 1, mosaic_rate};
+        });
         rule(S::of_id("title"), [](auto& s) {
             s.text.size = 28.0f;
             s.color = rgb(235, 238, 245);
@@ -395,6 +425,14 @@ struct Menu {
                 return rect->procedural->time;
         throw std::logic_error("Aurora backdrop missing from paint");
     }
+    // Shader time of the emblem in the current paint.
+    float mosaic_time() const {
+        for (const auto& command : paint.commands)
+            if (const auto* rect = std::get_if<tessera::DrawRect>(&command);
+                rect && rect->procedural && rect->procedural->shader == mosaic)
+                return rect->procedural->time;
+        throw std::logic_error("Mosaic emblem missing from paint");
+    }
     // Shader time of the badge's custom shape in the current paint.
     float blob_time() const {
         for (const auto& command : paint.commands)
@@ -455,7 +493,7 @@ struct App {
     bool minimized = false, resizing = false, swapchain_dirty = true, quit = false;
     bool exposed = true; // The presented image needs a frame even if paint is unchanged.
     AnimationClock clock;
-    bool aurora_registered = false, blob_registered = false;
+    bool aurora_registered = false, blob_registered = false, mosaic_registered = false;
     std::chrono::microseconds smoke_clock{0}; // Smoke-only scripted source: 60 Hz frames plus 1 s per step.
     Menu menu;
     tessera::PointerDispatcher dispatcher;
@@ -495,6 +533,17 @@ struct App {
     std::unique_ptr<tessera::VulkanRenderer> renderer;
     std::uint64_t last_frame = 0, presented = 0;
     VkSampler glyph_sampler = VK_NULL_HANDLE;
+    // The emblem's tile image: uploaded once, recorded into the first frame's transfer buffer, and bound to the
+    // renderer as Menu::mosaic_tiles for the renderer's lifetime.
+    struct MosaicImage {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        VkBuffer staging = VK_NULL_HANDLE; // Kept until shutdown; the first frame's fence covers its copy.
+        VkDeviceMemory staging_memory = VK_NULL_HANDLE;
+        VkSampler sampler = VK_NULL_HANDLE;
+        bool recorded = false;
+    } mosaic;
 
     // Smoke-only presentation readback.
     VkBuffer readback = VK_NULL_HANDLE;
@@ -506,6 +555,7 @@ struct App {
     std::uint64_t step_ready = 1;
     std::optional<float> captured_aurora_time; // Shader time of the previous verified capture.
     std::optional<float> captured_blob_time;   // Badge shape time of the previous verified capture.
+    std::optional<float> captured_mosaic_time; // Emblem glint time of the previous verified capture.
     std::uint64_t hidden_from = 0;             // Presentations when the smoke minimized the window.
     double hidden_clock = 0;                   // Animation clock when the smoke minimized the window.
 
@@ -727,7 +777,7 @@ struct App {
         // Real runs are explicitly lowered to images; direct glyph submission stays disabled.
         renderer = std::make_unique<tessera::VulkanRenderer>(
             tessera::VulkanContext{physical, device, present_pass, format.format, vertex, fragment, image,
-                                   atlas_pages_per_slot * frames_in_flight, !menu.glyph_cache, batch});
+                                   atlas_pages_per_slot * frames_in_flight + 1, !menu.glyph_cache, batch});
         // Build-time Slang artifact and its reflected parameters (top, bottom, glow, cycles, band, in the
         // request's order); a failed registration leaves the declared solid fallback.
         const auto aurora = shader("procedural.aurora.spv");
@@ -748,6 +798,17 @@ struct App {
             print(shaped);
             if (smoke) throw std::runtime_error("Blob custom shape registration failed");
         }
+        // Build-time fill-texture-v1 artifact and its reflected parameters (tiles, grout, joint, glint); a failed
+        // registration leaves the declared grout-colored emblem.
+        const auto mosaic_code = shader("procedural.mosaic.spv");
+        const auto tiled = renderer->register_procedural_fill(
+            {Menu::mosaic, mosaic_code, parameters("procedural.mosaic.parameters.json")});
+        mosaic_registered = tiled.empty();
+        if (!tiled.empty()) {
+            print(tiled);
+            if (smoke) throw std::runtime_error("Mosaic procedural fill registration failed");
+        }
+        create_mosaic();
         if (menu.glyph_cache) {
             VkFormatProperties properties;
             vkGetPhysicalDeviceFormatProperties(physical, VK_FORMAT_R8G8B8A8_UNORM, &properties);
@@ -770,6 +831,98 @@ struct App {
         for (std::uint32_t i = 0; i < properties.memoryTypeCount; ++i)
             if ((bits & (1u << i)) && (properties.memoryTypes[i].propertyFlags & flags) == flags) return i;
         throw std::runtime_error("No memory type for menu glyph upload");
+    }
+    // Creates and binds the emblem's tile image; its upload is recorded with the first frame (upload_mosaic).
+    void create_mosaic() {
+        VkFormatProperties properties;
+        vkGetPhysicalDeviceFormatProperties(physical, VK_FORMAT_R8G8B8A8_SRGB, &properties);
+        constexpr auto features = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+        if ((properties.optimalTilingFeatures & features) != features)
+            throw std::runtime_error("The mosaic emblem requires sampled RGBA8 sRGB transfer destinations");
+        constexpr auto cells = Menu::mosaic_cells;
+        VkBufferCreateInfo buffer{};
+        buffer.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buffer.size = VkDeviceSize(cells) * cells * 4;
+        buffer.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        require(vkCreateBuffer(device, &buffer, nullptr, &mosaic.staging), "create mosaic staging");
+        VkMemoryRequirements requirements;
+        vkGetBufferMemoryRequirements(device, mosaic.staging, &requirements);
+        VkMemoryAllocateInfo allocation{};
+        allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocation.allocationSize = requirements.size;
+        allocation.memoryTypeIndex = memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        require(vkAllocateMemory(device, &allocation, nullptr, &mosaic.staging_memory), "allocate mosaic staging");
+        require(vkBindBufferMemory(device, mosaic.staging, mosaic.staging_memory, 0), "bind mosaic staging");
+        void* mapped;
+        require(vkMapMemory(device, mosaic.staging_memory, 0, buffer.size, 0, &mapped), "map mosaic staging");
+        auto* texels = static_cast<std::uint8_t*>(mapped);
+        for (std::uint32_t y = 0; y < cells; ++y)
+            for (std::uint32_t x = 0; x < cells; ++x) {
+                const auto& tile = Menu::mosaic_tile(x, y);
+                std::copy(tile.begin(), tile.end(), texels + (y * cells + x) * 4);
+                texels[(y * cells + x) * 4 + 3] = 255;
+            }
+        vkUnmapMemory(device, mosaic.staging_memory);
+        VkImageCreateInfo image{};
+        image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        image.imageType = VK_IMAGE_TYPE_2D;
+        image.format = VK_FORMAT_R8G8B8A8_SRGB;
+        image.extent = {cells, cells, 1};
+        image.mipLevels = image.arrayLayers = 1;
+        image.samples = VK_SAMPLE_COUNT_1_BIT;
+        image.tiling = VK_IMAGE_TILING_OPTIMAL;
+        image.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        require(vkCreateImage(device, &image, nullptr, &mosaic.image), "create mosaic image");
+        vkGetImageMemoryRequirements(device, mosaic.image, &requirements);
+        allocation.allocationSize = requirements.size;
+        allocation.memoryTypeIndex = memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        require(vkAllocateMemory(device, &allocation, nullptr, &mosaic.memory), "allocate mosaic image");
+        require(vkBindImageMemory(device, mosaic.image, mosaic.memory, 0), "bind mosaic image memory");
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = mosaic.image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view.format = image.format;
+        view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        require(vkCreateImageView(device, &view, nullptr, &mosaic.view), "create mosaic view");
+        // The fill samples texel centers, so nearest and linear filtering agree.
+        VkSamplerCreateInfo sampler{};
+        sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampler.magFilter = sampler.minFilter = VK_FILTER_NEAREST;
+        sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        require(vkCreateSampler(device, &sampler, nullptr, &mosaic.sampler), "create mosaic sampler");
+        const auto diagnostics = renderer->bind_image(Menu::mosaic_tiles, mosaic.view, mosaic.sampler);
+        if (!diagnostics.empty()) {
+            print(diagnostics);
+            throw std::runtime_error("Mosaic tile image binding rejected");
+        }
+    }
+    // Records the tile upload before the first frame's render pass, in the buffer submitted ahead of it.
+    void upload_mosaic(VkCommandBuffer commands) {
+        if (mosaic.recorded) return;
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.image = mosaic.image;
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &barrier);
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageExtent = {Menu::mosaic_cells, Menu::mosaic_cells, 1};
+        vkCmdCopyBufferToImage(commands, mosaic.staging, mosaic.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        barrier.oldLayout = barrier.newLayout;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &barrier);
+        mosaic.recorded = true;
     }
     void clear_atlas(FrameSlot& slot, bool unbind = true) {
         for (auto& page : slot.atlas) {
@@ -981,6 +1134,12 @@ struct App {
             }
             for (auto& slot : slots) clear_atlas(slot, false);
             if (glyph_sampler) vkDestroySampler(device, glyph_sampler, nullptr);
+            if (mosaic.sampler) vkDestroySampler(device, mosaic.sampler, nullptr);
+            if (mosaic.view) vkDestroyImageView(device, mosaic.view, nullptr);
+            if (mosaic.image) vkDestroyImage(device, mosaic.image, nullptr);
+            if (mosaic.memory) vkFreeMemory(device, mosaic.memory, nullptr);
+            if (mosaic.staging) vkDestroyBuffer(device, mosaic.staging, nullptr);
+            if (mosaic.staging_memory) vkFreeMemory(device, mosaic.staging_memory, nullptr);
             destroy_images();
             if (swapchain) vkDestroySwapchainKHR(device, swapchain, nullptr);
             if (readback) vkDestroyBuffer(device, readback, nullptr);
@@ -1021,7 +1180,8 @@ struct App {
     // Motion needs frames only while shown and while the backend executes a moving fill or shape; the
     // declared static fallbacks of unregistered shaders would present identical frames.
     bool moving() const {
-        return !minimized && (aurora_registered || blob_registered) && tessera::time_dependent(menu.paint);
+        return !minimized && (aurora_registered || blob_registered || mosaic_registered) &&
+               tessera::time_dependent(menu.paint);
     }
     // Presents a frame only for visible change: motion, new paint, a new swapchain or exposure.
     // Returns whether one was presented; otherwise the caller waits for messages.
@@ -1068,6 +1228,7 @@ struct App {
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         require(vkBeginCommandBuffer(slot.commands, &begin), "begin commands");
         require(vkBeginCommandBuffer(slot.layers, &begin), "begin layer commands");
+        upload_mosaic(slot.layers);
         std::optional<tessera::GlyphAtlasFrame> atlas;
         if (menu.glyph_cache) {
             atlas = take(tessera::prepare_glyph_atlas(menu.paint, *menu.glyph_cache, scale,
@@ -1092,19 +1253,26 @@ struct App {
         const auto diagnostics = renderer->submit(frame, atlas ? atlas->draw_list : menu.paint);
         if (smoke && diagnostics.empty()) {
             const auto stats = renderer->submission_stats();
-            // Placeholder: the procedural backdrop, two solid batches, the custom-shape badge, then the
-            // preview pill's composition; its layer pass draws one more solid batch.
+            // Placeholder: the procedural backdrop, two solid batches, the custom-shape badge, the preview
+            // pill's composition, then the textured emblem; the pill's layer pass draws one more solid batch.
             // Real glyphs alternate solid/image batches. After an alignment of at most 256 bytes,
             // uploads add 32-byte records: three for the five aurora parameters, two for the badge's
-            // gradient stops and two for its shape time plus two parameters.
+            // gradient stops, two for its shape time plus two parameters and two for the four emblem parameters.
             const auto vertices = stats.primitives * 112;
-            constexpr std::uint64_t fill_data = 7 * 32;
-            if ((!atlas && stats.draw_calls != 6) || stats.primitives <= stats.draw_calls ||
+            constexpr std::uint64_t fill_data = 9 * 32;
+            if ((!atlas && stats.draw_calls != 7) || stats.primitives <= stats.draw_calls ||
                 stats.upload_bytes < vertices + fill_data || stats.upload_bytes >= vertices + fill_data + 256 ||
                 renderer->pending_uploads() > frames_in_flight)
                 fail("Menu adjacent batching or upload retirement counters disagree");
-            if (stats.procedural_fills != 1 || stats.procedural_fallbacks != 0)
-                fail("Menu aurora backdrop did not execute its registered procedural fill");
+            if (stats.procedural_fills != 2 || stats.procedural_fallbacks != 0)
+                fail("Menu aurora backdrop and mosaic emblem did not execute their registered procedural fills");
+            // The emblem's texture is referenced by this frame, so it stays bound until the frame retires.
+            const auto in_use = [](const auto& errors) {
+                return errors.size() == 1 && errors[0].code == "resource_in_use";
+            };
+            if (!in_use(renderer->unbind_image(Menu::mosaic_tiles)) ||
+                !in_use(renderer->bind_image(Menu::mosaic_tiles, mosaic.view, mosaic.sampler)))
+                fail("Live mosaic texture was not protected through completion");
             if (stats.custom_shapes != 1 || stats.custom_shape_fallbacks != 0)
                 fail("Menu badge did not execute its registered custom shape");
             if (stats.layers != 1) fail("Menu preview pill did not record its layer pass");
@@ -1427,6 +1595,62 @@ struct App {
                   << " moved=" << moved << '\n';
         captured_blob_time = float(time);
     }
+    // Independent double-precision evaluation of mosaic.slang at the pixel nearest each tile center and at the
+    // joint between the middle columns, at the shader time this frame's paint evaluated. Every tile must show its
+    // own texel of the host image plus the glint, unlike the grout-colored fallback, and the glint must move
+    // between captures.
+    void verify_mosaic(const std::vector<std::uint8_t>& pixels, const std::string& name) {
+        const auto linear = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+        const auto encode = [](double c) {
+            c = std::clamp(c, 0.0, 1.0);
+            return int(std::lround((c <= 0.0031308 ? c * 12.92 : 1.055 * std::pow(c, 1 / 2.4) - 0.055) * 255));
+        };
+        const auto box = menu.box("emblem").border_box;
+        const double time = menu.mosaic_time();
+        if (time != float(Menu::mosaic_phase + double(Menu::mosaic_rate) * menu.host_time))
+            return fail("Mosaic time in " + name + " is not phase + rate * host time");
+        constexpr auto cells = Menu::mosaic_cells;
+        const double cell = box.size.width / cells;
+        const auto tile = [&](std::uint32_t x, std::uint32_t y, double t) {
+            const double u = (x + .5) / cells, v = (y + .5) / cells;
+            const double sweep = std::pow(std::clamp(std::sin(3.14159265 * (u + v) - t), 0.0, 1.0), 8);
+            const auto& texel = Menu::mosaic_tile(x, y);
+            const float glint[3]{Menu::glint.r, Menu::glint.g, Menu::glint.b};
+            std::array<int, 3> want;
+            for (int c = 0; c < 3; ++c)
+                want[c] = encode(linear(texel[c] / 255.0) + linear(glint[c]) * Menu::glint.a * sweep);
+            return want;
+        };
+        const auto at = [&](double x, double y) {
+            return (std::size_t(y * scale) * extent.width + std::size_t(x * scale)) * 4;
+        };
+        int moved = 0;
+        for (std::uint32_t y = 0; y < cells; ++y)
+            for (std::uint32_t x = 0; x < cells; ++x) {
+                const auto pixel = at(box.origin.x + (x + .5) * cell, box.origin.y + (y + .5) * cell);
+                const auto want = tile(x, y, time);
+                for (int c = 0; c < 3; ++c) {
+                    if (std::abs(int(pixels[pixel + c]) - want[c]) > 3)
+                        return fail("Mosaic emblem mismatch in " + name + " at tile " + std::to_string(x) + ',' +
+                                    std::to_string(y) + " channel " + std::to_string(c) + ": got " +
+                                    std::to_string(pixels[pixel + c]) + " expected " + std::to_string(want[c]));
+                    if (captured_mosaic_time)
+                        moved =
+                            std::max(moved, std::abs(int(pixels[pixel + c]) - tile(x, y, *captured_mosaic_time)[c]));
+                }
+            }
+        const float grout[3]{Menu::grout.r, Menu::grout.g, Menu::grout.b};
+        for (std::uint32_t y = 0; y < cells; ++y) {
+            const auto pixel = at(box.origin.x + cells / 2 * cell, box.origin.y + (y + .5) * cell);
+            for (int c = 0; c < 3; ++c)
+                if (std::abs(int(pixels[pixel + c]) - int(std::lround(grout[c] * 255))) > 3)
+                    return fail("Mosaic joint is not grout in " + name + " at row " + std::to_string(y));
+        }
+        if (captured_mosaic_time && (time <= *captured_mosaic_time || moved <= 6))
+            fail("Mosaic glint in " + name + " did not move since the previous capture");
+        std::cout << "Mosaic " << name << " shader time=" << time << " moved=" << moved << '\n';
+        captured_mosaic_time = float(time);
+    }
     // Checks presented pixels against the styles that produced this frame's paint.
     void verify_capture() {
         capture_next = false;
@@ -1468,6 +1692,7 @@ struct App {
         const auto panel = menu.box("panel").border_box;
         verify_aurora(pixels, name, panel);
         verify_blob(pixels, name);
+        verify_mosaic(pixels, name);
         // The preview pill composes once over the flat panel: its opaque border hides its fill, so a border
         // pixel is the border color at the pill's opacity, as an interior pixel is the fill's. Per-command alpha
         // would blend the faded border over the faded fill instead.

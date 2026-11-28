@@ -5,6 +5,7 @@
 #include <tessera/style/custom_shape.hpp>
 #include <tessera/style/fill_shape.hpp>
 #include <tessera/style/gradient.hpp>
+#include <tessera/style/image_handle.hpp>
 #include <tessera/style/procedural_fill.hpp>
 #include <tessera/text/text.hpp>
 #include <tessera/ui/document.hpp>
@@ -16,11 +17,6 @@
 
 namespace tessera {
 
-// Neutral image reference issued by the host/backend resource system. Value 0 is invalid.
-struct ImageHandle {
-    std::uint64_t value = 0;
-    bool operator==(const ImageHandle&) const = default;
-};
 // How a bound image's sampled color relates to its alpha; fixed per binding.
 // Premultiplied images are blended as premultiplied, without unpremultiplication.
 enum class ImageAlpha : std::uint8_t { straight, premultiplied };

@@ -565,8 +565,12 @@ Result<CapturedImage> CpuFrameCapture::capture(const CaptureRequest& request) {
             if (first > UINT64_MAX - 16)
                 return {{}, {{"image_limit", Severity::error, "/images", "No atlas handle range is available.", {}}}};
             for (const auto& [id, image] : renderer_.images_) advance(id);
-            for (const auto& command : list->commands)
+            for (const auto& command : list->commands) {
                 if (auto image = std::get_if<DrawImage>(&command)) advance(image->image.value);
+                if (auto rect = std::get_if<DrawRect>(&command); rect && rect->procedural)
+                    for (const auto& parameter : rect->procedural->parameters)
+                        if (auto texture = std::get_if<ImageHandle>(&parameter)) advance(texture->value);
+            }
             if (exhausted)
                 return {{}, {{"image_limit", Severity::error, "/images", "No atlas handle range is available.", {}}}};
             if (!collision) break;

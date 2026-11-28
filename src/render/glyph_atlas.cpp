@@ -36,10 +36,20 @@ Result<GlyphAtlasFrame> prepare_glyph_atlas(const UiDrawList& list, GlyphCache& 
     std::size_t occurrences = 0;
     for (std::size_t i = 0; i < list.commands.size(); ++i) {
         const auto path = "/commands/" + std::to_string(i);
+        const auto reserved = [&](ImageHandle handle) {
+            return handle.value >= first.value && handle.value - first.value < limits.pages;
+        };
         if (const auto* image = std::get_if<DrawImage>(&list.commands[i])) {
-            if (image->image.value >= first.value && image->image.value - first.value < limits.pages)
+            if (reserved(image->image))
                 fail("image_collision", path + "/image",
                      "Reserve atlas handles outside the source list's image handles.");
+        }
+        if (const auto* rect = std::get_if<DrawRect>(&list.commands[i]); rect && rect->procedural) {
+            const auto& parameters = rect->procedural->parameters;
+            for (std::size_t j = 0; j < parameters.size(); ++j)
+                if (const auto* texture = std::get_if<ImageHandle>(&parameters[j]); texture && reserved(*texture))
+                    fail("image_collision", path + "/procedural/parameters/" + std::to_string(j),
+                         "Reserve atlas handles outside the source list's procedural textures.");
         }
         if (const auto* run = std::get_if<DrawGlyphRun>(&list.commands[i])) {
             if (run->run.glyphs.size() > limits.glyphs - std::min(occurrences, limits.glyphs))

@@ -41,13 +41,14 @@ struct Packet {
     Primitive primitive{};
     VkRect2D scissor{};
     std::uint64_t image = 0;
-    bool premultiplied = false;        // Fixed by the image binding, so equal handles agree.
+    std::array<std::uint64_t, max_shader_textures> textures{}; // fill-texture-v1 images in parameter order.
+    bool premultiplied = false;                                // Fixed by the image binding, so equal handles agree.
     const void* program = nullptr;     // Registered fill or shape whose pipelines draw this packet.
     std::int32_t layer = -1;           // Closed layer pass whose surface this packet composes.
     std::array<std::int32_t, 4> box{}; // Conservative pixel bounds (x0, y0, x1, y1) inside the scissor.
 };
 bool compatible(const Packet& a, const Packet& b) {
-    return a.image == b.image && a.program == b.program && a.layer == b.layer &&
+    return a.image == b.image && a.textures == b.textures && a.program == b.program && a.layer == b.layer &&
            a.scissor.offset.x == b.scissor.offset.x && a.scissor.offset.y == b.scissor.offset.y &&
            a.scissor.extent.width == b.scissor.extent.width && a.scissor.extent.height == b.scissor.extent.height;
 }
@@ -113,20 +114,23 @@ bool bounds(const Rect& rect, const Affine2D& t, float scale, std::array<double,
 // Host shader profiles: which fragment entry point an artifact exposes and how diagnostics name it.
 struct Profile {
     ShaderProfile profile; // The parameter manifest profile registered with the artifact.
+    bool textures;         // Also accepts fill-texture-v1 manifests, whose artifacts may sample images.
     const char* entry;     // Required fragment entry point.
-    const char* name;      // Profile name in messages.
+    const char* name;      // Profile names in messages.
     const char* macro;     // ABI macro that defines the entry point.
     const char *abi_code, *limit_code, *limit_message, *unknown_message;
 };
 constexpr Profile fill_profile{ShaderProfile::fill_v1,
+                               true,
                                "proceduralMain",
-                               "fill-v1",
+                               "fill-v1 or fill-texture-v1",
                                "TESSERA_PROCEDURAL_FILL",
                                "procedural_abi",
                                "procedural_fill_limit",
                                "Unregister a retired procedural fill first.",
                                "Procedural fill is not registered with this renderer."};
 constexpr Profile shape_profile{ShaderProfile::sdf_v1,
+                                false,
                                 "shapeMain",
                                 "sdf-v1",
                                 "TESSERA_CUSTOM_SHAPE",
@@ -134,9 +138,12 @@ constexpr Profile shape_profile{ShaderProfile::sdf_v1,
                                 "custom_shape_limit",
                                 "Unregister a retired custom shape first.",
                                 "Custom shape is not registered with this renderer."};
-// Host artifacts expose the profile's fragment entry point and declare no image or sampler types.
-std::optional<std::string> abi_problem(std::span<const std::uint32_t> code, const Profile& profile) {
+// Host artifacts expose the profile's fragment entry point and bind only the profile's resources: the fill
+// data at set 1 binding 0 and, for fill-texture-v1 (`textured`), sampled 2D images and samplers at bindings
+// 0 and 1 of sets 0, 2 and 3. Other profiles declare no image or sampler types.
+std::optional<std::string> abi_problem(std::span<const std::uint32_t> code, const Profile& profile, bool textured) {
     bool entry = false;
+    std::map<std::uint32_t, std::uint32_t> sets, bindings; // Decorations by target id.
     for (std::size_t i = 5; i < code.size();) {
         const std::uint32_t count = code[i] >> 16, opcode = code[i] & 0xffff;
         if (count == 0 || count > code.size() - i) return "Malformed SPIR-V instruction stream.";
@@ -153,11 +160,25 @@ std::optional<std::string> abi_problem(std::span<const std::uint32_t> code, cons
                 }
             entry |= name == profile.entry;
         }
-        if (opcode == 25 || opcode == 26 || opcode == 27) // OpTypeImage, OpTypeSampler, OpTypeSampledImage
-            return std::string("Profile ") + profile.name + " does not permit image or sampler access.";
+        // OpTypeImage, OpTypeSampler, OpTypeSampledImage.
+        if ((opcode == 25 || opcode == 26 || opcode == 27) && !textured)
+            return std::string("Profile ") + (profile.textures ? "fill-v1" : profile.name) +
+                   " does not permit image or sampler access.";
+        // OpTypeImage operands: result, sampled type, Dim (1 is 2D), depth, arrayed, MS, Sampled (1 with a sampler).
+        if (opcode == 25 && (count < 9 || code[i + 3] != 1 || code[i + 5] != 0 || code[i + 6] != 0 || code[i + 7] != 1))
+            return "Profile fill-texture-v1 samples nonarrayed single-sample 2D images only; storage images are not "
+                   "permitted.";
+        if (opcode == 71 && count >= 4 && (code[i + 2] == 34 || code[i + 2] == 33)) // OpDecorate DescriptorSet/Binding
+            (code[i + 2] == 34 ? sets : bindings)[code[i + 1]] = code[i + 3];
         i += count;
     }
     if (!entry) return std::string("Expose the fragment entry point ") + profile.entry + " (" + profile.macro + ").";
+    for (const auto& [id, set] : sets) {
+        const auto binding = bindings.contains(id) ? bindings.at(id) : 0;
+        if (!(set == 1 && binding == 0) && !(textured && set != 1 && set <= 3 && binding <= 1))
+            return "Descriptor set " + std::to_string(set) + " binding " + std::to_string(binding) +
+                   " is not part of the profile's ABI.";
+    }
     return std::nullopt;
 }
 }
@@ -515,12 +536,13 @@ struct VulkanRenderer::Impl {
         auto declared = validate(declaration);
         for (auto& diagnostic : declared) diagnostic.path = "/declaration" + diagnostic.path;
         errors.insert(errors.end(), declared.begin(), declared.end());
-        if (declared.empty() && declaration.profile != profile.profile)
+        const bool samples = profile.textures && declaration.profile == ShaderProfile::fill_texture_v1;
+        if (declared.empty() && declaration.profile != profile.profile && !samples)
             check.error(profile.abi_code, "/declaration/profile",
                         std::string("Register a ") + profile.name + " parameter manifest with this artifact.");
         if (code.size() < 5 || code[0] != 0x07230203)
             check.error("invalid_shader", "/fragment_spirv", "Provide compiled SPIR-V shader words.");
-        else if (const auto problem = abi_problem(code, profile))
+        else if (const auto problem = abi_problem(code, profile, samples))
             check.error(profile.abi_code, "/fragment_spirv", *problem);
         const auto found = programs.find(identity);
         if (found != programs.end() && found->second.last_use > completed)
@@ -604,8 +626,10 @@ VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_u
     VkPushConstantRange constants{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Primitive)};
     VkPipelineLayoutCreateInfo layout{};
     layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    const VkDescriptorSetLayout layouts[]{p.image_layout, p.gradient_layout};
-    layout.setLayoutCount = 2;
+    // Set 0 holds a DrawImage's or layer's image, or a fill-texture-v1 fill's first texture; sets 2 and 3 hold
+    // that fill's other textures. Pipelines that sample nothing leave them unused.
+    const VkDescriptorSetLayout layouts[]{p.image_layout, p.gradient_layout, p.image_layout, p.image_layout};
+    layout.setLayoutCount = 4;
     layout.pSetLayouts = layouts;
     layout.pushConstantRangeCount = 1;
     layout.pPushConstantRanges = &constants;
@@ -841,7 +865,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
     // Parameter count and kinds must equal the registered declaration; reports at `at`.
     const auto matches = [&](const std::vector<ProceduralValue>& values, const Impl::Fill& program,
                              const std::string& at, const char* code) {
-        static constexpr const char* kinds[] = {"number", "point", "color"};
+        static constexpr const char* kinds[] = {"number", "point", "color", "texture"};
         const auto& declared = program.declaration.parameters;
         if (values.size() != declared.size()) {
             errors.push_back(error(code, at,
@@ -1088,9 +1112,24 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                                 ++procedural_fallbacks;
                             } else {
                                 fill = &found->second;
-                                if (!matches(command.procedural->parameters, *fill, path + "/procedural/parameters",
+                                const auto& values = command.procedural->parameters;
+                                if (!matches(values, *fill, path + "/procedural/parameters",
                                              "procedural_parameter_mismatch"))
                                     return;
+                                // Textures borrow bound images like DrawImage, in parameter order.
+                                std::size_t texture = 0;
+                                for (std::size_t v = 0; v < values.size(); ++v) {
+                                    const auto* handle = std::get_if<ImageHandle>(&values[v]);
+                                    if (!handle) continue;
+                                    if (!p.images.contains(handle->value)) {
+                                        errors.push_back(error("invalid_handle",
+                                                               path + "/procedural/parameters/" + std::to_string(v),
+                                                               "Bind this texture to the renderer before submission."));
+                                        return;
+                                    }
+                                    packet.textures[texture++] = handle->value;
+                                    referenced_images.push_back(handle->value);
+                                }
                                 referenced_fills.push_back(fill);
                                 ++procedural_fills;
                                 packet.program = fill;
@@ -1184,8 +1223,10 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                                             slots.push_back({v, 0, 0, 0});
                                         else if constexpr (std::is_same_v<V, Point>)
                                             slots.push_back({v.x, v.y, 0, 0});
-                                        else
+                                        else if constexpr (std::is_same_v<V, Color>)
                                             slots.push_back({linear(v.r), linear(v.g), linear(v.b), v.a});
+                                        else // Texture number and premultiplied flag, set below.
+                                            slots.push_back({0, 0, 0, 0});
                                     },
                                     value);
                             return slots;
@@ -1268,7 +1309,14 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                             data.params[1] = 12;
                             data.widths = {float(2 * gradient_stops.size()), float(values.size()),
                                            command.procedural->time, command.procedural->opacity};
-                            if (!append_slots(slots_of(values), path + "/procedural/parameters")) return;
+                            auto slots = slots_of(values);
+                            for (std::size_t v = 0, texture = 0; v < values.size(); ++v)
+                                if (const auto* handle = std::get_if<ImageHandle>(&values[v]))
+                                    slots[v] = {float(texture++),
+                                                p.images.at(handle->value).alpha == ImageAlpha::premultiplied ? 1.f
+                                                                                                              : 0.f,
+                                                0, 0};
+                            if (!append_slots(std::move(slots), path + "/procedural/parameters")) return;
                         } else if (shape) {
                             // params.x selects the paint: 0 solid, 1 linear or 2 radial stops at widths.xy.
                             data.params[0] = 0;
@@ -1444,6 +1492,15 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
             } else if (packet.image) {
                 auto& image = p.images.at(packet.image);
                 vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &image.set, 0,
+                                        nullptr);
+            } else if (packet.textures[0]) {
+                // sample() reaches every texture binding, so absent textures repeat the first.
+                VkDescriptorSet sets[max_shader_textures];
+                for (std::size_t t = 0; t < max_shader_textures; ++t)
+                    sets[t] = p.images.at(packet.textures[t] ? packet.textures[t] : packet.textures[0]).set;
+                vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 0, 1, &sets[0], 0,
+                                        nullptr);
+                vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, p.layout, 2, 2, &sets[1], 0,
                                         nullptr);
             }
             const VkRect2D scissor{{std::int32_t(x0), std::int32_t(y0)},

@@ -56,6 +56,17 @@ void invalid_lists() {
               has(procedural_errors, "invalid_number", "/commands/0/procedural/time_rate") &&
               has(procedural_errors, "out_of_range", "/commands/0/procedural/opacity"),
           "Procedural values must use located shared numeric validation");
+    procedural.procedural =
+        tessera::ProceduralFill{"example.wave", {tessera::ImageHandle{3}, 1.f, tessera::ImageHandle{}}, 3, 1};
+    check(has(tessera::validate(tessera::UiDrawList{{procedural}}), "invalid_handle",
+              "/commands/0/procedural/parameters/2") &&
+              tessera::validate(tessera::UiDrawList{{procedural}}).size() == 1,
+          "Texture parameters must name nonzero image handles");
+    tessera::DrawRect textured_shape{{{0, 0}, {10, 5}}, {1, 1, 1, 1}};
+    textured_shape.custom_shape = tessera::CustomShape{"example.blob", {1.f, tessera::ImageHandle{3}}};
+    check(has(tessera::validate(tessera::UiDrawList{{textured_shape}}), "unsupported_combination",
+              "/commands/0/custom_shape/parameters/1"),
+          "Custom shapes take no texture parameters");
     procedural.procedural = tessera::ProceduralFill{"example.wave", {}, 2};
     tessera::UiDrawList moving{{tessera::DrawRect{}, procedural}};
     check(!tessera::time_dependent(moving) && !tessera::time_dependent(tessera::UiDrawList{}),

@@ -119,8 +119,13 @@ private:
                         finite(v, at);
                     else if constexpr (std::is_same_v<V, Point>)
                         point(v, at);
-                    else
+                    else if constexpr (std::is_same_v<V, Color>)
                         color(v, at);
+                    else if (kind == "shape")
+                        error("unsupported_combination", at,
+                              "Custom shapes take numbers, points and colors; sample textures in a procedural fill.");
+                    else if (!v.value)
+                        error("invalid_handle", at, "Use a nonzero image handle for a texture parameter.");
                 },
                 parameters[i]);
         }

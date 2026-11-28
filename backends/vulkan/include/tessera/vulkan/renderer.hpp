@@ -41,13 +41,14 @@ struct VulkanSubmissionStats {
 inline constexpr std::size_t max_vulkan_layers = 16;
 inline constexpr std::size_t max_vulkan_procedural_fills = 64;
 inline constexpr std::size_t max_vulkan_custom_shapes = 64;
-// A build-time compiled fill-v1 artifact and its reflected parameter manifest (see
+// A build-time compiled fill-v1 or fill-texture-v1 artifact and its reflected parameter manifest (see
 // tessera_add_procedural_fill and load_shader_parameters). Spans are borrowed for the call; the host
-// trusts the artifact's code, which is not sandboxed, and pairs it with its own manifest.
+// trusts the artifact's code, which is not sandboxed, and pairs it with its own manifest. Texture
+// parameters name images bound with bind_image, sampled with the sampler bound to each.
 struct VulkanProceduralFill {
     std::string_view shader;                       // Logical identity matched by ProceduralFill::shader.
     std::span<const std::uint32_t> fragment_spirv; // Must expose fragment entry point proceduralMain.
-    ShaderParameters declaration;                  // Profile fill-v1; parameters in slot order.
+    ShaderParameters declaration;                  // Profile fill-v1 or fill-texture-v1; parameters in slot order.
 };
 // A build-time compiled sdf-v1 artifact and its reflected parameter manifest (see
 // tessera_add_custom_shape). Spans are borrowed for the call; the host trusts the artifact's code,
@@ -73,8 +74,9 @@ public:
     ~VulkanRenderer() override;
 
     void set_target(VulkanTarget); // Call at an update point, including after resize.
-    // Host keeps view/sampler/image alive and shader-readable through retirement.
-    // Handles cannot be rebound while their last referencing frame is in flight.
+    // Host keeps view/sampler/image alive and shader-readable through retirement. DrawImage commands
+    // and procedural texture parameters both reference bound handles; a handle cannot be rebound or
+    // unbound while its last referencing frame is in flight.
     std::vector<Diagnostic> bind_image(ImageHandle, VkImageView, VkSampler, ImageAlpha = ImageAlpha::straight);
     std::vector<Diagnostic> unbind_image(ImageHandle);
     // Creates the fill's pipelines. Replacing or unregistering a shader used by an unretired frame
