@@ -215,6 +215,49 @@ void procedural_motion() {
           "Resolved styles must validate the time rate");
 }
 
+void custom_shapes() {
+    Fixture f(box({box()}));
+    auto& style = f.styles[0];
+    style.width = Dimension::points(40);
+    style.height = Dimension::points(20);
+    style.background = {1, 0, 0, .8f};
+    style.opacity = .5f;
+    style.corner_radius = 7;
+    style.border = {1, 1, 1, 1};
+    style.border_color = {0, 0, 0, 1};
+    style.background_antialias = true;
+    style.background_custom_shape = tessera::CustomShape{"example.blob", {.25f, tessera::Point{1, 2}}, 1.5f};
+    f.compute();
+    const auto layout = f.layout;
+    auto paint = f.paint();
+    const auto fill = std::get<tessera::DrawRect>(paint.commands[0]);
+    check(fill.custom_shape && fill.custom_shape->shader == "example.blob" && fill.custom_shape->time == 1.5f &&
+              fill.custom_shape->parameters.size() == 2 && fill.color.a == .4f &&
+              fill.shape == tessera::FillShape::rectangle && fill.corner_radius == 7 && fill.antialias &&
+              fill.rect == f.layout.boxes[0].border_box,
+          "A custom shape must keep the box, built-in fallback shape, coverage mode and faded paint in one command");
+    check(std::get<tessera::DrawBorder>(paint.commands[1]).corner_radius == 7,
+          "A custom shape must not reshape the rectangular border");
+    style.background = {};
+    check(f.paint().commands.size() == 1, "A custom shape with transparent paint must not emit a fill");
+    style.background_gradient = tessera::RadialGradient{.start_color = {1, 1, 1, 1}, .end_color = {0, 0, 1, 1}};
+    const auto gradient = std::get<tessera::DrawRect>(f.paint().commands[0]);
+    check(gradient.custom_shape && gradient.gradient, "A gradient must paint inside the custom shape");
+
+    style.background_custom_shape->time_rate = 2;
+    check(fill_at(f, 3).custom_shape->time == 7.5f && tessera::time_dependent(f.paint()) && f.layout == layout,
+          "A moving custom shape must evaluate phase + rate * host time without layout");
+    auto input = f.input();
+    input.host_time = 1e300;
+    const auto rejected = tessera::build_paint_list(input);
+    check(!rejected && has(rejected.diagnostics, "time_overflow", "/nodes/0/background_custom_shape/time"),
+          "An evaluated shape time beyond float range must reject paint");
+    style.background_procedural = tessera::ProceduralFill{"example.wave"};
+    check(has(tessera::build_paint_list(f.input()).diagnostics, "unsupported_combination",
+              "/styles/0/background_custom_shape"),
+          "Paint must reject a custom shape combined with a procedural fill");
+}
+
 void box_shadows() {
     Fixture f(box({box()}));
     f.styles[0].overflow = tessera::Overflow::clip;
@@ -603,6 +646,7 @@ int main() {
         fill_shapes();
         procedural_fills();
         procedural_motion();
+        custom_shapes();
         visibility_display_and_empty();
         clip_runs();
         invalid_input_and_topology();

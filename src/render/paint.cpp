@@ -126,24 +126,33 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
             fill.color = {};
             fill.gradient = std::move(gradient);
         }
+        // Shader phase plus rate times host time, rounded once; reports overflow at the style field.
+        const auto evaluate = [&](float& time, float rate, const char* field) {
+            if (rate == 0) return true;
+            const double evaluated = double(time) + double(rate) * input.host_time;
+            if (std::abs(evaluated) > std::numeric_limits<float>::max()) {
+                diagnostics.push_back({"time_overflow",
+                                       Severity::error,
+                                       "/nodes/" + std::to_string(box.node.index) + "/" + field + "/time",
+                                       "Evaluated shader time must fit a finite float.",
+                                       {}});
+                return false;
+            }
+            time = float(evaluated);
+            return true;
+        };
         if (style.background_procedural) {
             fill.procedural = *style.background_procedural;
             auto& procedural = *fill.procedural;
             procedural.opacity *= opacity;
             fill_visible |= procedural.opacity > 0;
-            if (procedural.time_rate != 0) {
-                const double time = double(procedural.time) + double(procedural.time_rate) * input.host_time;
-                if (std::abs(time) > std::numeric_limits<float>::max()) {
-                    diagnostics.push_back({"time_overflow",
-                                           Severity::error,
-                                           "/nodes/" + std::to_string(box.node.index) + "/background_procedural/time",
-                                           "Evaluated procedural time must fit a finite float.",
-                                           {}});
-                    fill_visible = false;
-                } else {
-                    procedural.time = float(time);
-                }
-            }
+            if (!evaluate(procedural.time, procedural.time_rate, "background_procedural")) fill_visible = false;
+        }
+        // The custom shape changes coverage only; color/gradient visibility decides emission.
+        if (style.background_custom_shape) {
+            fill.custom_shape = *style.background_custom_shape;
+            if (!evaluate(fill.custom_shape->time, fill.custom_shape->time_rate, "background_custom_shape"))
+                fill_visible = false;
         }
         if (fill_visible) commands.commands.push_back(std::move(fill));
         if (style.box_shadow && style.box_shadow->inset && style.box_shadow->color.a > 0) {

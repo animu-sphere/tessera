@@ -1994,6 +1994,197 @@ void procedural_fixtures(Host& host) {
         gpu.retire(frame++);
     }
 }
+// Custom shapes: distance shaders equal to the built-in ellipse and rounded rectangle must reproduce
+// their coverage and paint; a probe shape reports the ABI's position, size, scale, time and parameters.
+void custom_shape_fixtures(Host& host) {
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
+    const auto ellipse = shader("shape.ellipse.spv"), rounded = shader("shape.rounded.spv"),
+               probe = shader("shape.probe.spv"), procedural = shader("procedural.solid.spv");
+    using Kind = tessera::ProceduralValueKind;
+    const std::array<Kind, 1> rounded_kinds{Kind::number};
+    const std::array<Kind, 2> probe_kinds{Kind::number, Kind::point};
+    const auto max_difference = [](const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
+        check(a.size() == b.size(), "Custom shape comparison sizes differ");
+        int result = 0;
+        for (std::size_t i = 0; i < a.size(); ++i) result = std::max(result, std::abs(int(a[i]) - int(b[i])));
+        return result;
+    };
+    const tessera::Color blue{.1f, .4f, .8f, 1}, translucent{.2f, .6f, .4f, .75f}, red{1, 0, 0, 1};
+    // The custom version keeps the paint and coverage mode but declares a plain rectangle fallback,
+    // so drawing the fallback instead of the shader would fail the comparison.
+    const auto custom = [](tessera::DrawRect rect) {
+        if (rect.shape == tessera::FillShape::ellipse)
+            rect.custom_shape = tessera::CustomShape{"test.ellipse"};
+        else
+            rect.custom_shape = tessera::CustomShape{"test.rounded", {rect.corner_radius}};
+        rect.shape = tessera::FillShape::rectangle;
+        rect.corner_radius = 0;
+        return rect;
+    };
+    using tessera::FillShape;
+    const tessera::LinearGradient diagonal{{0, 0}, {1, 1}, blue, translucent};
+    tessera::LinearGradient banded{{0, .2f}, {1, .8f}, {}, {}, {{0, red}, {.4f, translucent}, {1, blue}}};
+    tessera::RadialGradient glow{{.3f, .4f}, {.6f, .8f}, {}, {}, {{0, {1, 1, 1, 1}}, {.5f, translucent}, {1, blue}}};
+    const tessera::RadialGradient spot{{.5f, .5f}, {.5f, .5f}, red, {0, 0, 1, .25f}};
+    const std::vector<tessera::DrawRect> shapes{
+        {{{2.137f, 2.137f}, {12.71f, 8.71f}}, translucent, 0, {}, FillShape::ellipse, false},
+        {{{17.137f, 2.137f}, {12.71f, 8.71f}}, translucent, 0, {}, FillShape::ellipse, true},
+        {{{2.5f, 13.25f}, {11.5f, 7.75f}}, blue, 4, {}, FillShape::rectangle, true},
+        {{{26.137f, 27.137f}, {3.71f, 2.71f}}, blue, 100, {}, FillShape::rectangle, true},
+        {{{15.25f, 12.5f}, {8.5f, 6.25f}}, {}, 0, diagonal, FillShape::ellipse, true},
+        {{{2.25f, 23.5f}, {10.5f, 6.25f}}, {}, 3, banded, FillShape::rectangle, true},
+        {{{24.125f, 12.5f}, {6.5f, 9.5f}}, {}, 0, glow, FillShape::ellipse, false},
+        {{{13.5f, 25.25f}, {6.75f, 5.5f}}, {}, 0, spot, FillShape::ellipse, true}};
+    tessera::UiDrawList builtin_list{{tessera::DrawRect{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}}}};
+    tessera::UiDrawList custom_list = builtin_list;
+    for (const auto& rect : shapes) {
+        builtin_list.commands.push_back(rect);
+        custom_list.commands.push_back(custom(rect));
+    }
+    // Clipped/transformed coverage.
+    const tessera::DrawRect turned{{{0, 0}, {9.71f, 6.71f}}, translucent, 0, {}, FillShape::ellipse, true};
+    for (auto* list : {&builtin_list, &custom_list}) {
+        list->commands.push_back(tessera::PushClip{{{1.125f, 16.125f}, {29.75f, 14.75f}}});
+        list->commands.push_back(tessera::PushTransform{{0, 1, -1, .25f, 28.137f, 19.137f}});
+        list->commands.push_back(list == &builtin_list ? tessera::DrawCommand{turned}
+                                                       : tessera::DrawCommand{custom(turned)});
+        list->commands.push_back(tessera::PopTransform{});
+        list->commands.push_back(tessera::PopClip{});
+    }
+    const std::uint64_t custom_count = shapes.size() + 1;
+
+    for (bool batched : {false, true}) {
+        tessera::VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+                                       vertex,        fragment,    image,     1};
+        if (batched) context.batch_vertex_spirv = batch;
+        tessera::VulkanRenderer gpu(context);
+        const char* path = batched ? "batch" : "reference";
+        // Registration failures are diagnostics, not exceptions, and register nothing.
+        check(has(gpu.register_custom_shape({"", ellipse, {}}), "invalid_identifier", "/shader"),
+              "Empty custom shape identities must be rejected");
+        check(has(gpu.register_custom_shape({"test.ellipse", procedural, {}}), "shape_abi", "/fragment_spirv"),
+              "Procedural fill artifacts lack fragment shapeMain");
+        check(has(gpu.register_custom_shape({"test.ellipse", image, {}}), "shape_abi", "/fragment_spirv"),
+              "Image-sampling artifacts are outside sdf-v1");
+        const std::array<std::uint32_t, 5> garbage{1, 2, 3, 4, 5};
+        check(has(gpu.register_custom_shape({"test.ellipse", garbage, {}}), "invalid_shader", "/fragment_spirv"),
+              "Non-SPIR-V words must be rejected");
+        const std::array<Kind, 1> unknown{static_cast<Kind>(255)};
+        check(has(gpu.register_custom_shape({"test.ellipse", ellipse, unknown}), "unknown_value", "/parameters/0"),
+              "Unknown parameter kinds must be rejected");
+        const std::array<Kind, 17> too_many{};
+        check(
+            has(gpu.register_custom_shape({"test.ellipse", ellipse, too_many}), "shape_parameter_limit", "/parameters"),
+            "More than 16 declared parameters must be rejected");
+        check(has(gpu.register_procedural_fill({"test.ellipse", ellipse, {}}), "procedural_abi", "/fragment_spirv"),
+              "Custom shape artifacts lack fragment proceduralMain");
+        check(has(gpu.unregister_custom_shape("test.ellipse"), "unknown_shader", "/shader"),
+              "Rejected registration must not register the shape");
+        check(gpu.register_custom_shape({"test.ellipse", ellipse, {}}).empty(), "Ellipse shape registration");
+        check(gpu.register_custom_shape({"test.rounded", rounded, rounded_kinds}).empty(),
+              "Rounded shape registration");
+        check(gpu.register_custom_shape({"test.probe", probe, probe_kinds}).empty(), "Probe shape registration");
+        check(has(gpu.unregister_procedural_fill("test.ellipse"), "unknown_shader", "/shader"),
+              "Custom shapes and procedural fills have separate identity spaces");
+
+        std::uint64_t frame = 1;
+        for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+            const auto extent = *tessera::capture_extent({32, 32}, scale).value;
+            host.resize({extent.width, extent.height});
+            const auto render = [&](const tessera::UiDrawList& list, const std::string& name) {
+                host.begin(gpu);
+                const auto diagnostics = gpu.submit({frame, {32, 32}, scale}, list);
+                check(diagnostics.empty(), ("Custom shape scene rejected: " + name).c_str());
+                auto pixels =
+                    host.finish(("shape-" + name + "-" + path + "-" + std::to_string(extent.width) + ".ppm").c_str());
+                gpu.retire(frame++);
+                return pixels;
+            };
+            const auto expected = render(builtin_list, "builtin");
+            const auto actual = render(custom_list, "custom");
+            check(gpu.submission_stats().custom_shapes == custom_count &&
+                      gpu.submission_stats().custom_shape_fallbacks == 0,
+                  "Registered custom shapes must execute without fallback");
+            check(max_difference(actual, expected) <= 1,
+                  "Distance shapes must match built-in coverage, gradients, clipping and transforms");
+
+            // ABI probe over opaque black: red where x < 5.5 + time and y < size.y * 0.5, and
+            // nothing unless the shader receives this device scale.
+            tessera::DrawRect probed{{{4, 4}, {16, 8}}, red};
+            probed.custom_shape = tessera::CustomShape{"test.probe", {5.5f, tessera::Point{scale, .5f}}, 2.25f};
+            const auto probe_pixels = render({{probed}}, "probe");
+            for (const float x : {1.f, 6.f, 9.f, 14.f})
+                for (const float y : {1.f, 2.5f, 5.5f, 7.f}) {
+                    const auto px = unsigned(std::floor((4 + x + .25) * scale)),
+                               py = unsigned(std::floor((4 + y + .25) * scale));
+                    const double lx = (px + .5) / scale - 4, ly = (py + .5) / scale - 4;
+                    const bool inside = lx < 7.75 && ly < 4;
+                    pixel(probe_pixels, extent.width, px, py,
+                          inside ? std::array{255, 0, 0, 255} : std::array{0, 0, 0, 255},
+                          "Custom shape ABI probe mismatch");
+                }
+
+            // Unregistered shapes draw the declared built-in shape and report it.
+            tessera::DrawRect missing{{{4, 4}, {16, 8}}, translucent, 3, {}, FillShape::ellipse, true};
+            const auto plain = render({{missing}}, "fallback-expected");
+            missing.custom_shape = tessera::CustomShape{"test.missing"};
+            const auto fallback = render({{missing}}, "fallback");
+            check(gpu.submission_stats().custom_shape_fallbacks == 1 && gpu.submission_stats().custom_shapes == 0,
+                  "Unregistered shapes must be reported as fallbacks");
+            check(max_difference(fallback, plain) == 0, "Fallback must draw exactly the built-in shape");
+            missing.color = {};
+            missing.gradient = banded;
+            missing.custom_shape.reset();
+            const auto gradient_plain = render({{missing}}, "gradient-fallback-expected");
+            missing.custom_shape = tessera::CustomShape{"test.missing"};
+            check(max_difference(render({{missing}}, "gradient-fallback"), gradient_plain) == 0,
+                  "Gradient fallback must draw the declared gradient in the built-in shape");
+        }
+
+        // Kind/count mismatches and procedural combinations reject the frame atomically.
+        host.resize({32, 32});
+        host.begin(gpu);
+        const auto pending = gpu.pending_uploads();
+        tessera::DrawRect wrong{{{0, 0}, {8, 8}}, red};
+        wrong.custom_shape = tessera::CustomShape{"test.rounded", {tessera::Point{1, 1}}};
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "shape_parameter_mismatch",
+                  "/commands/0/custom_shape/parameters/0") &&
+                  gpu.pending_uploads() == pending,
+              "Parameter kind mismatch must reject without uploads");
+        wrong.custom_shape->parameters = {1.f, 2.f};
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "shape_parameter_mismatch",
+                  "/commands/0/custom_shape/parameters"),
+              "Parameter count mismatch must reject");
+        wrong.custom_shape->parameters = {2.f};
+        wrong.procedural = tessera::ProceduralFill{"test.solid", {blue}};
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "unsupported_combination", "/commands/0/custom_shape"),
+              "Custom shapes cannot be combined with procedural fills in sdf-v1");
+        wrong.procedural.reset();
+        wrong.custom_shape->shader = "bad id";
+        check(has(gpu.submit({frame, {32, 32}, 1}, {{wrong}}), "invalid_identifier", "/commands/0/custom_shape/shader"),
+              "Draw-list validation must reject malformed identities");
+        // Retirement: an in-flight shape cannot be replaced or unregistered.
+        wrong.custom_shape->shader = "test.rounded";
+        const tessera::UiDrawList adjacent{{wrong, wrong, wrong}};
+        check(gpu.submit({frame, {32, 32}, 1}, adjacent).empty(), "Custom shape submission rejected");
+        check(gpu.submission_stats().draw_calls == (batched ? 1u : 3u),
+              "Adjacent custom shapes with one shader must batch like solid fills");
+        host.finish("shape-retire.ppm");
+        check(has(gpu.register_custom_shape({"test.rounded", rounded, rounded_kinds}), "resource_in_use", "/shader") &&
+                  has(gpu.unregister_custom_shape("test.rounded"), "resource_in_use", "/shader"),
+              "In-flight shapes must not be replaced or unregistered");
+        gpu.retire(frame++);
+        check(gpu.register_custom_shape({"test.rounded", rounded, rounded_kinds}).empty() &&
+                  gpu.unregister_custom_shape("test.rounded").empty(),
+              "Retired shapes may be replaced and unregistered");
+        host.begin(gpu);
+        check(gpu.submit({frame, {32, 32}, 1}, {{wrong}}).empty() && gpu.submission_stats().custom_shape_fallbacks == 1,
+              "Unregistered shapes fall back after removal");
+        host.finish("shape-unregistered.ppm");
+        gpu.retire(frame++);
+    }
+}
 #ifdef TESSERA_UI_FIXTURES
 template<class T> T ui_take(tessera::Result<T> result) {
     if (!result) {
@@ -2071,8 +2262,9 @@ std::vector<std::uint8_t> ui_boundary_mask(const tessera::UiDrawList& list, tess
         } else if (const auto* image = std::get_if<tessera::DrawImage>(&command))
             mark(image->rect);
         else if (const auto* rect = std::get_if<tessera::DrawRect>(&command)) {
-            check(rect->shape == tessera::FillShape::rectangle && !rect->antialias && !rect->procedural,
-                  "Extend the UI comparison oracle before adding ellipse, smooth or procedural fills");
+            check(rect->shape == tessera::FillShape::rectangle && !rect->antialias && !rect->procedural &&
+                      !rect->custom_shape,
+                  "Extend the UI comparison oracle before adding ellipse, smooth, procedural or custom-shape fills");
             mark(rect->rect);
             mark_rounded(rect->rect, rect->corner_radius);
         } else if (const auto* border = std::get_if<tessera::DrawBorder>(&command)) {
@@ -2321,6 +2513,7 @@ int main(int argc, char** argv) {
                 runner_fixtures(host);
                 cpu_reference_fixtures(host);
                 procedural_fixtures(host);
+                custom_shape_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
                 real_glyph_fixtures(host);
                 real_runner_fixtures(host);

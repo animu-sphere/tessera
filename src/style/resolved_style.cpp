@@ -87,6 +87,13 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     check.enumeration(style.background_shape, FillShape::ellipse, path + "/background_shape");
     if (style.background_gradient) check.gradient(*style.background_gradient, path + "/background_gradient");
     if (style.background_procedural) check.procedural(*style.background_procedural, path + "/background_procedural");
+    if (style.background_custom_shape) {
+        check.custom_shape(*style.background_custom_shape, path + "/background_custom_shape");
+        if (style.background_procedural)
+            check.error("unsupported_combination", path + "/background_custom_shape",
+                        "Profile sdf-v1 paints custom shapes with background or background_gradient; remove "
+                        "background_procedural or background_custom_shape.");
+    }
     if (style.box_shadow) check.shadow(*style.box_shadow, path + "/box_shadow");
     if (style.outline) check.outline(*style.outline, path + "/outline");
     check.color(style.border_color, path + "/border_color");

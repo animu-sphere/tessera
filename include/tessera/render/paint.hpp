@@ -26,7 +26,7 @@ struct PaintInput {
     std::span<const ResolvedStyle> styles;
     const LayoutResult* layout = nullptr;
     TextShaper* text = nullptr;
-    // Finite host time in seconds for procedural fills with a nonzero `time_rate`. The host owns
+    // Finite host time in seconds for procedural fills and custom shapes with a nonzero `time_rate`. The host owns
     // its origin, pausing and scheduling; changing it needs no restyle or layout, only paint.
     double host_time = 0;
     // At most one entry per Text node of this tree.

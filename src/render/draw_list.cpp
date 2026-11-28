@@ -12,7 +12,8 @@ namespace tessera {
 bool time_dependent(const UiDrawList& list) {
     return std::any_of(list.commands.begin(), list.commands.end(), [](const DrawCommand& command) {
         const auto* rect = std::get_if<DrawRect>(&command);
-        return rect && rect->procedural && rect->procedural->time_rate != 0;
+        return rect && ((rect->procedural && rect->procedural->time_rate != 0) ||
+                        (rect->custom_shape && rect->custom_shape->time_rate != 0));
     });
 }
 
@@ -53,6 +54,13 @@ std::vector<Diagnostic> validate(const UiDrawList& list) {
                         check.enumeration(command.shape, FillShape::ellipse, path + "/shape");
                         if (command.gradient) check.gradient(*command.gradient, path + "/gradient");
                         if (command.procedural) check.procedural(*command.procedural, path + "/procedural");
+                        if (command.custom_shape) {
+                            check.custom_shape(*command.custom_shape, path + "/custom_shape");
+                            if (command.procedural)
+                                check.error("unsupported_combination", path + "/custom_shape",
+                                            "Profile sdf-v1 paints custom shapes with color or gradient; remove the "
+                                            "procedural fill or the custom shape.");
+                        }
                     }
                     if constexpr (std::is_same_v<T, DrawBorder>) check.edges(command.widths, path + "/widths");
                     if constexpr (std::is_same_v<T, DrawStroke>)

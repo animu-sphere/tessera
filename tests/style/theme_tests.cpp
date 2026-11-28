@@ -413,6 +413,38 @@ void procedural_tokens() {
           "Unused procedural fallbacks must validate at their destination");
 }
 
+void custom_shape_tokens() {
+    const auto ui = tree();
+    const CustomShape round{"tessera.test.blob", {2.f, Point{.25f, .5f}}, .5f, 1.5f};
+    auto calm = round;
+    calm.parameters = {3.f, Point{.75f, .5f}};
+    calm.time_rate = 0;
+    Theme theme{
+        {{"badge", ThemeValue{std::optional<CustomShape>{round}}}, {"badge-alias", ThemeReference{"badge", {}}}}};
+    StyleSheet sheet{{{StyleSelector::of_id("button"), {}, {binding("background_custom_shape", "badge-alias")}}}};
+    sheet.rules[0].declarations.background = blue;
+    auto result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).background_custom_shape == round && result.value->at(1).background == blue &&
+              !result.value->at(2).background_custom_shape,
+          "Custom shape tokens must reach their destination through aliases and not inherit");
+    theme.variables[0].value = ThemeValue{std::optional<CustomShape>{calm}};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(result && result.value->at(1).background_custom_shape == calm, "Theme switch replaces the shape request");
+
+    auto invalid = round;
+    invalid.shader = "has space";
+    invalid.parameters.assign(max_custom_shape_parameters + 1, 0.f);
+    theme.variables[0].value = ThemeValue{std::optional<CustomShape>{invalid}};
+    const auto errors = validate(theme);
+    check(has(errors, "invalid_identifier", "/theme/variables/0/value/shader") &&
+              has(errors, "shape_parameter_limit", "/theme/variables/0/value/parameters"),
+          "Invalid custom shape tokens must reject at their variable even before binding");
+    theme.variables[0].value = ThemeValue{std::optional<ProceduralFill>{ProceduralFill{"tessera.test.wash"}}};
+    result = resolve_styles({ui.get(), &sheet, {}, {}, &theme});
+    check(!result && has(result.diagnostics, "theme_type", "/sheet/rules/0/variables/0/variable"),
+          "Procedural fill tokens must not coerce to custom shapes");
+}
+
 void diagnostic_and_candidate_boundaries() {
     const auto ui = tree();
     StyleSheet sheet;
@@ -596,6 +628,7 @@ int main() {
         outline_tokens();
         fill_shape_tokens();
         procedural_tokens();
+        custom_shape_tokens();
         cascade_and_inheritance();
         exact_types_and_destinations();
         diagnostic_and_candidate_boundaries();

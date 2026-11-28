@@ -41,11 +41,11 @@ struct Packet {
     Primitive primitive{};
     VkRect2D scissor{};
     std::uint64_t image = 0;
-    bool premultiplied = false;       // Fixed by the image binding, so equal handles agree.
-    const void* procedural = nullptr; // Registered fill whose pipelines draw this packet.
+    bool premultiplied = false;    // Fixed by the image binding, so equal handles agree.
+    const void* program = nullptr; // Registered fill or shape whose pipelines draw this packet.
 };
 bool compatible(const Packet& a, const Packet& b) {
-    return a.image == b.image && a.procedural == b.procedural && a.scissor.offset.x == b.scissor.offset.x &&
+    return a.image == b.image && a.program == b.program && a.scissor.offset.x == b.scissor.offset.x &&
            a.scissor.offset.y == b.scissor.offset.y && a.scissor.extent.width == b.scissor.extent.width &&
            a.scissor.extent.height == b.scissor.extent.height;
 }
@@ -99,8 +99,32 @@ bool bounds(const Rect& rect, const Affine2D& t, float scale, std::array<double,
     }
     return true;
 }
-// fill-v1 artifacts expose fragment `proceduralMain` and declare no image or sampler types.
-std::optional<std::string> fill_abi_problem(std::span<const std::uint32_t> code) {
+// Host shader profiles: which fragment entry point an artifact exposes and how diagnostics name it.
+struct Profile {
+    const char* kind;  // "procedural" or "shape": identity messages and the parameter-limit code.
+    const char* entry; // Required fragment entry point.
+    const char* name;  // Profile name in messages.
+    const char* macro; // ABI macro that defines the entry point.
+    const char *abi_code, *limit_code, *limit_message, *unknown_message;
+};
+constexpr Profile fill_profile{"procedural",
+                               "proceduralMain",
+                               "fill-v1",
+                               "TESSERA_PROCEDURAL_FILL",
+                               "procedural_abi",
+                               "procedural_fill_limit",
+                               "Unregister a retired procedural fill first.",
+                               "Procedural fill is not registered with this renderer."};
+constexpr Profile shape_profile{"shape",
+                                "shapeMain",
+                                "sdf-v1",
+                                "TESSERA_CUSTOM_SHAPE",
+                                "shape_abi",
+                                "custom_shape_limit",
+                                "Unregister a retired custom shape first.",
+                                "Custom shape is not registered with this renderer."};
+// Host artifacts expose the profile's fragment entry point and declare no image or sampler types.
+std::optional<std::string> abi_problem(std::span<const std::uint32_t> code, const Profile& profile) {
     bool entry = false;
     for (std::size_t i = 5; i < code.size();) {
         const std::uint32_t count = code[i] >> 16, opcode = code[i] & 0xffff;
@@ -116,13 +140,13 @@ std::optional<std::string> fill_abi_problem(std::span<const std::uint32_t> code)
                     else
                         name.push_back(c);
                 }
-            entry |= name == "proceduralMain";
+            entry |= name == profile.entry;
         }
         if (opcode == 25 || opcode == 26 || opcode == 27) // OpTypeImage, OpTypeSampler, OpTypeSampledImage
-            return "Profile fill-v1 does not permit image or sampler access.";
+            return std::string("Profile ") + profile.name + " does not permit image or sampler access.";
         i += count;
     }
-    if (!entry) return "Expose the fragment entry point proceduralMain (TESSERA_PROCEDURAL_FILL).";
+    if (!entry) return std::string("Expose the fragment entry point ") + profile.entry + " (" + profile.macro + ").";
     return std::nullopt;
 }
 }
@@ -144,7 +168,8 @@ struct VulkanRenderer::Impl {
         std::vector<ProceduralValueKind> kinds;
         std::uint64_t last_use = 0;
     };
-    std::map<std::string, Fill, std::less<>> fills;
+    using Programs = std::map<std::string, Fill, std::less<>>;
+    Programs fills, shapes; // Separate identity spaces for procedural fills and custom shapes.
     VkPhysicalDeviceMemoryProperties memory{};
     VkPhysicalDeviceLimits limits{};
     VulkanTarget target;
@@ -181,7 +206,8 @@ struct VulkanRenderer::Impl {
         fill.batch = fill.pipeline = VK_NULL_HANDLE;
     }
     ~Impl() {
-        for (auto& entry : fills) destroy(entry.second);
+        for (auto* programs : {&fills, &shapes})
+            for (auto& entry : *programs) destroy(entry.second);
         if (batch_module) vkDestroyShaderModule(device, batch_module, nullptr);
         if (vertex_module) vkDestroyShaderModule(device, vertex_module, nullptr);
         if (batch_premultiplied) vkDestroyPipeline(device, batch_premultiplied, nullptr);
@@ -354,6 +380,61 @@ struct VulkanRenderer::Impl {
         require(status, "vkCreateGraphicsPipelines");
         return result;
     }
+    // Registration shared by procedural fills and custom shapes; failures register nothing.
+    std::vector<Diagnostic> register_program(Programs& programs, std::string_view identity,
+                                             std::span<const std::uint32_t> code,
+                                             std::span<const ProceduralValueKind> parameters, const Profile& profile,
+                                             std::size_t limit) {
+        std::vector<Diagnostic> errors;
+        detail::Checker check(errors);
+        if (&profile == &fill_profile)
+            check.procedural(ProceduralFill{std::string(identity)}, "");
+        else
+            check.custom_shape(CustomShape{std::string(identity)}, "");
+        if (parameters.size() > max_procedural_parameters)
+            check.error(std::string(profile.kind) + "_parameter_limit", "/parameters",
+                        "Declare at most 16 " + std::string(profile.kind) + " parameters.");
+        for (std::size_t i = 0; i < parameters.size(); ++i)
+            check.enumeration(parameters[i], ProceduralValueKind::color, "/parameters/" + std::to_string(i));
+        if (code.size() < 5 || code[0] != 0x07230203)
+            check.error("invalid_shader", "/fragment_spirv", "Provide compiled SPIR-V shader words.");
+        else if (const auto problem = abi_problem(code, profile))
+            check.error(profile.abi_code, "/fragment_spirv", *problem);
+        const auto found = programs.find(identity);
+        if (found != programs.end() && found->second.last_use > completed)
+            check.error("resource_in_use", "/shader",
+                        "Retire the last referencing frame before replacing this shader.");
+        if (found == programs.end() && programs.size() == limit)
+            check.error(profile.limit_code, "/shader", profile.limit_message);
+        if (!errors.empty()) return errors;
+        Fill created{VK_NULL_HANDLE, VK_NULL_HANDLE, {parameters.begin(), parameters.end()}, 0};
+        const auto module = shader(code);
+        try {
+            created.pipeline = pipeline(render_pass, vertex_module, module, profile.entry);
+            if (batch_module) created.batch = pipeline(render_pass, batch_module, module, profile.entry, true);
+        } catch (...) {
+            destroy(created);
+            vkDestroyShaderModule(device, module, nullptr);
+            throw;
+        }
+        vkDestroyShaderModule(device, module, nullptr);
+        if (found != programs.end()) {
+            destroy(found->second);
+            found->second = std::move(created);
+        } else {
+            programs.emplace(std::string(identity), std::move(created));
+        }
+        return {};
+    }
+    std::vector<Diagnostic> unregister_program(Programs& programs, std::string_view identity, const Profile& profile) {
+        const auto found = programs.find(identity);
+        if (found == programs.end()) return {error("unknown_shader", "/shader", profile.unknown_message)};
+        if (found->second.last_use > completed)
+            return {error("resource_in_use", "/shader", "Retire the last referencing frame before unregistering.")};
+        destroy(found->second);
+        programs.erase(found);
+        return {};
+    }
 };
 
 VulkanRenderer::VulkanRenderer(const VulkanContext& context) : impl_(std::make_unique<Impl>()) {
@@ -496,54 +577,18 @@ std::vector<Diagnostic> VulkanRenderer::unbind_image(ImageHandle handle) {
     return {};
 }
 std::vector<Diagnostic> VulkanRenderer::register_procedural_fill(const VulkanProceduralFill& fill) {
-    auto& p = *impl_;
-    std::vector<Diagnostic> errors;
-    detail::Checker check(errors);
-    check.procedural(ProceduralFill{std::string(fill.shader)}, "");
-    if (fill.parameters.size() > max_procedural_parameters)
-        check.error("procedural_parameter_limit", "/parameters", "Declare at most 16 procedural parameters.");
-    for (std::size_t i = 0; i < fill.parameters.size(); ++i)
-        check.enumeration(fill.parameters[i], ProceduralValueKind::color, "/parameters/" + std::to_string(i));
-    const auto code = fill.fragment_spirv;
-    if (code.size() < 5 || code[0] != 0x07230203)
-        check.error("invalid_shader", "/fragment_spirv", "Provide compiled SPIR-V shader words.");
-    else if (const auto problem = fill_abi_problem(code))
-        check.error("procedural_abi", "/fragment_spirv", *problem);
-    const auto found = p.fills.find(fill.shader);
-    if (found != p.fills.end() && found->second.last_use > p.completed)
-        check.error("resource_in_use", "/shader", "Retire the last referencing frame before replacing this fill.");
-    if (found == p.fills.end() && p.fills.size() == max_vulkan_procedural_fills)
-        check.error("procedural_fill_limit", "/shader", "Unregister a retired procedural fill first.");
-    if (!errors.empty()) return errors;
-    Impl::Fill created{VK_NULL_HANDLE, VK_NULL_HANDLE, {fill.parameters.begin(), fill.parameters.end()}, 0};
-    const auto module = p.shader(code);
-    try {
-        created.pipeline = p.pipeline(p.render_pass, p.vertex_module, module, "proceduralMain");
-        if (p.batch_module) created.batch = p.pipeline(p.render_pass, p.batch_module, module, "proceduralMain", true);
-    } catch (...) {
-        p.destroy(created);
-        vkDestroyShaderModule(p.device, module, nullptr);
-        throw;
-    }
-    vkDestroyShaderModule(p.device, module, nullptr);
-    if (found != p.fills.end()) {
-        p.destroy(found->second);
-        found->second = std::move(created);
-    } else {
-        p.fills.emplace(std::string(fill.shader), std::move(created));
-    }
-    return {};
+    return impl_->register_program(impl_->fills, fill.shader, fill.fragment_spirv, fill.parameters, fill_profile,
+                                   max_vulkan_procedural_fills);
 }
 std::vector<Diagnostic> VulkanRenderer::unregister_procedural_fill(std::string_view shader) {
-    auto& p = *impl_;
-    const auto found = p.fills.find(shader);
-    if (found == p.fills.end())
-        return {error("unknown_shader", "/shader", "Procedural fill is not registered with this renderer.")};
-    if (found->second.last_use > p.completed)
-        return {error("resource_in_use", "/shader", "Retire the last referencing frame before unregistering.")};
-    p.destroy(found->second);
-    p.fills.erase(found);
-    return {};
+    return impl_->unregister_program(impl_->fills, shader, fill_profile);
+}
+std::vector<Diagnostic> VulkanRenderer::register_custom_shape(const VulkanCustomShape& shape) {
+    return impl_->register_program(impl_->shapes, shape.shader, shape.fragment_spirv, shape.parameters, shape_profile,
+                                   max_vulkan_custom_shapes);
+}
+std::vector<Diagnostic> VulkanRenderer::unregister_custom_shape(std::string_view shader) {
+    return impl_->unregister_program(impl_->shapes, shader, shape_profile);
 }
 void VulkanRenderer::retire(std::uint64_t frame) {
     impl_->completed = std::max(impl_->completed, std::min(frame, impl_->last_frame));
@@ -578,8 +623,23 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
     std::vector<Packet> packets;
     std::vector<GradientStopData> gradient_stops;
     std::vector<std::uint64_t> referenced_images;
-    std::vector<Impl::Fill*> referenced_fills;
-    std::uint64_t procedural_fills = 0, procedural_fallbacks = 0;
+    std::vector<Impl::Fill*> referenced_fills; // Registered fills and shapes.
+    std::uint64_t procedural_fills = 0, procedural_fallbacks = 0, custom_shapes = 0, custom_shape_fallbacks = 0;
+    // Parameter count and kinds must equal the registered declaration; reports at `at`.
+    const auto matches = [&](const std::vector<ProceduralValue>& values, const Impl::Fill& program,
+                             const std::string& at, const char* code) {
+        if (values.size() != program.kinds.size()) {
+            errors.push_back(error(code, at, "Supply exactly the parameters the registered shader declares."));
+            return false;
+        }
+        for (std::size_t v = 0; v < values.size(); ++v)
+            if (kind_of(values[v]) != program.kinds[v]) {
+                errors.push_back(error(code, at + "/" + std::to_string(v),
+                                       "Parameter kind differs from the registered declaration."));
+                return false;
+            }
+        return true;
+    };
     for (std::size_t i = 0; i < list.commands.size(); ++i) {
         const auto path = "/commands/" + std::to_string(i);
         std::visit(
@@ -669,10 +729,25 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                     std::array<float, 2> stroke_fringe{};
                     bool smooth = std::is_same_v<T, DrawStroke>;
                     bool reconstruct = smooth;
+                    [[maybe_unused]] Impl::Fill* shape = nullptr;
                     if constexpr (std::is_same_v<T, DrawRect>) {
+                        if (command.custom_shape) {
+                            const auto found = p.shapes.find(command.custom_shape->shader);
+                            if (found == p.shapes.end()) {
+                                ++custom_shape_fallbacks;
+                            } else {
+                                if (!matches(command.custom_shape->parameters, found->second,
+                                             path + "/custom_shape/parameters", "shape_parameter_mismatch"))
+                                    return;
+                                shape = &found->second;
+                                referenced_fills.push_back(shape);
+                                ++custom_shapes;
+                            }
+                        }
                         smooth = command.antialias;
-                        reconstruct = smooth || command.shape == FillShape::ellipse;
-                        if (command.shape == FillShape::ellipse &&
+                        // Custom shapes, like hard ellipses, sample reconstructed pixel centers.
+                        reconstruct = smooth || command.shape == FillShape::ellipse || shape;
+                        if (!shape && command.shape == FillShape::ellipse &&
                             ((command.rect.size.width > 0 &&
                               command.rect.size.width < std::numeric_limits<float>::min()) ||
                              (command.rect.size.height > 0 &&
@@ -756,26 +831,15 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                                 ++procedural_fallbacks;
                             } else {
                                 fill = &found->second;
-                                const auto& values = command.procedural->parameters;
-                                const auto at = path + "/procedural/parameters";
-                                if (values.size() != fill->kinds.size()) {
-                                    errors.push_back(
-                                        error("procedural_parameter_mismatch", at,
-                                              "Supply exactly the parameters the registered fill declares."));
+                                if (!matches(command.procedural->parameters, *fill, path + "/procedural/parameters",
+                                             "procedural_parameter_mismatch"))
                                     return;
-                                }
-                                for (std::size_t v = 0; v < values.size(); ++v)
-                                    if (kind_of(values[v]) != fill->kinds[v]) {
-                                        errors.push_back(
-                                            error("procedural_parameter_mismatch", at + "/" + std::to_string(v),
-                                                  "Parameter kind differs from the registered declaration."));
-                                        return;
-                                    }
                                 referenced_fills.push_back(fill);
                                 ++procedural_fills;
-                                packet.procedural = fill;
+                                packet.program = fill;
                             }
                         }
+                        if (shape) packet.program = shape;
                     }
                     if constexpr (std::is_same_v<T, DrawImage>) {
                         if (!p.images.contains(command.image.value)) {
@@ -847,22 +911,13 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                     if constexpr (std::is_same_v<T, DrawRect>) {
                         data.transform1[3] =
                             float((command.shape == FillShape::ellipse ? 1 : 0) + (command.antialias ? 2 : 0));
-                        if (fill) {
-                            const auto& values = command.procedural->parameters;
-                            const auto capacity = std::min<VkDeviceSize>(
-                                p.limits.maxStorageBufferRange / sizeof(GradientStopData), 1u << 24);
-                            const std::size_t records = (values.size() + 1) / 2;
-                            if (records > capacity - gradient_stops.size() ||
-                                2 * gradient_stops.size() + values.size() > (std::size_t(1) << 24)) {
-                                errors.push_back(error("fill_data_limit", path + "/procedural/parameters",
-                                                       "Frame fill data exceeds the device storage-buffer or "
-                                                       "exact-index limit."));
-                                return;
-                            }
-                            data.params[1] = 12;
-                            data.widths = {float(2 * gradient_stops.size()), float(values.size()),
-                                           command.procedural->time, command.procedural->opacity};
-                            // Two float4 slots per stop record; colors become linear light, straight alpha.
+                        const auto capacity =
+                            std::min<VkDeviceSize>(p.limits.maxStorageBufferRange / sizeof(GradientStopData), 1u << 24);
+                        const auto premultiply = [](Color c) {
+                            return std::array<float, 4>{linear(c.r) * c.a, linear(c.g) * c.a, linear(c.b) * c.a, c.a};
+                        };
+                        // Typed values as float4 slots; colors become linear light, straight alpha.
+                        const auto slots_of = [](const std::vector<ProceduralValue>& values) {
                             std::vector<std::array<float, 4>> slots;
                             for (const auto& value : values)
                                 std::visit(
@@ -876,78 +931,122 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
                                             slots.push_back({linear(v.r), linear(v.g), linear(v.b), v.a});
                                     },
                                     value);
+                            return slots;
+                        };
+                        // Appends slots, two per 32-byte record, after checking the frame bounds.
+                        const auto append_slots = [&](std::vector<std::array<float, 4>> slots, const std::string& at) {
+                            const std::size_t records = (slots.size() + 1) / 2;
+                            if (records > capacity - gradient_stops.size() ||
+                                2 * gradient_stops.size() + slots.size() > (std::size_t(1) << 24)) {
+                                errors.push_back(error("fill_data_limit", at,
+                                                       "Frame fill data exceeds the device storage-buffer or "
+                                                       "exact-index limit."));
+                                return false;
+                            }
                             if (slots.size() % 2) slots.push_back({});
                             for (std::size_t r = 0; r < slots.size(); r += 2)
                                 gradient_stops.push_back({slots[r], slots[r + 1]});
+                            return true;
+                        };
+                        // Gradient geometry into data.source; false after reporting an error.
+                        const auto gradient_source = [&](const auto& g) {
+                            if constexpr (std::is_same_v<std::decay_t<decltype(g)>, RadialGradient>) {
+                                const double x = 1.0 / g.radius.width, y = 1.0 / g.radius.height;
+                                if (!representable(x) || !representable(y) || x < std::numeric_limits<float>::min() ||
+                                    y < std::numeric_limits<float>::min()) {
+                                    errors.push_back(
+                                        error("geometry_overflow", path + "/gradient",
+                                              "Radial gradient radii exceed shader coordinate precision."));
+                                    return false;
+                                }
+                                data.source = {g.center.x, g.center.y, float(x), float(y)};
+                            } else {
+                                const double w = command.rect.size.width, h = command.rect.size.height;
+                                const double dx = (double(g.end.x) - g.start.x) * w,
+                                             dy = (double(g.end.y) - g.start.y) * h;
+                                const double length2 = dx * dx + dy * dy;
+                                const double x = w * dx / length2, y = h * dy / length2;
+                                const double offset = -(double(g.start.x) * x + double(g.start.y) * y);
+                                const double fringe_x = command.antialias ? stroke_fringe[0] / w : 0;
+                                const double fringe_y = command.antialias ? stroke_fringe[1] / h : 0;
+                                if (!representable(x) || !representable(y) || !representable(offset) ||
+                                    !representable(std::abs(x) * (1 + fringe_x) + std::abs(y) * (1 + fringe_y) +
+                                                   std::abs(offset))) {
+                                    errors.push_back(error("geometry_overflow", path + "/gradient",
+                                                           "Gradient projection exceeds representable coordinates."));
+                                    return false;
+                                }
+                                data.source = {float(x), float(y), float(offset), 0};
+                            }
+                            return true;
+                        };
+                        // Stop records (the two-color shorthand as stops at 0 and 1); sets widths.xy.
+                        const auto gradient_records = [&](const auto& g) {
+                            const auto count = g.stop_count();
+                            if (count > capacity - gradient_stops.size()) {
+                                errors.push_back(
+                                    error("gradient_stop_limit", path + "/gradient/stops",
+                                          "Frame stop data exceeds the device storage-buffer or exact-index limit."));
+                                return false;
+                            }
+                            data.widths[0] = float(gradient_stops.size());
+                            data.widths[1] = float(count);
+                            for (std::size_t stop_index = 0; stop_index < count; ++stop_index) {
+                                const auto stop = g.stop(stop_index);
+                                const double gap = stop_index ? double(stop.offset) - g.stop(stop_index - 1).offset : 0;
+                                if ((stop.offset > 0 && stop.offset < std::numeric_limits<float>::min()) ||
+                                    (gap > 0 && gap < std::numeric_limits<float>::min())) {
+                                    errors.push_back(error(
+                                        "gradient_stop_precision",
+                                        path + "/gradient/stops/" + std::to_string(stop_index) + "/offset",
+                                        "Stop offsets and nonzero gaps must not require subnormal shader arithmetic."));
+                                    return false;
+                                }
+                                gradient_stops.push_back({premultiply(stop.color), {stop.offset, 0, 0, 0}});
+                            }
+                            return true;
+                        };
+                        if (fill) {
+                            const auto& values = command.procedural->parameters;
+                            data.params[1] = 12;
+                            data.widths = {float(2 * gradient_stops.size()), float(values.size()),
+                                           command.procedural->time, command.procedural->opacity};
+                            if (!append_slots(slots_of(values), path + "/procedural/parameters")) return;
+                        } else if (shape) {
+                            // params.x selects the paint: 0 solid, 1 linear or 2 radial stops at widths.xy.
+                            data.params[0] = 0;
+                            data.params[1] = 13;
+                            if (command.gradient &&
+                                !std::visit(
+                                    [&](const auto& g) {
+                                        constexpr bool radial =
+                                            std::is_same_v<std::decay_t<decltype(g)>, RadialGradient>;
+                                        data.params[0] = radial ? 2.f : 1.f;
+                                        return gradient_source(g) && gradient_records(g);
+                                    },
+                                    *command.gradient))
+                                return;
+                            // Slot widths.z holds (time, parameter count), followed by the parameters.
+                            const auto& values = command.custom_shape->parameters;
+                            auto slots = slots_of(values);
+                            slots.insert(slots.begin(), {command.custom_shape->time, float(values.size()), 0, 0});
+                            data.widths[2] = float(2 * gradient_stops.size());
+                            if (!append_slots(std::move(slots), path + "/custom_shape/parameters")) return;
                         } else if (command.gradient) {
-                            std::visit(
+                            const bool encoded = std::visit(
                                 [&](const auto& g) {
                                     constexpr bool radial = std::is_same_v<std::decay_t<decltype(g)>, RadialGradient>;
-                                    if constexpr (radial) {
-                                        const double x = 1.0 / g.radius.width, y = 1.0 / g.radius.height;
-                                        if (!representable(x) || !representable(y) ||
-                                            x < std::numeric_limits<float>::min() ||
-                                            y < std::numeric_limits<float>::min()) {
-                                            errors.push_back(
-                                                error("geometry_overflow", path + "/gradient",
-                                                      "Radial gradient radii exceed shader coordinate precision."));
-                                            return;
-                                        }
-                                        data.source = {g.center.x, g.center.y, float(x), float(y)};
-                                    } else {
-                                        const double w = command.rect.size.width, h = command.rect.size.height;
-                                        const double dx = (double(g.end.x) - g.start.x) * w,
-                                                     dy = (double(g.end.y) - g.start.y) * h;
-                                        const double length2 = dx * dx + dy * dy;
-                                        const double x = w * dx / length2, y = h * dy / length2;
-                                        const double offset = -(double(g.start.x) * x + double(g.start.y) * y);
-                                        const double fringe_x = command.antialias ? stroke_fringe[0] / w : 0;
-                                        const double fringe_y = command.antialias ? stroke_fringe[1] / h : 0;
-                                        if (!representable(x) || !representable(y) || !representable(offset) ||
-                                            !representable(std::abs(x) * (1 + fringe_x) + std::abs(y) * (1 + fringe_y) +
-                                                           std::abs(offset))) {
-                                            errors.push_back(
-                                                error("geometry_overflow", path + "/gradient",
-                                                      "Gradient projection exceeds representable coordinates."));
-                                            return;
-                                        }
-                                        data.source = {float(x), float(y), float(offset), 0};
-                                    }
-                                    const auto premultiply = [](Color c) {
-                                        return std::array<float, 4>{linear(c.r) * c.a, linear(c.g) * c.a,
-                                                                    linear(c.b) * c.a, c.a};
-                                    };
+                                    if (!gradient_source(g)) return false;
                                     data.color = premultiply(g.start_color);
                                     data.widths = premultiply(g.end_color);
-                                    data.params[1] = radial ? 7 : 5;
-                                    if (!g.stops.empty()) {
-                                        const auto capacity = std::min<VkDeviceSize>(
-                                            p.limits.maxStorageBufferRange / sizeof(GradientStopData), 1u << 24);
-                                        if (g.stops.size() > capacity - gradient_stops.size()) {
-                                            errors.push_back(error(
-                                                "gradient_stop_limit", path + "/gradient/stops",
-                                                "Frame stop data exceeds the device storage-buffer or exact-index limit."));
-                                            return;
-                                        }
-                                        data.widths = {float(gradient_stops.size()), float(g.stops.size()), 0, 0};
-                                        for (std::size_t stop_index = 0; stop_index < g.stops.size(); ++stop_index) {
-                                            const auto& stop = g.stops[stop_index];
-                                            const double gap =
-                                                stop_index ? double(stop.offset) - g.stops[stop_index - 1].offset : 0;
-                                            if ((stop.offset > 0 && stop.offset < std::numeric_limits<float>::min()) ||
-                                                (gap > 0 && gap < std::numeric_limits<float>::min())) {
-                                                errors.push_back(error(
-                                                    "gradient_stop_precision",
-                                                    path + "/gradient/stops/" + std::to_string(stop_index) + "/offset",
-                                                    "Stop offsets and nonzero gaps must not require subnormal shader arithmetic."));
-                                                return;
-                                            }
-                                            gradient_stops.push_back({premultiply(stop.color), {stop.offset, 0, 0, 0}});
-                                        }
-                                        data.params[1] = radial ? 8 : 6;
-                                    }
+                                    data.params[1] = radial ? 7.f : 5.f;
+                                    if (g.stops.empty()) return true;
+                                    data.widths = {};
+                                    data.params[1] = radial ? 8.f : 6.f;
+                                    return gradient_records(g);
                                 },
                                 *command.gradient);
+                            if (!encoded) return;
                         }
                     }
                     packets.push_back(packet);
@@ -965,7 +1064,9 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         upload = owned.get();
         p.uploads.emplace(frame.frame, std::move(owned));
     }
-    VulkanSubmissionStats stats{packets.size(), 0, upload ? upload->bytes : 0, procedural_fills, procedural_fallbacks};
+    VulkanSubmissionStats stats{
+        packets.size(),        0, upload ? upload->bytes : 0, procedural_fills, procedural_fallbacks, custom_shapes,
+        custom_shape_fallbacks};
     // All diagnostics and allocations precede command recording and resource-use changes.
     const VkViewport viewport{0, 0, float(extent.width), float(extent.height), 0, 1};
     vkCmdSetViewport(p.target.commands, 0, 1, &viewport);
@@ -984,7 +1085,7 @@ std::vector<Diagnostic> VulkanRenderer::submit(const FrameInfo& frame, const UiD
         std::size_t end = first + 1;
         if (batch)
             while (end < packets.size() && compatible(packet, packets[end])) ++end;
-        const auto* fill = static_cast<const Impl::Fill*>(packet.procedural);
+        const auto* fill = static_cast<const Impl::Fill*>(packet.program);
         const auto pipeline = fill                   ? (batch ? fill->batch : fill->pipeline)
                               : !packet.image        ? (batch ? p.batch_solid : p.solid)
                               : packet.premultiplied ? (batch ? p.batch_premultiplied : p.premultiplied)

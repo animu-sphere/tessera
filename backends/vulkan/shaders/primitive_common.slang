@@ -5,9 +5,12 @@ struct Primitive {
     float4 color; // Linear RGB, straight alpha.
     float4 widths; // Border edges, bitmap rows, gradient color/stops, stroke width/dash/gap/phase, or procedural parameter base/count/time/opacity.
     float4 source; // Image crop, bitmap rows, gradient, shadow parameters, or stroke coverage fringe.
-    float4 params; // radius, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5/6 linear, 7/8 radial, 9 outer/10 inset shadow, 11 stroke, 12 procedural), framebuffer width, height
+    float4 params; // radius or custom-shape paint, mode (0 fill, 1 border, 2 image, 3 placeholder, 4 premultiplied image, 5/6 linear, 7/8 radial, 9 outer/10 inset shadow, 11 stroke, 12 procedural, 13 custom shape), framebuffer width, height
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
+// Frame fill data: each gradient stop record is two slots (premultiplied linear-light color, then
+// its offset in x); procedural and custom-shape parameters occupy one slot per typed value.
+[[vk::binding(0, 1)]] StructuredBuffer<float4> tesseraFillData;
 
 struct VertexOutput {
     float4 position : SV_Position;
@@ -61,6 +64,26 @@ float2 pixelLocal(VertexOutput input, float2 offset) {
     float det = t0.x * t1.y - t0.y * t1.x;
     float2 p = (input.position.xy + offset) / t0.w - float2(t0.z, t1.z);
     return float2(t1.y * p.x - t0.y * p.y, -t1.x * p.x + t0.x * p.y) / det - input.rect.xy;
+}
+// Gradient parameter at normalized box position `uv`: linear projection (source.xy, offset
+// source.z) or radial distance (center source.xy, inverse radii source.zw), clamped to [0, 1].
+float gradientParameter(float2 uv, float4 source, bool radial) {
+    // Clamping each distance component first preserves saturated length without overflow.
+    return radial ? saturate(length(clamp((uv - source.xy) * source.zw, -1.0, 1.0)))
+                  : saturate(dot(uv, source.xy) + source.z);
+}
+// Premultiplied color of `count` stop records starting at record `first`, clamped at both ends.
+float4 gradientStops(uint first, uint count, float t) {
+    uint end = first + count, low = first, high = end;
+    while (low < high) {
+        uint middle = low + (high - low) / 2;
+        if (tesseraFillData[2 * middle + 1].x <= t) low = middle + 1;
+        else high = middle;
+    }
+    if (low == first) return tesseraFillData[2 * first];
+    if (low == end) return tesseraFillData[2 * (end - 1)];
+    float a = tesseraFillData[2 * (low - 1) + 1].x, b = tesseraFillData[2 * low + 1].x;
+    return lerp(tesseraFillData[2 * (low - 1)], tesseraFillData[2 * low], (t - a) / (b - a));
 }
 // Background fill coverage shared by built-in and procedural fills: hard or 4x4 sampled
 // rectangle/ellipse membership. Discards uncovered pixels and leaves input.local at the pixel center.

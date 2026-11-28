@@ -2,6 +2,7 @@
 
 #include <tessera/layout/geometry.hpp>
 #include <tessera/style/color.hpp>
+#include <tessera/style/custom_shape.hpp>
 #include <tessera/style/fill_shape.hpp>
 #include <tessera/style/gradient.hpp>
 #include <tessera/style/procedural_fill.hpp>
@@ -46,6 +47,10 @@ struct DrawRect {
     // Runs a backend-registered shader inside the same shape instead of color/gradient. When the
     // backend lacks that shader, color/gradient is the declared fallback (alpha 0 omits the fill).
     std::optional<ProceduralFill> procedural;
+    // Replaces the built-in shape's coverage with a backend-registered signed-distance shader; when
+    // the backend lacks it, `shape`/`corner_radius` is the declared fallback. Profile sdf-v1 paints
+    // it with color or gradient only, so it cannot be combined with `procedural`.
+    std::optional<CustomShape> custom_shape;
     bool operator==(const DrawRect&) const = default;
 };
 // Border painted inside rect.
@@ -120,9 +125,9 @@ inline constexpr std::size_t max_draw_stack_depth = 64;
 
 std::vector<Diagnostic> validate(const UiDrawList&);
 
-// True when a procedural fill in the list moves with host time (nonzero `time_rate`), so a host
-// showing it requests further frames; a static list needs a frame only after it changes. This
-// reports the request, not execution: a backend drawing the static fallback needs no motion frames.
+// True when a procedural fill or custom shape in the list moves with host time (nonzero `time_rate`),
+// so a host showing it requests further frames; a static list needs a frame only after it changes.
+// This reports the request, not execution: a backend drawing the static fallback needs no motion frames.
 bool time_dependent(const UiDrawList&);
 
 } // namespace tessera

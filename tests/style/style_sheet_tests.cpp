@@ -2,6 +2,7 @@
 #include "../check.hpp"
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -186,6 +187,29 @@ void test_procedural_fills() {
     check(has(errors, "invalid_identifier", "/background_procedural/shader") &&
               has(errors, "out_of_range", "/background_procedural/opacity"),
           "Procedural declarations must use located shared validation");
+}
+
+void test_custom_shapes() {
+    const auto tree = menu();
+    const tessera::CustomShape blob{"example.blob", {.5f, tessera::Point{1, 2}}, 2, .25f};
+    tessera::StyleSheet sheet{{{tessera::StyleSelector::of_id("a"), {.background_custom_shape = blob}}}};
+    const auto resolved = resolve(*tree, sheet);
+    check(resolved["a"].background_custom_shape == blob && !resolved["a-label"].background_custom_shape,
+          "Custom shapes must apply to the matched node without inheriting");
+    std::vector<tessera::StyleDeclarations> overrides(tree->size());
+    overrides[tree->find("a")->index].background_custom_shape = std::optional<tessera::CustomShape>{};
+    check(!resolve(*tree, sheet, {}, overrides)["a"].background_custom_shape,
+          "An explicit empty declaration must clear a custom shape");
+    overrides[0].background_custom_shape = tessera::CustomShape{"", {}, std::numeric_limits<float>::infinity()};
+    auto errors = tessera::validate(overrides[0]);
+    check(has(errors, "invalid_identifier", "/background_custom_shape/shader") &&
+              has(errors, "invalid_number", "/background_custom_shape/time"),
+          "Custom shape declarations must use located shared validation");
+    tessera::ResolvedStyle combined;
+    combined.background_custom_shape = blob;
+    combined.background_procedural = tessera::ProceduralFill{"example.wave"};
+    check(has(tessera::validate(combined, "/styles/0"), "unsupported_combination", "/styles/0/background_custom_shape"),
+          "A resolved custom shape must not be combined with a procedural fill");
 }
 
 void test_shadows() {
@@ -423,6 +447,7 @@ int main() {
         test_outlines();
         test_fill_shapes();
         test_procedural_fills();
+        test_custom_shapes();
         test_inheritance();
         test_states();
         test_overrides();

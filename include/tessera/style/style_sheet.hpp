@@ -72,6 +72,7 @@ struct StyleDeclarations {
     std::optional<FillShape> background_shape;
     std::optional<bool> background_antialias;
     std::optional<std::optional<ProceduralFill>> background_procedural;
+    std::optional<std::optional<CustomShape>> background_custom_shape;
     std::optional<std::optional<Transition>> transition;
     bool operator==(const StyleDeclarations&) const = default;
 };
@@ -114,7 +115,7 @@ using ThemeValue =
     std::variant<float, Color, Dimension, Edges, FontId, std::optional<float>, std::uint16_t, Display, FlexDirection,
                  Justify, Align, Overflow, Visibility, std::vector<GridTrack>, std::optional<Gradient>,
                  std::optional<BoxShadow>, std::optional<Outline>, FillShape, bool, Position, FlexWrap, std::int32_t,
-                 std::optional<ProceduralFill>, std::optional<Transition>>;
+                 std::optional<ProceduralFill>, std::optional<Transition>, std::optional<CustomShape>>;
 struct ThemeReference {
     std::string name;
     std::optional<ThemeValue> fallback; // Used only when this name is absent.

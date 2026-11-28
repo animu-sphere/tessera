@@ -522,6 +522,38 @@ void procedural_styles_round_trip() {
           "Absent procedural fills must preserve legacy Replay bytes");
 }
 
+void custom_shape_styles_round_trip() {
+    auto source = recording();
+    source.styles[0].background_custom_shape =
+        tessera::CustomShape{"example.blob", {.25f, tessera::Point{1, -2}, tessera::Color{.1f, .2f, .3f, .4f}}, 1.5f};
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    for (auto version : {tessera::replay_version, tessera::replay_host_version}) {
+        source.version = version;
+        const auto json = save(source);
+        check(load(json) == source && save(load(json)) == json &&
+                  tessera::compare_replay(play(source), play(load(json))).empty(),
+              "Custom shapes must round-trip identity, typed parameters and time in Replay v1/v2");
+        check(json.find("\"time_rate\"") == std::string::npos, "Static shapes must omit their time rate");
+        auto moving = source;
+        for (auto* styles : {&moving.styles, &std::get<tessera::ReplayReload>(moving.steps.back()).styles})
+            (*styles)[0].background_custom_shape->time_rate = 2;
+        const auto moving_json = save(moving);
+        check(moving_json.find("\"time_rate\":2") != std::string::npos && load(moving_json) == moving &&
+                  save(load(moving_json)) == moving_json,
+              "Moving shapes must round-trip their time rate");
+        auto rejected = tessera::load_replay(changed(json, "{\"number\":0.25}", "{\"angle\":0.25}"));
+        check(!rejected && has(rejected.diagnostics, "unknown_field",
+                               "/steps/0/styles/0/background_custom_shape/parameters/0/angle"),
+              "Unknown shape parameter kinds must reject before playback");
+        rejected = tessera::load_replay(changed(json, "\"shader\":\"example.blob\"", "\"shader\":\"\""));
+        check(!rejected &&
+                  has(rejected.diagnostics, "invalid_identifier", "/steps/0/styles/0/background_custom_shape/shader"),
+              "Replay must validate custom shape identities");
+    }
+    check(save(recording()).find("\"background_custom_shape\"") == std::string::npos,
+          "Absent custom shapes must preserve legacy Replay bytes");
+}
+
 void shadow_styles_round_trip() {
     auto source = recording();
     source.styles[0].box_shadow = tessera::BoxShadow{{-2, 4}, 7, {.2f, .3f, .4f, .5f}};
@@ -813,6 +845,7 @@ int main() {
         fill_shapes_round_trip();
         transition_styles_round_trip();
         procedural_styles_round_trip();
+        custom_shape_styles_round_trip();
         loading_rejects_malformed_input();
         compatible_pointer_policy_round_trips();
         saving_rejects_invalid_recordings();

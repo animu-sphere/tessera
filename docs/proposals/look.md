@@ -1,6 +1,6 @@
 # Look and visual rendering
 
-> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), [distance-based outer/inset shadows](../architecture/rendering.md#implemented-box-shadows), [smooth solid/dashed outlines](../architecture/rendering.md#implemented-outlines-and-dashed-strokes), [analytic rectangle/ellipse fills](../architecture/rendering.md#implemented-analytic-fills) and [fill-v1 Slang procedural fills](../architecture/rendering.md#implemented-procedural-fills). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
+> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), [distance-based outer/inset shadows](../architecture/rendering.md#implemented-box-shadows), [smooth solid/dashed outlines](../architecture/rendering.md#implemented-outlines-and-dashed-strokes), [analytic rectangle/ellipse fills](../architecture/rendering.md#implemented-analytic-fills), [fill-v1 Slang procedural fills](../architecture/rendering.md#implemented-procedural-fills) and [sdf-v1 custom shapes](../architecture/rendering.md#implemented-custom-shapes). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
 
 ## Goal and scope
 
@@ -72,7 +72,7 @@ Arbitrary Slang execution on CPU is not a prerequisite. Backend capability and f
 
 ### D. Custom SDF and motion
 
-Use a custom badge/blob or morphing shape as a representative consumer. A distance entry point such as `distance(local_position, uniforms)` has a distinct contract from a color-producing fill. Declare distance accuracy, coverage/stroke behavior and bounds; input uses separately supplied CPU geometry or the documented rectangular default.
+The [sdf-v1 profile](../architecture/rendering.md#implemented-custom-shapes) implements the first step: a build-time Slang `signedDistance(ShapeInput)` replaces the background shape's coverage, reading only the sign so distance estimates are acceptable, within the fill box and its hard or 4x4 sampling, painted with color or gradient and moved by explicit host time. The built-in shape is the declared fallback that CPU always draws, and input keeps the rectangular default. The [Win32 Vulkan menu](../architecture/rendering.md#implemented-win32-vulkan-example-host) outlines its title badge with a moving blob. Procedural paint inside a custom shape, distance-based smoothing, strokes and glow from distance magnitude (which need a declared accuracy), and shape-aware input with separately supplied CPU geometry remain open.
 
 Use the [animation proposal](animation.md) for injected host time, replay evaluation and invalidation. Procedural uniforms can change with time without introducing a general animation framework first. Define easing, interruption and geometry effects for the properties actually exposed.
 

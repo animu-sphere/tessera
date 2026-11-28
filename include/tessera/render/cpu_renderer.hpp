@@ -34,6 +34,9 @@ public:
     // Procedural fill commands in the last successful submission. This reference backend executes no
     // shaders: each drew its declared color/gradient fallback, or nothing for a transparent one.
     std::uint64_t procedural_fallbacks() const { return procedural_fallbacks_; }
+    // Custom-shape commands in the last successful submission, each drawn with its built-in
+    // `shape`/`corner_radius` fallback because this backend executes no distance shaders.
+    std::uint64_t custom_shape_fallbacks() const { return custom_shape_fallbacks_; }
 
 private:
     friend class CpuFrameCapture;
@@ -46,7 +49,7 @@ private:
     };
     CpuTarget target_;
     std::map<std::uint64_t, Image> images_;
-    std::uint64_t submitted_ = 0, retired_ = 0, procedural_fallbacks_ = 0;
+    std::uint64_t submitted_ = 0, retired_ = 0, procedural_fallbacks_ = 0, custom_shape_fallbacks_ = 0;
 };
 
 // Owns a transparent target per call and returns completed, owned bytes. Optional
