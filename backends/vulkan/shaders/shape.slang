@@ -1,6 +1,7 @@
 // Tessera custom shape ABI, profile sdf-v1: one signed-distance background shape, one pass, typed
 // uniforms, no texture or storage-image access. A shape module includes this file, implements
-// ICustomShape and expands TESSERA_CUSTOM_SHAPE once to define the fragment entry point `shapeMain`.
+// ICustomShape with its `Parameters` struct (see parameters.slang) and expands TESSERA_CUSTOM_SHAPE
+// once to define the fragment entry point `shapeMain`.
 //
 // Coordinates: `position` is a sample point in the fill box's local logical units, before the
 // current transform. signedDistance returns a distance in the same units; zero or negative is
@@ -9,29 +10,24 @@
 // so an inexact distance (a bound or estimate) changes nothing as long as the sign is right.
 // Paint: the command's solid color or gradient at the pixel center, as for built-in fills; coverage
 // scales alpha once before the ordinary source-over blend.
-#include "primitive_common.slang"
+#include "parameters.slang"
 
 struct ShapeInput {
     float2 position;
     float2 size;
     float deviceScale; // Physical pixels per logical unit.
     float time;        // Host-supplied seconds from CustomShape::time; no clock is read.
-    uint parameterBase;
-    uint parameterCount;
-    // Number: (v, 0, 0, 0). Point: (x, y, 0, 0). Color: linear RGB, straight alpha. Out of range: 0.
-    float4 parameter(uint index) {
-        return index < parameterCount ? tesseraFillData[parameterBase + index] : float4(0);
-    }
 };
 
 interface ICustomShape {
-    static float signedDistance(ShapeInput input);
+    associatedtype Parameters; // Fields of ProceduralNumber, ProceduralPoint or ProceduralColor.
+    static float signedDistance(ShapeInput input, Parameters parameters);
 };
 
-bool shapeCovers<S : ICustomShape>(inout ShapeInput input, float2 local) {
+bool shapeCovers<S : ICustomShape>(inout ShapeInput input, S.Parameters parameters, float2 local) {
     if (any(local < 0) || any(local >= input.size)) return false;
     input.position = local;
-    return S.signedDistance(input) <= 0;
+    return S.signedDistance(input, parameters) <= 0;
 }
 
 float4 shapeFragment<S : ICustomShape>(VertexOutput vertex) {
@@ -43,16 +39,15 @@ float4 shapeFragment<S : ICustomShape>(VertexOutput vertex) {
     input.size = vertex.rect.zw;
     input.deviceScale = vertex.transform0.w;
     input.time = header.x;
-    input.parameterBase = base + 1;
-    input.parameterCount = uint(header.y);
+    let parameters = tesseraLoadParameters<S.Parameters>(base + 1, uint(header.y));
     float coverage = 0;
     if ((uint(vertex.transform1.w) & 2u) != 0) {
         for (int y = 0; y < 4; ++y)
             for (int x = 0; x < 4; ++x)
-                coverage += shapeCovers<S>(input, pixelLocal(vertex, (float2(x, y) + .5) / 4 - .5)) ? 1 : 0;
+                coverage += shapeCovers<S>(input, parameters, pixelLocal(vertex, (float2(x, y) + .5) / 4 - .5)) ? 1 : 0;
         coverage /= 16;
     } else {
-        coverage = shapeCovers<S>(input, pixelLocal(vertex, float2(0, 0))) ? 1 : 0;
+        coverage = shapeCovers<S>(input, parameters, pixelLocal(vertex, float2(0, 0))) ? 1 : 0;
     }
     if (coverage == 0) discard;
     // params.x: 0 solid color, 1 linear or 2 radial gradient stops at widths.xy.
@@ -67,6 +62,7 @@ float4 shapeFragment<S : ICustomShape>(VertexOutput vertex) {
 }
 
 #define TESSERA_CUSTOM_SHAPE(SHAPE)                                                                    \
+    TESSERA_PARAMETER_DECLARATION(SHAPE.Parameters)                                                    \
     [shader("fragment")] float4 shapeMain(VertexOutput input) : SV_Target {                            \
         return shapeFragment<SHAPE>(input);                                                            \
     }

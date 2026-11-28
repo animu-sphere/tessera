@@ -9,7 +9,7 @@ struct Primitive {
 };
 [[vk::push_constant]] ConstantBuffer<Primitive> primitive;
 // Frame fill data: each gradient stop record is two slots (premultiplied linear-light color, then
-// its offset in x); procedural and custom-shape parameters occupy one slot per typed value.
+// its offset in x); procedural and custom-shape parameters occupy one slot per typed value (parameters.slang).
 [[vk::binding(0, 1)]] StructuredBuffer<float4> tesseraFillData;
 
 struct VertexOutput {

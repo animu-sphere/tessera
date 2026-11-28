@@ -1,7 +1,10 @@
-// Owner fixture: returns color parameter 0 so coverage/blending can be compared with a solid DrawRect.
+// Owner fixture: returns its color parameter so coverage/blending can be compared with a solid DrawRect.
 #include "procedural.slang"
 
 struct SolidFill : IProceduralFill {
-    static float4 shade(ProceduralInput input) { return input.parameter(0); }
+    struct Parameters {
+        ProceduralColor color;
+    };
+    static float4 shade(ProceduralInput input, Parameters parameters) { return parameters.color.value; }
 };
 TESSERA_PROCEDURAL_FILL(SolidFill)

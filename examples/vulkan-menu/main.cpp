@@ -36,6 +36,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -91,6 +92,16 @@ std::vector<std::uint32_t> shader(const char* name) {
     file.seekg(0);
     file.read(reinterpret_cast<char*>(code.data()), bytes);
     return code;
+}
+// The parameter manifest the build reflected from an artifact's Parameters struct.
+tessera::ShaderParameters parameters(const char* name) {
+    std::ifstream file(std::filesystem::path(TESSERA_SHADER_DIR) / name, std::ios::binary);
+    if (!file) throw std::runtime_error(std::string("Cannot open shader parameter manifest ") + name);
+    auto loaded = tessera::load_shader_parameters(std::string{std::istreambuf_iterator<char>(file), {}});
+    if (!loaded)
+        throw std::runtime_error(std::string("Invalid shader parameter manifest ") + name + ": " +
+                                 loaded.diagnostics.front().message);
+    return std::move(*loaded.value);
 }
 
 std::atomic<unsigned> validation_errors = 0;
@@ -173,9 +184,6 @@ struct Menu {
     static constexpr tessera::Color aurora_bottom = rgb(34, 24, 58), aurora_glow{.25f, .78f, .67f, .55f};
     static constexpr float aurora_cycles = 1.5f, aurora_phase = 0.75f, aurora_rate = 0.8f;
     static constexpr tessera::Point aurora_band{.32f, .2f}; // Center and thickness, height fractions.
-    static constexpr std::array<tessera::ProceduralValueKind, 5> aurora_kinds{
-        tessera::ProceduralValueKind::color, tessera::ProceduralValueKind::color, tessera::ProceduralValueKind::color,
-        tessera::ProceduralValueKind::number, tessera::ProceduralValueKind::point};
     // Title badge outlined by blob.slang and painted with a radial gradient; its ellipse background
     // shape is the declared fallback. The rim's lobes travel at `blob_rate` radians per host second.
     static constexpr const char* blob = "tessera.example.blob";
@@ -188,8 +196,6 @@ struct Menu {
     static constexpr tessera::Color preview_fill = rgb(214, 84, 120), preview_edge = rgb(255, 214, 102);
     static constexpr float preview_opacity = .7f;
     static constexpr tessera::Size blob_radius{.75f, .75f};
-    static constexpr std::array<tessera::ProceduralValueKind, 2> blob_kinds{tessera::ProceduralValueKind::number,
-                                                                            tessera::ProceduralValueKind::number};
     std::unique_ptr<tessera::UiTree> tree;
     std::vector<std::uint32_t> parents;
     tessera::StyleSheet sheet;
@@ -722,17 +728,21 @@ struct App {
         renderer = std::make_unique<tessera::VulkanRenderer>(
             tessera::VulkanContext{physical, device, present_pass, format.format, vertex, fragment, image,
                                    atlas_pages_per_slot * frames_in_flight, !menu.glyph_cache, batch});
-        // Build-time Slang artifact; a failed registration leaves the declared solid fallback.
+        // Build-time Slang artifact and its reflected parameters (top, bottom, glow, cycles, band, in the
+        // request's order); a failed registration leaves the declared solid fallback.
         const auto aurora = shader("procedural.aurora.spv");
-        const auto registered = renderer->register_procedural_fill({Menu::aurora, aurora, Menu::aurora_kinds});
+        const auto registered =
+            renderer->register_procedural_fill({Menu::aurora, aurora, parameters("procedural.aurora.parameters.json")});
         aurora_registered = registered.empty();
         if (!registered.empty()) {
             print(registered);
             if (smoke) throw std::runtime_error("Aurora procedural fill registration failed");
         }
-        // Build-time sdf-v1 artifact; a failed registration leaves the declared ellipse badge.
+        // Build-time sdf-v1 artifact and its reflected parameters (lobes, amplitude); a failed registration
+        // leaves the declared ellipse badge.
         const auto blob = shader("shape.blob.spv");
-        const auto shaped = renderer->register_custom_shape({Menu::blob, blob, Menu::blob_kinds});
+        const auto shaped =
+            renderer->register_custom_shape({Menu::blob, blob, parameters("shape.blob.parameters.json")});
         blob_registered = shaped.empty();
         if (!shaped.empty()) {
             print(shaped);
