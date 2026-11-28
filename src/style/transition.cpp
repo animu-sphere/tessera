@@ -133,12 +133,15 @@ std::vector<Diagnostic> StyleTransitions::update(const UiTree& tree, std::span<c
                           if (!(old_target.*field == target.*field)) {
                               if (transition->duration <= 0 || old_shown.*field == target.*field) return;
                               next.from.*field = old_shown.*field;
+                              // A group keeps fading as a group while opacity eases away from its layer.
+                              if (p == 0) next.from.composition = old_shown.composition;
                               next.tracks[p] = Track{now, transition->duration, transition->easing};
                               tracked = true;
                           } else if (old_node && old_node->tracks[p] &&
                                      now < old_node->tracks[p]->start + old_node->tracks[p]->duration) {
                               // Unchanged target: the running transition continues toward it.
                               next.from.*field = old_node->from.*field;
+                              if (p == 0) next.from.composition = old_node->from.composition;
                               next.tracks[p] = old_node->tracks[p];
                               tracked = true;
                           }
@@ -165,6 +168,7 @@ std::vector<ResolvedStyle> StyleTransitions::present(double now) const {
             const double linear = (now - track->start) / track->duration;
             if (linear >= 1) return;
             shown.*field = mix(node.from.*field, targets_[i].*field, ease(track->easing, linear));
+            if (p == 0 && node.from.composition == Composition::layer) shown.composition = Composition::layer;
         });
     }
     return result;

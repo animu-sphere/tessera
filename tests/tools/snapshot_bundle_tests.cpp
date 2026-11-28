@@ -618,6 +618,32 @@ void bundle_loading() {
     check(has(problems(empty), "bundle_limit", "/manifest.json"), "Members are bounded");
 }
 
+// Layer counts appear in paint.json only when a generation paints layers, and load like the other kinds.
+void layer_summaries() {
+    const tessera::SnapshotOptions options{.producer = "snapshot-tests", .scenario = "menu"};
+    const auto plain = recording();
+    const auto unlayered = tessera::build_snapshot_bundle(plain, run(plain, false), options);
+    check(bool(unlayered), "A run without layers must build a bundle");
+    for (const auto& file : unlayered.value->files)
+        check(!contains(file.bytes, "push_layer"), "Summaries without layers keep their bytes");
+    auto input = plain;
+    // The last generation shows the reloaded styles.
+    for (auto* styles : {&input.styles, &std::get<tessera::ReplayReload>(input.steps.back()).styles}) {
+        (*styles)[1].composition = tessera::Composition::layer;
+        (*styles)[1].opacity = .5f;
+    }
+    const auto played = run(input, false);
+    const auto bundle = tessera::build_snapshot_bundle(input, played, options);
+    check(bool(bundle), "A layered run must build a bundle");
+    const auto g = "g" + std::to_string(played.output.generations.size() - 1);
+    check(contains(bundle.value->find(g + "/paint.json")->bytes, "\"push_layer\": 1, \"pop_layer\": 1"),
+          "paint.json must count layers when present");
+    loaded(*bundle.value);
+    check(has(problems(edited(*bundle.value, g + "/paint.json", "\"push_layer\": 1", "\"push_layer\": 2")),
+              "invalid_member", "/" + g + "/paint.json/kinds"),
+          "Layer counts must add up with the other kinds");
+}
+
 tessera::ReplayRecording with_caption(std::string_view id, std::string caption) {
     auto result = recording();
     for (auto* document : {&result.document, &std::get<tessera::ReplayReload>(result.steps.back()).document})
@@ -777,6 +803,7 @@ int main(int argc, char** argv) {
         bundle_members();
         writer();
         bundle_loading();
+        layer_summaries();
         bundle_diffs();
         std::cout << "Snapshot bundle checks passed.\n";
         return 0;

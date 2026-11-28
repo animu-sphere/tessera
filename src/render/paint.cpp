@@ -57,15 +57,50 @@ std::vector<Diagnostic> validate(const PaintInput& input) {
 Result<UiDrawList> build_paint_list(const PaintInput& input) {
     auto diagnostics = validate(input);
     if (!diagnostics.empty()) return {std::nullopt, std::move(diagnostics)};
-    UiDrawList list;
-    std::optional<Rect> clip; // Currently pushed in `list`.
     const auto& boxes = input.layout->boxes;
-    // Opacity composes down tree preorder; emission follows the z_index paint order.
-    std::vector<float> opacities;
+    // Opacity composes down tree preorder; emission follows the z_index paint order. A layer node's commands and
+    // descendants paint inside its layer relative to it, and the layer composes with the opacity accumulated so far.
+    std::vector<float> opacities, composed;
     opacities.reserve(boxes.size());
-    for (const auto& box : boxes)
-        opacities.push_back(input.styles[box.node.index].opacity *
-                            (box.parent == no_layout_parent ? 1 : opacities[box.parent]));
+    composed.reserve(boxes.size());
+    std::vector<std::size_t> subtree(boxes.size(), 1);
+    for (const auto& box : boxes) {
+        const auto& style = input.styles[box.node.index];
+        const float inherited = box.parent == no_layout_parent ? 1 : opacities[box.parent];
+        composed.push_back(inherited * style.opacity);
+        opacities.push_back(style.composition == Composition::layer ? 1 : composed.back());
+    }
+    for (std::size_t i = boxes.size(); i-- > 0;)
+        if (boxes[i].parent != no_layout_parent) subtree[boxes[i].parent] += subtree[i];
+    // One open surface: the root list or a layer collecting its node's subtree. `base` is the clip its parent
+    // pushed around it; `clip` is the clip in effect for the commands appended last.
+    struct Frame {
+        std::vector<DrawCommand> commands;
+        std::optional<Rect> base, clip;
+        std::size_t end = 0; // Paint-order position after the layer node's subtree.
+        std::uint32_t box = 0;
+    };
+    std::vector<Frame> frames(1);
+    frames[0].end = boxes.size();
+    // Moves the frame's clip to `wanted`; consecutive boxes under the same recorded clip share one push/pop pair.
+    const auto switch_clip = [](Frame& frame, const std::optional<Rect>& wanted) {
+        if (frame.clip == wanted) return;
+        if (frame.clip != frame.base) frame.commands.push_back(PopClip{});
+        if (wanted && wanted != frame.base) frame.commands.push_back(PushClip{*wanted});
+        frame.clip = wanted;
+    };
+    // Closes the innermost layer: a layer that painted nothing emits nothing.
+    const auto close_layer = [&] {
+        auto layer = std::move(frames.back());
+        frames.pop_back();
+        switch_clip(layer, layer.base);
+        if (layer.commands.empty()) return;
+        auto& parent = frames.back();
+        switch_clip(parent, boxes[layer.box].clip);
+        parent.commands.push_back(PushLayer{composed[layer.box]});
+        for (auto& command : layer.commands) parent.commands.push_back(std::move(command));
+        parent.commands.push_back(PopLayer{});
+    };
     bool failed = false;
     std::vector<const TextEditingPaint*> editing(input.tree->size());
     for (const auto& entry : input.text_editing) editing[entry.node.index] = &entry;
@@ -83,11 +118,30 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         }
         return Rect{{float(x), float(y)}, rect.size};
     };
-    for (const auto index : detail::paint_order(*input.tree, input.styles, *input.layout)) {
+    const auto order = detail::paint_order(*input.tree, input.styles, *input.layout);
+    for (std::size_t position = 0; position < order.size(); ++position) {
+        while (position >= frames.back().end) close_layer();
+        const auto index = order[position];
         const auto& box = boxes[index];
         const auto& style = input.styles[box.node.index];
+        if (composed[index] == 0) {
+            position += subtree[index] - 1; // Zero opacity hides the whole subtree, including nested layers.
+            continue;
+        }
+        if (style.composition == Composition::layer) {
+            if (frames.size() == max_draw_layer_depth + 1) {
+                diagnostics.push_back({"layer_limit",
+                                       Severity::error,
+                                       "/nodes/" + std::to_string(box.node.index) + "/composition",
+                                       "Layer nesting exceeds the limit (8).",
+                                       {}});
+                position += subtree[index] - 1;
+                continue;
+            }
+            frames.push_back({{}, box.clip, box.clip, position + subtree[index], index});
+        }
         const float opacity = opacities[index];
-        if (!box.visible || opacity == 0) continue;
+        if (!box.visible) continue;
 
         UiDrawList commands;
         if (style.box_shadow && !style.box_shadow->inset && style.box_shadow->color.a > 0) {
@@ -226,15 +280,13 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
             diagnostics.push_back(std::move(diagnostic));
         }
         if (commands.commands.empty()) continue;
-        // Consecutive boxes under the same recorded clip share one push/pop pair.
-        if (box.clip != clip) {
-            if (clip) list.commands.push_back(PopClip{});
-            if (box.clip) list.commands.push_back(PushClip{*box.clip});
-            clip = box.clip;
-        }
-        for (auto& command : commands.commands) list.commands.push_back(std::move(command));
+        auto& frame = frames.back();
+        switch_clip(frame, box.clip);
+        for (auto& command : commands.commands) frame.commands.push_back(std::move(command));
     }
-    if (clip) list.commands.push_back(PopClip{});
+    while (frames.size() > 1) close_layer();
+    switch_clip(frames[0], std::nullopt);
+    UiDrawList list{std::move(frames[0].commands)};
     if (failed || has_error(diagnostics)) return {std::nullopt, std::move(diagnostics)};
     return {std::move(list), std::move(diagnostics)};
 }

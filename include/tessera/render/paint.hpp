@@ -37,7 +37,10 @@ std::vector<Diagnostic> validate(const PaintInput&);
 
 // Owned background/border/glyph commands in tree preorder with siblings ordered by z_index, in root logical
 // coordinates.
-// Ancestor opacity multiplies command alpha; this is not offscreen group composition.
+// Ancestor opacity multiplies command alpha, except that a node with Composition::layer wraps its own and its
+// descendants' commands in PushLayer/PopLayer under its recorded clip: they paint relative to it, and the layer
+// composes once with the opacity accumulated through that node. A layer that paints nothing is omitted; zero
+// cumulative opacity omits the whole subtree. More than max_draw_layer_depth nested layers is a `layer_limit` error.
 // Hidden boxes suppress only their own commands. Recorded layout clips become PushClip/PopClip
 // around each box's commands; other overflow is not clipped.
 // Invalid input or shaping failure returns diagnostics and no partial draw list.

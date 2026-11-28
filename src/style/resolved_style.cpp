@@ -22,6 +22,7 @@ std::vector<Diagnostic> validate(const ResolvedStyle& style, std::string_view ba
     check.enumeration(style.overflow, Overflow::scroll, path + "/overflow");
     check.enumeration(style.position, Position::absolute, path + "/position");
     check.enumeration(style.visibility, Visibility::hidden, path + "/visibility");
+    check.enumeration(style.composition, Composition::layer, path + "/composition");
 
     auto dimension = [&](const Dimension& value, const std::string& location) {
         check.enumeration(value.kind, Dimension::Kind::points, location + "/kind");

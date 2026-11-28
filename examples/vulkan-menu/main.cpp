@@ -58,7 +58,8 @@ constexpr const char* menu_json = R"({"version":1,"root":{"type":"Box","id":"scr
 {"type":"Box","id":"start","classes":["button"],"properties":{"focusable":true},"events":{"activate":"start-game"},"children":[{"type":"Text","id":"start-label","properties":{"text":"Start"}}]},
 {"type":"Box","id":"quit","classes":["button"],"properties":{"focusable":true},"events":{"activate":"quit-game"},"children":[{"type":"Text","id":"quit-label","properties":{"text":"Quit"}}]},
 {"type":"Box","id":"credits","classes":["button"],"properties":{"focusable":true},"events":{"activate":"show-credits"},"children":[{"type":"Text","id":"credits-label","properties":{"text":"Credits"}}]}]},
-{"type":"Box","id":"badge"}]}]}})";
+{"type":"Box","id":"badge"},
+{"type":"Box","id":"preview","children":[{"type":"Text","id":"preview-label","properties":{"text":"Preview"}}]}]}]}})";
 constexpr const char* buttons[]{"start", "quit", "credits"};
 
 void require(VkResult result, const char* operation) {
@@ -182,6 +183,10 @@ struct Menu {
     static constexpr float blob_size = 30, blob_inset = 14;
     static constexpr float blob_lobes = 5, blob_amplitude = .14f, blob_phase = .5f, blob_rate = 1.3f;
     static constexpr tessera::Point blob_center{.38f, .34f}; // Radial gradient center, box fractions.
+    // A caption pill in the panel's top padding, dimmed as one offscreen layer: its border covers its fill
+    // and its label covers both before the group fades, instead of each showing through the others.
+    static constexpr tessera::Color preview_fill = rgb(214, 84, 120), preview_edge = rgb(255, 214, 102);
+    static constexpr float preview_opacity = .7f;
     static constexpr tessera::Size blob_radius{.75f, .75f};
     static constexpr std::array<tessera::ProceduralValueKind, 2> blob_kinds{tessera::ProceduralValueKind::number,
                                                                             tessera::ProceduralValueKind::number};
@@ -300,6 +305,20 @@ struct Menu {
             s.background_antialias = true;
             s.background_custom_shape = tessera::CustomShape{blob, {blob_lobes, blob_amplitude}, blob_phase, blob_rate};
         });
+        rule(S::of_id("preview"), [](auto& s) {
+            s.position = tessera::Position::absolute;
+            s.top = 3.0f;
+            s.left = blob_inset;
+            s.padding = tessera::Edges{1, 6, 1, 6};
+            s.border = tessera::Edges{1, 1, 1, 1};
+            s.border_color = preview_edge;
+            s.corner_radius = 4.0f;
+            s.background = preview_fill;
+            s.text.size = 8.0f;
+            s.color = label;
+            s.opacity = preview_opacity;
+            s.composition = tessera::Composition::layer;
+        });
         rule(S::of_id("title"), [](auto& s) {
             s.text.size = 28.0f;
             s.color = rgb(235, 238, 245);
@@ -406,6 +425,8 @@ struct SwapchainImage {
 };
 struct FrameSlot {
     VkCommandBuffer commands = VK_NULL_HANDLE;
+    // Recorded outside any render pass and submitted first: glyph uploads, then the renderer's layer passes.
+    VkCommandBuffer layers = VK_NULL_HANDLE;
     VkSemaphore acquired = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
     std::uint64_t frame = 0; // Last successful renderer frame covered by this slot's fence.
@@ -685,6 +706,7 @@ struct App {
             command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             command_info.commandBufferCount = 1;
             require(vkAllocateCommandBuffers(device, &command_info, &slot.commands), "allocate command buffer");
+            require(vkAllocateCommandBuffers(device, &command_info, &slot.layers), "allocate layer command buffer");
             VkSemaphoreCreateInfo semaphore{};
             semaphore.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
             require(vkCreateSemaphore(device, &semaphore, nullptr, &slot.acquired), "create semaphore");
@@ -819,19 +841,19 @@ struct App {
             barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            vkCmdPipelineBarrier(slot.commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+            vkCmdPipelineBarrier(slot.layers, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
                                  nullptr, 0, nullptr, 1, &barrier);
             VkBufferImageCopy copy{};
             copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
             copy.imageExtent = image.extent;
-            vkCmdCopyBufferToImage(slot.commands, page.staging, page.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+            vkCmdCopyBufferToImage(slot.layers, page.staging, page.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                                    &copy);
             barrier.oldLayout = barrier.newLayout;
             barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            vkCmdPipelineBarrier(slot.commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            vkCmdPipelineBarrier(slot.layers, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                                 0, nullptr, 0, nullptr, 1, &barrier);
             const auto diagnostics = renderer->bind_image(page.handle, page.view, glyph_sampler);
             if (!diagnostics.empty()) {
                 print(diagnostics);
@@ -1030,10 +1052,12 @@ struct App {
         require(vkResetFences(device, 1, &slot.fence), "reset fence");
         const bool capture = smoke && capture_next;
         require(vkResetCommandBuffer(slot.commands, 0), "reset commands");
+        require(vkResetCommandBuffer(slot.layers, 0), "reset layer commands");
         VkCommandBufferBeginInfo begin{};
         begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         require(vkBeginCommandBuffer(slot.commands, &begin), "begin commands");
+        require(vkBeginCommandBuffer(slot.layers, &begin), "begin layer commands");
         std::optional<tessera::GlyphAtlasFrame> atlas;
         if (menu.glyph_cache) {
             atlas = take(tessera::prepare_glyph_atlas(menu.paint, *menu.glyph_cache, scale,
@@ -1053,18 +1077,19 @@ struct App {
         pass.clearValueCount = 1;
         pass.pClearValues = &clear;
         vkCmdBeginRenderPass(slot.commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
-        renderer->set_target({slot.commands, extent});
+        renderer->set_target({slot.commands, extent, slot.layers});
         const tessera::FrameInfo frame{last_frame + 1, menu.viewport, scale};
         const auto diagnostics = renderer->submit(frame, atlas ? atlas->draw_list : menu.paint);
         if (smoke && diagnostics.empty()) {
             const auto stats = renderer->submission_stats();
-            // Placeholder: the procedural backdrop, two solid batches, then the custom-shape badge.
+            // Placeholder: the procedural backdrop, two solid batches, the custom-shape badge, then the
+            // preview pill's composition; its layer pass draws one more solid batch.
             // Real glyphs alternate solid/image batches. After an alignment of at most 256 bytes,
             // uploads add 32-byte records: three for the five aurora parameters, two for the badge's
             // gradient stops and two for its shape time plus two parameters.
             const auto vertices = stats.primitives * 112;
             constexpr std::uint64_t fill_data = 7 * 32;
-            if ((!atlas && stats.draw_calls != 4) || stats.primitives <= stats.draw_calls ||
+            if ((!atlas && stats.draw_calls != 6) || stats.primitives <= stats.draw_calls ||
                 stats.upload_bytes < vertices + fill_data || stats.upload_bytes >= vertices + fill_data + 256 ||
                 renderer->pending_uploads() > frames_in_flight)
                 fail("Menu adjacent batching or upload retirement counters disagree");
@@ -1072,6 +1097,7 @@ struct App {
                 fail("Menu aurora backdrop did not execute its registered procedural fill");
             if (stats.custom_shapes != 1 || stats.custom_shape_fallbacks != 0)
                 fail("Menu badge did not execute its registered custom shape");
+            if (stats.layers != 1) fail("Menu preview pill did not record its layer pass");
             for (const auto& page : slot.atlas) {
                 const auto unbound = renderer->unbind_image(page.handle);
                 const auto rebound = renderer->bind_image(page.handle, page.view, glyph_sampler);
@@ -1094,9 +1120,14 @@ struct App {
         vkCmdEndRenderPass(slot.commands);
         if (capture) record_capture(slot.commands, target.image);
         require(vkEndCommandBuffer(slot.commands), "end commands");
+        require(vkEndCommandBuffer(slot.layers), "end layer commands");
+        // Uploads and layer passes need no swapchain image, so only the main pass waits for acquisition.
         const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        VkSubmitInfo submits[2]{};
+        submits[0].sType = submits[1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submits[0].commandBufferCount = 1;
+        submits[0].pCommandBuffers = &slot.layers;
+        auto& submit = submits[1];
         submit.waitSemaphoreCount = 1;
         submit.pWaitSemaphores = &slot.acquired;
         submit.pWaitDstStageMask = &wait_stage;
@@ -1104,7 +1135,7 @@ struct App {
         submit.pCommandBuffers = &slot.commands;
         submit.signalSemaphoreCount = 1;
         submit.pSignalSemaphores = &target.rendered;
-        require(vkQueueSubmit(queue, 1, &submit, slot.fence), "submit queue");
+        require(vkQueueSubmit(queue, 2, submits, slot.fence), "submit queue");
         slot.frame = target.frame = last_frame;
         VkPresentInfoKHR present{};
         present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1427,6 +1458,37 @@ struct App {
         const auto panel = menu.box("panel").border_box;
         verify_aurora(pixels, name, panel);
         verify_blob(pixels, name);
+        // The preview pill composes once over the flat panel: its opaque border hides its fill, so a border
+        // pixel is the border color at the pill's opacity, as an interior pixel is the fill's. Per-command alpha
+        // would blend the faded border over the faded fill instead.
+        {
+            const auto srgb = [](double c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * std::pow(c, 1 / 2.4) - .055; };
+            const auto decode = [](double c) { return c <= 0.04045 ? c / 12.92 : std::pow((c + .055) / 1.055, 2.4); };
+            const auto over_panel = [&](tessera::Color c) {
+                const double o = Menu::preview_opacity;
+                return tessera::Color{float(srgb(decode(c.r) * o + decode(Menu::panel.r) * (1 - o))),
+                                      float(srgb(decode(c.g) * o + decode(Menu::panel.g) * (1 - o))),
+                                      float(srgb(decode(c.b) * o + decode(Menu::panel.b) * (1 - o))), 1};
+            };
+            const auto pill = menu.box("preview").border_box;
+            const auto middle = pixel(pill.origin.y + pill.size.height / 2);
+            const auto border_x = unsigned(std::ceil(double(pill.origin.x) * scale - 0.5));
+            if (!matches(border_x, middle, over_panel(Menu::preview_edge)) ||
+                !matches(pixel(pill.origin.x + 3.5f), middle, over_panel(Menu::preview_fill)))
+                fail("Preview pill did not compose as one layer in " + name);
+            const auto stacked = [&] {
+                const double o = Menu::preview_opacity;
+                tessera::Color c{};
+                for (auto [out, edge, fill, back] :
+                     {std::tuple{&c.r, Menu::preview_edge.r, Menu::preview_fill.r, Menu::panel.r},
+                      std::tuple{&c.g, Menu::preview_edge.g, Menu::preview_fill.g, Menu::panel.g},
+                      std::tuple{&c.b, Menu::preview_edge.b, Menu::preview_fill.b, Menu::panel.b}})
+                    *out = float(srgb(decode(edge) * o + (decode(fill) * o + decode(back) * (1 - o)) * (1 - o)));
+                return c;
+            }();
+            if (matches(border_x, middle, stacked))
+                fail("Preview pill border is indistinguishable from per-command alpha in " + name);
+        }
         expect(panel.origin.x + 6, panel.origin.y + panel.size.height / 2, Menu::panel, "Panel padding");
         for (const char* id : {"start", "quit"}) {
             const auto button = menu.box(id).border_box;

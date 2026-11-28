@@ -559,7 +559,10 @@ StyleSheet appearance(const State& state) {
             {StyleSelector::of_id(selected, {.focus = true}), {.border_color = Color{.55f, .72f, 1, 1}}});
     }
     if (state.drag_source)
-        sheet.rules.push_back({StyleSelector::of_id("hierarchy-item-" + *state.drag_source), {.opacity = .45f}});
+        // The dragged row fades as one offscreen layer, like a snapshot of itself: its fill covers its own
+        // elevation shadow and label, instead of each showing through the others.
+        sheet.rules.push_back({StyleSelector::of_id("hierarchy-item-" + *state.drag_source),
+                               {.opacity = .45f, .composition = Composition::layer}});
     if (state.drop_target) {
         // A two-unit inset band on the target row's top or bottom edge marks the insertion point.
         const float edge = state.drop_target->placement == DropPlacement::before ? 2.f : -2.f;
@@ -3673,9 +3676,61 @@ void reorder_smoke() {
     input(PointerMove{{1}, row("light", .8f)});
     require(app.reordering() && app.state.drag_source == "cube" &&
                 app.state.drop_target == CollectionDropTarget{"light", DropPlacement::after} &&
-                style("cube").opacity == .45f && style("light").box_shadow && style("light").box_shadow->inset &&
+                style("cube").opacity == .45f && style("cube").composition == Composition::layer &&
+                style("light").box_shadow && style("light").box_shadow->inset &&
                 style("light").box_shadow->offset.y < 0 && app.executions == executions,
             "Dragging must dim the source and mark the insertion point without a command");
+    {
+        // The dimmed row is one layer holding its own commands at full strength, so its opaque selected fill
+        // hides its elevation shadow; per-command alpha would let the shadow show through the fill.
+        const auto& commands = app.view.paint.commands;
+        const auto first = std::find_if(commands.begin(), commands.end(),
+                                        [](const DrawCommand& c) { return std::holds_alternative<PushLayer>(c); });
+        const auto last = std::find_if(first, commands.end(),
+                                       [](const DrawCommand& c) { return std::holds_alternative<PopLayer>(c); });
+        const auto cube_row = app.view.box("hierarchy-item-cube").border_box;
+        require(
+            first != commands.end() && last != commands.end() && std::get<PushLayer>(*first).opacity == .45f &&
+                std::count_if(commands.begin(), commands.end(),
+                              [](const DrawCommand& c) { return std::holds_alternative<PushLayer>(c); }) == 1 &&
+                std::any_of(first, last,
+                            [&](const DrawCommand& c) {
+                                const auto* fill = std::get_if<DrawRect>(&c);
+                                return fill && fill->rect == cube_row && fill->color.a == 1;
+                            }) &&
+                std::any_of(first, last, [](const DrawCommand& c) { return std::holds_alternative<DrawShadow>(c); }),
+            "The dragged row must paint inside one layer at its drag opacity");
+        CpuFrameCapture frames;
+        const auto capture = [&](UiDrawList paint) {
+            std::erase_if(paint.commands, [](const auto& c) { return std::holds_alternative<DrawGlyphRun>(c); });
+            return take(frames.capture({0, app.viewport, 1, take(capture_extent(app.viewport, 1)), &paint}));
+        };
+        const auto at = [&](const CapturedImage& image) {
+            const auto offset = (std::size_t(cube_row.origin.y + cube_row.size.height - 2) * image.extent.width +
+                                 std::size_t(cube_row.origin.x + cube_row.size.width / 2)) *
+                                4;
+            return std::array<int, 4>{image.pixels[offset], image.pixels[offset + 1], image.pixels[offset + 2],
+                                      image.pixels[offset + 3]};
+        };
+        // The same row without its shadow, and the same commands faded one by one.
+        auto unshadowed = app.view.paint, flattened = app.view.paint;
+        unshadowed.commands.erase(
+            std::find_if(unshadowed.commands.begin() + (first - commands.begin()), unshadowed.commands.end(),
+                         [](const DrawCommand& c) { return std::holds_alternative<DrawShadow>(c); }));
+        for (auto it = flattened.commands.begin() + (first - commands.begin()) + 1;
+             it != flattened.commands.begin() + (last - commands.begin()); ++it)
+            std::visit(
+                [](auto& command) {
+                    if constexpr (requires { command.color; }) command.color.a *= .45f;
+                },
+                *it);
+        std::erase_if(flattened.commands, [](const DrawCommand& c) {
+            return std::holds_alternative<PushLayer>(c) || std::holds_alternative<PopLayer>(c);
+        });
+        const auto grouped = at(capture(app.view.paint));
+        require(grouped == at(capture(unshadowed)) && grouped != at(capture(flattened)),
+                "The layer must hide the row's own shadow under its fill, unlike per-command alpha");
+    }
     input(PointerMove{{1}, row("camera", .2f)});
     require(app.state.drop_target == CollectionDropTarget{"camera", DropPlacement::before} &&
                 !style("light").box_shadow && style("camera").box_shadow->offset.y > 0,
@@ -3688,6 +3743,9 @@ void reorder_smoke() {
     require(order() == std::vector<std::string>{"sphere", "light", "cube", "camera"} &&
                 app.executions == executions + 1 && app.state.selected == "cube" && app.state.item() == cube &&
                 !app.state.drag_source && !app.state.drop_target && style("cube").opacity == 1 &&
+                style("cube").composition == Composition::direct &&
+                std::none_of(app.view.paint.commands.begin(), app.view.paint.commands.end(),
+                             [](const DrawCommand& c) { return std::holds_alternative<PushLayer>(c); }) &&
                 above("light", "cube") && above("cube", "camera"),
             "A drop must move the item once, keep its data and selection, and clear the feedback");
 
@@ -4890,6 +4948,32 @@ void transition_smoke() {
                 style(app.transitions.present(now + .09), "shadows-track").background != off &&
                 style(app.transitions.present(now + .09), "shadows-track").background != on,
             "The switch track eases its fill over 0.18 seconds");
+    // A dragged row fades out and back as one layer: the presented frame keeps the layer until opacity settles.
+    app.transitions.settle();
+    const auto layer_opacity = [](const UiDrawList& paint) -> std::optional<float> {
+        for (const auto& command : paint.commands)
+            if (const auto* layer = std::get_if<PushLayer>(&command)) return layer->opacity;
+        return std::nullopt;
+    };
+    const auto start = app.view.center("hierarchy-item-light");
+    const auto below = app.view.center("hierarchy-item-camera");
+    app.input({0us, PointerDown{{1}, start}}, CommandSource::pointer);
+    app.input({0us, PointerMove{{1}, below}}, CommandSource::pointer);
+    require(app.state.drag_source == "light", "The fade check drags a row");
+    app.present(now);
+    auto fading = layer_opacity(app.present(now + .08));
+    require(fading && *fading > .45f && *fading < 1, "A row starting to drag fades as one layer");
+    now += .5;
+    app.present(now);
+    app.input({0us, PointerCancel{{1}}}, CommandSource::pointer);
+    require(!app.state.drag_source && style(app.view.styles, "hierarchy-item-light").composition == Composition::direct,
+            "Cancelling the drag restores direct composition in the accepted view");
+    app.present(now);
+    fading = layer_opacity(app.present(now + .08));
+    require(fading && *fading > .45f && *fading < 1, "A cancelled drag fades the row back as one layer");
+    now += .5;
+    require(&app.present(now) == &app.view.paint && !layer_opacity(app.view.paint),
+            "The settled row paints directly again");
     // Settling ends every transition at once, as a host does when motion is switched off.
     app.transitions.settle();
     require(&app.present(now) == &app.view.paint, "Settled transitions present the accepted frame");

@@ -341,6 +341,29 @@ void z_index_styles_round_trip() {
           "The default z_index must not change legacy canonical recordings");
 }
 
+void composition_styles_round_trip() {
+    auto source = recording();
+    source.styles[1].composition = tessera::Composition::layer;
+    source.styles[1].opacity = .5f;
+    source.steps.push_back(tessera::ReplayReload{source.document, source.styles});
+    source.steps.push_back(tessera::InputEvent{1us, tessera::FocusNext{}});
+    const auto json = save(source);
+    check(json.find("\"composition\":\"layer\"") != std::string::npos && load(json) == source &&
+              save(load(json)) == json,
+          "Layer composition must round-trip in initial/reloaded views");
+    check(tessera::compare_replay(play(source), play(load(json))).empty(),
+          "Restored composition must preserve paint, semantics and actions");
+    const auto invalid =
+        tessera::load_replay(changed(json, "\"composition\":\"layer\"", "\"composition\":\"isolated\""));
+    check(!invalid && has(invalid.diagnostics, "unknown_value", "/steps/0/styles/1/composition"),
+          "Unknown encoded composition values must report their field");
+    source.version = tessera::replay_host_version;
+    check(load(save(source)) == source, "Composition must round-trip under host-state replay v2");
+    const auto legacy = save(recording());
+    check(legacy.find("composition") == std::string::npos && load(legacy) == recording(),
+          "Direct composition must not change legacy canonical recordings");
+}
+
 void gradient_styles_round_trip() {
     auto source = recording();
     source.styles[0].background_gradient = tessera::LinearGradient{{.25f, 0}, {.75f, 1}, {1, 0, 0, 0}, {0, 0, 1, .75f}};
@@ -839,6 +862,7 @@ int main() {
         span_and_absolute_styles_round_trip();
         wrap_styles_round_trip();
         z_index_styles_round_trip();
+        composition_styles_round_trip();
         gradient_styles_round_trip();
         shadow_styles_round_trip();
         outline_styles_round_trip();

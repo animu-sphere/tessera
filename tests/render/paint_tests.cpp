@@ -1,5 +1,6 @@
 #include <tessera/render/paint.hpp>
 #include "../check.hpp"
+#include <algorithm>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -45,6 +46,7 @@ struct Fixture {
     tessera::PaintInput input() { return {tree.get(), styles, &layout, &shaper}; }
     tessera::UiDrawList paint() {
         const auto result = tessera::build_paint_list(input());
+        for (const auto& d : result.diagnostics) std::cerr << d.code << ' ' << d.path << ' ' << d.message << '\n';
         check(result && result.diagnostics.empty(), "Valid paint rejected");
         const auto repeated = tessera::build_paint_list(input());
         check(repeated && *repeated.value == *result.value, "Repeated paint differs");
@@ -477,6 +479,90 @@ void clip_runs() {
           "Non-finite clip accepted");
 }
 
+void layers() {
+    using namespace tessera;
+    // Preorder: 0 root (clips), 1 layer, 2 child, 3 nested layer, 4 sibling.
+    Fixture f(box({box({box(), box()}), box()}));
+    f.styles[0].padding = {4, 4, 4, 4};
+    f.styles[0].overflow = Overflow::clip;
+    for (auto& style : f.styles) {
+        style.background = {1, 1, 1, 1};
+        style.height = Dimension::points(10);
+    }
+    f.styles[0].height = {};
+    f.styles[1].height = {};
+    f.styles[1].composition = Composition::layer;
+    f.styles[1].opacity = .5f;
+    f.styles[2].opacity = .5f;
+    f.styles[3].composition = Composition::layer;
+    f.styles[3].opacity = .8f;
+    f.compute();
+    const auto& boxes = f.layout.boxes;
+    const auto white = [](float alpha) { return Color{1, 1, 1, alpha}; };
+    const auto clip = *boxes[1].clip;
+    UiDrawList expected{{DrawRect{boxes[0].border_box, white(1)}, PushClip{clip}, PushLayer{.5f},
+                         DrawRect{boxes[1].border_box, white(1)}, DrawRect{boxes[2].border_box, white(.5f)},
+                         PushLayer{.8f}, DrawRect{boxes[3].border_box, white(1)}, PopLayer{}, PopLayer{},
+                         DrawRect{boxes[4].border_box, white(1)}, PopClip{}}};
+    check(f.paint() == expected, "Layer subtrees paint relative to the layer, which composes with its own opacity");
+
+    f.styles[0].opacity = .5f;
+    expected.commands[0] = DrawRect{boxes[0].border_box, white(.5f)};
+    expected.commands[2] = PushLayer{.25f};
+    expected.commands[9] = DrawRect{boxes[4].border_box, white(.5f)};
+    check(f.paint() == expected, "Ancestor opacity attenuates the layer once, not its commands");
+    f.styles[0].opacity = 1;
+
+    f.styles[1].visibility = Visibility::hidden;
+    f.compute();
+    auto list = f.paint();
+    check(list.commands.size() == 10 && std::get<PushLayer>(list.commands[2]) == PushLayer{.5f} &&
+              std::get<DrawRect>(list.commands[3]) == DrawRect{boxes[2].border_box, white(.5f)},
+          "A hidden layer node still collects its visible descendants");
+    f.styles[1].visibility = Visibility::visible;
+    f.compute();
+
+    for (const auto i : {1, 2, 3}) f.styles[std::size_t(i)].background = {};
+    const UiDrawList omitted{
+        {DrawRect{boxes[0].border_box, white(1)}, PushClip{clip}, DrawRect{boxes[4].border_box, white(1)}, PopClip{}}};
+    check(f.paint() == omitted, "Layers that paint nothing must be omitted");
+    for (const auto i : {1, 2, 3}) f.styles[std::size_t(i)].background = white(1);
+    f.styles[1].opacity = 0;
+    check(f.paint() == omitted, "A layer with zero cumulative opacity omits its whole subtree");
+    f.styles[1].opacity = .5f;
+
+    f.styles[0].composition = Composition::layer;
+    list = f.paint();
+    check(std::get<PushLayer>(list.commands.front()) == PushLayer{1} &&
+              std::holds_alternative<PopLayer>(list.commands.back()) &&
+              std::holds_alternative<PopClip>(list.commands[list.commands.size() - 2]) &&
+              std::get<PushClip>(list.commands[2]) == PushClip{clip},
+          "An unclipped layer pushes its descendants' clips inside itself");
+    for (const auto& command : list.commands)
+        check(!std::holds_alternative<DrawRect>(command) || std::get<DrawRect>(command).color.a == 1 ||
+                  std::get<DrawRect>(command).color.a == .5f,
+              "Layer content keeps relative opacity");
+
+    // Nine nested layer nodes exceed the surface limit at the ninth.
+    UiNode chain = box();
+    for (std::size_t i = 0; i < max_draw_layer_depth; ++i) chain = box({std::move(chain)});
+    Fixture deep(std::move(chain));
+    for (auto& style : deep.styles) {
+        style.composition = Composition::layer;
+        style.background = white(1);
+    }
+    deep.compute();
+    const auto rejected = build_paint_list(deep.input());
+    check(!rejected && rejected.diagnostics.size() == 1 &&
+              has(rejected.diagnostics, "layer_limit", "/nodes/8/composition"),
+          "Paint must reject layers nested beyond max_draw_layer_depth");
+    deep.styles[8].composition = Composition::direct;
+    const auto accepted = deep.paint();
+    check(std::count_if(accepted.commands.begin(), accepted.commands.end(),
+                        [](const DrawCommand& c) { return std::holds_alternative<PushLayer>(c); }) == 8,
+          "Eight nested layers are allowed");
+}
+
 void invalid_input_and_topology() {
     const auto missing = tessera::build_paint_list({});
     check(!missing && missing.diagnostics.size() == 3 && has(missing.diagnostics, "missing_input", "/layout"),
@@ -649,6 +735,7 @@ int main() {
         custom_shapes();
         visibility_display_and_empty();
         clip_runs();
+        layers();
         invalid_input_and_topology();
         shaping_failures_and_warnings();
         text_editing();

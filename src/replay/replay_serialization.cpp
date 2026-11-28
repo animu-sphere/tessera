@@ -97,6 +97,7 @@ constexpr std::array<std::string_view, 4> justify_names{"start", "center", "end"
 constexpr std::array<std::string_view, 4> align_names{"start", "center", "end", "stretch"};
 constexpr std::array<std::string_view, 3> overflow_names{"visible", "clip", "scroll"};
 constexpr std::array<std::string_view, 2> position_names{"flow", "absolute"};
+constexpr std::array<std::string_view, 2> composition_names{"direct", "layer"};
 constexpr std::array<std::string_view, 4> inset_names{"left", "top", "right", "bottom"};
 constexpr std::array<std::string_view, 5> easing_names{"linear", "ease", "ease_in", "ease_out", "ease_in_out"};
 // TransitionProperties fields in declaration order.
@@ -216,6 +217,7 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
                 "right",
                 "bottom",
                 "z_index",
+                "composition",
                 "background_gradient",
                 "box_shadow",
                 "outline",
@@ -283,6 +285,8 @@ ResolvedStyle style(const JsonValue& value, const std::string& path) {
         s.z_index = static_cast<std::int32_t>(
             integer(field->second, path + "/z_index", std::numeric_limits<std::int32_t>::min(),
                     std::numeric_limits<std::int32_t>::max(), "a signed 32-bit integer"));
+    if (const auto field = o.find("composition"); field != o.end())
+        s.composition = choice<Composition>(field->second, path + "/composition", composition_names);
     s.overflow = choice<Overflow>(o.at("overflow"), path + "/overflow", overflow_names);
     s.width = dimension(o.at("width"), path + "/width");
     s.height = dimension(o.at("height"), path + "/height");
@@ -738,6 +742,7 @@ JsonValue style_json(const ResolvedStyle& s) {
     for (const auto key : inset_names)
         if (const auto& value = inset_field(s, key)) result[std::string(key)] = real_json(*value);
     if (s.z_index != 0) result["z_index"] = number(s.z_index);
+    if (s.composition != Composition::direct) result["composition"] = name(s.composition, composition_names);
     if (s.background_gradient) {
         std::visit(
             [&](const auto& g) {

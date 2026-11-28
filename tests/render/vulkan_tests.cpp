@@ -89,6 +89,9 @@ struct Host {
     VkQueue queue = VK_NULL_HANDLE;
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer commands = VK_NULL_HANDLE;
+    // Recorded outside any render pass for layer passes, and submitted before `commands`.
+    VkCommandBuffer layer_commands = VK_NULL_HANDLE;
+    bool layering = false;
     VkRenderPass pass = VK_NULL_HANDLE;
     VkFramebuffer framebuffer = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
@@ -337,6 +340,7 @@ struct Host {
         command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         command_info.commandBufferCount = 1;
         require(vkAllocateCommandBuffers(device, &command_info, &commands), "allocate command buffer");
+        require(vkAllocateCommandBuffers(device, &command_info, &layer_commands), "allocate layer command buffer");
         VkFenceCreateInfo fence_info{};
         fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         require(vkCreateFence(device, &fence_info, nullptr, &fence), "create fence");
@@ -388,11 +392,14 @@ struct Host {
     }
     void execute() {
         require(vkEndCommandBuffer(commands), "end commands");
+        if (layering) require(vkEndCommandBuffer(layer_commands), "end layer commands");
         require(vkResetFences(device, 1, &fence), "reset fence");
+        const VkCommandBuffer buffers[]{layer_commands, commands};
         VkSubmitInfo submit{};
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &commands;
+        submit.commandBufferCount = layering ? 2 : 1;
+        submit.pCommandBuffers = layering ? buffers : &commands;
+        layering = false;
         require(vkQueueSubmit(queue, 1, &submit, fence), "submit queue");
         require(vkWaitForFences(device, 1, &fence, VK_TRUE, 30'000'000'000ull), "wait fence");
     }
@@ -454,6 +461,12 @@ struct Host {
         require(vkCreateFramebuffer(device, &info, nullptr, &framebuffer), "create framebuffer");
     }
     void begin(tessera::VulkanRenderer& renderer) {
+        require(vkResetCommandBuffer(layer_commands, 0), "reset layer commands");
+        VkCommandBufferBeginInfo layer_info{};
+        layer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        layer_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        require(vkBeginCommandBuffer(layer_commands, &layer_info), "begin layer commands");
+        layering = true;
         begin_commands();
         VkClearValue clear{};
         clear.color.float32[3] = 1;
@@ -465,7 +478,7 @@ struct Host {
         info.clearValueCount = 1;
         info.pClearValues = &clear;
         vkCmdBeginRenderPass(commands, &info, VK_SUBPASS_CONTENTS_INLINE);
-        renderer.set_target({commands, extent});
+        renderer.set_target({commands, extent, layer_commands});
     }
     std::vector<std::uint8_t> finish(const char* artifact) {
         vkCmdEndRenderPass(commands);
@@ -1996,6 +2009,195 @@ void procedural_fixtures(Host& host) {
 }
 // Custom shapes: distance shaders equal to the built-in ellipse and rounded rectangle must reproduce
 // their coverage and paint; a probe shape reports the ABI's position, size, scale, time and parameters.
+// Offscreen layers against the scalar reference: group opacity over overlapping content, nested layers under
+// fractional clips and transforms, images and glyph atlas pages inside layers, and surface retirement.
+void layer_fixtures(Host& host) {
+    using namespace tessera;
+    struct Rasterizer : GlyphRasterizer {
+        std::uint64_t face_revision(FontId) const override { return 1; }
+        Result<GlyphBitmap> rasterize(const GlyphRasterRequest&) override {
+            return {GlyphBitmap{3, 3, 0, 3, {0, 64, 0, 128, 255, 128, 0, 64, 0}}, {}};
+        }
+    } rasterizer;
+    GlyphCache cache(rasterizer);
+    CpuFrameCapture cpu(&cache);
+    const std::array<std::uint8_t, 16> texture{255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255};
+    check(cpu.bind_image({1}, {{2, 2}, texture}).empty(), "CPU layer image binding failed");
+    const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
+               image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
+    VkSamplerCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter = info.minFilter = VK_FILTER_LINEAR;
+    info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    info.addressModeU = info.addressModeV = info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler sampler;
+    require(vkCreateSampler(host.device, &info, nullptr, &sampler), "Layer comparison sampler");
+    struct Owner {
+        VkDevice device;
+        VkSampler sampler;
+        ~Owner() { vkDestroySampler(device, sampler, nullptr); }
+    } owner{host.device, sampler};
+    const DrawRect backdrop{{{0, 0}, {32, 32}}, {.15f, .2f, .3f, 1}};
+    GlyphRun run{{0}, 16, {{1, 0, {2, 6}, {0}}, {1, 1, {7, 6}, {0}}}, {}};
+    const UiDrawList scene{{
+        backdrop,
+        PushLayer{.6f},
+        DrawRect{{{4, 4}, {24, 24}}, {.7f, .2f, .1f, 1}, 4},
+        DrawBorder{{{4, 4}, {24, 24}}, {4, 8, 4, 4}, {.1f, .8f, .4f, .75f}, 4},
+        DrawImage{{{4, 4}, {12, 12}}, {1}, {{.125f, 0}, {.75f, 1}}, {.8f, 1, 1, .5f}},
+        DrawRect{{{14.137f, 10.137f}, {12.71f, 8.71f}}, {.1f, .4f, .8f, .75f}, 0, {}, FillShape::ellipse, true},
+        PushClip{{{2.25f, 1.25f}, {12.5f, 22.5f}}},
+        PushLayer{.5f},
+        PushTransform{{0, 1, -1, .25f, 13.137f, 3.137f}},
+        DrawRect{{{0, 0}, {12, 8}}, {1, 1, 0, 1}},
+        PopTransform{},
+        DrawStroke{{{3.137f, 6.137f}, {9.71f, 9.71f}}, {.1f, .4f, .8f, 1}, 1.3f, 3.7f},
+        PopLayer{},
+        PopClip{},
+        DrawGlyphRun{{4.125f, 18.125f}, run, {1, 1, 1, .75f}},
+        PopLayer{},
+        PushClip{{{16.125f, 16.125f}, {13.75f, 13.75f}}},
+        PushLayer{.8f},
+        DrawShadow{{{18.125f, 19.125f}, {10, 8}}, {.05f, .1f, .2f, .5f}, 4, 3},
+        DrawRect{{{18.125f, 18.125f}, {10, 8}},
+                 {},
+                 3,
+                 LinearGradient{{0, 0}, {1, 1}, {.9f, .3f, .2f, 1}, {.2f, .6f, .9f, .5f}},
+                 FillShape::rectangle,
+                 true},
+        PopLayer{},
+        PopClip{},
+    }};
+    // The same commands without the layers, opacities aside: the content's own GPU/CPU difference.
+    UiDrawList flat = scene;
+    std::erase_if(flat.commands, [](const DrawCommand& command) {
+        return std::holds_alternative<PushLayer>(command) || std::holds_alternative<PopLayer>(command);
+    });
+    const auto max_difference = [](const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
+        check(a.size() == b.size(), "Layer comparison sizes differ");
+        const auto decode = [](std::uint8_t byte) {
+            const double c = byte / 255.0;
+            return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+        };
+        double error = 0;
+        for (std::size_t i = 0; i < a.size(); ++i)
+            error = std::max(error, i % 4 == 3 ? std::abs(a[i] - b[i]) / 255.0 : std::abs(decode(a[i]) - decode(b[i])));
+        return error;
+    };
+    for (bool batched : {false, true}) {
+        VulkanContext context{host.physical, host.device, host.pass, VK_FORMAT_R8G8B8A8_SRGB,
+                              vertex,        fragment,    image,     32};
+        if (batched) context.batch_vertex_spirv = batch;
+        VulkanRenderer gpu(context);
+        check(gpu.bind_image({1}, host.texture.view, sampler).empty(), "GPU layer image binding failed");
+        const char* path = batched ? "batch" : "reference";
+        std::uint64_t frame = 1;
+        // GPU-versus-CPU error of one scene, with both images kept as artifacts.
+        const auto compare = [&](const UiDrawList& list, float scale, const std::string& name) {
+            const auto extent = *capture_extent({32, 32}, scale).value;
+            const auto expected = cpu.capture({0, {32, 32}, scale, extent, &list});
+            check(bool(expected), "CPU layer capture rejected");
+            const auto atlas = prepare_glyph_atlas(list, cache, scale, {10});
+            check(bool(atlas), "Layer atlas failed");
+            host.upload_atlas(*atlas.value);
+            for (std::size_t i = 0; i < atlas.value->pages.size(); ++i)
+                check(gpu.bind_image(atlas.value->pages[i].image, host.atlas_images[i].view, sampler).empty(),
+                      "Layer atlas binding failed");
+            host.resize({extent.width, extent.height});
+            host.begin(gpu);
+            const auto diagnostics = gpu.submit({frame, {32, 32}, scale}, atlas.value->draw_list);
+            for (const auto& d : diagnostics) std::cerr << d.code << ' ' << d.path << ' ' << d.message << '\n';
+            check(diagnostics.empty(), "GPU layer submission rejected");
+            const auto layers = gpu.submission_stats().layers;
+            const auto actual = host.finish((name + ".ppm").c_str());
+            std::ofstream file(artifact_directory() / (name + "-cpu.ppm"), std::ios::binary);
+            file << "P6\n" << extent.width << ' ' << extent.height << "\n255\n";
+            for (std::size_t i = 0; i < expected.value->pixels.size(); i += 4)
+                file.write(reinterpret_cast<const char*>(expected.value->pixels.data() + i), 3);
+            gpu.retire(frame++);
+            for (const auto& page : atlas.value->pages) check(gpu.unbind_image(page.image).empty(), "Atlas unbind");
+            host.clear_atlas();
+            return std::pair{max_difference(actual, expected.value->pixels), layers};
+        };
+        for (float scale : {1.0f, 1.25f, 1.5f, 2.0f}) {
+            const auto suffix = std::string(path) + "-" + std::to_string(capture_extent({32, 32}, scale).value->width);
+            const auto [layered, layers] = compare(scene, scale, "layer-" + suffix);
+            const auto [baseline, none] = compare(flat, scale, "layer-flat-" + suffix);
+            std::cout << "Layer comparison path=" << path << " scale=" << scale << " max linear error=" << layered
+                      << " (same content without layers: " << baseline << ")\n";
+            check(layers == 3 && none == 0, "Every visible layer must record its own pass");
+            // The primitives themselves differ by up to a few steps on this mixed content; composition through
+            // half-float surfaces may add at most one more.
+            check(layered <= 3.0 / 255 && layered <= baseline + 1.0 / 255,
+                  "GPU layers differ from the CPU scalar reference beyond their content's own difference");
+        }
+        // A one-command layer composes like that command at the layer's opacity.
+        const auto render = [&](const UiDrawList& list, const char* name) {
+            host.begin(gpu);
+            const auto diagnostics = gpu.submit({frame, {32, 32}, 2}, list);
+            check(diagnostics.empty(), (std::string("Layer scene rejected: ") + name).c_str());
+            auto pixels = host.finish((std::string("layer-") + name + "-" + path + ".ppm").c_str());
+            gpu.retire(frame++);
+            return pixels;
+        };
+        const DrawRect blue{{{3.125f, 5.375f}, {20.5f, 11.25f}}, {.1f, .4f, .8f, 1}, 4, {}, FillShape::rectangle, true};
+        auto faded = blue;
+        faded.color.a = .5f;
+        const auto single = render({{backdrop, PushLayer{.5f}, blue, PopLayer{}}}, "single"),
+                   direct = render({{backdrop, faded}}, "single-direct");
+        int steps = 0;
+        for (std::size_t i = 0; i < single.size(); ++i) steps = std::max(steps, std::abs(single[i] - direct[i]));
+        check(steps <= 1, "A single-command layer must match direct alpha within one encoded step");
+        // Fully clipped layers record no pass and compose nothing.
+        const auto plain = render({{backdrop}}, "empty-expected");
+        check(max_difference(render({{backdrop, PushClip{{{40, 0}, {4, 4}}}, PushLayer{}, blue, PopLayer{}, PopClip{},
+                                      PushLayer{}, PopLayer{}}},
+                                    "empty"),
+                             plain) == 0 &&
+                  gpu.submission_stats().layers == 0,
+              "Layers without visible content must record no pass");
+
+        // Rejections are atomic and explain the missing capability or capacity.
+        host.begin(gpu);
+        gpu.set_target({host.commands, host.extent});
+        const UiDrawList one{{PushLayer{}, blue, PopLayer{}}};
+        check(has(gpu.submit({frame, {32, 32}, 2}, one), "invalid_target", "/target/layers"),
+              "Layers without a layer command buffer must reject");
+        gpu.set_target({host.commands, host.extent, host.layer_commands});
+        UiDrawList many{{backdrop}};
+        for (std::size_t i = 0; i <= max_vulkan_layers; ++i)
+            many.commands.insert(many.commands.end(), {PushLayer{}, blue, PopLayer{}});
+        check(has(gpu.submit({frame, {32, 32}, 2}, many), "layer_limit", "/commands"),
+              "More than max_vulkan_layers layers per submission must reject");
+        many.commands.resize(many.commands.size() - 3);
+        check(gpu.submit({frame, {32, 32}, 2}, many).empty() && gpu.submission_stats().layers == max_vulkan_layers,
+              "Sixteen layers fit one submission");
+        // Every surface now belongs to an unretired frame.
+        const auto pending = gpu.pending_uploads();
+        check(has(gpu.submit({frame + 1, {32, 32}, 2}, one), "layer_limit", "/commands") &&
+                  gpu.pending_uploads() == pending && gpu.submission_stats().layers == max_vulkan_layers,
+              "Layers must not reuse surfaces of unretired frames");
+        host.finish((std::string("layer-many-") + path + ".ppm").c_str());
+        gpu.retire(frame++);
+        // Retired surfaces are reused, including after a resize to a smaller target.
+        check(max_difference(render(many, "many-again"), render(many, "many-repeat")) == 0,
+              "Reused layer surfaces must reproduce the frame");
+        host.resize({16, 16});
+        host.begin(gpu);
+        check(gpu.submit({frame, {16, 16}, 1}, one).empty() && gpu.submission_stats().layers == 1,
+              "Layers reuse retired surfaces after resize");
+        host.finish("layer-resized.ppm");
+        gpu.retire(frame++);
+        host.resize({64, 64});
+        host.begin(gpu);
+        check(gpu.submit({frame, {32, 32}, 2}, one).empty() && gpu.submission_stats().layers == 1,
+              "Layers replace surfaces that no longer fit");
+        host.finish("layer-grown.ppm");
+        gpu.retire(frame++);
+        check(gpu.unbind_image({1}).empty(), "Layer image unbind");
+    }
+}
+
 void custom_shape_fixtures(Host& host) {
     const auto vertex = shader("primitive.vertex.spv"), fragment = shader("primitive.fragment.spv"),
                image = shader("primitive.image.spv"), batch = shader("primitive.batch.spv");
@@ -2514,6 +2716,7 @@ int main(int argc, char** argv) {
                 cpu_reference_fixtures(host);
                 procedural_fixtures(host);
                 custom_shape_fixtures(host);
+                layer_fixtures(host);
 #ifdef TESSERA_REAL_GLYPH_FIXTURES
                 real_glyph_fixtures(host);
                 real_runner_fixtures(host);

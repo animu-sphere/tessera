@@ -245,6 +245,33 @@ void gradients() {
           "Nonfinite radial radii must reject");
 }
 
+void layers() {
+    using namespace tessera;
+    const UiDrawList nested{{PushLayer{.5f}, PushClip{{{0, 0}, {4, 4}}}, PushLayer{},
+                             PushTransform{{0, 1, -1, 0, 4, 0}}, DrawRect{{{0, 0}, {2, 2}}, {1, 0, 0, 1}},
+                             PopTransform{}, PopLayer{}, PopClip{}, PopLayer{}}};
+    check(validate(nested).empty(), "Layers nest with clips and rotated transforms");
+    auto errors = validate(UiDrawList{{PushLayer{1.5f}, PopLayer{}, PushLayer{std::nanf("")}, PopLayer{}}});
+    check(errors.size() == 2 && has(errors, "out_of_range", "/commands/0/opacity") &&
+              has(errors, "invalid_number", "/commands/2/opacity"),
+          "Layer opacity must be finite and within [0, 1]");
+    errors = validate(UiDrawList{{PopLayer{}, PushLayer{}, PopClip{}, PushClip{}, PopLayer{}}});
+    check(has(errors, "unbalanced_stack", "/commands/0") && has(errors, "unbalanced_stack", "/commands/2") &&
+              has(errors, "unbalanced_stack", "/commands/4") && has(errors, "unbalanced_stack", "/commands"),
+          "PopLayer must close the innermost PushLayer, and clips may not cross layers");
+    UiDrawList deep;
+    for (std::size_t i = 0; i < max_draw_layer_depth; ++i) deep.commands.push_back(PushLayer{});
+    for (std::size_t i = 0; i < max_draw_layer_depth; ++i) deep.commands.push_back(PopLayer{});
+    check(validate(deep).empty(), "Eight nested layers are allowed");
+    deep.commands.insert(deep.commands.begin() + 8, PushLayer{});
+    deep.commands.push_back(PopLayer{});
+    errors = validate(deep);
+    check(errors.size() == 1 && has(errors, "layer_limit", "/commands/8"), "A ninth nested layer must reject");
+    UiDrawList siblings;
+    for (int i = 0; i < 20; ++i) siblings.commands.insert(siblings.commands.end(), {PushLayer{}, PopLayer{}});
+    check(validate(siblings).empty(), "The layer limit counts nesting, not sequential layers");
+}
+
 } // namespace
 
 int main() {
@@ -255,6 +282,7 @@ int main() {
         gradients();
         shadows();
         strokes();
+        layers();
         std::cout << "Draw-list order/stack/resource-handle and frame checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

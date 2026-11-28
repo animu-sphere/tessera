@@ -1,6 +1,6 @@
 # Look and visual rendering
 
-> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), [distance-based outer/inset shadows](../architecture/rendering.md#implemented-box-shadows), [smooth solid/dashed outlines](../architecture/rendering.md#implemented-outlines-and-dashed-strokes), [analytic rectangle/ellipse fills](../architecture/rendering.md#implemented-analytic-fills), [fill-v1 Slang procedural fills](../architecture/rendering.md#implemented-procedural-fills) and [sdf-v1 custom shapes](../architecture/rendering.md#implemented-custom-shapes). [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
+> Proposed direction beyond implemented [linear](../architecture/rendering.md#implemented-linear-gradients) and [radial gradients](../architecture/rendering.md#implemented-radial-gradients), [distance-based outer/inset shadows](../architecture/rendering.md#implemented-box-shadows), [smooth solid/dashed outlines](../architecture/rendering.md#implemented-outlines-and-dashed-strokes), [analytic rectangle/ellipse fills](../architecture/rendering.md#implemented-analytic-fills), [fill-v1 Slang procedural fills](../architecture/rendering.md#implemented-procedural-fills) and [sdf-v1 custom shapes](../architecture/rendering.md#implemented-custom-shapes) and [offscreen layers](../architecture/rendering.md#implemented-offscreen-layers) with group opacity. [Current work](../roadmap/current.md) owns scheduled work; this proposal does not add release gates to v0.7.0 Application Experience.
 
 ## Goal and scope
 
@@ -18,7 +18,7 @@ The slices below are useful starting points, not a fixed sequence or capability 
 | Paint / material | Color or other appearance inside coverage | Solid, linear/radial gradient, procedural Slang fill |
 | Effect | Decoration or processing of drawing results | Stroke, shadow, local glow |
 | Motion | Explicit changes over host-controlled time | Color, fill parameters, shape transitions |
-| Composition | Relationships between drawing layers | Paint order, clips, later masks and offscreen effects |
+| Composition | Relationships between drawing layers | Paint order, clips, offscreen layers with group opacity, later masks and effects |
 
 SDF is a shape/coverage technique, not a required replacement for image sampling, ordinary glyph rendering or other efficient paths. Distinguish an exact signed distance from an inside/outside function or a distance estimate: smooth unions and deformations may change distance accuracy. Boundary-distance glow is an approximation, not the same operation as a blurred box shadow or backdrop blur.
 
@@ -32,7 +32,7 @@ Each selected feature defines:
 
 - Local and logical coordinates, transforms, bounds/overflow, clipping and fractional device-scale behavior.
 - Shape coverage, antialiasing and stroke placement, including existing per-edge inside-border semantics where applicable.
-- Color inputs, gradient interpolation space, shader calculation/output space and alpha/blending conversion. Current input colors are sRGB-encoded with straight alpha; current inherited opacity attenuates individual commands, not an offscreen group.
+- Color inputs, gradient interpolation space, shader calculation/output space and alpha/blending conversion. Current input colors are sRGB-encoded with straight alpha; inherited opacity attenuates individual commands unless a node composes as an offscreen layer.
 - Validation, capability discovery and observable unsupported/failure behavior for the participating backends.
 - Referenced resource ownership, replacement and completion-safe retirement.
 
@@ -78,7 +78,9 @@ Use the [animation proposal](animation.md) for injected host time, replay evalua
 
 ### E. Layer and offscreen effects
 
-Masks, shape clips, group opacity, blend modes, backdrop blur and post effects are valid follow-up directions. Choose them when they deliver useful visuals, defining surfaces, composition order, clip/transform interaction, alpha, resource budgets and completion-safe lifetime.
+[Offscreen layers](../architecture/rendering.md#implemented-offscreen-layers) implement the first step: `PushLayer`/`PopLayer` paint into an isolated surface of unquantized premultiplied linear color that composes once with an opacity, under the clip in effect when it opened. `composition: layer` wraps a node's subtree, and `StyleTransitions` keeps the layer while opacity fades back. CPU uses float surfaces; Vulkan records each layer's pass into a host-supplied command buffer outside the main pass, into renderer-owned half-float surfaces with completion-safe reuse. The [Inspector](../guides/inspector-hierarchy.md#reorder-the-hierarchy) dims a dragged row as one layer, and the [Win32 Vulkan menu](../architecture/rendering.md#implemented-win32-vulkan-example-host) composes its Preview pill as one.
+
+Masks, shape clips, blend modes, backdrop blur and post effects are valid follow-up directions on those surfaces. Choose them when they deliver useful visuals, defining surfaces, composition order, clip/transform interaction, alpha, resource budgets and completion-safe lifetime.
 
 Backdrop blur reads earlier drawing results; it is not merely another local SDF fill. A render graph or broader material system is available when it simplifies those needs, rather than a prerequisite for gradients or procedural fills.
 

@@ -20,23 +20,27 @@ bool time_dependent(const UiDrawList& list) {
 std::vector<Diagnostic> validate(const UiDrawList& list) {
     std::vector<Diagnostic> errors;
     detail::Checker check(errors);
+    enum class Kind : std::uint8_t { clip, transform, layer };
     struct Entry {
-        bool clip;
+        Kind kind;
         bool axis_aligned; // No rotation/skew in the composed transform.
     };
     std::vector<Entry> stack;
+    std::size_t layers = 0;
     auto axis_aligned = [&] { return stack.empty() || stack.back().axis_aligned; };
     auto push = [&](Entry entry, const std::string& path) {
         stack.push_back(entry);
         if (stack.size() == max_draw_stack_depth + 1)
-            check.error("stack_limit", path, "Clip/transform nesting exceeds the limit (64).");
+            check.error("stack_limit", path, "Clip/transform/layer nesting exceeds the limit (64).");
     };
-    auto pop = [&](bool clip, const std::string& path) {
-        if (stack.empty() || stack.back().clip != clip) {
+    auto pop = [&](Kind kind, const std::string& path) {
+        if (stack.empty() || stack.back().kind != kind) {
             check.error("unbalanced_stack", path,
-                        clip ? "PopClip must close the innermost PushClip."
-                             : "PopTransform must close the innermost PushTransform.");
+                        kind == Kind::clip        ? "PopClip must close the innermost PushClip."
+                        : kind == Kind::transform ? "PopTransform must close the innermost PushTransform."
+                                                  : "PopLayer must close the innermost PushLayer.");
         } else {
+            if (kind == Kind::layer) --layers;
             stack.pop_back();
         }
     };
@@ -97,7 +101,7 @@ std::vector<Diagnostic> validate(const UiDrawList& list) {
                     if (!axis_aligned())
                         check.error("unsupported_clip", path,
                                     "Clipping under a rotated or skewed transform is not supported.");
-                    push({true, axis_aligned()}, path);
+                    push({Kind::clip, axis_aligned()}, path);
                 } else if constexpr (std::is_same_v<T, PushTransform>) {
                     const auto& t = command.transform;
                     const std::pair<float, const char*> values[] = {{t.a, "a"}, {t.b, "b"},   {t.c, "c"},
@@ -107,18 +111,25 @@ std::vector<Diagnostic> validate(const UiDrawList& list) {
                         finite = check.finite(value, path + "/transform/" + name) && finite;
                     if (finite && t.a * t.d - t.b * t.c == 0)
                         check.error("singular_transform", path + "/transform", "Use an invertible transform.");
-                    push({false, axis_aligned() && t.b == 0 && t.c == 0}, path);
+                    push({Kind::transform, axis_aligned() && t.b == 0 && t.c == 0}, path);
+                } else if constexpr (std::is_same_v<T, PushLayer>) {
+                    check.range(command.opacity, path + "/opacity", 0, 1, "an opacity in [0, 1]");
+                    if (++layers == max_draw_layer_depth + 1)
+                        check.error("layer_limit", path, "Layer nesting exceeds the limit (8).");
+                    push({Kind::layer, axis_aligned()}, path);
                 } else if constexpr (std::is_same_v<T, PopClip>) {
-                    pop(true, path);
+                    pop(Kind::clip, path);
+                } else if constexpr (std::is_same_v<T, PopLayer>) {
+                    pop(Kind::layer, path);
                 } else {
-                    pop(false, path);
+                    pop(Kind::transform, path);
                 }
             },
             list.commands[i]);
     }
     if (!stack.empty())
         check.error("unbalanced_stack", "/commands",
-                    std::to_string(stack.size()) + " pushed clip/transform entries are never popped.");
+                    std::to_string(stack.size()) + " pushed clip/transform/layer entries are never popped.");
     return errors;
 }
 

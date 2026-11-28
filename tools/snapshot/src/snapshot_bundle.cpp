@@ -183,9 +183,11 @@ std::string layout_json(const Generation& g) {
 }
 
 std::string paint_json(const Generation& g) {
-    constexpr std::array<std::string_view, 10> kinds{"rect",      "border",   "image",          "glyph_run",
+    constexpr std::array<std::string_view, 12> kinds{"rect",      "border",   "image",          "glyph_run",
                                                      "push_clip", "pop_clip", "push_transform", "pop_transform",
-                                                     "shadow",    "stroke"};
+                                                     "shadow",    "stroke",   "push_layer",     "pop_layer"};
+    // Layer kinds are written only when present, so summaries of lists without layers keep their bytes.
+    constexpr std::size_t optional_kinds = 10;
     static_assert(kinds.size() == std::variant_size_v<DrawCommand>, "Every paint command needs a summary name");
     std::array<std::uint64_t, kinds.size()> counts{};
     std::uint64_t glyphs = 0;
@@ -199,7 +201,8 @@ std::string paint_json(const Generation& g) {
                       ",\n  \"glyphs\": " + number(glyphs) +
                       ",\n  \"time_dependent\": " + (time_dependent(g.replay->paint) ? "true" : "false") +
                       ",\n  \"kinds\": {";
-    for (std::size_t i = 0; i < kinds.size(); ++i) out += (i ? ", " : "") + quote(kinds[i]) + ": " + number(counts[i]);
+    for (std::size_t i = 0; i < kinds.size(); ++i)
+        if (i < optional_kinds || counts[i]) out += (i ? ", " : "") + quote(kinds[i]) + ": " + number(counts[i]);
     return out + "}\n}\n";
 }
 

@@ -68,6 +68,7 @@ void apply(const StyleDeclarations& d, ResolvedStyle& s) {
     set(d.right, s.right);
     set(d.bottom, s.bottom);
     set(d.z_index, s.z_index);
+    set(d.composition, s.composition);
     set(d.overflow, s.overflow);
     set(d.width, s.width);
     set(d.height, s.height);
