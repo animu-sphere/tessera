@@ -210,6 +210,45 @@ void multiple_lines() {
           "Single-line lifetimes remain the default");
 }
 }
+void word_edits() {
+    const std::string text = "foo  bar.baz\n  qux";
+    std::vector<std::size_t> right{0}, left{text.size()};
+    while (right.back() < text.size()) right.push_back(text_word_right(text, right.back()));
+    while (left.back() > 0) left.push_back(text_word_left(text, left.back()));
+    check(right == std::vector<std::size_t>{0, 5, 8, 9, 12, 13, 15, 18},
+          "Word right skips a run and its spaces and steps over one LF");
+    check(left == std::vector<std::size_t>{18, 15, 13, 12, 9, 8, 5, 0},
+          "Word left skips spaces and a run, stopping at a line start before stepping over its LF");
+    const std::string japanese = "日本語。テスト";
+    check(text_word_right(japanese, 0) == 9 && text_word_right(japanese, 9) == 12 &&
+              text_word_left(japanese, 21) == 12 && text_word_left(japanese, 12) == 9,
+          "CJK punctuation separates non-ASCII word runs");
+    check(text_word_left(text, 99) == 15 && text_word_right(text, 99) == text.size() && text_word_left("", 0) == 0 &&
+              text_word_right("   ", 0) == 3,
+          "Word offsets clamp to the text and cross space-only text");
+
+    auto state = *make_text_edit_state(21, "foo bar baz").value;
+    apply(state, TextEditMove{TextMove::word_left, true});
+    check(state.anchor == 11 && state.caret == 8, "Extended word move keeps the anchor");
+    apply(state, TextEditMove{TextMove::word_left});
+    check(state.anchor == 4 && state.caret == 4, "A word move collapses at the moved caret");
+    apply(state, TextEditErase{TextErase::word_forward});
+    check(state.text == "foo baz" && state.caret == 4, "Word forward erasure removes a word and its spaces");
+    apply(state, TextEditMove{TextMove::end});
+    apply(state, TextEditErase{TextErase::word_backward});
+    check(state.text == "foo " && state.caret == 4, "Word backward erasure removes the preceding word");
+    apply(state, TextEditSelection{1, 3});
+    apply(state, TextEditErase{TextErase::word_backward});
+    check(state.text == "f " && state.caret == 1, "Word erasure removes a nonempty selection only");
+    auto lines = *make_text_edit_state(22, "ab\ncd", TextLines::multiple).value;
+    apply(lines, TextEditSelection{3, 3});
+    apply(lines, TextEditErase{TextErase::word_backward});
+    check(lines.text == "abcd" && lines.caret == 2, "Word backward erasure at a line start joins the lines");
+    check(has(edit_text(lines, {22, lines.revision, TextEditErase{static_cast<TextErase>(99)}}).diagnostics,
+              "invalid_operation", "/edit/operation"),
+          "Unknown erase directions reject with an empty selection");
+}
+
 int main() {
     try {
         scalar_edits();
@@ -217,6 +256,7 @@ int main() {
         japanese_composition();
         composition_rejections();
         multiple_lines();
+        word_edits();
     } catch (const std::exception& failure) {
         std::cerr << failure.what() << '\n';
         return 1;

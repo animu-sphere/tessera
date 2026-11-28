@@ -22,7 +22,7 @@ Use `Release` for the other configuration. Without arguments the executable runs
 - Select Cube or another row in the [TreeView](tree-list.md). Arrows move focus, Enter/Space selects, and Left/Right collapses/expands Scene. Disclosure never changes controlled selection. The selected row casts a small shadow onto the next row, even while that row is hovered; see [Selection elevation](#selection-elevation).
 - Control+click, Shift+click or Shift+arrows to select several rows; Enabled and Reset then apply to all of them. See [Multiple selection](#multiple-selection).
 - Tab to the General/Display [tabs](tabs-toolbar.md) above the properties; Left/Right switch sections. General holds Display name, Enabled, Amount, Scale, Position and Notes; Display holds Visibility, Cast shadows, Purpose and Color. See [Property sections](#property-sections).
-- Tab into the General [Grid Inspector](grid.md). Edit Display name with committed text, exact Ctrl+A, arrows, Shift selection, Home/End and Backspace/Delete. Text editing consumes supported keys before tree navigation.
+- Tab into the General [Grid Inspector](grid.md). Edit Display name with committed text, exact Ctrl+A, arrows, Shift selection, Home/End and Backspace/Delete; Control+arrows and Control+Backspace/Delete work by word. Click to place the caret, Shift+click to extend and drag to select; the focused editor paints its caret and selection. Text editing consumes supported keys before tree navigation.
 - Click a property caption, such as Display name or Scale, to focus the control beside it without changing it; see [Property captions](#property-captions).
 - With Display name focused, exact non-repeating Ctrl+C copies the selected committed bytes, Ctrl+X copies and then deletes the selection, and Ctrl+V replaces the selection through the ordinary name-edit command. Windows interactive mode exchanges Unicode text with the OS clipboard. Empty selection copy/cut and empty text paste do nothing. Paste rejects CR/LF, embedded NUL, malformed Unicode and results above 4096 UTF-8 bytes, preserving the accepted name and selection; diagnostics print to stderr and the window remains usable.
 - With Display name focused, type Japanese through the Windows IME. Preedit appears inline in the editor, the candidate window opens at the preedit caret, Enter commits and Escape cancels; see [Japanese IME composition](#japanese-ime-composition).
@@ -190,7 +190,9 @@ The last General row is an ordinary [TextEditor](text-editor.md) with stable ID 
 
 Everything goes through the `item.notes` command, carrying a host request:
 
-- Committed text, Ctrl+A, Left/Right and Backspace/Delete map as for Display name, and Enter or Shift+Enter inserts LF. Tab moves focus.
+- Committed text, Ctrl+A, Left/Right, Backspace/Delete and their Control word forms map as for Display name, and Enter or Shift+Enter inserts LF. Tab moves focus.
+- A primary press on the editor focuses it and places the caret at the nearest stop of the presented rows; Shift+press extends, and dragging selects across rows. Each changed selection is one `item.notes` request, and the Windows host shows an I-beam over both text editors.
+- While focused, the editor paints its selection under the text and its caret above it; during composition the preedit is underlined instead.
 - Home/End move to the start or end of the caret's visual row, and Control+Home/End to the buffer ends; Shift extends.
 - Up/Down move to the nearest stop on the adjacent row, computed with `layout_text_carets` from the accepted `notes-value` layout, and keep the column where vertical movement began until another edit. Up on the first row and Down on the last stay on that row.
 - Copy, cut and paste share the name editor's synchronous clipboard path. Paste normalizes CRLF and CR to LF before inserting; the Windows adapter writes LF as CRLF.
@@ -198,7 +200,7 @@ Everything goes through the `item.notes` command, carrying a host request:
 
 Rejected input, such as typing beyond 4096 bytes, keeps the accepted text and reads `Notes edit could not finish. Text must fit within 4096 UTF-8 bytes.`; Windows shows it in the title.
 
-The window-free smoke checks the `text_editor` role, name, value and command, Tab arrival after Position, typing with Enter and Shift+Enter, one row per line, Up/Down with a retained column, Home/End, Control+Home/End, deletion across lines, wrapped rows in the 492-unit window, copy and normalized paste, composition with candidate placement on the second row and Tab cancellation, Enter leaving the single-line name unchanged, rejection feedback, per-item retention and Reset. The injected native smoke reaches Notes with Tab, checks that the IME attaches, and inserts a line with Return, characters and Up.
+The window-free smoke checks the `text_editor` role, name, value and command, Tab arrival after Position, typing with Enter and Shift+Enter, one row per line, Up/Down with a retained column, Home/End, Control+Home/End, deletion across lines, word moves and erasure, press placement, drag and Shift+press selection with one command per change, painted selection and caret only while focused, the I-beam targets, wrapped rows in the 492-unit window, copy and normalized paste, composition with candidate placement on the second row and Tab cancellation, Enter leaving the single-line name unchanged, rejection feedback, per-item retention and Reset. The injected native smoke reaches Notes with Tab, checks that the IME attaches, and inserts a line with Return, characters and Up; it also checks that the window requests the I-beam over Display name and not over a scrubbable field.
 
 ## Visibility choice
 

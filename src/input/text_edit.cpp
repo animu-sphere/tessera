@@ -8,21 +8,46 @@ namespace {
 Result<TextEditState> error(std::string code, std::string path, std::string message) {
     return {std::nullopt, {{std::move(code), Severity::error, std::move(path), std::move(message), {}}}};
 }
-bool boundary(const std::string& text, std::size_t offset) {
+bool boundary(std::string_view text, std::size_t offset) {
     return offset <= text.size() &&
            (offset == text.size() || (static_cast<unsigned char>(text[offset]) & 0xc0) != 0x80);
 }
-std::size_t previous(const std::string& text, std::size_t offset) {
+std::size_t previous(std::string_view text, std::size_t offset) {
     if (offset) do {
             --offset;
         } while (!boundary(text, offset));
     return offset;
 }
-std::size_t next(const std::string& text, std::size_t offset) {
+std::size_t next(std::string_view text, std::size_t offset) {
     if (offset < text.size()) do {
             ++offset;
         } while (!boundary(text, offset));
     return offset;
+}
+// Scalar classes for word movement.
+enum class WordClass : std::uint8_t { word, punctuation, space, line };
+char32_t decode(std::string_view text, std::size_t offset) {
+    const auto lead = static_cast<unsigned char>(text[offset]);
+    const int length = lead < 0x80 ? 1 : lead < 0xe0 ? 2 : lead < 0xf0 ? 3 : 4;
+    char32_t value = length == 1 ? lead : lead & (0x7f >> length);
+    for (int i = 1; i < length && offset + i < text.size(); ++i)
+        value = (value << 6) | (static_cast<unsigned char>(text[offset + i]) & 0x3f);
+    return value;
+}
+WordClass word_class(char32_t c) {
+    if (c == 0x0a) return WordClass::line;
+    if (c == ' ' || c == 0x09 || c == 0x0b || c == 0x0c || c == 0xa0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200a) ||
+        c == 0x2028 || c == 0x2029 || c == 0x202f || c == 0x205f || c == 0x3000)
+        return WordClass::space;
+    if (c < 0x80) {
+        const bool alnum = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+        return alnum ? WordClass::word : WordClass::punctuation;
+    }
+    // General punctuation, CJK symbols and full-width ASCII punctuation.
+    if ((c >= 0x2010 && c <= 0x205e) || (c >= 0x3001 && c <= 0x303f) || (c >= 0xff01 && c <= 0xff0f) ||
+        (c >= 0xff1a && c <= 0xff20) || (c >= 0xff3b && c <= 0xff40) || (c >= 0xff5b && c <= 0xff65))
+        return WordClass::punctuation;
+    return WordClass::word;
 }
 Result<TextEditState> validate_text(const std::string& text, TextLines lines, const std::string& path = "/edit/text") {
     if (text.size() > max_text_edit_bytes)
@@ -70,6 +95,28 @@ std::uint64_t composition_id(const TextEditRequest& request) {
     if (const auto* commit = std::get_if<TextCompositionCommit>(&request.operation)) return commit->id;
     return std::get<TextCompositionCancel>(request.operation).id;
 }
+}
+std::size_t text_word_left(std::string_view text, std::size_t offset) {
+    offset = std::min(offset, text.size());
+    const auto before = [&] { return word_class(decode(text, previous(text, offset))); };
+    const auto start = offset;
+    while (offset && before() == WordClass::space) offset = previous(text, offset);
+    if (!offset) return offset;
+    const auto kind = before();
+    if (kind == WordClass::line) return offset == start ? previous(text, offset) : offset;
+    while (offset && before() == kind) offset = previous(text, offset);
+    return offset;
+}
+std::size_t text_word_right(std::string_view text, std::size_t offset) {
+    offset = std::min(offset, text.size());
+    if (offset == text.size()) return offset;
+    const auto at = [&] { return word_class(decode(text, offset)); };
+    const auto kind = at();
+    if (kind == WordClass::line) return next(text, offset);
+    if (kind != WordClass::space)
+        while (offset < text.size() && at() == kind) offset = next(text, offset);
+    while (offset < text.size() && at() == WordClass::space) offset = next(text, offset);
+    return offset;
 }
 Result<TextEditState> make_text_edit_state(std::uint64_t owner, std::string text, TextLines lines) {
     if (!owner) return error("invalid_owner", "/edit/owner", "Host must supply a nonzero editing lifetime.");
@@ -136,13 +183,25 @@ Result<TextEditState> edit_text(const TextEditState& state, const TextEditReques
         result.text.replace(begin, end - begin, insert->text);
         result.anchor = result.caret = begin + insert->text.size();
     } else if (const auto* erase = std::get_if<TextEditErase>(&operation)) {
-        if (erase->direction != TextErase::backward && erase->direction != TextErase::forward)
-            return error("invalid_operation", "/edit/operation", "Unknown erase direction.");
         if (begin == end) {
-            if (erase->direction == TextErase::backward)
-                begin = previous(state.text, begin);
-            else
-                end = next(state.text, end);
+            switch (erase->direction) {
+                case TextErase::backward:
+                    begin = previous(state.text, begin);
+                    break;
+                case TextErase::forward:
+                    end = next(state.text, end);
+                    break;
+                case TextErase::word_backward:
+                    begin = text_word_left(state.text, begin);
+                    break;
+                case TextErase::word_forward:
+                    end = text_word_right(state.text, end);
+                    break;
+                default:
+                    return error("invalid_operation", "/edit/operation", "Unknown erase direction.");
+            }
+        } else if (erase->direction > TextErase::word_forward) {
+            return error("invalid_operation", "/edit/operation", "Unknown erase direction.");
         }
         result.text.erase(begin, end - begin);
         result.anchor = result.caret = begin;
@@ -159,6 +218,12 @@ Result<TextEditState> edit_text(const TextEditState& state, const TextEditReques
                 break;
             case TextMove::end:
                 result.caret = state.text.size();
+                break;
+            case TextMove::word_left:
+                result.caret = text_word_left(state.text, state.caret);
+                break;
+            case TextMove::word_right:
+                result.caret = text_word_right(state.text, state.caret);
                 break;
             default:
                 return error("invalid_operation", "/edit/operation", "Unknown caret direction.");

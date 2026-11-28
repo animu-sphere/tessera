@@ -35,11 +35,18 @@ struct TextEditSelection {
 struct TextEditInsert {
     std::string text;
 }; // Replace selected committed bytes.
-enum class TextErase : std::uint8_t { backward, forward };
+// Word erasure removes the bytes a word move in that direction would cross when the
+// selection is empty; a nonempty selection is erased like any other.
+enum class TextErase : std::uint8_t { backward, forward, word_backward, word_forward };
 struct TextEditErase {
     TextErase direction = TextErase::backward;
 };
-enum class TextMove : std::uint8_t { left, right, home, end };
+// Word moves start from the caret and classify scalars as word, punctuation, horizontal space
+// or LF. word_left skips preceding spaces, then the run of the scalar class before it; an LF
+// reached without skipping anything is one step of its own. word_right steps over one LF at the
+// caret, or skips the run of the class at the caret and the spaces after it. Non-ASCII scalars
+// other than spaces and CJK symbols count as word scalars; there is no dictionary segmentation.
+enum class TextMove : std::uint8_t { left, right, home, end, word_left, word_right };
 struct TextEditMove {
     TextMove direction = TextMove::left;
     bool extend = false;
@@ -87,6 +94,9 @@ struct TextEditDisplay {
 // selection/insert/erase/move requests fail while a composition is open.
 Result<TextEditState> make_text_edit_state(std::uint64_t owner, std::string text, TextLines lines = TextLines::single);
 Result<TextEditState> edit_text(const TextEditState&, const TextEditRequest&, TextEditPolicy = {});
+// The offsets a word_left or word_right move reaches from `offset`, a scalar boundary of valid UTF-8.
+std::size_t text_word_left(std::string_view text, std::size_t offset);
+std::size_t text_word_right(std::string_view text, std::size_t offset);
 // Observation checks shared with edit_text; empty means display_text_edit is valid.
 std::vector<Diagnostic> validate(const TextEditState&);
 Result<TextEditDisplay> display_text_edit(const TextEditState&);

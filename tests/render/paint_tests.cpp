@@ -540,6 +540,60 @@ void shaping_failures_and_warnings() {
 
 } // namespace
 
+void text_editing() {
+    // 0 root (clips), 1 text, 2 box.
+    Fixture f(box({text("ab"), box()}));
+    f.styles[0].overflow = tessera::Overflow::clip;
+    f.styles[1].padding = {2, 3, 2, 3};
+    f.styles[1].color = {0, 0, 0, 1};
+    f.styles[1].opacity = 0.5f;
+    f.compute();
+    const auto label = *f.tree->children(f.tree->root()).begin();
+    const auto origin = f.layout.boxes[1].content_box().origin;
+    const std::vector<tessera::TextEditingPaint> editing{{label,
+                                                          {{{0, 0}, {8, 12}}, {{4, 12}, {0, 12}}},
+                                                          {0, 0, 1, 0.5f},
+                                                          tessera::Rect{{8, 0}, {1, 12}},
+                                                          {1, 0, 0, 1}}};
+    auto input = f.input();
+    input.text_editing = editing;
+    const auto result = tessera::build_paint_list(input);
+    check(result && result.diagnostics.empty(), "Valid editing paint rejected");
+    const auto& commands = result.value->commands;
+    check(commands.size() == 5 && std::holds_alternative<tessera::PushClip>(commands[0]) &&
+              std::holds_alternative<tessera::PopClip>(commands[4]),
+          "Editing paint shares the text's recorded clip");
+    check(std::get<tessera::DrawRect>(commands[1]) ==
+              tessera::DrawRect{{{origin.x, origin.y}, {8, 12}}, {0, 0, 1, 0.25f}},
+          "Selection paints under the glyphs at the content origin with the node's opacity; empty rectangles drop");
+    check(std::holds_alternative<tessera::DrawGlyphRun>(commands[2]) &&
+              std::get<tessera::DrawRect>(commands[3]) ==
+                  tessera::DrawRect{{{origin.x + 8, origin.y}, {1, 12}}, {1, 0, 0, 0.5f}},
+          "The caret paints above the glyphs");
+
+    f.styles[1].color = {};
+    const auto invisible = tessera::build_paint_list(input);
+    check(invisible && invisible.value->commands.size() == 4, "Editing paints without visible glyphs");
+
+    auto invalid = editing;
+    invalid.push_back(editing[0]);
+    invalid.push_back({f.tree->root()});
+    invalid[0].selection[0].size.width = -1;
+    invalid[0].caret_color.a = 2;
+    input.text_editing = invalid;
+    const auto rejected = tessera::validate(input);
+    check(has(rejected, "text_editing_node", "/text_editing/1/node") &&
+              has(rejected, "text_editing_node", "/text_editing/2/node") &&
+              has(rejected, "out_of_range", "/text_editing/0/selection/0/size/width") &&
+              has(rejected, "out_of_range", "/text_editing/0/caret_color/a") && !tessera::build_paint_list(input),
+          "Duplicate, non-text and malformed editing presentations reject");
+    invalid = editing;
+    invalid[0].caret->origin.x = invalid[0].caret->size.width = std::numeric_limits<float>::max();
+    input.text_editing = invalid;
+    check(has(tessera::build_paint_list(input).diagnostics, "geometry_overflow", "/nodes/1/text_editing/caret"),
+          "Editing geometry that leaves float range rejects");
+}
+
 int main() {
     try {
         order_geometry_opacity_and_ownership();
@@ -553,6 +607,7 @@ int main() {
         clip_runs();
         invalid_input_and_topology();
         shaping_failures_and_warnings();
+        text_editing();
         std::cout << "Paint order/geometry/opacity, ownership, topology, and shaping checks passed.\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

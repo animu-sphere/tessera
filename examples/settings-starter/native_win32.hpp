@@ -97,6 +97,8 @@ public:
     std::function<bool()> ime_editing;
     std::function<void(tessera::Size)> resized;
     std::function<bool(tessera::Point)> resize_cursor;
+    // Optional: whether the point shows the text I-beam; a resize cursor takes precedence.
+    std::function<bool(tessera::Point)> text_cursor;
     // Optional IME composition boundary. Without `composition`, Windows keeps its
     // default composition window and committed text arrives as WM_CHAR. With it,
     // the IME is attached only while editing(); the host hides the default
@@ -480,7 +482,8 @@ private:
                 POINT point{};
                 GetCursorPos(&point);
                 ScreenToClient(handle, &point);
-                const int cursor = resize_cursor(logical(point)) ? 32644 : 32512;
+                const auto at = logical(point);
+                const int cursor = resize_cursor(at) ? 32644 : text_cursor && text_cursor(at) ? 32513 : 32512;
                 SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(cursor)));
                 return TRUE;
             }
