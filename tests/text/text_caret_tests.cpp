@@ -23,9 +23,10 @@ void hard_lines() {
     PlaceholderTextShaper shaper;
     const auto layout = take(layout_text_carets(shaper, "ab\n\n日本", style20()));
     check(layout.line_height == 25 && layout.lines.size() == 3, "LF lines differ");
-    check(layout.lines[0] == TextCaretLine{0, 2, true, 0, Stops{{0, 0}, {1, 10}, {2, 20}}}, "First line stops differ");
+    check(layout.lines[0] == TextCaretLine{0, 2, true, 0, Stops{{0, 0}, {1, 10}, {2, 20}}, 20},
+          "First line stops differ");
     check(layout.lines[1] == TextCaretLine{3, 3, true, 25, Stops{{3, 0}}}, "An empty line keeps one stop");
-    check(layout.lines[2] == TextCaretLine{4, 10, true, 50, Stops{{4, 0}, {7, 10}, {10, 20}}},
+    check(layout.lines[2] == TextCaretLine{4, 10, true, 50, Stops{{4, 0}, {7, 10}, {10, 20}}, 20},
           "UTF-8 stops follow cluster offsets");
     check(layout.line_of(2) == 0 && layout.line_of(3) == 1 && layout.line_of(4) == 2 && layout.line_of(99) == 2,
           "The LF offset ends its own line");
@@ -38,6 +39,15 @@ void hard_lines() {
               layout.offset_at({99, 1000}) == 10,
           "Point lookup clamps lines and takes the nearest, earlier stop");
     check(layout.line_end(0) == 2 && layout.line_end(1) == 3, "Hard lines end at their LF");
+    using Rects = std::vector<Rect>;
+    check(layout.range(1, 2) == Rects{{{10, 0}, {10, 25}}} && layout.range(2, 1) == layout.range(1, 2) &&
+              layout.range(1, 1).empty() && layout.range(7, 4).front() == Rect{{0, 50}, {10, 25}},
+          "A range within one line spans its stops in either order");
+    check(layout.range(1, 7) == Rects{{{10, 0}, {22.5f, 25}}, {{0, 25}, {12.5f, 25}}, {{0, 50}, {10, 25}}},
+          "Selected breaks and empty lines extend by half a line height");
+    check(layout.range(2, 3) == Rects{{{20, 0}, {12.5f, 25}}} && layout.range(4, 99) == Rects{{{0, 50}, {20, 25}}} &&
+              layout.range(10, 99).empty(),
+          "A lone break is visible and the last line has no break to select");
 
     const auto empty = take(layout_text_carets(shaper, "", style20()));
     check(empty.lines == std::vector<TextCaretLine>{{0, 0, true, 0, Stops{{0, 0}}}} &&
@@ -53,15 +63,18 @@ void wrapped_lines() {
     PlaceholderTextShaper shaper;
     const auto layout = take(layout_text_carets(shaper, "abcd\nef", style20(), {20.f}));
     check(layout.lines.size() == 3, "Wrapped rows differ");
-    check(layout.lines[0] == TextCaretLine{0, 2, false, 0, Stops{{0, 0}, {1, 10}}} &&
-              layout.lines[1] == TextCaretLine{2, 4, true, 25, Stops{{2, 0}, {3, 10}, {4, 20}}} &&
-              layout.lines[2] == TextCaretLine{5, 7, true, 50, Stops{{5, 0}, {6, 10}, {7, 20}}},
+    check(layout.lines[0] == TextCaretLine{0, 2, false, 0, Stops{{0, 0}, {1, 10}}, 20} &&
+              layout.lines[1] == TextCaretLine{2, 4, true, 25, Stops{{2, 0}, {3, 10}, {4, 20}}, 20} &&
+              layout.lines[2] == TextCaretLine{5, 7, true, 50, Stops{{5, 0}, {6, 10}, {7, 20}}, 20},
           "A soft line ends at the next row's first stop");
     check(layout.line_of(1) == 0 && layout.line_of(2) == 1 && layout.caret(2).origin == Point{0, 25},
           "A wrap boundary presents at the start of the following line");
     check(layout.line_end(0) == 1 && layout.line_end(1) == 4, "A soft line ends before its wrap boundary");
     check(layout.offset_at(0, 99) == 1 && layout.offset_at(1, 99) == 4 && layout.offset_at(7, 0) == 5,
           "Line lookup excludes a soft end and clamps the line index");
+    check(layout.range(1, 3) == std::vector<Rect>{{{10, 0}, {10, 25}}, {{0, 25}, {10, 25}}} &&
+              layout.range(0, 2) == std::vector<Rect>{{{0, 0}, {20, 25}}},
+          "A range through a wrap covers the soft line's last cluster and nothing on the next line");
 }
 
 // A shaper with one two-scalar cluster, standing in for a ligature.
@@ -81,7 +94,7 @@ public:
 void clusters_and_failures() {
     LigatureShaper ligature;
     const auto layout = take(layout_text_carets(ligature, "fix", {}));
-    check(layout.lines == std::vector<TextCaretLine>{{0, 3, true, 0, Stops{{0, 0}, {2, 12}, {3, 21}}}} &&
+    check(layout.lines == std::vector<TextCaretLine>{{0, 3, true, 0, Stops{{0, 0}, {2, 12}, {3, 21}}, 21}} &&
               ligature.measures == 1,
           "Stops use cluster starts and one measured line end");
     check(layout.caret(1).origin.x == 0, "An offset inside a cluster presents at the cluster start");

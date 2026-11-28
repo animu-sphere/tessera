@@ -23,6 +23,9 @@ struct TextCaretLine {
     // Increasing offsets: the line start, each later shaped cluster start and, for a hard
     // line, its end. A soft line's end is the next line's first stop.
     std::vector<TextCaretStop> stops;
+    // The x of the line's trailing edge: a hard line's end stop, or the first stop plus the
+    // measured advance of a soft line's text, which includes its last cluster.
+    float right = 0;
     bool operator==(const TextCaretLine&) const = default;
 };
 
@@ -49,6 +52,13 @@ struct TextCaretLayout {
     // The last caret offset that still presents on `line`: its end for a hard line, or its last
     // stop for a soft line, whose end presents at the start of the next line.
     std::size_t line_end(std::size_t line) const;
+    // One rectangle per visual line presenting part of the byte range [begin, end), in line
+    // order and relative to the text box; the bounds may come in either order and clamp to the
+    // text. Each spans from the x of its first offset to that of its last, or to the line's
+    // `right` edge where the range continues onto the next line. A hard line whose LF lies in
+    // the range extends by half a line height so selected breaks and empty lines stay visible.
+    // An empty range has no rectangles.
+    std::vector<Rect> range(std::size_t begin, std::size_t end) const;
 };
 
 // Shapes `utf8` once with the supplied constraints, then measures each hard line's text

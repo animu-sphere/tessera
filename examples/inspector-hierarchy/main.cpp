@@ -7,6 +7,7 @@
 #include <tessera/input/popup.hpp>
 #include <tessera/input/scroll.hpp>
 #include <tessera/input/split_pane.hpp>
+#include <tessera/input/text_pointer.hpp>
 #include <tessera/inspection/inspection.hpp>
 #include <tessera/render/paint.hpp>
 #include <tessera/render/cpu_renderer.hpp>
@@ -779,15 +780,50 @@ struct View {
         return point;
     }
 };
+// The focused text field's selection under its presented text and its caret above it, or, while a
+// composition is open, the preedit underlined with the caret at the preedit caret. Fields without
+// focus present no editing state.
+std::vector<TextEditingPaint> editing_paint(const View& view, std::span<const ResolvedStyle> styles, const Item& item,
+                                            std::optional<NodeHandle> focused, TextShaper& text) {
+    for (const auto field : {TextField::name, TextField::notes}) {
+        if (!focused || focused != view.tree->find(info(field).id)) continue;
+        const auto value = view.tree->find(std::string(info(field).id) + "-value");
+        if (!value) return {};
+        const auto found = std::find_if(view.layout.boxes.begin(), view.layout.boxes.end(),
+                                        [&](const LayoutBox& box) { return box.node == *value; });
+        if (found == view.layout.boxes.end() || !found->visible) return {};
+        const auto shown = take(display_text_edit(text_field(item, field)));
+        auto carets =
+            layout_text_carets(text, shown.text, styles[value->index].text, {found->content_box().size.width});
+        if (!carets) return {};
+        TextEditingPaint paint{*value};
+        if (shown.composing) {
+            // A two-unit underline at the bottom of each preedit row.
+            for (auto rect : carets.value->range(shown.preedit_begin, shown.preedit_end)) {
+                rect.origin.y += rect.size.height - 2;
+                rect.size.height = 2;
+                paint.selection.push_back(rect);
+            }
+            paint.selection_color = {.2f, .4f, .85f, .9f};
+        } else {
+            paint.selection = carets.value->range(shown.anchor, shown.caret);
+        }
+        paint.caret = carets.value->caret(shown.caret);
+        paint.caret_color = {.1f, .12f, .16f, 1};
+        return {std::move(paint)};
+    }
+    return {};
+}
 struct Visuals {
     std::vector<ResolvedStyle> styles;
     InspectionSnapshot inspection;
     UiDrawList paint;
 };
-Result<Visuals> prepare_visuals(const View& view, const InteractionState& state, TextShaper& text) {
+Result<Visuals> prepare_visuals(const View& view, const InteractionState& state, const Item& item, TextShaper& text) {
     auto styles = resolve_styles({view.tree.get(), &view.sheet, state, view.overrides});
     if (!styles) return {std::nullopt, std::move(styles.diagnostics)};
-    auto paint = build_paint_list({view.tree.get(), *styles.value, &view.layout, &text});
+    const auto editing = editing_paint(view, *styles.value, item, state.focused, text);
+    auto paint = build_paint_list({view.tree.get(), *styles.value, &view.layout, &text, 0, editing});
     if (!paint) return {std::nullopt, std::move(paint.diagnostics)};
     auto inspection = capture_inspection({view.tree.get(), *styles.value, &view.layout, nullptr, state.focused});
     if (!inspection) return {std::nullopt, std::move(inspection.diagnostics)};
@@ -822,7 +858,22 @@ std::optional<TextEditRequest> text_edit_request(const InputEvent& event, const 
     if (!key) return std::nullopt;
     if (key->key == Key::a && key->modifiers == Modifiers{.control = true} && !key->repeat)
         return request(TextEditSelection{0, state.text.size()});
-    if (key->modifiers.control || key->modifiers.alt || key->modifiers.super) return std::nullopt;
+    if (key->modifiers.alt || key->modifiers.super) return std::nullopt;
+    if (key->modifiers.control) {
+        // Control moves and erases by word; Shift extends a word move.
+        switch (key->key) {
+            case Key::left:
+                return request(TextEditMove{TextMove::word_left, key->modifiers.shift});
+            case Key::right:
+                return request(TextEditMove{TextMove::word_right, key->modifiers.shift});
+            case Key::backspace:
+                return request(TextEditErase{TextErase::word_backward});
+            case Key::delete_key:
+                return request(TextEditErase{TextErase::word_forward});
+            default:
+                return std::nullopt;
+        }
+    }
 
     switch (key->key) {
         case Key::left:
@@ -1217,6 +1268,7 @@ public:
             return;
         }
         if (scrub(take(number_drag.dispatch(view.hit(), event)), source)) return;
+        if (select_text(take(text_pointer.dispatch(view.hit(), event)), source)) return;
         if (drag(take(hierarchy_drag.dispatch(view.hit(), event)), source)) return;
         const auto adjustment = take(splitter.dispatch(view.hit(), event, take(focus.refresh(view.hit())).focused));
         if (adjustment.handled) {
@@ -1530,6 +1582,10 @@ public:
                take(number_drag_target(view.hit(), point)).has_value();
     }
     bool reordering() const { return hierarchy_drag.dragging(); }
+    // The text I-beam over the name and notes editors and while a text selection drag holds the pointer.
+    bool text_cursor(Point point) const {
+        return text_pointer.pressed() || take(text_pointer_target(view.hit(), point)).has_value();
+    }
     // The focused Hierarchy row's item, Scene included.
     std::optional<std::string> focused_row(std::optional<NodeHandle> focused) const {
         if (!focused) return {};
@@ -1721,6 +1777,39 @@ private:
         if (result.consumed) observe();
         return result.consumed;
     }
+    // Pointer caret placement and drag selection in the name and notes editors. A press focuses the
+    // editor and places the caret at the nearest stop of its presented rows, or extends with Shift;
+    // moves and the release extend from that anchor. Each changed selection runs the field's own
+    // command. Returns true when the event was consumed.
+    bool select_text(const TextPointerDispatchResult& result, CommandSource source) {
+        if (result.focus) (void)take(focus.focus(view.hit(), *result.focus));
+        std::optional<TextField> field;
+        if (result.input) field = text_command(view.tree->get(*result.input)->events.at("activate"));
+        if (field && result.point && !composing()) {
+            const auto& current = text_field(state.item(), *field);
+            if (const auto layout = caret_layout(*field, current.text)) {
+                const auto& [carets, origin] = *layout;
+                const auto offset = carets.offset_at({result.point->x - origin.x, result.point->y - origin.y});
+                const auto anchor = result.extend ? current.anchor : offset;
+                if (anchor != current.anchor || offset != current.caret) {
+                    const auto outcome =
+                        try_text(*field, {current.owner, current.revision, TextEditSelection{anchor, offset}}, source);
+                    if (outcome.status != CommandOutcomeStatus::success) {
+                        text_pointer.reset();
+                        edit_diagnostics = outcome.diagnostics;
+                        report(std::string(info(*field).subject) + " edit", state.selected, edit_diagnostics);
+                    }
+                    vertical_goal.reset();
+                }
+            }
+        }
+        if (result.focus) {
+            refresh(true);
+            return true;
+        }
+        if (result.consumed) observe();
+        return result.consumed;
+    }
     // Hierarchy reordering by pointer. The press stays an ordinary row press until the drag
     // starts; a drop requests item.move. Returns true when the event was consumed.
     bool drag(const CollectionDragDispatchResult& result, CommandSource source) {
@@ -1856,6 +1945,7 @@ private:
     ComboBoxDispatcher purpose{"purpose"};
     ColorPickerDispatcher display_color{"display-color"};
     NumberDragDispatcher number_drag;
+    TextPointerDispatcher text_pointer;
     std::optional<std::pair<std::size_t, double>> scrub_origin; // Field and value the active scrub started at.
     CollectionDragDispatcher hierarchy_drag{"hierarchy"};
     Offsets offsets;
@@ -1953,7 +2043,8 @@ private:
         }
         const auto target = take(candidate_focus.refresh(result.value->hit())).focused;
         auto candidate_pointer = pointer;
-        auto visuals = prepare_visuals(*result.value, interaction(*result.value, candidate_pointer, target), text);
+        auto visuals = prepare_visuals(*result.value, interaction(*result.value, candidate_pointer, target),
+                                       candidate.item(), text);
         if (!visuals) return {std::nullopt, std::move(visuals.diagnostics)};
         accept_visuals(*result.value, std::move(*visuals.value));
         return result;
@@ -1965,6 +2056,7 @@ private:
         (void)take(pointer.refresh(view.hit()));
         (void)take(splitter.refresh(view.hit()));
         if (take(number_drag.refresh(view.hit())).ended) scrub_origin.reset();
+        (void)take(text_pointer.refresh(view.hit()));
         (void)take(focus.refresh(view.hit()));
         bool dismissed = false;
         for (const auto& transition : {take(menu.refresh(view.hit())), take(context_menu.refresh(view.hit()))}) {
@@ -2004,8 +2096,9 @@ private:
         return state;
     }
     void observe() {
-        accept_visuals(view, take(prepare_visuals(
-                                 view, interaction(view, pointer, take(focus.refresh(view.hit())).focused), text)));
+        accept_visuals(view,
+                       take(prepare_visuals(view, interaction(view, pointer, take(focus.refresh(view.hit())).focused),
+                                            state.item(), text)));
     }
     int amount_at(Point point) const {
         const auto& track = view.box("amount-track").border_box;
@@ -3965,6 +4058,63 @@ void notes_smoke() {
     input(KeyDown{Key::backspace});
     require(notes().text.empty() && app.observed_value("notes").empty(), "Backspace must delete across lines");
 
+    // Control moves and erases by word; Shift extends a word move.
+    replace("alpha beta\ngamma");
+    input(KeyDown{Key::left, {.control = true}});
+    require(notes().anchor == 11 && notes().caret == 11, "Control+Left must move to the start of the word");
+    input(KeyDown{Key::left, {.control = true}});
+    require(notes().caret == 10, "Control+Left at a line start must step over the LF");
+    input(KeyDown{Key::left, {.shift = true, .control = true}});
+    require(notes().anchor == 10 && notes().caret == 6, "Control+Shift+Left must extend by word");
+    executions = app.executions;
+    input(KeyDown{Key::backspace, {.control = true}});
+    require(notes().text == "alpha \ngamma" && notes().caret == 6, "Control+Backspace must erase the selection");
+    input(KeyDown{Key::backspace, {.control = true}});
+    require(notes().text == "\ngamma" && notes().caret == 0, "Control+Backspace must erase the preceding word");
+    input(KeyDown{Key::delete_key, {.control = true}});
+    input(KeyDown{Key::right, {.control = true}});
+    require(notes().text == "gamma" && notes().caret == 5 && app.executions == executions + 4,
+            "Control+Delete and Control+Right must erase and move by word, one command each");
+
+    // A press places the caret at the nearest stop of the presented rows; a drag selects across rows,
+    // and Shift+press extends. The caret and the selection paint only while the notes hold focus.
+    replace("abcdef\nx\nabcdef");
+    app.focus_id("position-z"); // Just above the notes, so both stay in view.
+    const auto press = [&](auto event) { app.input({++time, event}, CommandSource::pointer); };
+    const auto [presented, presented_at] = *app.caret_layout(TextField::notes, notes().text);
+    const auto at = [&](std::size_t offset) {
+        const auto caret = presented.caret(offset);
+        return Point{presented_at.x + caret.origin.x + .4f, presented_at.y + caret.origin.y + caret.size.height / 2};
+    };
+    executions = app.executions;
+    press(PointerDown{{1}, at(2)});
+    require(app.focused_on("notes") && notes().anchor == 2 && notes().caret == 2 && app.text_cursor(at(2)),
+            "A press must focus the notes and place the caret");
+    press(PointerMove{{1}, at(12)});
+    press(PointerUp{{1}, at(12)});
+    require(notes().anchor == 2 && notes().caret == 12 && app.executions == executions + 2 && app.feedback.empty(),
+            "A drag must select to the pointer's row, one command per changed selection");
+    press(PointerDown{{1}, at(7), PointerButton::primary, {.shift = true}});
+    press(PointerUp{{1}, at(7)});
+    require(notes().anchor == 2 && notes().caret == 7, "Shift+press must extend from the anchor");
+    const auto painted = [&](Rect rect) {
+        rect.origin = {presented_at.x + rect.origin.x, presented_at.y + rect.origin.y};
+        return std::any_of(app.view.paint.commands.begin(), app.view.paint.commands.end(),
+                           [&](const DrawCommand& command) {
+                               const auto* fill = std::get_if<DrawRect>(&command);
+                               return fill && fill->rect == rect;
+                           });
+    };
+    const auto selected = presented.range(2, 7);
+    require(selected.size() == 1 && painted(selected[0]) && painted(presented.caret(7)),
+            "The focused notes must paint the selection and the caret");
+    app.focus_id("position-z");
+    require(!painted(selected[0]) && !painted(presented.caret(7)) &&
+                !app.text_cursor(app.view.reachable("position-z-field")) &&
+                !app.text_cursor(app.view.reachable("notes-label")),
+            "Notes without focus must paint no editing state");
+    app.focus_id("notes");
+
     // Long text wraps in the narrow control column; Up/Down and End follow the wrapped rows.
     app.resize({492, 360});
     replace(std::string(60, 'w'));
@@ -4748,6 +4898,7 @@ int native(bool smoke) {
     window.ime_editing = [&] { return app.focused_text(take(app.focus.refresh(app.view.hit())).focused).has_value(); };
     window.resized = [&](Size viewport) { app.resize(viewport); };
     window.resize_cursor = [&](Point point) { return app.horizontal_cursor(point); };
+    window.text_cursor = [&](Point point) { return app.text_cursor(point); };
     auto verify = [&](settings_native::Window& host) {
         // Exercise key mapping without changing the user's live OS clipboard.
         std::string clipboard;
@@ -5022,6 +5173,8 @@ int native(bool smoke) {
         const auto scrubbed = host.physical({x_label.x + 12, x_label.y});
         require(window.resize_cursor(x_label) && !window.resize_cursor(app.view.reachable("name")),
                 "Native scrubbable fields must request the horizontal cursor");
+        require(window.text_cursor(app.view.reachable("name-value")) && !window.text_cursor(x_label),
+                "Native text fields must request the I-beam cursor");
         host.message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(grab.x, grab.y));
         require(GetCapture() == host.handle && app.focused_on("position-x"), "A native scrub press must capture");
         host.message(WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(scrubbed.x, scrubbed.y));

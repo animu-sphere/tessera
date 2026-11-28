@@ -33,6 +33,24 @@ std::vector<Diagnostic> validate(const PaintInput& input) {
     if (!input.text) check.error("missing_input", "/text", "Provide the TextShaper used for layout.");
     if (!std::isfinite(input.host_time))
         check.error("invalid_number", "/host_time", "Use a finite host time in seconds.");
+    if (!input.tree) return errors;
+    std::vector<bool> edited(input.tree->size());
+    for (std::size_t i = 0; i < input.text_editing.size(); ++i) {
+        const auto& editing = input.text_editing[i];
+        const auto path = "/text_editing/" + std::to_string(i);
+        const auto* node = input.tree->get(editing.node);
+        if (!node || node->kind != NodeKind::text)
+            check.error("text_editing_node", path + "/node", "Present editing on a Text node of this tree.");
+        else if (edited[editing.node.index])
+            check.error("text_editing_node", path + "/node", "Present at most one editing state per Text node.");
+        else
+            edited[editing.node.index] = true;
+        for (std::size_t r = 0; r < editing.selection.size(); ++r)
+            check.rect(editing.selection[r], path + "/selection/" + std::to_string(r));
+        check.color(editing.selection_color, path + "/selection_color");
+        if (editing.caret) check.rect(*editing.caret, path + "/caret");
+        check.color(editing.caret_color, path + "/caret_color");
+    }
     return errors;
 }
 
@@ -49,6 +67,22 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         opacities.push_back(input.styles[box.node.index].opacity *
                             (box.parent == no_layout_parent ? 1 : opacities[box.parent]));
     bool failed = false;
+    std::vector<const TextEditingPaint*> editing(input.tree->size());
+    for (const auto& entry : input.text_editing) editing[entry.node.index] = &entry;
+    // Translates content-relative editing geometry; reports rectangles that leave float range.
+    const auto shifted = [&](Rect rect, Point origin, const std::string& path) -> std::optional<Rect> {
+        const double x = double(origin.x) + rect.origin.x, y = double(origin.y) + rect.origin.y;
+        if (std::abs(x) + rect.size.width > std::numeric_limits<float>::max() ||
+            std::abs(y) + rect.size.height > std::numeric_limits<float>::max()) {
+            diagnostics.push_back({"geometry_overflow",
+                                   Severity::error,
+                                   path,
+                                   "Editing geometry must fit finite float coordinates.",
+                                   {}});
+            return std::nullopt;
+        }
+        return Rect{{float(x), float(y)}, rect.size};
+    };
     for (const auto index : detail::paint_order(*input.tree, input.styles, *input.layout)) {
         const auto& box = boxes[index];
         const auto& style = input.styles[box.node.index];
@@ -144,6 +178,13 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
         const auto& node = *input.tree->get(box.node);
         const auto color = faded(style.color, opacity);
         const auto path = "/nodes/" + std::to_string(box.node.index);
+        const auto* edit = editing[box.node.index];
+        const auto origin = box.content_box().origin;
+        if (edit && edit->selection_color.a * opacity > 0)
+            for (const auto& rect : edit->selection)
+                if (rect.size.width > 0 && rect.size.height > 0)
+                    if (const auto placed = shifted(rect, origin, path + "/text_editing/selection"))
+                        commands.commands.push_back(DrawRect{*placed, faded(edit->selection_color, opacity)});
         if (node.kind == NodeKind::text && color.a > 0) {
             const auto property = node.properties.find(property_names::text);
             const auto* text =
@@ -164,8 +205,12 @@ Result<UiDrawList> build_paint_list(const PaintInput& input) {
                 diagnostics.push_back(std::move(diagnostic));
             }
             if (shaped && !shaped.value->glyphs.empty())
-                commands.commands.push_back(DrawGlyphRun{box.content_box().origin, std::move(*shaped.value), color});
+                commands.commands.push_back(DrawGlyphRun{origin, std::move(*shaped.value), color});
         }
+        if (edit && edit->caret && edit->caret_color.a * opacity > 0 && edit->caret->size.width > 0 &&
+            edit->caret->size.height > 0)
+            if (const auto placed = shifted(*edit->caret, origin, path + "/text_editing/caret"))
+                commands.commands.push_back(DrawRect{*placed, faded(edit->caret_color, opacity)});
         // Reject malformed runs from an injected shaper before exposing any commands.
         for (auto& diagnostic : validate(commands)) {
             diagnostic.path = path + diagnostic.path;

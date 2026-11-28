@@ -36,7 +36,7 @@ Contracts: [layout](../architecture/layout.md), [input](../architecture/input.md
 ## Application UI follow-ups
 
 - Broader composition support.
-- [TextEditor](../guides/text-editor.md) follow-ups: host-drawn caret and selection highlight, pointer caret placement and drag selection, scrolling inside the editor and word movement.
+- [TextEditor](../guides/text-editor.md) follow-ups: double-click word selection, scrolling inside the editor and while drag-selecting, caret blinking and editing presentation in Replay and snapshot bundles.
 - Submenus, menu bars, richer menu items, additional dialogs/Inspector controls, multiple selection beyond ListView/TreeView (such as editing shared Inspector properties with mixed values or dragging several rows) and extra focus scopes.
 - [ColorPicker](../guides/color-picker.md) follow-ups: hex or numeric channel entry, alpha, revert on Escape and numeric range semantics for its area and strip.
 - Shared Portal behavior or nested/stacked modal lifetimes when an overlay operation needs them.

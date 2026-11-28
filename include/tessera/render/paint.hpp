@@ -6,6 +6,19 @@
 
 namespace tessera {
 
+// Host-presented editing state painted with one Text node: `selection` rectangles under its glyphs
+// and an optional `caret` above them, both relative to the node's content-box origin, for example
+// from TextCaretLayout::range and TextCaretLayout::caret. The commands follow the node's opacity,
+// visibility and recorded clip, and paint whether or not the text itself is visible.
+struct TextEditingPaint {
+    NodeHandle node;
+    std::vector<Rect> selection;
+    Color selection_color{.2f, .4f, .85f, .3f};
+    std::optional<Rect> caret;
+    Color caret_color{0, 0, 0, 1};
+    bool operator==(const TextEditingPaint&) const = default;
+};
+
 // Borrowed for one paint pass. Recompute layout after geometry/text style changes.
 // styles[i] belongs to NodeHandle::index i; layout must come from the same tree/styles.
 struct PaintInput {
@@ -16,6 +29,8 @@ struct PaintInput {
     // Finite host time in seconds for procedural fills with a nonzero `time_rate`. The host owns
     // its origin, pausing and scheduling; changing it needs no restyle or layout, only paint.
     double host_time = 0;
+    // At most one entry per Text node of this tree.
+    std::span<const TextEditingPaint> text_editing;
 };
 
 std::vector<Diagnostic> validate(const PaintInput&);

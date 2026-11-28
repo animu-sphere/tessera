@@ -50,6 +50,36 @@ std::size_t TextCaretLayout::line_end(std::size_t index) const {
     return line.hard || line.stops.empty() ? line.end : line.stops.back().offset;
 }
 
+std::vector<Rect> TextCaretLayout::range(std::size_t begin, std::size_t end) const {
+    if (begin > end) std::swap(begin, end);
+    std::vector<Rect> rects;
+    if (lines.empty()) return rects;
+    end = std::min(end, lines.back().end); // The last line has no LF to select.
+    if (begin >= end) return rects;
+    // The x of the last stop at or before `offset` on `line`.
+    const auto x_at = [](const TextCaretLine& line, std::size_t offset) {
+        float x = line.stops.empty() ? 0 : line.stops.front().x;
+        for (const auto& stop : line.stops) {
+            if (stop.offset > offset) break;
+            x = stop.x;
+        }
+        return x;
+    };
+    for (const auto& line : lines) {
+        // A hard line owns its LF byte at `end`; a soft line's end starts the next line.
+        const auto limit = line.hard ? line.end + 1 : line.end;
+        if (end <= line.begin || begin >= limit) continue;
+        const float left = x_at(line, std::max(begin, line.begin));
+        float right = 0;
+        if (end < line.end || (end == line.end && line.hard))
+            right = x_at(line, end);
+        else
+            right = line.right + (line.hard ? line_height / 2 : 0);
+        if (right > left) rects.push_back({{left, line.top}, {right - left, line_height}});
+    }
+    return rects;
+}
+
 Result<TextCaretLayout> layout_text_carets(TextShaper& shaper, std::string_view utf8, const TextStyle& style,
                                            const TextConstraints& constraints) {
     auto shaped = shaper.shape(utf8, style, constraints);
@@ -67,10 +97,12 @@ Result<TextCaretLayout> layout_text_carets(TextShaper& shaper, std::string_view 
         line.hard = hard;
         if (line.stops.empty() || line.stops.front().offset != line.begin)
             line.stops.insert(line.stops.begin(), {line.begin, 0});
-        if (hard && end > line.begin) {
+        line.right = line.stops.front().x;
+        if (end > line.begin) {
             auto measured = shaper.measure(utf8.substr(line.begin, end - line.begin), style);
             if (!measured) return std::move(measured.diagnostics);
-            line.stops.push_back({end, line.stops.front().x + measured.value->size.width});
+            line.right += measured.value->size.width;
+            if (hard) line.stops.push_back({end, line.right});
         }
         layout.lines.push_back(std::move(line));
         top += layout.line_height;
